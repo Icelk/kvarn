@@ -1,0 +1,121 @@
+/* Entire document */
+:root
+{
+  font-family: 'Raleway', sans-serif;
+  text-align: justify;
+}
+body
+{
+  color: #1F1F1F;
+  background-color: #9F9F9F;
+  text-align: center;
+  margin: 0;
+}
+
+/* Select, input, button, and textarea */
+select, input, button, textarea
+{
+  font-family: inherit;
+  background-color: #DFDFDF;
+  border-color: #7F7F7F;
+  pointer-events: initial;
+}
+
+textarea
+{
+  border-width: 0.4em;
+  border-radius: 1em;
+  border-style: double;
+  padding: 0.2em;
+}
+select, input, button
+{
+  border-width: 0.2em;
+  border-radius: 0.4em;
+  border-style: solid;
+  padding: 0.1em;
+}
+
+/* Math */
+math, .math
+{
+  display: inline-block;
+  vertical-align: middle;
+  line-height: normal;
+}
+
+math.bracket
+{
+  font-size: 3em;
+  font-weight: lighter;
+}
+
+/* Scripts, used on 'div' or 'span'. Defaults to both (use a <br/> to access) or sub, you can use sup to access the upper value */
+.script
+{
+  display: inline-block;
+  font-size: 0.8em;
+  text-align:left;
+  vertical-align: -0.5em;
+  margin-bottom: -0.25em;
+  line-height: 1em;
+}
+.script.sup
+{
+  vertical-align: 0.5em;
+}
+
+/* Overlay */
+.overlay
+{
+  position: fixed;
+  pointer-events: none;
+  /* Please add pointer-events: initial; to the interactive elements */
+  padding: 0.5em;
+  z-index: 9001;
+}
+
+.overlay.top, .overlay.bottom
+{
+  left: 0;
+  right: 0;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* Works terribly */
+.overlay.left, .overlay.right
+{
+  top: 50%;
+  transform: translateY(-50.25%);
+}
+
+.overlay.top
+{
+  top: 0;
+  bottom: inherit;
+  transform: inherit;
+}
+.overlay.bottom
+{
+  top: inherit;
+  bottom: 0;
+  transform: inherit;
+}
+.overlay.left
+{
+  left: 0;
+  right: inherit;
+}
+.overlay.right
+{
+  right: 0;
+  left: inherit;
+}
+
+/* SVG animations */
+.animatable
+{
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
