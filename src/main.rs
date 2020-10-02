@@ -1,15 +1,14 @@
-use http::uri::{self, Uri};
+use http::uri::Uri;
 use std::io::{prelude::*, stdin};
 use std::net::TcpListener;
 use std::path::PathBuf;
 mod lib;
 
 fn main() {
-    let listener = TcpListener::bind("0.0.0.0:443").unwrap();
-
-    let server_config = lib::get_config("cert.pem", "privkey.pem").unwrap();
-
-    let (fc, rc) = lib::run(listener, server_config).expect("Failed to run server!");
+    let server = lib::Config::on_port(443);
+    let fc = server.get_fs_cache();
+    let rc = server.get_response_cache();
+    server.run();
 
     for line in stdin().lock().lines() {
         if let Ok(line) = line {
