@@ -339,18 +339,6 @@ pub fn process_request<W: Write>(
   }
   Ok(())
 }
-// fn file_exists_or_index<P: AsRef<Path>>(path: P) -> Option<(File, PathBuf)> {
-//   // todo!("Fix function");
-//   // todo!("Filter out ../");
-//   let metadata = fs::metadata(&path);
-//   match metadata {
-//     Ok(file) => match file.is_file() {
-//       true => Some((File::open(&path).unwrap(), PathBuf::from(path.as_ref()))),
-//       false => file_exists_or_index(&path.as_ref().join("index.html")),
-//     },
-//     Err(..) => None,
-//   }
-// }
 fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
   let mut path = uri.path();
   if path.contains("../") {
@@ -366,15 +354,6 @@ fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
   };
   Ok(buf)
 }
-
-// fn get_path(path: &str) -> PathBuf {
-//   let mut path_buf = PathBuf::from("public");
-//   let trimmed = path.trim_matches('/');
-//   if !trimmed.is_empty() {
-//     path_buf = path_buf.join(trimmed);
-//   }
-//   path_buf
-// }
 
 fn default_error(code: u16, cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>) -> Vec<u8> {
   let mut buffer = Vec::with_capacity(1024);
@@ -418,33 +397,6 @@ fn default_error(code: u16, cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>) -> 
   buffer
 }
 
-// fn read_file<'a>(path: &PathBuf, cache: &'a mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>) -> ReadResult {
-//   {
-//     let cache = cache.lock().unwrap();
-//     if cache.cached(path) {
-//       return ReadResult::InCache;
-//     }
-//   }
-
-//   match File::open(path) {
-//     Ok(mut file) => {
-//       let mut buffer = Vec::with_capacity(4096);
-//       match file.read_to_end(&mut buffer) {
-//         Ok(..) => {
-//           let mut cache = cache.lock().unwrap();
-//           cache.cache(path.clone(), buffer);
-//           ReadResult::InCache
-//         }
-//         Err(..) => ReadResult::Buffer(default_error(404)),
-//       }
-//     }
-//     Err(..) => ReadResult::Buffer(default_error(404)),
-//   }
-// }
-// enum ReadResult {
-//   InCache,
-//   Buffer(Vec<u8>),
-// }
 fn read_file_alloc(
   path: &PathBuf,
   cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
