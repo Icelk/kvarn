@@ -136,8 +136,8 @@ impl Config {
               let _ = socket.shutdown(Shutdown::Both);
             });
           }
-          Err(err) => {
-            eprintln!("Failed to accept connection: {}", err);
+          Err(..) => {
+            // eprintln!("Failed to accept connection: {}", err);
           }
         }
       }
@@ -241,7 +241,7 @@ pub mod parse {
       match parse_stage {
         DecodeStage::Method => {
           if *byte == SPACE || method_index == method.len() {
-            parse_stage = parse_stage.next();
+            parse_stage.next();
             continue;
           }
           method[method_index] = *byte;
@@ -249,14 +249,14 @@ pub mod parse {
         }
         DecodeStage::Path => {
           if *byte == SPACE {
-            parse_stage = parse_stage.next();
+            parse_stage.next();
             continue;
           }
           path.push(*byte);
         }
         DecodeStage::Version => {
           if *byte == LF || version_index == version.len() {
-            parse_stage = parse_stage.next();
+            parse_stage.next();
             continue;
           }
           version[version_index] = *byte;
@@ -267,19 +267,21 @@ pub mod parse {
             continue;
           }
           if *byte == SPACE {
-            parse_stage = parse_stage.next();
+            parse_stage.next();
             continue;
           }
           current_header_name.push(*byte);
         }
         DecodeStage::HeaderValue(..) => {
-          if *byte == CR {
+          if *byte == LF {
             let name = HeaderName::from_bytes(&current_header_name[..]);
             let value = HeaderValue::from_bytes(&current_header_value[..]);
             if name.is_ok() && value.is_ok() {
               parsed = parsed.header(name.unwrap(), value.unwrap());
             }
-            parse_stage = parse_stage.next();
+            current_header_name.clear();
+            current_header_value.clear();
+            parse_stage.next();
             continue;
           }
           current_header_value.push(*byte);
