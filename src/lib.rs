@@ -199,13 +199,13 @@ pub mod parse {
     HeaderValue(i32),
   }
   impl DecodeStage {
-    fn next(self) -> Self {
-      match self {
+    fn next(&mut self) {
+      *self = match self {
         DecodeStage::Method => DecodeStage::Path,
         DecodeStage::Path => DecodeStage::Version,
         DecodeStage::Version => DecodeStage::HeaderName(0),
-        DecodeStage::HeaderName(n) => DecodeStage::HeaderValue(n),
-        DecodeStage::HeaderValue(n) => DecodeStage::HeaderName(n + 1),
+        DecodeStage::HeaderName(n) => DecodeStage::HeaderValue(*n),
+        DecodeStage::HeaderValue(n) => DecodeStage::HeaderName(*n + 1),
       }
     }
   }
