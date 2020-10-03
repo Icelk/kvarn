@@ -390,6 +390,10 @@ pub mod cache {
     pub fn remove(&mut self, key: &K) -> Option<V> {
       self.map.remove(key)
     }
+    #[inline]
+    pub fn clear(&mut self) {
+      self.map.clear()
+    }
   }
 }
 

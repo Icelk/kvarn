@@ -1,6 +1,5 @@
 use http::uri::Uri;
 use std::io::{prelude::*, stdin};
-use std::net::TcpListener;
 use std::path::PathBuf;
 mod lib;
 
@@ -36,15 +35,21 @@ fn main() {
                     "fcc" => {
                         // File cache clear
                         let mut fc = fc.lock().unwrap();
-                        let path = /* match */ PathBuf::from(words.next().unwrap_or(&""))/* 
-                        {
-                            Ok(path) => path,
-                            Err(..) => eprintln!("Failed to format path"),
-                        } */;
+                        let path = PathBuf::from(words.next().unwrap_or(&""));
                         match fc.remove(&path) {
                             Some(..) => println!("Removed item from cache!"),
                             None => println!("No item to remove"),
                         };
+                    }
+                    "crc" => {
+                        let mut rc = rc.lock().unwrap();
+                        rc.clear();
+                        println!("Cleared response cache!");
+                    }
+                    "cfc" => {
+                        let mut rc = rc.lock().unwrap();
+                        rc.clear();
+                        println!("Cleared file system cache!");
                     }
                     _ => {
                         println!("Unknown command!");
