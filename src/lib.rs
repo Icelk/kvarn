@@ -397,7 +397,10 @@ pub mod cache {
   }
 }
 
-static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0\r\n";
+#[cfg(windows)]
+static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
+#[cfg(unix)]
+static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
 
 pub fn process_request<W: Write>(
   socket: &mut W,
