@@ -1,5 +1,5 @@
 [package]
-name = "server"
+name = "arktis"
 version = "0.1.0"
 authors = ["Iselk <62830417+Iselk@users.noreply.github.com>"]
 edition = "2018"

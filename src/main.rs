@@ -4,7 +4,15 @@ use std::path::PathBuf;
 mod lib;
 
 fn main() {
-    let server = lib::Config::on_port(443);
+    let mut bindings = lib::FunctionBindings::new();
+
+    bindings.bind(String::from("/test"), |buffer, uri| {
+        buffer.extend(b"<h1>Welcome to my site!</h1> You are calling: ".iter());
+        buffer.extend(format!("{}", uri).as_bytes());
+
+        ("text/html", true)
+    });
+    let server = lib::Config::with_bindings(bindings, 443);
     let fc = server.get_fs_cache();
     let rc = server.get_response_cache();
     server.run();
@@ -52,7 +60,7 @@ fn main() {
                         println!("Cleared file system cache!");
                     }
                     _ => {
-                        println!("Unknown command!");
+                        eprintln!("Unknown command!");
                     }
                 }
             }

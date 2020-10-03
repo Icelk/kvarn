@@ -1,147 +1,300 @@
 pub use cache::Cache;
+pub use config::Config;
+pub use config::FunctionBindings;
 use http::{Request, StatusCode, Uri};
 use mime_guess;
-use rustls::{internal::pemfile, NoClientAuth, ServerConfig, ServerSession, Session};
 use std::convert::From;
-use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::{
   fs::File,
-  io::{self, BufReader, Read, Write},
+  io::{self, Read, Write},
 };
 
-#[derive(Debug)]
-pub enum ServerConfigError {
-  IO(io::Error),
-  ImproperPrivateKeyFormat,
-  ImproperCertificateFormat,
-  NoKey,
-  InvalidPrivateKey,
-}
-impl From<io::Error> for ServerConfigError {
-  fn from(error: io::Error) -> Self {
-    Self::IO(error)
-  }
-}
-pub fn get_server_config<P: AsRef<Path>>(
-  cert_path: P,
-  private_key_path: P,
-) -> Result<ServerConfig, ServerConfigError> {
-  let mut chain = BufReader::new(File::open(&cert_path)?);
-  let mut private_key = BufReader::new(File::open(&private_key_path)?);
+pub mod config {
+  use super::Cache;
+  use http::Uri;
+  use rustls::{ServerConfig, ServerSession, Session};
+  use std::collections::HashMap;
+  use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener};
+  use std::path::PathBuf;
+  use std::sync::{Arc, Mutex};
+  use std::thread;
 
-  let mut server_config = ServerConfig::new(NoClientAuth::new());
-  let mut private_keys = Vec::with_capacity(4);
-  private_keys.extend(match pemfile::pkcs8_private_keys(&mut private_key) {
-    Ok(key) => key,
-    Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
-  });
-  private_keys.extend(match pemfile::rsa_private_keys(&mut private_key) {
-    Ok(key) => key,
-    Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
-  });
-  if let Err(..) = server_config.set_single_cert(
-    match pemfile::certs(&mut chain) {
-      Ok(cert) => cert,
-      Err(()) => return Err(ServerConfigError::ImproperCertificateFormat),
-    },
-    match private_keys.into_iter().next() {
-      Some(key) => key,
-      None => return Err(ServerConfigError::NoKey),
-    },
-  ) {
-    Err(ServerConfigError::InvalidPrivateKey)
-  } else {
-    Ok(server_config)
+  /// Function bindings to have fast dynamic pages.
+  ///
+  /// Functions can be associated with URLs by calling the `bind` function.
+  pub struct FunctionBindings {
+    map: HashMap<String, Box<dyn Fn(&mut Vec<u8>, &Uri) -> (&'static str, bool) + Send + Sync>>,
   }
-}
-
-pub struct Config {
-  socket: TcpListener,
-  server_config: Arc<ServerConfig>,
-  fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-  response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
-}
-impl Config {
-  pub fn on_port(port: u16) -> Self {
-    Config {
-      socket: TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
-        .expect("Failed to bind to port"),
-      server_config: Arc::new(
-        get_server_config("cert.pem", "privkey.pem").expect("Failed to read certificate"),
-      ),
-      fs_cache: Arc::new(Mutex::new(Cache::new())),
-      response_cache: Arc::new(Mutex::new(Cache::new())),
+  #[allow(dead_code)]
+  impl FunctionBindings {
+    /// Creates a new, empty set of bindings.
+    ///
+    /// Use `bind` to populate it
+    #[inline]
+    pub fn new() -> Self {
+      FunctionBindings {
+        map: HashMap::new(),
+      }
     }
-  }
-  pub fn with_config_on_port(config: ServerConfig, port: u16) -> Self {
-    Config {
-      socket: TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
-        .expect("Failed to bind to port"),
-      server_config: Arc::new(config),
-      fs_cache: Arc::new(Mutex::new(Cache::new())),
-      response_cache: Arc::new(Mutex::new(Cache::new())),
+    /// Binds a function to a path
+    ///
+    /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached
+    /// # Examples
+    /// ```
+    /// use arktis::FunctionBindings;
+    ///
+    /// let mut bindings = FunctionBindings::new();
+    ///
+    /// bindings.bind(String::from("/test"), |buffer, uri| {
+    ///    buffer.extend(b"<h1>Welcome to my site!</h1> You are calling: ".iter());
+    ///    buffer.extend(format!("{}", uri).as_bytes());
+    ///
+    ///    ("text/html", true)
+    /// });
+    /// ```
+    #[inline]
+    pub fn bind<F>(&mut self, path: String, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Uri) -> (&'static str, bool) + 'static + Send + Sync,
+    {
+      self.map.insert(path, Box::new(callback));
+    }
+    #[inline]
+    pub fn unbind(&mut self, path: &str) -> Option<()> {
+      self.map.remove(path).and(Some(()))
+    }
+    /// Gets the function associated with the URL, if there is one.
+    #[inline]
+    pub fn get(
+      &self,
+      path: &str,
+    ) -> Option<&Box<dyn Fn(&mut Vec<u8>, &Uri) -> (&'static str, bool) + Send + Sync>> {
+      self.map.get(path)
     }
   }
 
-  pub fn get_fs_cache(&self) -> Arc<Mutex<Cache<PathBuf, Vec<u8>>>> {
-    Arc::clone(&self.fs_cache)
+  pub struct Config {
+    socket: TcpListener,
+    server_config: Arc<ServerConfig>,
+    bindings: Arc<FunctionBindings>,
+    fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
+    response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
   }
-  pub fn get_response_cache(&self) -> Arc<Mutex<Cache<Uri, Vec<u8>>>> {
-    Arc::clone(&self.response_cache)
-  }
-  fn get_config(&self) -> Arc<ServerConfig> {
-    Arc::clone(&self.server_config)
-  }
+  #[allow(dead_code)]
+  impl Config {
+    pub fn on_port(port: u16) -> Self {
+      Config {
+        socket: TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+          .expect("Failed to bind to port"),
+        server_config: Arc::new(
+          server_config::get_server_config("cert.pem", "privkey.pem")
+            .expect("Failed to read certificate"),
+        ),
+        bindings: Arc::new(FunctionBindings::new()),
+        fs_cache: Arc::new(Mutex::new(Cache::new())),
+        response_cache: Arc::new(Mutex::new(Cache::new())),
+      }
+    }
+    pub fn with_config_on_port(config: ServerConfig, port: u16) -> Self {
+      Config {
+        socket: TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+          .expect("Failed to bind to port"),
+        server_config: Arc::new(config),
+        bindings: Arc::new(FunctionBindings::new()),
+        fs_cache: Arc::new(Mutex::new(Cache::new())),
+        response_cache: Arc::new(Mutex::new(Cache::new())),
+      }
+    }
+    pub fn with_bindings(bindings: FunctionBindings, port: u16) -> Self {
+      Config {
+        socket: TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+          .expect("Failed to bind to port"),
+        server_config: Arc::new(
+          server_config::get_server_config("cert.pem", "privkey.pem")
+            .expect("Failed to read certificate"),
+        ),
+        bindings: Arc::new(bindings),
+        fs_cache: Arc::new(Mutex::new(Cache::new())),
+        response_cache: Arc::new(Mutex::new(Cache::new())),
+      }
+    }
+    pub fn new(config: ServerConfig, bindings: FunctionBindings, port: u16) -> Self {
+      Config {
+        socket: TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
+          .expect("Failed to bind to port"),
+        server_config: Arc::new(config),
+        bindings: Arc::new(bindings),
+        fs_cache: Arc::new(Mutex::new(Cache::new())),
+        response_cache: Arc::new(Mutex::new(Cache::new())),
+      }
+    }
 
-  pub fn run(self) {
-    // To get responsive cmd, use MIO in future
-    thread::spawn(move || {
-      loop {
-        match self.socket.accept() {
-          Ok((mut socket, addr)) => {
-            let config = self.get_config();
-            let mut response_cache = self.get_response_cache();
-            let mut fs_cache = self.get_fs_cache();
-            // Move to separate thread
-            thread::spawn(move || {
-              use internal::{decrypt, DecryptResult::*};
-              println!("New connection from {}!", addr);
+    pub fn get_fs_cache(&self) -> Arc<Mutex<Cache<PathBuf, Vec<u8>>>> {
+      Arc::clone(&self.fs_cache)
+    }
+    pub fn get_response_cache(&self) -> Arc<Mutex<Cache<Uri, Vec<u8>>>> {
+      Arc::clone(&self.response_cache)
+    }
+    fn get_config(&self) -> Arc<ServerConfig> {
+      Arc::clone(&self.server_config)
+    }
+    fn get_bindings(&self) -> Arc<FunctionBindings> {
+      Arc::clone(&self.bindings)
+    }
 
-              let mut session = ServerSession::new(&config);
-              // loop {
-              let request = match decrypt(&mut socket, &mut session) {
-                Content(req) => req,
-                StreamClosed => return,
-                NoContent => return,
-              };
-              let request = match parse::parse_request(&request[..]) {
-                Ok(req) => req,
-                Err(err) => {
-                  eprintln!(
-                    "Failed to parse request, write something as a response? Err: {:?}",
-                    err
-                  );
-                  return;
-                }
-              };
-              // If request is unsupported, do something
-              process_request(&mut session, request, &mut response_cache, &mut fs_cache);
+    /// Runs a server from the config on a new thread, not blocking the current thread.
+    ///
+    /// Use a loop to capture the main thread.
+    ///
+    /// # Examples
+    /// ```
+    /// use arktis::Config;
+    /// use std::io::{stdin, BufRead};
+    ///
+    /// let server = Config::on_port(443);
+    /// let fc = server.get_fs_cache();
+    /// let rc = server.get_response_cache();
+    /// server.run();
+    ///
+    /// for line in stdin().lock().lines() {
+    ///     if let Ok(line) = line {
+    ///         let mut words = line.split(" ");
+    ///         if let Some(command) = words.next() {
+    ///             match command {
+    ///                 "crc" => {
+    ///                     let mut rc = rc.lock().unwrap();
+    ///                     rc.clear();
+    ///                     println!("Cleared response cache!");
+    ///                 }
+    ///                 "cfc" => {
+    ///                     let mut rc = rc.lock().unwrap();
+    ///                     rc.clear();
+    ///                     println!("Cleared file system cache!");
+    ///                 }
+    ///                 _ => {
+    ///                     eprintln!("Unknown command!");
+    ///                 }
+    ///             }
+    ///         }
+    ///     };
+    /// }
+    ///
+    /// ```
+    pub fn run(self) {
+      // To get responsive cmd, use MIO in future
+      thread::spawn(move || {
+        loop {
+          match self.socket.accept() {
+            Ok((mut socket, addr)) => {
+              let config = self.get_config();
+              let mut response_cache = self.get_response_cache();
+              let mut fs_cache = self.get_fs_cache();
+              let bindings = self.get_bindings();
+              // Move to separate thread
+              thread::spawn(move || {
+                use super::{
+                  internal::{decrypt, DecryptResult::*},
+                  parse::parse_request,
+                  process_request,
+                };
+                println!("New connection from {}!", addr);
 
-              session.send_close_notify();
-              let _ = session.write_tls(&mut socket);
-              // }
-              let _ = socket.shutdown(Shutdown::Both);
-            });
-          }
-          Err(..) => {
-            // eprintln!("Failed to accept connection: {}", err);
+                let mut session = ServerSession::new(&config);
+                // loop {
+                let request = match decrypt(&mut socket, &mut session) {
+                  Content(req) => req,
+                  StreamClosed => return,
+                  NoContent => return,
+                };
+                let request = match parse_request(&request[..]) {
+                  Ok(req) => req,
+                  Err(err) => {
+                    eprintln!(
+                      "Failed to parse request, write something as a response? Err: {:?}",
+                      err
+                    );
+                    return;
+                  }
+                };
+                // If request is unsupported, do something
+                process_request(
+                  &mut session,
+                  request,
+                  &mut response_cache,
+                  &mut fs_cache,
+                  &bindings,
+                );
+
+                session.send_close_notify();
+                let _ = session.write_tls(&mut socket);
+                // }
+                let _ = socket.shutdown(Shutdown::Both);
+              });
+            }
+            Err(..) => {
+              // eprintln!("Failed to accept connection: {}", err);
+            }
           }
         }
+      });
+    }
+  }
+
+  pub mod server_config {
+    use rustls::{internal::pemfile, NoClientAuth, ServerConfig};
+    use std::{
+      fs::File,
+      io::{self, BufReader},
+      path::Path,
+    };
+
+    #[derive(Debug)]
+    pub enum ServerConfigError {
+      IO(io::Error),
+      ImproperPrivateKeyFormat,
+      ImproperCertificateFormat,
+      NoKey,
+      InvalidPrivateKey,
+    }
+    impl From<io::Error> for ServerConfigError {
+      fn from(error: io::Error) -> Self {
+        Self::IO(error)
       }
-    });
+    }
+    pub fn get_server_config<P: AsRef<Path>>(
+      cert_path: P,
+      private_key_path: P,
+    ) -> Result<ServerConfig, ServerConfigError> {
+      let mut chain = BufReader::new(File::open(&cert_path)?);
+      let mut private_key = BufReader::new(File::open(&private_key_path)?);
+
+      let mut server_config = ServerConfig::new(NoClientAuth::new());
+      let mut private_keys = Vec::with_capacity(4);
+      private_keys.extend(match pemfile::pkcs8_private_keys(&mut private_key) {
+        Ok(key) => key,
+        Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
+      });
+      private_keys.extend(match pemfile::rsa_private_keys(&mut private_key) {
+        Ok(key) => key,
+        Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
+      });
+      if let Err(..) = server_config.set_single_cert(
+        match pemfile::certs(&mut chain) {
+          Ok(cert) => cert,
+          Err(()) => return Err(ServerConfigError::ImproperCertificateFormat),
+        },
+        match private_keys.into_iter().next() {
+          Some(key) => key,
+          None => return Err(ServerConfigError::NoKey),
+        },
+      ) {
+        Err(ServerConfigError::InvalidPrivateKey)
+      } else {
+        Ok(server_config)
+      }
+    }
   }
 }
 
@@ -325,6 +478,7 @@ pub mod cache {
     max_items: usize,
     size_limit: usize,
   }
+  #[allow(dead_code)]
   impl<K: std::cmp::Eq + std::hash::Hash + std::clone::Clone, V: Len> Cache<K, V> {
     pub fn new() -> Self {
       Cache {
@@ -407,6 +561,7 @@ pub fn process_request<W: Write>(
   request: Request<&[u8]>,
   response_cache: &mut Arc<Mutex<Cache<Uri, Vec<u8>>>>,
   mut fs_cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
+  bindings: &Arc<FunctionBindings>,
 ) -> Result<(), io::Error> {
   {
     // Get response cache lock
@@ -418,23 +573,33 @@ pub fn process_request<W: Write>(
       return Ok(());
     }
   }
-  // todo!("Function bindings!");
-
-  // FS
-  let path = match convert_uri(&request.uri()) {
-    Ok(path) => path,
-    Err(()) => {
-      socket.write_all(&default_error(403, &mut fs_cache)[..])?;
-      return Ok(());
+  let (body, content_type, cache) = match bindings.get(request.uri().path()) {
+    Some(callback) => {
+      let mut body = Vec::with_capacity(4096);
+      let (content_type, cache) = callback(&mut body, request.uri());
+      (body, String::from(content_type), cache)
     }
-  };
-  let body = match read_file_alloc(&path, &mut fs_cache) {
-    Some(response) => response,
     None => {
-      socket.write_all(&default_error(404, &mut fs_cache)[..])?;
-      return Ok(());
+      // FS
+      let path = match convert_uri(request.uri()) {
+        Ok(path) => path,
+        Err(()) => {
+          socket.write_all(&default_error(403, &mut fs_cache)[..])?;
+          return Ok(());
+        }
+      };
+      let body = match read_file_alloc(&path, &mut fs_cache) {
+        Some(response) => response,
+        None => {
+          socket.write_all(&default_error(404, &mut fs_cache)[..])?;
+          return Ok(());
+        }
+      };
+      let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
+      (body, content_type, true)
     }
   };
+
   // Read file etc...
 
   let mut response = Vec::with_capacity(512);
@@ -447,13 +612,8 @@ pub fn process_request<W: Write>(
   );
   response.extend(format!("{}\r\n", body.len()).as_bytes());
   response.extend(b"Content-Type: ".iter());
-  response.extend(
-    format!(
-      "{}\r\n",
-      mime_guess::from_path(&path).first_or_octet_stream()
-    )
-    .as_bytes(),
-  );
+  response.extend(content_type.as_bytes());
+  response.extend(b"\r\n");
   response.extend(SERVER_HEADER);
   response.extend(b"\r\n");
   response.extend(body.iter());
@@ -462,7 +622,7 @@ pub fn process_request<W: Write>(
 
   println!("{:?}", request);
 
-  {
+  if cache {
     println!("Caching!");
     let mut response_cache = response_cache.lock().unwrap();
     response_cache.cache(request.into_parts().0.uri, response);
