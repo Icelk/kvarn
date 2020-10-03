@@ -55,9 +55,16 @@ fn main() {
                         println!("Cleared response cache!");
                     }
                     "cfc" => {
-                        let mut rc = rc.lock().unwrap();
-                        rc.clear();
+                        let mut fc = fc.lock().unwrap();
+                        fc.clear();
                         println!("Cleared file system cache!");
+                    }
+                    "cc" => {
+                        let mut rc = rc.lock().unwrap();
+                        let mut fc = fc.lock().unwrap();
+                        rc.clear();
+                        fc.clear();
+                        println!("Cleared all caches!");
                     }
                     _ => {
                         eprintln!("Unknown command!");
