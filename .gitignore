@@ -1,2 +1,4 @@
 /target
 *.pem
+php.exe
+php7ts.dll

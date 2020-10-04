@@ -3,6 +3,7 @@ pub use config::Config;
 pub use config::FunctionBindings;
 use http::{Request, StatusCode, Uri};
 use mime_guess;
+use std::borrow::Cow;
 use std::convert::From;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -208,20 +209,21 @@ pub mod config {
                   StreamClosed => return,
                   NoContent => return,
                 };
-                let request = match parse_request(&request[..]) {
+                let parsed = match parse_request(&request[..]) {
                   Ok(req) => req,
                   Err(err) => {
                     eprintln!(
                       "Failed to parse request, write something as a response? Err: {:?}",
                       err
                     );
-                    return;
+                    todo!();
                   }
                 };
                 // If request is unsupported, do something
                 process_request(
                   &mut session,
-                  request,
+                  parsed,
+                  &request[..],
                   &mut response_cache,
                   &mut fs_cache,
                   &bindings,
@@ -557,12 +559,14 @@ static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
 static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
 
 pub fn process_request<W: Write>(
-  socket: &mut W,
+  mut socket: &mut W,
   request: Request<&[u8]>,
+  raw_request: &[u8],
   response_cache: &mut Arc<Mutex<Cache<Uri, Vec<u8>>>>,
   mut fs_cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
   bindings: &Arc<FunctionBindings>,
 ) -> Result<(), io::Error> {
+  // Load from cache
   {
     // Get response cache lock
     let response_cache = response_cache.lock().unwrap();
@@ -573,11 +577,13 @@ pub fn process_request<W: Write>(
       return Ok(());
     }
   }
+  let mut write_headers = true;
+  // If a function exists
   let (body, content_type, cache) = match bindings.get(request.uri().path()) {
     Some(callback) => {
       let mut body = Vec::with_capacity(4096);
       let (content_type, cache) = callback(&mut body, request.uri());
-      (body, String::from(content_type), cache)
+      (body, Cow::Borrowed(content_type), cache)
     }
     None => {
       // FS
@@ -595,32 +601,102 @@ pub fn process_request<W: Write>(
           return Ok(());
         }
       };
+      let mut do_cache = true;
+      // Read file etc...
+      let mut iter = body.iter();
+      static LF: u8 = 10;
+      static CR: u8 = 13;
+      static SPACE: u8 = 32;
+      static BANG: u8 = 33;
+      static PIPE: u8 = 62;
+      // println!("Data: '{}'", String::from_utf8_lossy(&body[..100]));
+      // println!("Data: {}, {}", iter.next().unwrap(), iter.next().unwrap());
+      if iter.next() == Some(&BANG) && iter.next() == Some(&PIPE) {
+        // We have a file to interpret
+        let interpreter = {
+          let mut buffer = Vec::with_capacity(8);
+          let mut last_break = 2;
+          let mut current_index = 2;
+          for byte in iter {
+            if *byte == CR || *byte == LF {
+              if current_index - last_break > 1 {
+                buffer.push(&body[last_break..current_index]);
+              }
+              break;
+            }
+            if *byte == SPACE && current_index - last_break > 1 {
+              buffer.push(&body[last_break..current_index]);
+            }
+            current_index += 1;
+            if *byte == SPACE {
+              last_break = current_index;
+            }
+          }
+          buffer
+        };
+        println!("Found: {} items", interpreter.len());
+
+        for item in &interpreter {
+          println!("Got text: '{}'", String::from_utf8_lossy(item));
+        }
+        if let Some(test) = interpreter.get(0) {
+          match test {
+            &b"php" if interpreter.len() > 0 => {
+              println!("Handle php!");
+              match handle_php(&mut socket, raw_request, &path) {
+                Ok(..) => {
+                  // Don't write headers!
+                  write_headers = false;
+                  // Check cache settings
+                  do_cache = match interpreter.get(1) {
+                    Some(cache) => {
+                      match cache {
+                        &b"false" | &b"no-cache" | &b"nocache" => false,
+                        _ => true,
+                      }
+                      // String::from_utf8_lossy(cache).parse().unwrap_or(true)
+                    }
+                    None => true,
+                  };
+                }
+                _ => {}
+              };
+            }
+            _ => {}
+          }
+        }
+      };
+
       let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
-      (body, content_type, true)
+      (body, Cow::Owned(content_type), do_cache)
     }
   };
 
-  // Read file etc...
-
-  let mut response = Vec::with_capacity(512);
-  // Revert connection to keep-alive in future
-  response.extend(
-    b"HTTP/1.1 200 OK\r\n\
+  let response = if write_headers {
+    let mut response = Vec::with_capacity(512);
+    // Revert connection to keep-alive in future
+    response.extend(
+      b"HTTP/1.1 200 OK\r\n\
     Connection: Close\r\n\
     Content-Length: "
-      .iter(),
-  );
-  response.extend(format!("{}\r\n", body.len()).as_bytes());
-  response.extend(b"Content-Type: ".iter());
-  response.extend(content_type.as_bytes());
-  response.extend(b"\r\n");
-  response.extend(SERVER_HEADER);
-  response.extend(b"\r\n");
-  response.extend(body.iter());
+        .iter(),
+    );
+    response.extend(format!("{}\r\n", body.len()).as_bytes());
+    response.extend(b"Content-Type: ".iter());
+    response.extend(content_type.as_bytes());
+    response.extend(b"\r\n");
+    response.extend(SERVER_HEADER);
+    response.extend(b"\r\n");
+    response.extend(body.iter());
 
-  socket.write_all(&response[..])?;
+    socket.write_all(&response[..])?;
+    response
+  } else {
+    socket.write_all(&body[..])?;
+    body
+  };
 
-  println!("{:?}", request);
+  // println!("{:?}", request);
 
   if cache {
     println!("Caching!");
@@ -714,4 +790,61 @@ fn read_file_alloc(
     }
     Err(..) => None,
   }
+}
+
+fn handle_php<W: Write>(socket: &mut W, request: &[u8], path: &PathBuf) -> Result<(), io::Error> {
+  unimplemented!();
+  use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+
+  let attention: i32;
+  // Take the thread name and make a file of that instead. Try the line for line mode instead.
+  let mut tmp = File::create("tmp.php")?;
+  let mut file = File::open(path)?;
+  let mut buffer = [0; 4096];
+  let mut first = true;
+  loop {
+    let read = file.read(&mut buffer)?;
+    if read == 0 {
+      break;
+    }
+    if first {
+      let read_till = {
+        let mut out = 0;
+        for byte in buffer.iter() {
+          out += 1;
+          if *byte == 10 {
+            break;
+          }
+        }
+        out
+      };
+      println!("Discard first {}", read_till);
+      tmp.write_all(&mut &buffer[read_till..read])?;
+      first = false;
+    } else {
+      tmp.write_all(&mut buffer[..read])?;
+    }
+  }
+
+  let mut php =
+    match TcpStream::connect(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6633))) {
+      Err(err) => {
+        eprintln!("Failed to get PHP: {:?}", err);
+        panic!();
+      }
+      Ok(socket) => socket,
+    };
+
+  todo!("Change path to /tmp.php! Or implement interpreter!");
+  php.write_all(request)?;
+  loop {
+    let mut buffer = [0; 4096];
+    let read = php.read(&mut buffer)?;
+    if read == 0 {
+      break;
+    }
+    socket.write_all(&mut buffer[0..read])?;
+  }
+
+  Ok(())
 }

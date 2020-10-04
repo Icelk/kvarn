@@ -2,15 +2,26 @@ use http::uri::Uri;
 use std::io::{prelude::*, stdin};
 use std::path::PathBuf;
 mod lib;
+use std::sync::{Arc, Mutex};
 
 fn main() {
     let mut bindings = lib::FunctionBindings::new();
 
-    bindings.bind(String::from("/test"), |buffer, uri| {
-        buffer.extend(b"<h1>Welcome to my site!</h1> You are calling: ".iter());
-        buffer.extend(format!("{}", uri).as_bytes());
+    let mut times_called = Arc::new(Mutex::new(0));
 
-        ("text/html", true)
+    bindings.bind(String::from("/test"), move |buffer, uri| {
+        let mut tc = times_called.lock().unwrap();
+        *tc += 1;
+
+        buffer.extend(
+            format!(
+                "<h1>Welcome to my site!</h1> You are calling: {} For the {} time.",
+                uri, &tc
+            )
+            .as_bytes(),
+        );
+
+        ("text/html", false)
     });
     let server = lib::Config::with_bindings(bindings, 443);
     let fc = server.get_fs_cache();
