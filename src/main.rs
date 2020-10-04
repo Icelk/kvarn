@@ -6,9 +6,7 @@ use std::sync::{Arc, Mutex};
 
 fn main() {
     let mut bindings = lib::FunctionBindings::new();
-
-    let mut times_called = Arc::new(Mutex::new(0));
-
+    let times_called = Arc::new(Mutex::new(0));
     bindings.bind(String::from("/test"), move |buffer, uri| {
         let mut tc = times_called.lock().unwrap();
         *tc += 1;
@@ -23,7 +21,9 @@ fn main() {
 
         ("text/html", false)
     });
-    let server = lib::Config::with_bindings(bindings, 443);
+    let config = lib::config::server_config::get_server_config("cert.pem", "privkey.pem")
+        .expect("Failed to read certificate!");
+    let server = lib::Config::new(config, bindings, 443);
     let fc = server.get_fs_cache();
     let rc = server.get_response_cache();
     server.run();
