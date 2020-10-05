@@ -14,17 +14,17 @@ use std::{
 };
 
 const HTTPS_SERVER: Token = Token(0);
-const HTTP_SERVER: Token = Token(1);
 
 pub mod config {
   use super::conn::Connection;
   use super::Cache;
-  use super::{HTTPS_SERVER, HTTP_SERVER};
+  use super::HTTPS_SERVER;
   use http::Uri;
   use mio::net::TcpListener;
   use mio::{Events, Interest, Poll, Token};
   use rustls::{ServerConfig, ServerSession};
   use std::collections::HashMap;
+  use std::io::ErrorKind;
   use std::net::{IpAddr, Ipv4Addr, SocketAddr};
   use std::path::PathBuf;
   use std::sync::{Arc, Mutex};
@@ -200,7 +200,7 @@ pub mod config {
       poll
         .registry()
         .register(&mut self.socket, HTTPS_SERVER, Interest::READABLE)
-        .expect("Failed to register HTTPS Server");
+        .expect("Failed to register HTTPS server");
 
       loop {
         poll.poll(&mut events, None).expect("Failed to poll!");
@@ -208,30 +208,10 @@ pub mod config {
         for event in events.iter() {
           match event.token() {
             HTTPS_SERVER => {
-              // match self.socket.accept() {
-              //   Ok((mut socket, addr)) => {
-              // Move to separate thread
               self
                 .accept(poll.registry())
                 .expect("Failed to accept message!");
-              // thread::spawn(move || {
-              //   use super::{
-              //     internal::{decrypt, DecryptResult::*},
-              //     parse::parse_request,
-              //     process_request,
-              //   };
-              //   println!("New connection from {}!", addr);
-
-              //   // session.send_close_notify();
-              //   // let _ = socket.shutdown(Shutdown::Both);
-              // });
-              //   }
-              //   Err(err) => {
-              //     eprintln!("Failed to accept connection: {}", err);
-              //   }
-              // }
             }
-            HTTP_SERVER => {}
             _ => {
               self.new_con(poll.registry(), &event);
             }
@@ -263,7 +243,7 @@ pub mod config {
             connection.register(&registry);
             self.connections.insert(token, connection);
           }
-          Err(ref err) if err.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+          Err(ref err) if err.kind() == ErrorKind::WouldBlock => return Ok(()),
           Err(err) => {
             eprintln!("Encountered error while accepting connection. {:?}", err);
             return Err(err);
