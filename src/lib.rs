@@ -14,11 +14,12 @@ use std::{
 };
 
 const HTTPS_SERVER: Token = Token(0);
+const RESERVED_TOKENS: usize = 1024;
 
 pub mod config {
   use super::conn::Connection;
   use super::Cache;
-  use super::HTTPS_SERVER;
+  use super::{HTTPS_SERVER, RESERVED_TOKENS};
   use http::Uri;
   use mio::net::TcpListener;
   use mio::{Events, Interest, Poll, Token};
@@ -137,7 +138,7 @@ pub mod config {
         server_config: Arc::new(config),
         connections: HashMap::new(),
         bindings: Arc::new(bindings),
-        con_id: 16,
+        con_id: RESERVED_TOKENS,
         fs_cache: Arc::new(Mutex::new(Cache::new())),
         response_cache: Arc::new(Mutex::new(Cache::new())),
       }
@@ -220,7 +221,10 @@ pub mod config {
       }
     }
     fn next_id(&mut self) -> usize {
-      self.con_id += 1;
+      self.con_id = match self.con_id.checked_add(1) {
+        Some(id) => id,
+        None => RESERVED_TOKENS,
+      };
       self.con_id
     }
 
