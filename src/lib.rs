@@ -1,6 +1,5 @@
 pub use cache::Cache;
-pub use config::Config;
-pub use config::FunctionBindings;
+pub use config::{Config, FsCache, FunctionBindings, ResponseCache};
 pub use conn::Connection;
 use http::{Request, StatusCode, Uri};
 use mime_guess;
@@ -32,6 +31,8 @@ pub mod config {
   use std::sync::{Arc, Mutex};
 
   type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync;
+  pub type FsCache = Arc<Mutex<Cache<PathBuf, Arc<Vec<u8>>>>>;
+  pub type ResponseCache = Arc<Mutex<Cache<Uri, Vec<u8>>>>;
 
   /// Function bindings to have fast dynamic pages.
   ///
@@ -94,8 +95,8 @@ pub mod config {
     con_id: usize,
     // handler: HandlerPool,
     bindings: Arc<FunctionBindings>,
-    fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-    response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
+    fs_cache: FsCache,
+    response_cache: ResponseCache,
   }
   #[allow(dead_code)]
   impl Config {
@@ -153,10 +154,10 @@ pub mod config {
       }
     }
 
-    pub fn get_fs_cache(&self) -> Arc<Mutex<Cache<PathBuf, Vec<u8>>>> {
+    pub fn get_fs_cache(&self) -> FsCache {
       Arc::clone(&self.fs_cache)
     }
-    pub fn get_response_cache(&self) -> Arc<Mutex<Cache<Uri, Vec<u8>>>> {
+    pub fn get_response_cache(&self) -> ResponseCache {
       Arc::clone(&self.response_cache)
     }
     pub fn get_config(&self) -> Arc<ServerConfig> {
@@ -265,7 +266,7 @@ pub mod config {
             println!("Inserting with token {}", token.0);
 
             let mut connection =
-              Connection::new(socket, token, session, response_cache, fs_cache, bindings);
+              Connection::new(socket, token, session, fs_cache, response_cache, bindings);
 
             connection.register(&registry);
             self.connections.insert(token, connection);
@@ -380,8 +381,8 @@ pub mod conn {
     session: rustls::ServerSession,
     closing: bool,
 
-    response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
-    fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
+    fs_cache: FsCache,
+    response_cache: ResponseCache,
     bindings: Arc<FunctionBindings>,
   }
   impl Connection {
@@ -389,8 +390,8 @@ pub mod conn {
       socket: TcpStream,
       token: Token,
       session: ServerSession,
-      response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
-      fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
+      fs_cache: FsCache,
+      response_cache: ResponseCache,
       bindings: Arc<FunctionBindings>,
     ) -> Self {
       Self {
@@ -398,8 +399,8 @@ pub mod conn {
         token,
         session,
         closing: false,
-        response_cache,
         fs_cache,
+        response_cache,
         bindings,
       }
     }
@@ -435,8 +436,8 @@ pub mod conn {
                 parsed,
                 &request[..],
                 &close,
-                &mut self.response_cache,
                 &mut self.fs_cache,
+                &mut self.response_cache,
                 &self.bindings,
               ) {
                 eprintln!("Failed to write to session! {:?}", err);
@@ -665,11 +666,17 @@ pub mod parse {
 }
 pub mod cache {
   use std::collections::HashMap;
+  use std::sync::Arc;
 
   pub trait Len {
     fn len(&self) -> usize;
   }
   impl<T> Len for Vec<T> {
+    fn len(&self) -> usize {
+      self.len()
+    }
+  }
+  impl<T> Len for Arc<Vec<T>> {
     fn len(&self) -> usize {
       self.len()
     }
@@ -686,6 +693,30 @@ pub mod cache {
   }
   #[allow(dead_code)]
   impl<K: std::cmp::Eq + std::hash::Hash + std::clone::Clone, V: Len> Cache<K, V> {
+    #[inline]
+    pub fn cache(&mut self, key: K, value: V) -> Option<V> {
+      if value.len() > self.size_limit {
+        return Some(value);
+      }
+      // fn get_first<K: std::clone::Clone, V>(map: &HashMap<K, V>) -> Option<K> {
+      //   map.iter().next().and_then(|value| Some(value.0.clone()))
+      // };
+      if self.map.len() >= self.max_items {
+        // Reduce number of items!
+        if let Some(last) = self
+          .map
+          .iter()
+          .next()
+          .and_then(|value| Some(value.0.clone()))
+        {
+          self.map.remove(&last);
+        }
+      }
+      self.map.insert(key, value);
+      None
+    }
+  }
+  impl<K: std::cmp::Eq + std::hash::Hash + std::clone::Clone, V> Cache<K, V> {
     pub fn new() -> Self {
       Cache {
         map: HashMap::new(),
@@ -710,28 +741,6 @@ pub mod cache {
         max_items,
         size_limit,
       }
-    }
-    #[inline]
-    pub fn cache(&mut self, key: K, value: V) -> Option<V> {
-      if value.len() > self.size_limit {
-        return Some(value);
-      }
-      // fn get_first<K: std::clone::Clone, V>(map: &HashMap<K, V>) -> Option<K> {
-      //   map.iter().next().and_then(|value| Some(value.0.clone()))
-      // };
-      if self.map.len() >= self.max_items {
-        // Reduce number of items!
-        if let Some(last) = self
-          .map
-          .iter()
-          .next()
-          .and_then(|value| Some(value.0.clone()))
-        {
-          self.map.remove(&last);
-        }
-      }
-      self.map.insert(key, value);
-      None
     }
     #[inline]
     pub fn get(&self, key: &K) -> Option<&V> {
@@ -780,8 +789,8 @@ pub fn process_request<W: Write>(
   request: Request<&[u8]>,
   raw_request: &[u8],
   close: &ConnectionHeader,
-  response_cache: &mut Arc<Mutex<Cache<Uri, Vec<u8>>>>,
-  mut fs_cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
+  mut fs_cache: &mut FsCache,
+  response_cache: &mut ResponseCache,
   bindings: &Arc<FunctionBindings>,
 ) -> Result<(), io::Error> {
   // println!("Got request: {:?}", &request);
@@ -802,7 +811,7 @@ pub fn process_request<W: Write>(
     Some(callback) => {
       let mut body = Vec::with_capacity(4096);
       let (content_type, cache) = callback(&mut body, &request);
-      (body, Cow::Borrowed(content_type), cache)
+      (Cow::Owned(body), Cow::Borrowed(content_type), cache)
     }
     None => {
       // FS
@@ -887,7 +896,7 @@ pub fn process_request<W: Write>(
       };
 
       let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
-      (body, Cow::Owned(content_type), do_cache)
+      (Cow::Borrowed(&*body), Cow::Owned(content_type), do_cache)
     }
   };
   let response = if write_headers {
@@ -913,7 +922,7 @@ pub fn process_request<W: Write>(
     response.extend(body.iter());
 
     socket.write_all(&response[..])?;
-    response
+    Cow::Owned(response)
   } else {
     socket.write_all(&body[..])?;
     body
@@ -922,7 +931,7 @@ pub fn process_request<W: Write>(
   if cache {
     println!("Caching!");
     let mut response_cache = response_cache.lock().unwrap();
-    response_cache.cache(request.into_parts().0.uri, response);
+    response_cache.cache(request.into_parts().0.uri, response.into_owned());
   }
   Ok(())
 }
@@ -942,11 +951,7 @@ fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
   Ok(buf)
 }
 
-fn default_error(
-  code: u16,
-  close: &ConnectionHeader,
-  cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-) -> Vec<u8> {
+fn default_error(code: u16, close: &ConnectionHeader, cache: &mut FsCache) -> Vec<u8> {
   let mut buffer = Vec::with_capacity(1024);
 
   buffer.extend(b"HTTP/1.1 ");
@@ -993,10 +998,7 @@ fn default_error(
   buffer
 }
 
-fn read_file_alloc(
-  path: &PathBuf,
-  cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-) -> Option<Vec<u8>> {
+fn read_file_alloc(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
   {
     let cache = cache.lock().unwrap();
     if let Some(cached) = cache.get(&path) {
@@ -1010,7 +1012,7 @@ fn read_file_alloc(
       match file.read_to_end(&mut buffer) {
         Ok(..) => {
           let mut cache = cache.lock().unwrap();
-          Some(match cache.cache(path.clone(), buffer) {
+          Some(match cache.cache(path.clone(), Arc::new(buffer)) {
             Some(failed) => failed,
             None => cache.get(&path).unwrap().clone(),
           })
@@ -1019,6 +1021,48 @@ fn read_file_alloc(
       }
     }
     Err(..) => None,
+  }
+}
+
+fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SOR<Vec<u8>>> {
+  {
+    let cache = cache.lock().unwrap();
+    if let Some(cached) = cache.get(&path) {
+      return Some(SOR::Shared(Arc::clone(&cached)));
+    }
+  }
+
+  match File::open(path) {
+    Ok(mut file) => {
+      let mut buffer = Vec::with_capacity(4096);
+      match file.read_to_end(&mut buffer) {
+        Ok(..) => {
+          let mut cache = cache.lock().unwrap();
+          Some(match cache.cache(path.clone(), Arc::new(buffer)) {
+            Some(failed) => SOR::Shared(failed),
+            None => SOR::Shared(Arc::clone(cache.get(&path).unwrap())),
+          })
+        }
+        Err(..) => None,
+      }
+    }
+    Err(..) => None,
+  }
+}
+
+/// Shared or Owned reference, to use if you have a Arc<T> or a T and want only immutable references
+enum SOR<T> {
+  Shared(Arc<T>),
+  Owned(T),
+}
+impl<T> std::ops::Deref for SOR<T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    match self {
+      Self::Shared(arc) => arc,
+      Self::Owned(owned) => &owned,
+    }
   }
 }
 

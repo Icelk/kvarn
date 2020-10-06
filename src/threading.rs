@@ -1,6 +1,6 @@
-use crate::{Cache, Connection, FunctionBindings};
+use crate::{Cache, Connection, FsCache, FunctionBindings, ResponseCache};
 use http::Uri;
-use mio::{net::TcpStream, Poll, Registry, Token};
+use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
 use rustls::{ServerConfig, ServerSession, Session};
 use std::collections::HashMap;
@@ -18,8 +18,8 @@ impl Worker {
   pub fn new(
     id: usize,
     receiver: mpsc::Receiver<Job>,
-    mut fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-    mut response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
+    mut fs_cache: FsCache,
+    mut response_cache: ResponseCache,
     mut bindings: Arc<FunctionBindings>,
     mut registry: Registry,
   ) -> Self {
@@ -45,8 +45,8 @@ impl Worker {
 
 type Job = Box<
   dyn FnOnce(
-      &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-      &mut Arc<Mutex<Cache<Uri, Vec<u8>>>>,
+      &mut FsCache,
+      &mut ResponseCache,
       &mut Arc<FunctionBindings>,
       &mut HashMap<Token, Connection>,
       &Registry,
@@ -62,8 +62,8 @@ pub struct ThreadPool {
 impl ThreadPool {
   pub fn new(
     size: usize,
-    fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-    response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
+    fs_cache: FsCache,
+    response_cache: ResponseCache,
     bindings: Arc<FunctionBindings>,
     registry: &Registry,
   ) -> Self {
@@ -103,8 +103,8 @@ impl ThreadPool {
   pub fn execute<F>(&mut self, f: F) -> usize
   where
     F: FnOnce(
-        &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-        &mut Arc<Mutex<Cache<Uri, Vec<u8>>>>,
+        &mut FsCache,
+        &mut ResponseCache,
         &mut Arc<FunctionBindings>,
         &mut HashMap<Token, Connection>,
         &Registry,
@@ -122,8 +122,8 @@ impl ThreadPool {
   pub fn execute_on<F>(&self, worker_id: usize, f: F) -> Result<(), ()>
   where
     F: FnOnce(
-        &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-        &mut Arc<Mutex<Cache<Uri, Vec<u8>>>>,
+        &mut FsCache,
+        &mut ResponseCache,
         &mut Arc<FunctionBindings>,
         &mut HashMap<Token, Connection>,
         &Registry,
@@ -149,8 +149,8 @@ pub struct HandlerPool {
 impl HandlerPool {
   pub fn new(
     config: Arc<ServerConfig>,
-    fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
-    response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
+    fs_cache: FsCache,
+    response_cache: ResponseCache,
     bindings: Arc<FunctionBindings>,
     registry: &Registry,
   ) -> Self {
@@ -192,8 +192,8 @@ impl HandlerPool {
             socket,
             token,
             session,
-            Arc::clone(&response_cache),
             Arc::clone(&fs_cache),
+            Arc::clone(&response_cache),
             Arc::clone(&bindings),
           );
 
