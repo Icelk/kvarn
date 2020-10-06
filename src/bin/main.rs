@@ -8,14 +8,15 @@ use std::thread;
 fn main() {
     let mut bindings = arktis::FunctionBindings::new();
     let times_called = Arc::new(Mutex::new(0));
-    bindings.bind(String::from("/test"), move |buffer, uri| {
+    bindings.bind(String::from("/test"), move |buffer, request| {
         let mut tc = times_called.lock().unwrap();
         *tc += 1;
 
         buffer.extend(
             format!(
                 "<h1>Welcome to my site!</h1> You are calling: {} For the {} time.",
-                uri, &tc
+                request.uri(),
+                &tc
             )
             .as_bytes(),
         );

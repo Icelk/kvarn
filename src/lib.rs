@@ -21,7 +21,7 @@ const RESERVED_TOKENS: usize = 1024;
 pub mod config {
   use super::{conn::Connection, threading::HandlerPool, Cache};
   use super::{HTTPS_SERVER, RESERVED_TOKENS};
-  use http::Uri;
+  use http::{Request, Uri};
   use mio::net::TcpListener;
   use mio::{Events, Interest, Poll, Token};
   use rustls::ServerConfig;
@@ -31,11 +31,16 @@ pub mod config {
   use std::path::PathBuf;
   use std::sync::{Arc, Mutex};
 
+  type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync;
+
   /// Function bindings to have fast dynamic pages.
   ///
   /// Functions can be associated with URLs by calling the `bind` function.
   pub struct FunctionBindings {
-    map: HashMap<String, Box<dyn Fn(&mut Vec<u8>, &Uri) -> (&'static str, bool) + Send + Sync>>,
+    map: HashMap<
+      String,
+      Box<dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync>,
+    >,
   }
   #[allow(dead_code)]
   impl FunctionBindings {
@@ -50,7 +55,7 @@ pub mod config {
     }
     /// Binds a function to a path
     ///
-    /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached
+    /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not
     /// # Examples
     /// ```
     /// use arktis::FunctionBindings;
@@ -67,7 +72,7 @@ pub mod config {
     #[inline]
     pub fn bind<F>(&mut self, path: String, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Uri) -> (&'static str, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + 'static + Send + Sync,
     {
       self.map.insert(path, Box::new(callback));
     }
@@ -77,10 +82,7 @@ pub mod config {
     }
     /// Gets the function associated with the URL, if there is one.
     #[inline]
-    pub fn get(
-      &self,
-      path: &str,
-    ) -> Option<&Box<dyn Fn(&mut Vec<u8>, &Uri) -> (&'static str, bool) + Send + Sync>> {
+    pub fn get(&self, path: &str) -> Option<&Box<Binding>> {
       self.map.get(path)
     }
   }
@@ -799,7 +801,7 @@ pub fn process_request<W: Write>(
   let (body, content_type, cache) = match bindings.get(request.uri().path()) {
     Some(callback) => {
       let mut body = Vec::with_capacity(4096);
-      let (content_type, cache) = callback(&mut body, request.uri());
+      let (content_type, cache) = callback(&mut body, &request);
       (body, Cow::Borrowed(content_type), cache)
     }
     None => {
@@ -916,8 +918,6 @@ pub fn process_request<W: Write>(
     socket.write_all(&body[..])?;
     body
   };
-
-  // println!("{:?}", request);
 
   if cache {
     println!("Caching!");
