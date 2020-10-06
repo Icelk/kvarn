@@ -7,7 +7,7 @@ use mio::Token;
 use std::borrow::Cow;
 use std::convert::From;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{
   fs::File,
   io::{self, Read, Write},
@@ -32,7 +32,7 @@ pub mod config {
 
   type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync;
   pub type FsCache = Arc<Mutex<Cache<PathBuf, Arc<Vec<u8>>>>>;
-  pub type ResponseCache = Arc<Mutex<Cache<Uri, Vec<u8>>>>;
+  pub type ResponseCache = Arc<Mutex<Cache<Uri, Arc<Vec<u8>>>>>;
 
   /// Function bindings to have fast dynamic pages.
   ///
@@ -678,7 +678,7 @@ pub mod cache {
   }
   impl<T> Len for Arc<Vec<T>> {
     fn len(&self) -> usize {
-      self.len()
+      self.as_ref().len()
     }
   }
   impl<K, V> Len for HashMap<K, V> {
@@ -811,7 +811,7 @@ pub fn process_request<W: Write>(
     Some(callback) => {
       let mut body = Vec::with_capacity(4096);
       let (content_type, cache) = callback(&mut body, &request);
-      (Cow::Owned(body), Cow::Borrowed(content_type), cache)
+      (Arc::new(body), Cow::Borrowed(content_type), cache)
     }
     None => {
       // FS
@@ -822,7 +822,7 @@ pub fn process_request<W: Write>(
           return Ok(());
         }
       };
-      let body = match read_file_alloc(&path, &mut fs_cache) {
+      let body = match read_file(&path, &mut fs_cache) {
         Some(response) => response,
         None => {
           socket.write_all(&default_error(404, close, &mut fs_cache)[..])?;
@@ -896,7 +896,7 @@ pub fn process_request<W: Write>(
       };
 
       let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
-      (Cow::Borrowed(&*body), Cow::Owned(content_type), do_cache)
+      (body.get_arc(), Cow::Owned(content_type), do_cache)
     }
   };
   let response = if write_headers {
@@ -922,7 +922,7 @@ pub fn process_request<W: Write>(
     response.extend(body.iter());
 
     socket.write_all(&response[..])?;
-    Cow::Owned(response)
+    Arc::new(response)
   } else {
     socket.write_all(&body[..])?;
     body
@@ -931,7 +931,7 @@ pub fn process_request<W: Write>(
   if cache {
     println!("Caching!");
     let mut response_cache = response_cache.lock().unwrap();
-    response_cache.cache(request.into_parts().0.uri, response.into_owned());
+    response_cache.cache(request.into_parts().0.uri, response);
   }
   Ok(())
 }
@@ -981,7 +981,7 @@ fn default_error(code: u16, close: &ConnectionHeader, cache: &mut FsCache) -> Ve
     }
   }
 
-  match read_file_alloc(&PathBuf::from(format!("{}.html", code)), cache) {
+  match read_file(&PathBuf::from(format!("{}.html", code)), cache) {
     Some(file) => {
       buffer.extend(b"Content-Length: ");
       buffer.extend(format!("{}\r\n\r\n", file.len()).as_bytes());
@@ -996,32 +996,6 @@ fn default_error(code: u16, close: &ConnectionHeader, cache: &mut FsCache) -> Ve
   };
 
   buffer
-}
-
-fn read_file_alloc(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
-  {
-    let cache = cache.lock().unwrap();
-    if let Some(cached) = cache.get(&path) {
-      return Some(cached.clone());
-    }
-  }
-
-  match File::open(path) {
-    Ok(mut file) => {
-      let mut buffer = Vec::with_capacity(4096);
-      match file.read_to_end(&mut buffer) {
-        Ok(..) => {
-          let mut cache = cache.lock().unwrap();
-          Some(match cache.cache(path.clone(), Arc::new(buffer)) {
-            Some(failed) => failed,
-            None => cache.get(&path).unwrap().clone(),
-          })
-        }
-        Err(..) => None,
-      }
-    }
-    Err(..) => None,
-  }
 }
 
 fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SOR<Vec<u8>>> {
@@ -1050,10 +1024,19 @@ fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SOR<Vec<u8>>> {
   }
 }
 
+#[allow(dead_code)]
 /// Shared or Owned reference, to use if you have a Arc<T> or a T and want only immutable references
 enum SOR<T> {
   Shared(Arc<T>),
   Owned(T),
+}
+impl<T> SOR<T> {
+  pub fn get_arc(self) -> Arc<T> {
+    match self {
+      Self::Shared(arc) => arc,
+      Self::Owned(owned) => Arc::new(owned),
+    }
+  }
 }
 impl<T> std::ops::Deref for SOR<T> {
   type Target = T;

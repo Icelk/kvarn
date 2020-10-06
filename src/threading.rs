@@ -1,12 +1,10 @@
-use crate::{Cache, Connection, FsCache, FunctionBindings, ResponseCache};
-use http::Uri;
+use crate::{Connection, FsCache, FunctionBindings, ResponseCache};
 use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
-use rustls::{ServerConfig, ServerSession, Session};
+use rustls::{ServerConfig, ServerSession};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 use std::thread;
 
 #[allow(dead_code)]
@@ -21,7 +19,7 @@ impl Worker {
     mut fs_cache: FsCache,
     mut response_cache: ResponseCache,
     mut bindings: Arc<FunctionBindings>,
-    mut registry: Registry,
+    registry: Registry,
   ) -> Self {
     let mut connections = HashMap::new();
 
@@ -167,21 +165,9 @@ impl HandlerPool {
     }
   }
 
-  pub fn accept(&mut self, mut socket: TcpStream, addr: SocketAddr, token: Token) {
+  pub fn accept(&mut self, socket: TcpStream, addr: SocketAddr, token: Token) {
     let config = Arc::clone(&self.server_config);
     let session = ServerSession::new(&config);
-    let interest = {
-      let rd = session.wants_read();
-      let wr = session.wants_write();
-
-      if rd && wr {
-        mio::Interest::READABLE | mio::Interest::WRITABLE
-      } else if wr {
-        mio::Interest::WRITABLE
-      } else {
-        mio::Interest::READABLE
-      }
-    };
     self.connections.insert(
       token.0,
       self.pool.execute(
