@@ -1,6 +1,7 @@
 pub use cache::Cache;
 pub use config::Config;
 pub use config::FunctionBindings;
+pub use conn::Connection;
 use http::{Request, StatusCode, Uri};
 use mime_guess;
 use mio::Token;
@@ -12,18 +13,18 @@ use std::{
   fs::File,
   io::{self, Read, Write},
 };
+mod threading;
 
 const HTTPS_SERVER: Token = Token(0);
 const RESERVED_TOKENS: usize = 1024;
 
 pub mod config {
-  use super::conn::Connection;
-  use super::Cache;
+  use super::{conn::Connection, threading::HandlerPool, Cache};
   use super::{HTTPS_SERVER, RESERVED_TOKENS};
   use http::Uri;
   use mio::net::TcpListener;
   use mio::{Events, Interest, Poll, Token};
-  use rustls::{ServerConfig, ServerSession};
+  use rustls::ServerConfig;
   use std::collections::HashMap;
   use std::io::ErrorKind;
   use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -89,6 +90,7 @@ pub mod config {
     connections: HashMap<Token, Connection>,
     server_config: Arc<ServerConfig>,
     con_id: usize,
+    // handler: HandlerPool,
     bindings: Arc<FunctionBindings>,
     fs_cache: Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
     response_cache: Arc<Mutex<Cache<Uri, Vec<u8>>>>,
@@ -132,15 +134,20 @@ pub mod config {
     //   }
     // }
     pub fn new(config: ServerConfig, bindings: FunctionBindings, port: u16) -> Self {
+      let server_config = Arc::new(config);
+      let fs_cache = Arc::new(Mutex::new(Cache::new()));
+      let response_cache = Arc::new(Mutex::new(Cache::new()));
+      let bindings = Arc::new(bindings);
+
       Config {
         socket: TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))
           .expect("Failed to bind to port"),
-        server_config: Arc::new(config),
+        server_config,
         connections: HashMap::new(),
-        bindings: Arc::new(bindings),
         con_id: RESERVED_TOKENS,
-        fs_cache: Arc::new(Mutex::new(Cache::new())),
-        response_cache: Arc::new(Mutex::new(Cache::new())),
+        fs_cache,
+        response_cache,
+        bindings,
       }
     }
 
@@ -150,10 +157,10 @@ pub mod config {
     pub fn get_response_cache(&self) -> Arc<Mutex<Cache<Uri, Vec<u8>>>> {
       Arc::clone(&self.response_cache)
     }
-    fn get_config(&self) -> Arc<ServerConfig> {
+    pub fn get_config(&self) -> Arc<ServerConfig> {
       Arc::clone(&self.server_config)
     }
-    fn get_bindings(&self) -> Arc<FunctionBindings> {
+    pub fn get_bindings(&self) -> Arc<FunctionBindings> {
       Arc::clone(&self.bindings)
     }
 
@@ -203,6 +210,14 @@ pub mod config {
         .register(&mut self.socket, HTTPS_SERVER, Interest::READABLE)
         .expect("Failed to register HTTPS server");
 
+      let mut handler = HandlerPool::new(
+        self.get_config(),
+        self.get_fs_cache(),
+        self.get_response_cache(),
+        self.get_bindings(),
+        poll.registry(),
+      );
+
       loop {
         poll.poll(&mut events, None).expect("Failed to poll!");
 
@@ -210,11 +225,16 @@ pub mod config {
           match event.token() {
             HTTPS_SERVER => {
               self
-                .accept(poll.registry())
+                .accept_handler(&mut handler)
                 .expect("Failed to accept message!");
             }
             _ => {
-              self.new_con(poll.registry(), &event);
+              // println!("Request from token: {}", event.token().0);
+              // println!("New connection!");
+              handler
+                .handle((event.is_readable(), event.is_writable(), event.token()))
+                .expect("Failed!!");
+              // self.new_con(Arc::clone(&poll), &event);
             }
           }
         }
@@ -234,18 +254,36 @@ pub mod config {
           Ok((socket, addr)) => {
             println!("Accepting new connection from: {:?}", addr);
 
-            let session = ServerSession::new(&self.server_config);
+            let session = rustls::ServerSession::new(&self.server_config);
             let response_cache = self.get_response_cache();
             let fs_cache = self.get_fs_cache();
             let bindings = self.get_bindings();
 
             let token = Token(self.next_id());
+            println!("Inserting with token {}", token.0);
 
             let mut connection =
               Connection::new(socket, token, session, response_cache, fs_cache, bindings);
 
             connection.register(&registry);
             self.connections.insert(token, connection);
+            // let token = Token(self.next_id());
+            // self.handler.accept(socket, addr, registry, token);
+          }
+          Err(ref err) if err.kind() == ErrorKind::WouldBlock => return Ok(()),
+          Err(err) => {
+            eprintln!("Encountered error while accepting connection. {:?}", err);
+            return Err(err);
+          }
+        }
+      }
+    }
+    pub fn accept_handler(&mut self, handler: &mut HandlerPool) -> Result<(), std::io::Error> {
+      loop {
+        match self.socket.accept() {
+          Ok((socket, addr)) => {
+            let token = Token(self.next_id());
+            handler.accept(socket, addr, token);
           }
           Err(ref err) if err.kind() == ErrorKind::WouldBlock => return Ok(()),
           Err(err) => {
@@ -259,8 +297,10 @@ pub mod config {
     pub fn new_con(&mut self, registry: &mio::Registry, event: &mio::event::Event) {
       let token = event.token();
 
+      // let registry = registry.lock().unwrap();
+
       if let Some(connection) = self.connections.get_mut(&token) {
-        connection.ready(registry, event);
+        connection.ready(registry, (event.is_readable(), event.is_writable()));
         if connection.is_closed() {
           self.connections.remove(&token);
         }
@@ -362,15 +402,16 @@ pub mod conn {
       }
     }
 
-    pub fn ready(&mut self, registry: &mio::Registry, event: &mio::event::Event) {
+    pub fn ready(&mut self, registry: &mio::Registry, event: (bool, bool)) {
       // If socket is readable, read from socket to session
-      if event.is_readable() && self.decrypt().is_ok() {
+      let (readable, writable) = event;
+      if readable && self.decrypt().is_ok() {
         // Read request from session to buffer
         let request = {
           let mut buffer = Vec::with_capacity(4096);
           match self.session.read_to_end(&mut buffer) {
-            Err(..) => {
-              eprintln!("Failed to read from session!");
+            Err(err) => {
+              eprintln!("Failed to read from session! {:?}", err);
               self.close();
             }
             Ok(..) => {}
@@ -417,8 +458,9 @@ pub mod conn {
           };
         }
       }
-      if event.is_writable() {
+      if writable {
         if let Err(..) = self.session.write_tls(&mut self.socket) {
+          eprintln!("Error writing to socket!");
           self.close();
         };
       }
@@ -429,7 +471,7 @@ pub mod conn {
         self.deregister(registry);
       } else {
         self.reregister(registry);
-      }
+      };
     }
     fn decrypt(&mut self) -> Result<(), ()> {
       // Loop on read_tls
@@ -650,9 +692,7 @@ pub mod cache {
       }
     }
     pub fn with_max(max_items: usize) -> Self {
-      if max_items < 2 {
-        panic!("Cache must have a maximum size of two or more");
-      }
+      assert!(max_items > 1);
       Cache {
         map: HashMap::new(),
         max_items,
@@ -660,12 +700,9 @@ pub mod cache {
       }
     }
     pub fn with_max_and_size(max_items: usize, size_limit: usize) -> Self {
-      if max_items < 2 {
-        panic!("Cache must have a maximum size of two or more");
-      }
-      if size_limit < 1024 {
-        panic!("Size limit must be above 1024");
-      }
+      assert!(max_items > 1);
+      assert!(size_limit >= 1024);
+
       Cache {
         map: HashMap::new(),
         max_items,
@@ -745,14 +782,14 @@ pub fn process_request<W: Write>(
   mut fs_cache: &mut Arc<Mutex<Cache<PathBuf, Vec<u8>>>>,
   bindings: &Arc<FunctionBindings>,
 ) -> Result<(), io::Error> {
-  println!("Got request: {:?}", &request);
+  // println!("Got request: {:?}", &request);
   // Load from cache
   {
     // Get response cache lock
     let response_cache = response_cache.lock().unwrap();
     // If response is in cache
     if let Some(response) = response_cache.get(request.uri()) {
-      println!("Getting from cache!");
+      // println!("Getting from cache!");
       socket.write_all(response)?;
       return Ok(());
     }
@@ -1023,8 +1060,7 @@ fn handle_php<W: Write>(socket: &mut W, request: &[u8], path: &PathBuf) -> Resul
   let mut php =
     match TcpStream::connect(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6633))) {
       Err(err) => {
-        eprintln!("Failed to get PHP: {:?}", err);
-        panic!();
+        panic!("Failed to get PHP: {:?}", err);
       }
       Ok(socket) => socket,
     };

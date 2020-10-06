@@ -11,3 +11,4 @@ rustls = "0.18.1"
 http = "0.2.1"
 mime_guess = "2.0.3"
 mio = { version = "0.7.2", features = ["os-poll", "tcp"] }
+num_cpus = "1.13.0"

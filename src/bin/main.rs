@@ -1,11 +1,12 @@
+use arktis;
 use http::uri::Uri;
 use std::io::{prelude::*, stdin};
 use std::path::PathBuf;
-mod lib;
 use std::sync::{Arc, Mutex};
+use std::thread;
 
 fn main() {
-    let mut bindings = lib::FunctionBindings::new();
+    let mut bindings = arktis::FunctionBindings::new();
     let times_called = Arc::new(Mutex::new(0));
     bindings.bind(String::from("/test"), move |buffer, uri| {
         let mut tc = times_called.lock().unwrap();
@@ -21,12 +22,12 @@ fn main() {
 
         ("text/html", false)
     });
-    let config = lib::config::server_config::get_server_config("cert.pem", "privkey.pem")
+    let config = arktis::config::server_config::get_server_config("cert.pem", "privkey.pem")
         .expect("Failed to read certificate!");
-    let server = lib::Config::new(config, bindings, 443);
+    let server = arktis::Config::new(config, bindings, 443);
     let fc = server.get_fs_cache();
     let rc = server.get_response_cache();
-    server.run();
+    thread::spawn(move || server.run());
 
     for line in stdin().lock().lines() {
         if let Ok(line) = line {
