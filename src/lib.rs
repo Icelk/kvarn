@@ -1,9 +1,10 @@
 pub use cache::Cache;
 pub use config::{Config, FsCache, FunctionBindings, ResponseCache};
-pub use conn::Connection;
 use http::{Request, StatusCode, Uri};
 use mime_guess;
+use mio::net::TcpStream;
 use mio::Token;
+use rustls::{ServerSession, Session};
 use std::borrow::Cow;
 use std::convert::From;
 use std::path::PathBuf;
@@ -18,7 +19,7 @@ const HTTPS_SERVER: Token = Token(0);
 const RESERVED_TOKENS: usize = 1024;
 
 pub mod config {
-  use super::{conn::Connection, threading::HandlerPool, Cache};
+  use super::{threading::HandlerPool, Cache, Connection};
   use super::{HTTPS_SERVER, RESERVED_TOKENS};
   use http::{Request, Uri};
   use mio::net::TcpListener;
@@ -31,8 +32,8 @@ pub mod config {
   use std::sync::{Arc, Mutex};
 
   type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync;
-  pub type FsCache = Arc<Mutex<Cache<PathBuf, Arc<Vec<u8>>>>>;
-  pub type ResponseCache = Arc<Mutex<Cache<Uri, Arc<Vec<u8>>>>>;
+  pub type FsCache = Arc<Mutex<Cache<PathBuf, Vec<u8>>>>;
+  pub type ResponseCache = Arc<Mutex<Cache<Uri, Vec<u8>>>>;
 
   /// Function bindings to have fast dynamic pages.
   ///
@@ -369,182 +370,175 @@ pub mod config {
   }
 }
 
-pub mod conn {
-  use super::parse::parse_request;
-  use super::*;
-  use mio::net::TcpStream;
-  use rustls::{ServerSession, Session};
+pub struct Connection {
+  socket: TcpStream,
+  token: Token,
+  session: rustls::ServerSession,
+  closing: bool,
 
-  pub struct Connection {
+  fs_cache: FsCache,
+  response_cache: ResponseCache,
+  bindings: Arc<FunctionBindings>,
+}
+impl Connection {
+  pub fn new(
     socket: TcpStream,
     token: Token,
-    session: rustls::ServerSession,
-    closing: bool,
-
+    session: ServerSession,
     fs_cache: FsCache,
     response_cache: ResponseCache,
     bindings: Arc<FunctionBindings>,
+  ) -> Self {
+    Self {
+      socket,
+      token,
+      session,
+      closing: false,
+      fs_cache,
+      response_cache,
+      bindings,
+    }
   }
-  impl Connection {
-    pub fn new(
-      socket: TcpStream,
-      token: Token,
-      session: ServerSession,
-      fs_cache: FsCache,
-      response_cache: ResponseCache,
-      bindings: Arc<FunctionBindings>,
-    ) -> Self {
-      Self {
-        socket,
-        token,
-        session,
-        closing: false,
-        fs_cache,
-        response_cache,
-        bindings,
+
+  pub fn ready(&mut self, registry: &mio::Registry, event: (bool, bool)) {
+    // If socket is readable, read from socket to session
+    let (readable, writable) = event;
+    if readable && self.decrypt().is_ok() {
+      // Read request from session to buffer
+      let request = {
+        let mut buffer = Vec::with_capacity(4096);
+        match self.session.read_to_end(&mut buffer) {
+          Err(err) => {
+            eprintln!("Failed to read from session! {:?}", err);
+            self.close();
+          }
+          Ok(..) => {}
+        };
+        buffer
+      };
+      // If not empty, parse and process it!
+      if !request.is_empty() {
+        let close = match parse::parse_request(&request[..]) {
+          Ok(parsed) => {
+            let close = ConnectionHeader::from_close({
+              match parsed.headers().get("connection") {
+                Some(connection) => connection == http::header::HeaderValue::from_static("close"),
+                None => false,
+              }
+            });
+            if let Err(err) = process_request(
+              &mut self.session,
+              parsed,
+              &request[..],
+              &close,
+              &mut self.fs_cache,
+              &mut self.response_cache,
+              &self.bindings,
+            ) {
+              eprintln!("Failed to write to session! {:?}", err);
+            };
+            close
+          }
+          Err(err) => {
+            eprintln!(
+              "Failed to parse request, write something as a response? Err: {:?}",
+              err
+            );
+            let _ = self
+              .session
+              .write_all(&default_error(400, &ConnectionHeader::Close, &mut self.fs_cache)[..]);
+            ConnectionHeader::Close
+          }
+        };
+        // If request is unsupported, do something
+        if close.close() {
+          self.session.send_close_notify();
+        };
       }
     }
-
-    pub fn ready(&mut self, registry: &mio::Registry, event: (bool, bool)) {
-      // If socket is readable, read from socket to session
-      let (readable, writable) = event;
-      if readable && self.decrypt().is_ok() {
-        // Read request from session to buffer
-        let request = {
-          let mut buffer = Vec::with_capacity(4096);
-          match self.session.read_to_end(&mut buffer) {
-            Err(err) => {
-              eprintln!("Failed to read from session! {:?}", err);
-              self.close();
-            }
-            Ok(..) => {}
-          };
-          buffer
-        };
-        // If not empty, parse and process it!
-        if !request.is_empty() {
-          let close = match parse_request(&request[..]) {
-            Ok(parsed) => {
-              let close = ConnectionHeader::from_close({
-                match parsed.headers().get("connection") {
-                  Some(connection) => connection == http::header::HeaderValue::from_static("close"),
-                  None => false,
-                }
-              });
-              if let Err(err) = process_request(
-                &mut self.session,
-                parsed,
-                &request[..],
-                &close,
-                &mut self.fs_cache,
-                &mut self.response_cache,
-                &self.bindings,
-              ) {
-                eprintln!("Failed to write to session! {:?}", err);
-              };
-              close
-            }
-            Err(err) => {
-              eprintln!(
-                "Failed to parse request, write something as a response? Err: {:?}",
-                err
-              );
-              let _ = self
-                .session
-                .write_all(&default_error(400, &ConnectionHeader::Close, &mut self.fs_cache)[..]);
-              ConnectionHeader::Close
-            }
-          };
-          // If request is unsupported, do something
-          if close.close() {
-            self.session.send_close_notify();
-          };
-        }
-      }
-      if writable {
-        if let Err(..) = self.session.write_tls(&mut self.socket) {
-          eprintln!("Error writing to socket!");
-          self.close();
-        };
-      }
-
-      if self.closing {
-        println!("Closing connection!");
-        let _ = self.socket.shutdown(std::net::Shutdown::Both);
-        self.deregister(registry);
-      } else {
-        self.reregister(registry);
+    if writable {
+      if let Err(..) = self.session.write_tls(&mut self.socket) {
+        eprintln!("Error writing to socket!");
+        self.close();
       };
     }
-    fn decrypt(&mut self) -> Result<(), ()> {
-      // Loop on read_tls
-      match self.session.read_tls(&mut self.socket) {
-        Err(err) => {
-          if let io::ErrorKind::WouldBlock = err.kind() {
-            eprintln!("Would block!");
-            return Err(());
-          } else {
-            self.close();
-            return Err(());
-          }
-        }
-        Ok(0) => {
+
+    if self.closing {
+      println!("Closing connection!");
+      let _ = self.socket.shutdown(std::net::Shutdown::Both);
+      self.deregister(registry);
+    } else {
+      self.reregister(registry);
+    };
+  }
+  fn decrypt(&mut self) -> Result<(), ()> {
+    // Loop on read_tls
+    match self.session.read_tls(&mut self.socket) {
+      Err(err) => {
+        if let io::ErrorKind::WouldBlock = err.kind() {
+          eprintln!("Would block!");
+          return Err(());
+        } else {
           self.close();
           return Err(());
         }
-        _ => {
-          if self.session.process_new_packets().is_err() {
-            eprintln!("Failed to process packets");
-            self.close();
-            return Err(());
-          };
-        }
-      };
-      Ok(())
-    }
-
-    #[inline]
-    pub fn register(&mut self, registry: &mio::Registry) {
-      let es = self.event_set();
-      registry
-        .register(&mut self.socket, self.token, es)
-        .expect("Failed to register connection!");
-    }
-    #[inline]
-    pub fn reregister(&mut self, registry: &mio::Registry) {
-      let es = self.event_set();
-      registry
-        .reregister(&mut self.socket, self.token, es)
-        .expect("Failed to register connection!");
-    }
-    #[inline]
-    pub fn deregister(&mut self, registry: &mio::Registry) {
-      registry
-        .deregister(&mut self.socket)
-        .expect("Failed to register connection!");
-    }
-
-    fn event_set(&self) -> mio::Interest {
-      let rd = self.session.wants_read();
-      let wr = self.session.wants_write();
-
-      if rd && wr {
-        mio::Interest::READABLE | mio::Interest::WRITABLE
-      } else if wr {
-        mio::Interest::WRITABLE
-      } else {
-        mio::Interest::READABLE
       }
-    }
+      Ok(0) => {
+        self.close();
+        return Err(());
+      }
+      _ => {
+        if self.session.process_new_packets().is_err() {
+          eprintln!("Failed to process packets");
+          self.close();
+          return Err(());
+        };
+      }
+    };
+    Ok(())
+  }
 
-    #[inline]
-    pub fn is_closed(&self) -> bool {
-      self.closing
+  #[inline]
+  pub fn register(&mut self, registry: &mio::Registry) {
+    let es = self.event_set();
+    registry
+      .register(&mut self.socket, self.token, es)
+      .expect("Failed to register connection!");
+  }
+  #[inline]
+  pub fn reregister(&mut self, registry: &mio::Registry) {
+    let es = self.event_set();
+    registry
+      .reregister(&mut self.socket, self.token, es)
+      .expect("Failed to register connection!");
+  }
+  #[inline]
+  pub fn deregister(&mut self, registry: &mio::Registry) {
+    registry
+      .deregister(&mut self.socket)
+      .expect("Failed to register connection!");
+  }
+
+  fn event_set(&self) -> mio::Interest {
+    let rd = self.session.wants_read();
+    let wr = self.session.wants_write();
+
+    if rd && wr {
+      mio::Interest::READABLE | mio::Interest::WRITABLE
+    } else if wr {
+      mio::Interest::WRITABLE
+    } else {
+      mio::Interest::READABLE
     }
-    #[inline]
-    fn close(&mut self) {
-      self.closing = true;
-    }
+  }
+
+  #[inline]
+  pub fn is_closed(&self) -> bool {
+    self.closing
+  }
+  #[inline]
+  fn close(&mut self) {
+    self.closing = true;
   }
 }
 
@@ -687,14 +681,14 @@ pub mod cache {
     }
   }
   pub struct Cache<K, V> {
-    map: HashMap<K, V>,
+    map: HashMap<K, Arc<V>>,
     max_items: usize,
     size_limit: usize,
   }
   #[allow(dead_code)]
   impl<K: std::cmp::Eq + std::hash::Hash + std::clone::Clone, V: Len> Cache<K, V> {
     #[inline]
-    pub fn cache(&mut self, key: K, value: V) -> Option<V> {
+    pub fn cache(&mut self, key: K, value: Arc<V>) -> Option<Arc<V>> {
       if value.len() > self.size_limit {
         return Some(value);
       }
@@ -743,15 +737,15 @@ pub mod cache {
       }
     }
     #[inline]
-    pub fn get(&self, key: &K) -> Option<&V> {
-      self.map.get(key)
+    pub fn get(&self, key: &K) -> Option<Arc<V>> {
+      self.map.get(key).and_then(|value| Some(Arc::clone(value)))
     }
     #[inline]
     pub fn cached(&self, key: &K) -> bool {
       self.map.contains_key(key)
     }
     #[inline]
-    pub fn remove(&mut self, key: &K) -> Option<V> {
+    pub fn remove(&mut self, key: &K) -> Option<Arc<V>> {
       self.map.remove(key)
     }
     #[inline]
@@ -762,7 +756,7 @@ pub mod cache {
 }
 
 #[derive(PartialEq)]
-pub enum ConnectionHeader {
+enum ConnectionHeader {
   KeepAlive,
   Close,
 }
@@ -784,7 +778,7 @@ static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
 #[cfg(unix)]
 static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
 
-pub fn process_request<W: Write>(
+fn process_request<W: Write>(
   mut socket: &mut W,
   request: Request<&[u8]>,
   raw_request: &[u8],
@@ -801,7 +795,7 @@ pub fn process_request<W: Write>(
     // If response is in cache
     if let Some(response) = response_cache.get(request.uri()) {
       // println!("Getting from cache!");
-      socket.write_all(response)?;
+      socket.write_all(&response[..])?;
       return Ok(());
     }
   }
@@ -896,7 +890,7 @@ pub fn process_request<W: Write>(
       };
 
       let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
-      (body.get_arc(), Cow::Owned(content_type), do_cache)
+      (body, Cow::Owned(content_type), do_cache)
     }
   };
   let response = if write_headers {
@@ -998,11 +992,11 @@ fn default_error(code: u16, close: &ConnectionHeader, cache: &mut FsCache) -> Ve
   buffer
 }
 
-fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SOR<Vec<u8>>> {
+fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
   {
     let cache = cache.lock().unwrap();
     if let Some(cached) = cache.get(&path) {
-      return Some(SOR::Shared(Arc::clone(&cached)));
+      return Some(cached);
     }
   }
 
@@ -1013,39 +1007,14 @@ fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SOR<Vec<u8>>> {
         Ok(..) => {
           let mut cache = cache.lock().unwrap();
           Some(match cache.cache(path.clone(), Arc::new(buffer)) {
-            Some(failed) => SOR::Shared(failed),
-            None => SOR::Shared(Arc::clone(cache.get(&path).unwrap())),
+            Some(failed) => failed,
+            None => cache.get(&path).unwrap(),
           })
         }
         Err(..) => None,
       }
     }
     Err(..) => None,
-  }
-}
-
-#[allow(dead_code)]
-/// Shared or Owned reference, to use if you have a Arc<T> or a T and want only immutable references
-enum SOR<T> {
-  Shared(Arc<T>),
-  Owned(T),
-}
-impl<T> SOR<T> {
-  pub fn get_arc(self) -> Arc<T> {
-    match self {
-      Self::Shared(arc) => arc,
-      Self::Owned(owned) => Arc::new(owned),
-    }
-  }
-}
-impl<T> std::ops::Deref for SOR<T> {
-  type Target = T;
-
-  fn deref(&self) -> &Self::Target {
-    match self {
-      Self::Shared(arc) => arc,
-      Self::Owned(owned) => &owned,
-    }
   }
 }
 
