@@ -636,7 +636,7 @@ impl Connection {
           eprintln!("Request too large!");
           let _ = self
             .session
-            .write_all(&default_error(413, &close, &mut self.fs_cache)[..]);
+            .write_all(&default_error(413, &close, Some(&mut self.fs_cache))[..]);
         }
         // todo!();
         match parse::parse_request(&request[..]) {
@@ -668,7 +668,7 @@ impl Connection {
             );
             let _ = self
               .session
-              .write_all(&default_error(400, &close, &mut self.fs_cache)[..]);
+              .write_all(&default_error(400, &close, Some(&mut self.fs_cache))[..]);
           }
         };
         if close.close() {
@@ -796,14 +796,14 @@ fn process_request<W: Write>(
       let path = match convert_uri(request.uri()) {
         Ok(path) => path,
         Err(()) => {
-          socket.write_all(&default_error(403, close, &mut fs_cache)[..])?;
+          socket.write_all(&default_error(403, close, Some(&mut fs_cache))[..])?;
           return Ok(());
         }
       };
       let body = match read_file(&path, &mut fs_cache) {
         Some(response) => response,
         None => {
-          socket.write_all(&default_error(404, close, &mut fs_cache)[..])?;
+          socket.write_all(&default_error(404, close, Some(&mut fs_cache))[..])?;
           return Ok(());
         }
       };
@@ -926,8 +926,8 @@ pub fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
   Ok(buf)
 }
 
-fn default_error(code: u16, close: &ConnectionHeader, cache: &mut FsCache) -> Vec<u8> {
-  let mut buffer = Vec::with_capacity(1024);
+fn default_error(code: u16, close: &ConnectionHeader, cache: Option<&mut FsCache>) -> Vec<u8> {
+  let mut buffer = Vec::with_capacity(512);
 
   buffer.extend(b"HTTP/1.1 ");
   buffer.extend(
@@ -956,7 +956,7 @@ fn default_error(code: u16, close: &ConnectionHeader, cache: &mut FsCache) -> Ve
     }
   }
 
-  match read_file(&PathBuf::from(format!("{}.html", code)), cache) {
+  match cache.and_then(|cache| read_file(&PathBuf::from(format!("{}.html", code)), cache)) {
     Some(file) => {
       buffer.extend(b"Content-Length: ");
       buffer.extend(format!("{}\r\n\r\n", file.len()).as_bytes());
