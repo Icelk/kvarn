@@ -1064,7 +1064,7 @@ fn handle_php<W: Write>(socket: &mut W, request: &[u8], path: &PathBuf) -> Resul
 
   let attention: i32;
   // Take the thread name and make a file of that instead. Try the line for line mode instead.
-  let mut tmp = File::create("tmp.php")?;
+  let mut temp = File::create("temp.php")?;
   let mut file = File::open(path)?;
   let mut buffer = [0; 4096];
   let mut first = true;
@@ -1085,10 +1085,10 @@ fn handle_php<W: Write>(socket: &mut W, request: &[u8], path: &PathBuf) -> Resul
         out
       };
       println!("Discard first {}", read_till);
-      tmp.write_all(&mut &buffer[read_till..read])?;
+      temp.write_all(&mut &buffer[read_till..read])?;
       first = false;
     } else {
-      tmp.write_all(&mut buffer[..read])?;
+      temp.write_all(&mut buffer[..read])?;
     }
   }
 
@@ -1100,7 +1100,7 @@ fn handle_php<W: Write>(socket: &mut W, request: &[u8], path: &PathBuf) -> Resul
       Ok(socket) => socket,
     };
 
-  todo!("Change path to /tmp.php! Or implement interpreter!");
+  todo!("Change path to /temp.php! Or implement interpreter!");
   php.write_all(request)?;
   loop {
     let mut buffer = [0; 4096];
