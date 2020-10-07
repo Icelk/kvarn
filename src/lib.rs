@@ -43,7 +43,11 @@ pub mod config {
   ///
   /// Functions can be associated with URLs by calling the `bind` function.
   pub struct FunctionBindings {
-    map: HashMap<
+    page_map: HashMap<
+      String,
+      Box<dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync>,
+    >,
+    dir_map: HashMap<
       String,
       Box<dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync>,
     >,
@@ -55,12 +59,13 @@ pub mod config {
     #[inline]
     pub fn new() -> Self {
       FunctionBindings {
-        map: HashMap::new(),
+        page_map: HashMap::new(),
+        dir_map: HashMap::new(),
       }
     }
-    /// Binds a function to a path
+    /// Binds a function to a path. Case sensitive.
     ///
-    /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not
+    /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not.
     /// # Examples
     /// ```
     /// use arktis::{FunctionBindings, write_generic_error};
@@ -84,16 +89,57 @@ pub mod config {
     where
       F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + 'static + Send + Sync,
     {
-      self.map.insert(String::from(path), Box::new(callback));
+      self.page_map.insert(String::from(path), Box::new(callback));
     }
+    /// Unbinds a function from a page.
+    ///
+    /// Returns None if path wasn't bind.
     #[inline]
     pub fn unbind(&mut self, path: &str) -> Option<()> {
-      self.map.remove(path).and(Some(()))
+      self.page_map.remove(path).and(Some(()))
+    }
+
+    /// Binds a function to a directory; if the requests path starts with any entry, it gets directed to the associated function. Case sensitive.
+    ///
+    /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not.
+    /// # Examples
+    /// ```
+    /// use arktis::FunctionBindings;
+    ///
+    /// let mut bindings = FunctionBindings::new();
+    ///
+    /// bindings.bind_dir("/api/v1", |buffer, request| {
+    ///    buffer.extend(b"<h1>Welcome to my <i>new</i> <b>API</b>!</h1> You are calling: ".iter());
+    ///    buffer.extend(format!("{}", request.uri()).as_bytes());
+    ///
+    ///    ("text/html", false)
+    /// });
+    /// ```
+    #[inline]
+    pub fn bind_dir<F>(&mut self, path: &str, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + 'static + Send + Sync,
+    {
+      self.dir_map.insert(String::from(path), Box::new(callback));
+    }
+    /// Unbinds a function from a directory.
+    ///
+    /// Returns None if path wasn't bind.
+    #[inline]
+    pub fn unbind_dir(&mut self, path: &str) -> Option<()> {
+      self.dir_map.remove(path).and(Some(()))
     }
     /// Gets the function associated with the URL, if there is one.
     #[inline]
     pub fn get(&self, path: &str) -> Option<&Box<Binding>> {
-      self.map.get(path)
+      self.page_map.get(path).or_else(|| {
+        for (binding_path, binding_fn) in self.dir_map.iter() {
+          if path.starts_with(binding_path.as_str()) {
+            return Some(binding_fn);
+          }
+        }
+        None
+      })
     }
   }
 
@@ -792,9 +838,13 @@ fn process_request<W: Write>(
   // If a function exists
   let (body, content_type, cache) = match bindings.get(request.uri().path()) {
     Some(callback) => {
-      let mut body = Vec::with_capacity(2048);
-      let (content_type, cache) = callback(&mut body, &request);
-      (Arc::new(body), Cow::Borrowed(content_type), cache)
+      let mut response = Vec::with_capacity(2048);
+      let (content_type, cache) = callback(&mut response, &request);
+      // Check if callback contains headers
+      if &response[..5] == b"HTTP/" {
+        write_headers = false;
+      }
+      (Arc::new(response), Cow::Borrowed(content_type), cache)
     }
     None => {
       // FS
@@ -957,7 +1007,7 @@ fn default_error(code: u16, close: &ConnectionHeader, cache: Option<&mut FsCache
     // Hard-coded defaults
     match code {
       404 => &b"<html><head><title>404 Not Found</title></head><body><center><h1>404 Not Found</h1><hr><a href='/'>Return home</a></center></body></html>"[..],
-      _ => &b"<html><head><title>Unknown Error</title></head><body><center><h1>An unexpected error occurred, <a href='/'>return home?</a></h1></center></body></html>"[..],
+      _ => &b"<html><head><title>Unknown Error</title></head><body><center><h1>An unexpected error occurred, <a href='/'>return home</a>?</h1></center></body></html>"[..],
     }
   }
 

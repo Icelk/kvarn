@@ -23,6 +23,28 @@ fn main() {
 
         ("text/html", false)
     });
+    bindings.bind("/throw_500", |mut buffer, _| {
+        arktis::write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
+
+        ("text/html", false)
+    });
+    bindings.bind_dir("/capturing", |buffer, request| {
+        buffer.extend(
+            b"<h1>Hi!</h1>This entire root directory is captured by a function. You are visiting '"
+                .iter(),
+        );
+        buffer.extend(
+            request
+                .uri()
+                .path_and_query()
+                .and_then(|path| Some(path.as_str()))
+                .unwrap_or("/")
+                .as_bytes(),
+        );
+        buffer.extend(b"' right? :-)<br>Well, hope you enjoy <a href=\"/\">this site!</a>".iter());
+
+        ("text/html", true)
+    });
     let server = arktis::Config::with_bindings(bindings, 443);
     let fc = server.get_fs_cache();
     let rc = server.get_response_cache();
