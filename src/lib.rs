@@ -616,32 +616,39 @@ impl Connection {
     // If socket is readable, read from socket to session
     if event.readable() && self.decrypt().is_ok() {
       // Read request from session to buffer
-      let request = {
-        let mut buffer = Vec::with_capacity(4096);
-        match self.session.read_to_end(&mut buffer) {
+      let (request, request_len) = {
+        let mut buffer = [0; 16_384];
+        let len = match self.session.read(&mut buffer) {
           Err(err) => {
             eprintln!("Failed to read from session! {:?}", err);
             self.close();
+            0
           }
-          Ok(..) => {}
+          Ok(read) => read,
         };
-        buffer
+        (buffer, len)
       };
+
       // If not empty, parse and process it!
-      if !request.is_empty() {
-        todo!();
-        if request.len() > 1024 * 16 {
+      if request_len > 0 {
+        let mut close = ConnectionHeader::KeepAlive;
+        if request_len == request.len() {
           eprintln!("Request too large!");
+          let _ = self
+            .session
+            .write_all(&default_error(413, &close, &mut self.fs_cache)[..]);
         }
-        todo!();
-        let close = match parse::parse_request(&request[..]) {
+        // todo!();
+        match parse::parse_request(&request[..]) {
           Ok(parsed) => {
-            let close = ConnectionHeader::from_close({
+            // Get close header
+            close = ConnectionHeader::from_close({
               match parsed.headers().get("connection") {
                 Some(connection) => connection == http::header::HeaderValue::from_static("close"),
                 None => false,
               }
             });
+
             if let Err(err) = process_request(
               &mut self.session,
               parsed,
@@ -653,7 +660,6 @@ impl Connection {
             ) {
               eprintln!("Failed to write to session! {:?}", err);
             };
-            close
           }
           Err(err) => {
             eprintln!(
@@ -662,8 +668,7 @@ impl Connection {
             );
             let _ = self
               .session
-              .write_all(&default_error(400, &ConnectionHeader::Close, &mut self.fs_cache)[..]);
-            ConnectionHeader::Close
+              .write_all(&default_error(400, &close, &mut self.fs_cache)[..]);
           }
         };
         if close.close() {
@@ -782,7 +787,7 @@ fn process_request<W: Write>(
   // If a function exists
   let (body, content_type, cache) = match bindings.get(request.uri().path()) {
     Some(callback) => {
-      let mut body = Vec::with_capacity(4096);
+      let mut body = Vec::with_capacity(2048);
       let (content_type, cache) = callback(&mut body, &request);
       (Arc::new(body), Cow::Borrowed(content_type), cache)
     }
@@ -810,8 +815,6 @@ fn process_request<W: Write>(
       static SPACE: u8 = 32;
       static BANG: u8 = 33;
       static PIPE: u8 = 62;
-      // println!("Data: '{}'", String::from_utf8_lossy(&body[..100]));
-      // println!("Data: {}, {}", iter.next().unwrap(), iter.next().unwrap());
       if iter.next() == Some(&BANG) && iter.next() == Some(&PIPE) {
         // We have a file to interpret
         let interpreter = {
@@ -873,8 +876,7 @@ fn process_request<W: Write>(
     }
   };
   let response = if write_headers {
-    let mut response = Vec::with_capacity(512);
-    // Revert connection to keep-alive in future
+    let mut response = Vec::with_capacity(4096);
     response.extend(
       b"HTTP/1.1 200 OK\r\n\
     Connection: "
