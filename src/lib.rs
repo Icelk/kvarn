@@ -63,7 +63,7 @@ pub mod config {
     /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not
     /// # Examples
     /// ```
-    /// use arktis::FunctionBindings;
+    /// use arktis::{FunctionBindings, write_generic_error};
     ///
     /// let mut bindings = FunctionBindings::new();
     ///
@@ -72,6 +72,11 @@ pub mod config {
     ///    buffer.extend(format!("{}", request.uri()).as_bytes());
     ///
     ///    ("text/html", true)
+    /// });
+    /// bindings.bind("/throw_500", |mut buffer, _| {
+    ///   write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
+    ///
+    ///   ("text/html", false)
     /// });
     /// ```
     #[inline]
@@ -971,6 +976,9 @@ fn default_error(code: u16, close: &ConnectionHeader, cache: Option<&mut FsCache
   };
 
   buffer
+}
+pub fn write_generic_error<W: Write>(writer: &mut W, code: u16) -> Result<(), io::Error> {
+  writer.write_all(&default_error(code, &ConnectionHeader::KeepAlive, None)[..])
 }
 
 fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
