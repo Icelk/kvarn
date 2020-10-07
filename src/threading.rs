@@ -4,7 +4,7 @@ use num_cpus;
 use rustls::{ServerConfig, ServerSession};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 #[allow(dead_code)]
@@ -20,6 +20,7 @@ impl Worker {
     mut response_cache: ResponseCache,
     mut bindings: Arc<FunctionBindings>,
     registry: Registry,
+    mut global_connections: Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
     let mut connections = HashMap::new();
 
@@ -33,6 +34,7 @@ impl Worker {
           &mut bindings,
           &mut connections,
           &registry,
+          &mut global_connections,
         );
       })
       .expect("Failed to create thread!");
@@ -48,6 +50,7 @@ type Job = Box<
       &mut Arc<FunctionBindings>,
       &mut HashMap<Token, Connection>,
       &Registry,
+      &mut Arc<Mutex<HashMap<usize, usize>>>,
     ) + Send
     + 'static,
 >;
@@ -60,10 +63,11 @@ pub struct ThreadPool {
 impl ThreadPool {
   pub fn new(
     size: usize,
-    fs_cache: FsCache,
-    response_cache: ResponseCache,
-    bindings: Arc<FunctionBindings>,
+    fs_cache: &FsCache,
+    response_cache: &ResponseCache,
+    bindings: &Arc<FunctionBindings>,
     registry: &Registry,
+    connections: &Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
     assert!(size > 0);
 
@@ -79,6 +83,7 @@ impl ThreadPool {
           Arc::clone(&response_cache),
           Arc::clone(&bindings),
           registry.try_clone().expect("Failed to clone registry!"),
+          Arc::clone(&connections),
         ),
         job_sender,
       ));
@@ -106,6 +111,7 @@ impl ThreadPool {
         &mut Arc<FunctionBindings>,
         &mut HashMap<Token, Connection>,
         &Registry,
+        &mut Arc<Mutex<HashMap<usize, usize>>>,
       ) + Send
       + 'static,
   {
@@ -125,6 +131,7 @@ impl ThreadPool {
         &mut Arc<FunctionBindings>,
         &mut HashMap<Token, Connection>,
         &Registry,
+        &mut Arc<Mutex<HashMap<usize, usize>>>,
       ) + Send
       + 'static,
   {
@@ -141,7 +148,7 @@ impl ThreadPool {
 
 pub struct HandlerPool {
   pool: ThreadPool,
-  connections: HashMap<usize, usize>,
+  connections: Arc<Mutex<HashMap<usize, usize>>>,
   server_config: Arc<ServerConfig>,
 }
 impl HandlerPool {
@@ -152,15 +159,17 @@ impl HandlerPool {
     bindings: Arc<FunctionBindings>,
     registry: &Registry,
   ) -> Self {
+    let global_connections = Arc::new(Mutex::new(HashMap::new()));
     Self {
       pool: ThreadPool::new(
         num_cpus::get() as usize - 1,
-        fs_cache,
-        response_cache,
-        bindings,
+        &fs_cache,
+        &response_cache,
+        &bindings,
         registry,
+        &global_connections,
       ),
-      connections: HashMap::new(),
+      connections: global_connections,
       server_config: config,
     }
   }
@@ -168,47 +177,54 @@ impl HandlerPool {
   pub fn accept(&mut self, socket: TcpStream, addr: SocketAddr, token: Token) {
     let config = Arc::clone(&self.server_config);
     let session = ServerSession::new(&config);
-    self.connections.insert(
-      token.0,
-      self.pool.execute(
-        move |fs_cache, response_cache, bindings, connections, registry| {
-          println!("Accepting new connection from: {:?}", addr);
+    let thread_id = self.pool.execute(
+      move |fs_cache, response_cache, bindings, connections, registry, _| {
+        println!("Accepting new connection from: {:?}", addr);
 
-          let mut connection = Connection::new(
-            socket,
-            token,
-            session,
-            Arc::clone(&fs_cache),
-            Arc::clone(&response_cache),
-            Arc::clone(&bindings),
-          );
+        let mut connection = Connection::new(
+          socket,
+          token,
+          session,
+          Arc::clone(&fs_cache),
+          Arc::clone(&response_cache),
+          Arc::clone(&bindings),
+        );
 
-          connection.register(registry);
-          println!("Registered!");
+        connection.register(registry);
+        println!("Registered!");
 
-          println!("Inserting with token {}", token.0);
-          connections.insert(token, connection);
-        },
-      ),
+        println!("Inserting with token {}", token.0);
+        connections.insert(token, connection);
+      },
     );
+    let mut connections = self.connections.lock().unwrap();
+    connections.insert(token.0, thread_id);
   }
 
   pub fn handle(&mut self, event: (bool, bool, Token)) -> Result<(), ()> {
     let token = event.2;
 
-    match self.connections.get(&token.0) {
-      Some(thread_id) => self
-        .pool
-        .execute_on(*thread_id, move |_, _, _, connections, registry| {
-          if let Some(connection) = connections.get_mut(&token) {
-            connection.ready(registry, (event.0, event.1));
-            if connection.is_closed() {
-              connections.remove(&token);
+    let connections = self.connections.lock().unwrap();
+    match connections.get(&token.0) {
+      Some(thread_id) => {
+        let thread_id = *thread_id;
+        drop(connections);
+        self.pool.execute_on(
+          thread_id,
+          move |_, _, _, connections, registry, global_connections| {
+            if let Some(connection) = connections.get_mut(&token) {
+              connection.ready(registry, (event.0, event.1));
+              if connection.is_closed() {
+                connections.remove(&token);
+                let mut global_connections = global_connections.lock().unwrap();
+                global_connections.remove(&token.0);
+              }
+            } else {
+              eprintln!("Connection not found!");
             }
-          } else {
-            eprintln!("Connection not found!");
-          }
-        }),
+          },
+        )
+      }
       None => {
         eprintln!("Connection not found! {:?}", token);
         Err(())

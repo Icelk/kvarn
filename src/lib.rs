@@ -418,6 +418,9 @@ impl Connection {
       };
       // If not empty, parse and process it!
       if !request.is_empty() {
+        if request.len() > 1024 * 16 {
+          eprintln!("Request too large!");
+        }
         let close = match parse::parse_request(&request[..]) {
           Ok(parsed) => {
             let close = ConnectionHeader::from_close({
@@ -662,21 +665,21 @@ pub mod cache {
   use std::collections::HashMap;
   use std::sync::Arc;
 
-  pub trait Len {
-    fn len(&self) -> usize;
+  pub trait Count {
+    fn count(&self) -> usize;
   }
-  impl<T> Len for Vec<T> {
-    fn len(&self) -> usize {
+  impl<T> Count for Vec<T> {
+    fn count(&self) -> usize {
       self.len()
     }
   }
-  impl<T> Len for Arc<Vec<T>> {
-    fn len(&self) -> usize {
-      self.as_ref().len()
+  impl<T> Count for Arc<Vec<T>> {
+    fn count(&self) -> usize {
+      self.len()
     }
   }
-  impl<K, V> Len for HashMap<K, V> {
-    fn len(&self) -> usize {
+  impl<K, V> Count for HashMap<K, V> {
+    fn count(&self) -> usize {
       self.len()
     }
   }
@@ -686,10 +689,10 @@ pub mod cache {
     size_limit: usize,
   }
   #[allow(dead_code)]
-  impl<K: std::cmp::Eq + std::hash::Hash + std::clone::Clone, V: Len> Cache<K, V> {
+  impl<K: std::cmp::Eq + std::hash::Hash + std::clone::Clone, V: Count> Cache<K, V> {
     #[inline]
     pub fn cache(&mut self, key: K, value: Arc<V>) -> Option<Arc<V>> {
-      if value.len() > self.size_limit {
+      if value.count() > self.size_limit {
         return Some(value);
       }
       // fn get_first<K: std::clone::Clone, V>(map: &HashMap<K, V>) -> Option<K> {
