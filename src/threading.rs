@@ -1,4 +1,4 @@
-use crate::{Connection, FsCache, FunctionBindings, ResponseCache};
+use crate::{Connection, FsCache, FunctionBindings, MioEvent, ResponseCache};
 use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
 use rustls::{ServerConfig, ServerSession};
@@ -197,38 +197,48 @@ impl HandlerPool {
         connections.insert(token, connection);
       },
     );
-    let mut connections = self.connections.lock().unwrap();
-    connections.insert(token.0, thread_id);
+    // Getting the lock on global connections! Have to release it quick!
+    {
+      let mut connections = self.connections.lock().unwrap();
+      connections.insert(token.0, thread_id);
+    }
   }
 
-  pub fn handle(&mut self, event: (bool, bool, Token)) -> Result<(), ()> {
-    let token = event.2;
+  pub fn handle(&mut self, event: MioEvent) {
+    let token = event.raw_token();
 
-    let connections = self.connections.lock().unwrap();
-    match connections.get(&token.0) {
-      Some(thread_id) => {
-        let thread_id = *thread_id;
-        drop(connections);
-        self.pool.execute_on(
-          thread_id,
-          move |_, _, _, connections, registry, global_connections| {
-            if let Some(connection) = connections.get_mut(&token) {
-              connection.ready(registry, (event.0, event.1));
-              if connection.is_closed() {
-                connections.remove(&token);
+    // Getting the lock on global connections! Have to release it quick!
+    let thread_id = {
+      let connections = self.connections.lock().unwrap();
+      match connections.get(&token) {
+        Some(id) => *id,
+        None => {
+          eprintln!("Connection not found! {:?}", token);
+          return;
+        }
+      }
+    };
+
+    self
+      .pool
+      .execute_on(
+        thread_id,
+        move |_, _, _, connections, registry, global_connections| {
+          if let Some(connection) = connections.get_mut(&event.token()) {
+            connection.ready(registry, &event);
+            if connection.is_closed() {
+              connections.remove(&event.token());
+              // Getting the lock on global connections! Have to release it quick!
+              {
                 let mut global_connections = global_connections.lock().unwrap();
-                global_connections.remove(&token.0);
+                global_connections.remove(&event.raw_token());
               }
-            } else {
-              eprintln!("Connection not found!");
             }
-          },
-        )
-      }
-      None => {
-        eprintln!("Connection not found! {:?}", token);
-        Err(())
-      }
-    }
+          } else {
+            eprintln!("Connection not found!");
+          }
+        },
+      )
+      .expect("A incorrect thread id was passed, probably by the main HashMap of connections!");
   }
 }

@@ -19,7 +19,7 @@ const HTTPS_SERVER: Token = Token(0);
 const RESERVED_TOKENS: usize = 1024;
 
 pub mod config {
-  use super::{threading::HandlerPool, Cache, Connection};
+  use super::{threading::HandlerPool, Cache, Connection, MioEvent};
   use super::{HTTPS_SERVER, RESERVED_TOKENS};
   use http::{Request, Uri};
   use mio::net::TcpListener;
@@ -233,12 +233,7 @@ pub mod config {
                 .expect("Failed to accept message!");
             }
             _ => {
-              // println!("Request from token: {}", event.token().0);
-              // println!("New connection!");
-              handler
-                .handle((event.is_readable(), event.is_writable(), event.token()))
-                .expect("Failed!!");
-              // self.new_con(Arc::clone(&poll), &event);
+              handler.handle(MioEvent::from_event(event));
             }
           }
         }
@@ -298,13 +293,11 @@ pub mod config {
       }
     }
 
-    pub fn new_con(&mut self, registry: &mio::Registry, event: &mio::event::Event) {
+    pub fn new_con(&mut self, registry: &mio::Registry, event: &MioEvent) {
       let token = event.token();
 
-      // let registry = registry.lock().unwrap();
-
       if let Some(connection) = self.connections.get_mut(&token) {
-        connection.ready(registry, (event.is_readable(), event.is_writable()));
+        connection.ready(registry, event);
         if connection.is_closed() {
           self.connections.remove(&token);
         }
@@ -400,10 +393,9 @@ impl Connection {
     }
   }
 
-  pub fn ready(&mut self, registry: &mio::Registry, event: (bool, bool)) {
+  pub fn ready(&mut self, registry: &mio::Registry, event: &MioEvent) {
     // If socket is readable, read from socket to session
-    let (readable, writable) = event;
-    if readable && self.decrypt().is_ok() {
+    if event.readable() && self.decrypt().is_ok() {
       // Read request from session to buffer
       let request = {
         let mut buffer = Vec::with_capacity(4096);
@@ -459,7 +451,7 @@ impl Connection {
         };
       }
     }
-    if writable {
+    if event.writable() {
       if let Err(..) = self.session.write_tls(&mut self.socket) {
         eprintln!("Error writing to socket!");
         self.close();
@@ -773,6 +765,32 @@ impl ConnectionHeader {
   }
   fn close(&self) -> bool {
     *self == Self::Close
+  }
+}
+pub struct MioEvent {
+  writable: bool,
+  readable: bool,
+  token: usize,
+}
+impl MioEvent {
+  fn from_event(event: &mio::event::Event) -> Self {
+    Self {
+      writable: event.is_writable(),
+      readable: event.is_readable(),
+      token: event.token().0,
+    }
+  }
+  fn writable(&self) -> bool {
+    self.writable
+  }
+  fn readable(&self) -> bool {
+    self.readable
+  }
+  fn token(&self) -> Token {
+    Token(self.token)
+  }
+  fn raw_token(&self) -> usize {
+    self.token
   }
 }
 
