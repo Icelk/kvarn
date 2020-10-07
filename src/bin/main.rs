@@ -8,7 +8,7 @@ use std::thread;
 fn main() {
     let mut bindings = arktis::FunctionBindings::new();
     let times_called = Arc::new(Mutex::new(0));
-    bindings.bind(String::from("/test"), move |buffer, request| {
+    bindings.bind("/test", move |buffer, request| {
         let mut tc = times_called.lock().unwrap();
         *tc += 1;
 
@@ -23,9 +23,7 @@ fn main() {
 
         ("text/html", false)
     });
-    let config = arktis::config::server_config::get_server_config("cert.pem", "privkey.pem")
-        .expect("Failed to read certificate!");
-    let server = arktis::Config::new(config, bindings, 443);
+    let server = arktis::Config::with_bindings(bindings, 443);
     let fc = server.get_fs_cache();
     let rc = server.get_response_cache();
     thread::spawn(move || server.run());

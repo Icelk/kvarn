@@ -59,7 +59,6 @@ pub struct ThreadPool {
   workers: Vec<(Worker, mpsc::Sender<Job>)>,
   last_send: usize,
 }
-
 impl ThreadPool {
   pub fn new(
     size: usize,
