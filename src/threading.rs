@@ -92,7 +92,7 @@ impl ThreadPool {
       last_send: 0,
     }
   }
-  /// Guarantees a valid id, within range of worker vector
+  /// Guarantees a valid id, within range of the worker vector
   fn next_send(&mut self) -> usize {
     if self.last_send + 1 >= self.workers.len() {
       self.last_send = 0;
@@ -121,7 +121,7 @@ impl ThreadPool {
     id
   }
   /// # Errors
-  /// If the worker id is incorrect.
+  /// If the worker id is out of range.
   pub fn execute_on<F>(&self, worker_id: usize, f: F) -> Result<(), ()>
   where
     F: FnOnce(
@@ -206,6 +206,7 @@ impl HandlerPool {
     // Getting the lock on global connections! Have to release it quick!
     let thread_id = {
       let connections = self.connections.lock().unwrap();
+      // println!("Global connections: {}", connections.len());
       match connections.get(&token) {
         Some(id) => *id,
         None => {
@@ -220,6 +221,7 @@ impl HandlerPool {
       .execute_on(
         thread_id,
         move |_, _, _, connections, registry, global_connections| {
+          // println!("Thread-local connections: {}", connections.len());
           if let Some(connection) = connections.get_mut(&event.token()) {
             connection.ready(registry, &event);
             if connection.is_closed() {

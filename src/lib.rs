@@ -668,7 +668,7 @@ impl Connection {
     if event.readable() && self.decrypt().is_ok() {
       // Read request from session to buffer
       let (request, request_len) = {
-        let mut buffer = [0; 16_384];
+        let mut buffer = [0; 16_384_usize];
         let len = match self.session.read(&mut buffer) {
           Err(ref err) if err.kind() == io::ErrorKind::ConnectionAborted => {
             self.close();
@@ -726,6 +726,7 @@ impl Connection {
               .write_all(&default_error(400, &close, Some(&mut self.fs_cache))[..]);
           }
         };
+
         if close.close() {
           self.session.send_close_notify();
         };
@@ -818,7 +819,7 @@ impl Connection {
 }
 
 fn process_request<W: Write>(
-  mut socket: &mut W,
+  socket: &mut W,
   request: Request<&[u8]>,
   raw_request: &[u8],
   close: &ConnectionHeader,
@@ -866,7 +867,7 @@ fn process_request<W: Write>(
           return Ok(());
         }
       };
-      let mut do_cache = true;
+      let mut cache = true;
       // Read file etc...
       let mut iter = body.iter();
       static LF: u8 = 10;
@@ -877,48 +878,46 @@ fn process_request<W: Write>(
       if iter.next() == Some(&BANG) && iter.next() == Some(&PIPE) {
         // We have a file to interpret
         let interpreter = {
-          let mut buffer = Vec::with_capacity(8);
+          let mut args = Vec::with_capacity(8);
           let mut last_break = 2;
           let mut current_index = 2;
           for byte in iter {
             if *byte == CR || *byte == LF {
               if current_index - last_break > 1 {
-                buffer.push(&body[last_break..current_index]);
+                args.push(&body[last_break..current_index]);
               }
               break;
             }
             if *byte == SPACE && current_index - last_break > 1 {
-              buffer.push(&body[last_break..current_index]);
+              args.push(&body[last_break..current_index]);
             }
             current_index += 1;
             if *byte == SPACE {
               last_break = current_index;
             }
           }
-          buffer
+          args
         };
         println!("Found: {} items", interpreter.len());
 
         for item in &interpreter {
           println!("Got text: '{}'", String::from_utf8_lossy(item));
         }
+
         if let Some(test) = interpreter.get(0) {
           match test {
             &b"php" if interpreter.len() > 0 => {
               println!("Handle php!");
-              match handle_php(&mut socket, raw_request, &path) {
+              match handle_php(socket, raw_request, &path) {
                 Ok(..) => {
                   // Don't write headers!
                   write_headers = false;
                   // Check cache settings
-                  do_cache = match interpreter.get(1) {
-                    Some(cache) => {
-                      match cache {
-                        &b"false" | &b"no-cache" | &b"nocache" => false,
-                        _ => true,
-                      }
-                      // String::from_utf8_lossy(cache).parse().unwrap_or(true)
-                    }
+                  cache = match interpreter.get(1) {
+                    Some(cache) => match cache {
+                      &b"false" | &b"no-cache" | &b"nocache" => false,
+                      _ => true,
+                    },
                     None => true,
                   };
                 }
@@ -931,7 +930,7 @@ fn process_request<W: Write>(
       };
 
       let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
-      (body, Cow::Owned(content_type), do_cache)
+      (body, Cow::Owned(content_type), cache)
     }
   };
   let response = if write_headers {
