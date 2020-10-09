@@ -288,7 +288,8 @@ pub mod config {
                 .expect("Failed to accept message!");
             }
             _ => {
-              thread_handler.handle(MioEvent::from_event(event));
+              let time = std::time::Instant::now();
+              thread_handler.handle(MioEvent::from_event(event), time);
             }
           }
         }
