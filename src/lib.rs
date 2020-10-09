@@ -590,6 +590,100 @@ pub mod cache {
   }
 }
 
+const BUFFER_SIZE: usize = 8192;
+// const BUFFER_SIZE: usize = 8;
+pub struct Buffered<'a, W: Write> {
+  buffer: [u8; BUFFER_SIZE],
+  // Must not be more than buffer.len()
+  index: usize,
+  writer: &'a mut W,
+}
+impl<'a, W: Write> Buffered<'a, W> {
+  pub fn new(writer: &'a mut W) -> Self {
+    Self {
+      buffer: [0; BUFFER_SIZE],
+      index: 0,
+      writer,
+    }
+  }
+
+  #[inline]
+  pub fn left(&self) -> usize {
+    self.buffer.len() - self.index
+  }
+
+  pub fn write(&mut self, buf: &[u8]) -> io::Result<()> {
+    if buf.len() > self.left() {
+      if buf.len() + self.index < self.buffer.len() * 2 {
+        let copy = self.left();
+        self.buffer[self.index..].copy_from_slice(&buf[..copy]);
+        unsafe {
+          self.flush_all()?;
+        }
+        self.buffer[..buf.len() - copy].copy_from_slice(&buf[copy..]);
+        self.index = buf.len() - copy;
+        println!("Copied: {}", copy);
+
+        self.try_flush()?;
+      } else {
+        self.flush_remaining()?;
+        self.writer.write_all(buf)?;
+      }
+    } else {
+      println!("Copying all!");
+      self.buffer[self.index..self.index + buf.len()].copy_from_slice(buf);
+      self.index += buf.len();
+
+      self.try_flush()?;
+    }
+    println!("Buffer occupies: {}", self.index);
+    Ok(())
+  }
+  #[inline]
+  pub unsafe fn flush_all(&mut self) -> io::Result<()> {
+    self.index = 0;
+    self.writer.write_all(&self.buffer[..])
+  }
+  pub fn flush_remaining(&mut self) -> io::Result<()> {
+    self.writer.write_all(&self.buffer[..self.index])?;
+    self.index = 0;
+    Ok(())
+  }
+  pub fn try_flush(&mut self) -> io::Result<()> {
+    if self.index == self.buffer.len() {
+      unsafe {
+        self.flush_all()?;
+      }
+    }
+    Ok(())
+  }
+
+  #[inline]
+  pub fn inner(&mut self) -> &mut W {
+    &mut self.writer
+  }
+}
+impl<'a, W: Write> Drop for Buffered<'a, W> {
+  fn drop(&mut self) {
+    let _ = self.flush_remaining();
+  }
+}
+impl<'a, W: Write> Write for Buffered<'a, W> {
+  #[inline]
+  fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    self.write(buf)?;
+    Ok(buf.len())
+  }
+  #[inline]
+  fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+    self.write(buf)
+  }
+  #[inline]
+  fn flush(&mut self) -> io::Result<()> {
+    self.flush_remaining()
+  }
+}
+
 #[derive(PartialEq)]
 enum ConnectionHeader {
   KeepAlive,
@@ -963,9 +1057,12 @@ fn process_request<W: Write>(
   };
 
   if cache {
-    println!("Caching!");
     let mut response_cache = response_cache.lock().unwrap();
-    response_cache.cache(request.into_parts().0.uri, response);
+    let uri = request.into_parts().0.uri;
+    println!("Caching uri {}", &uri);
+    if response_cache.cache(uri, response).is_some() {
+      println!("Overrote cache!");
+    };
   }
   Ok(())
 }
@@ -987,7 +1084,6 @@ pub fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
 
 fn default_error(code: u16, close: &ConnectionHeader, cache: Option<&mut FsCache>) -> Vec<u8> {
   let mut buffer = Vec::with_capacity(512);
-
   buffer.extend(b"HTTP/1.1 ");
   buffer.extend(
     format!(
@@ -997,14 +1093,13 @@ fn default_error(code: u16, close: &ConnectionHeader, cache: Option<&mut FsCache
     .as_bytes(),
   );
   buffer.extend(
-    b"Content-Type: text/html\r\n\
-    Connection: "
-      .iter(),
+    &b"Content-Type: text/html\r\n\
+    Connection: "[..],
   );
   if close.close() {
-    buffer.extend(b"Close\r\n".iter());
+    buffer.extend(b"Close\r\n");
   } else {
-    buffer.extend(b"Keep-Alive\r\n".iter());
+    buffer.extend(b"Keep-Alive\r\n");
   }
 
   fn get_default(code: u16) -> &'static [u8] {
@@ -1066,7 +1161,6 @@ fn handle_php<W: Write>(socket: &mut W, request: &[u8], path: &PathBuf) -> Resul
   unimplemented!();
   use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 
-  let attention: i32;
   // Take the thread name and make a file of that instead. Try the line for line mode instead.
   let mut temp = File::create("temp.php")?;
   let mut file = File::open(path)?;
