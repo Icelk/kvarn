@@ -670,6 +670,10 @@ impl Connection {
       let (request, request_len) = {
         let mut buffer = [0; 16_384];
         let len = match self.session.read(&mut buffer) {
+          Err(ref err) if err.kind() == io::ErrorKind::ConnectionAborted => {
+            self.close();
+            0
+          }
           Err(err) => {
             eprintln!("Failed to read from session! {:?}", err);
             self.close();

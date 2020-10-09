@@ -190,9 +190,6 @@ impl HandlerPool {
         );
 
         connection.register(registry);
-        println!("Registered!");
-
-        println!("Inserting with token {}", token.0);
         connections.insert(token, connection);
       },
     );

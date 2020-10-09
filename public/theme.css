@@ -1,0 +1,55 @@
+.loading
+{
+  --transition-speed: 0 !important;
+}
+
+:root
+{
+  --transition-speed: .6s;
+  --nav-dimensions: 4rem;
+  --transition: background-color calc(var(--transition-speed) / 2) ease, color calc(var(--transition-speed) / 2) ease;
+  
+  --text-primary: #b6b6b6;
+  --text-secondary: #ececec;
+  --bg-main: #1C1C23;
+  --bg-primary: #23232e;
+  --bg-secondary: #141418;
+  --image-primary: #ff7eee;
+  --image-secondary: #df49a6;
+}
+
+/* .dark doesn't exist, since the default is dark. */
+
+.dark.shift
+{
+  /* https://coolors.co/fffffa-2b2d42-070c26-01081c-a6cfd5 */
+  --text-primary: #FFFFFA;
+  --text-secondary: #A6CFD5;
+  --bg-main: #01081C;
+  --bg-primary: #070C26;
+  --bg-secondary: #2B2D42;
+  /* https://coolors.co/fffffa-2b2d42-070c26-7272a3-afafdb */
+  --image-primary: #AFAFDB;
+  --image-secondary: #7272A3;
+  --transition-speed: .3s;
+  --transition: background-color calc(var(--transition-speed) / 2) ease, color calc(var(--transition-speed) / 2) ease; /* Duplicate from root */
+}
+
+.light
+{
+  --text-primary: #1f1f1f;
+  --text-secondary: #000000;
+  --bg-main: #f2f2f2;
+  --bg-primary: #ffffff;
+  --bg-secondary: #e4e4e4;
+  --image-primary: #89E594;
+  --image-secondary: #63C687;
+}
+.light.shift
+{
+  --text-primary: #576e75;
+  --text-secondary: #35535c;
+  --bg-main: #feebca;
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #ffeebe;
+}
