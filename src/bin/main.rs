@@ -30,8 +30,10 @@ fn main() {
     });
     bindings.bind_dir("/capturing", |buffer, request| {
         buffer.extend(
-            b"<h1>Hi!</h1>This entire root directory is captured by a function. You are visiting '"
-                .iter(),
+            &b"!> tmpl standard\n\
+            [head]\
+            [body]\
+            <main style='text-align: center;'><h1>You are visiting: '"[..],
         );
         buffer.extend(
             request
@@ -41,7 +43,8 @@ fn main() {
                 .unwrap_or("/")
                 .as_bytes(),
         );
-        buffer.extend(b"' right? :-)<br>Well, hope you enjoy <a href=\"/\">this site!</a>".iter());
+        buffer
+            .extend(&b"'.</h1>Well, hope you enjoy <a href=\"/\">my site</a>!</main>[footer]"[..]);
 
         ("text/html", true)
     });

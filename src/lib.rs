@@ -316,97 +316,101 @@ fn process_request<W: Write>(
     }
   }
   let mut write_headers = true;
-  // If a function exists
-  let (body, content_type, do_cache) = match cache.mut_bindings().get(request.uri().path()) {
+  let mut do_cache = true;
+  // Get from function or cache, to enable processing (extensions) from functions!
+  let path = match parse::convert_uri(request.uri()) {
+    Ok(path) => path,
+    Err(()) => {
+      socket.write_all(&default_error(403, close, Some(cache.mut_fs()))[..])?;
+      return Ok(());
+    }
+  };
+
+  // PHP needs it, so don't give a warning!
+  #[allow(unused_mut)]
+  let (mut body, content_type) = match cache.mut_bindings().get(request.uri().path()) {
+    // We've got an function, call it and return body and result!
     Some(callback) => {
       let mut response = Vec::with_capacity(2048);
-      let (content_type, do_cache) = callback(&mut response, &request);
+      let (content_type, cache) = callback(&mut response, &request);
+      do_cache = cache;
       // Check if callback contains headers
       if &response[..5] == b"HTTP/" {
         write_headers = false;
       }
-      (Arc::new(response), Cow::Borrowed(content_type), do_cache)
+      (Arc::new(response), Cow::Borrowed(content_type))
     }
-    None => {
-      // FS
-      let path = match parse::convert_uri(request.uri()) {
-        Ok(path) => path,
-        Err(()) => {
-          socket.write_all(&default_error(403, close, Some(cache.mut_fs()))[..])?;
-          return Ok(());
-        }
-      };
-      #[allow(unused_mut)]
-      let mut body = match read_source(&path, cache.mut_fs()) {
+    // No function, try read from FS cache.
+    None => (
+      // Body
+      match read_source(&path, cache.mut_fs()) {
         Some(response) => response,
         None => {
           socket.write_all(&default_error(404, close, Some(cache.mut_fs()))[..])?;
           return Ok(());
         }
-      };
-      // PHP needs it, so don't give a warning!
-      #[allow(unused_mut)]
-      let mut do_cache = true;
-      // Read file etc...
-      let mut iter = body.iter();
-      // If file starts with "!>", meaning it's an extension-dependent file!
-      if iter.next() == Some(&BANG) && iter.next() == Some(&PIPE) {
-        // Get extention arguments
-        let extension_args = {
-          let mut args = Vec::with_capacity(8);
-          let mut last_break = 2;
-          let mut current_index = 2;
-          for byte in iter {
-            if *byte == CR || *byte == LF {
-              if current_index - last_break > 1 {
-                args.push(&body[last_break..current_index]);
-              }
-              break;
-            }
-            if *byte == SPACE && current_index - last_break > 1 {
-              args.push(&body[last_break..current_index]);
-            }
-            current_index += 1;
-            if *byte == SPACE {
-              last_break = current_index;
-            }
+      },
+      // Content mime type
+      Cow::Owned(format!(
+        "{}",
+        mime_guess::from_path(&path).first_or_octet_stream()
+      )),
+    ),
+  };
+  // Read file etc...
+  let mut bytes = body.iter();
+  // If file starts with "!>", meaning it's an extension-dependent file!
+  if bytes.next() == Some(&BANG) && bytes.next() == Some(&PIPE) {
+    // Get extention arguments
+    let extension_args = {
+      let mut args = Vec::with_capacity(8);
+      let mut last_break = 2;
+      let mut current_index = 2;
+      for byte in bytes {
+        if *byte == CR || *byte == LF {
+          if current_index - last_break > 1 {
+            args.push(&body[last_break..current_index]);
           }
-          args
-        };
+          break;
+        }
+        if *byte == SPACE && current_index - last_break > 1 {
+          args.push(&body[last_break..current_index]);
+        }
+        current_index += 1;
+        if *byte == SPACE {
+          last_break = current_index;
+        }
+      }
+      args
+    };
 
-        if let Some(test) = extension_args.get(0) {
-          match test {
-            #[cfg(feature = "php")]
-            &b"php" => {
-              println!("Handle php!");
-              match extensions::php(socket, raw_request, &path) {
-                Ok(()) => {
-                  // Don't write headers!
-                  write_headers = false;
-                  // Check cache settings
-                  do_cache = extension_args
-                    .get(1)
-                    .and_then(|arg| {
-                      Some(arg != b"false" && arg != b"no-cache" && arg != b"nocache")
-                    })
-                    .unwrap_or(true);
-                }
-                _ => {}
-              };
-            }
-            #[cfg(feature = "templates")]
-            &b"tmpl" if extension_args.len() > 1 => {
-              body = Arc::new(extensions::template(&extension_args[..], &body[..], cache));
+    if let Some(test) = extension_args.get(0) {
+      match test {
+        #[cfg(feature = "php")]
+        &b"php" => {
+          println!("Handling php!");
+          match extensions::php(socket, raw_request, &path) {
+            Ok(()) => {
+              // Don't write headers!
+              write_headers = false;
+              // Check cache settings
+              do_cache = extension_args
+                .get(1)
+                .and_then(|arg| Some(arg != b"false" && arg != b"no-cache" && arg != b"nocache"))
+                .unwrap_or(true);
             }
             _ => {}
-          }
+          };
         }
-      };
-
-      let content_type = format!("{}", mime_guess::from_path(path).first_or_octet_stream());
-      (body, Cow::Owned(content_type), do_cache)
+        #[cfg(feature = "templates")]
+        &b"tmpl" if extension_args.len() > 1 => {
+          body = Arc::new(extensions::template(&extension_args[..], &body[..], cache));
+        }
+        _ => {}
+      }
     }
   };
+
   let response = if write_headers {
     let mut response = Vec::with_capacity(4096);
     response.extend(
@@ -434,6 +438,8 @@ fn process_request<W: Write>(
     socket.write_all(&body[..])?;
     body
   };
+  // Flush all contents, important for compression
+  socket.flush()?;
 
   if do_cache {
     let mut response_cache = cache.mut_response().lock().unwrap();

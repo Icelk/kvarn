@@ -203,9 +203,9 @@ impl HandlerPool {
         move |cache, connections, registry, global_connections| {
           // println!("Thread-local connections: {}", connections.len());
           if let Some(connection) = connections.get_mut(&event.token()) {
-            // let pre_processing = std::time::Instant::now();
+            let pre_processing = std::time::Instant::now();
             connection.ready(registry, &event, cache);
-            // let post_processing = pre_processing.elapsed();
+            let post_processing = pre_processing.elapsed();
             if connection.is_closed() {
               connections.remove(&event.token());
               // Getting the lock on global connections! Have to release it quick!
@@ -214,12 +214,12 @@ impl HandlerPool {
                 global_connections.remove(&event.raw_token());
               }
             }
-          // println!(
-          //   "Request took: {} μs. Processing took: {} μs. Processing and global cons: {} μs.",
-          //   _time.elapsed().as_micros(),
-          //   post_processing.as_micros(),
-          //   pre_processing.elapsed().as_micros(),
-          // );
+            println!(
+              "Request took: {} μs. Processing took: {} μs. Processing and global cons: {} μs.",
+              _time.elapsed().as_micros(),
+              post_processing.as_micros(),
+              pre_processing.elapsed().as_micros(),
+            );
           } else {
             eprintln!("Connection not found!");
           }
