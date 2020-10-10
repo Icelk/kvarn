@@ -1,4 +1,4 @@
-use crate::{Connection, FsCache, FunctionBindings, MioEvent, ResponseCache};
+use crate::{Caches, Connection, MioEvent};
 use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
 use rustls::{ServerConfig, ServerSession};
@@ -15,10 +15,8 @@ pub struct Worker {
 impl Worker {
   pub fn new(
     id: usize,
-    receiver: mpsc::Receiver<Job>,
-    mut fs_cache: FsCache,
-    mut response_cache: ResponseCache,
-    mut bindings: Arc<FunctionBindings>,
+    receiver: mpsc::Receiver<BoxedJob>,
+    mut cache: Caches,
     registry: Registry,
     mut global_connections: Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
@@ -29,9 +27,7 @@ impl Worker {
       .spawn(move || loop {
         let job = receiver.recv().unwrap();
         job(
-          &mut fs_cache,
-          &mut response_cache,
-          &mut bindings,
+          &mut cache,
           &mut connections,
           &registry,
           &mut global_connections,
@@ -43,50 +39,54 @@ impl Worker {
   }
 }
 
-type Job = Box<
-  dyn FnOnce(
-      &mut FsCache,
-      &mut ResponseCache,
-      &mut Arc<FunctionBindings>,
-      &mut HashMap<Token, Connection>,
-      &Registry,
-      &mut Arc<Mutex<HashMap<usize, usize>>>,
-    ) + Send
-    + 'static,
->;
+type Job = dyn FnOnce(
+    &mut Caches,
+    &mut HashMap<Token, Connection>,
+    &Registry,
+    &mut Arc<Mutex<HashMap<usize, usize>>>,
+  ) + Send
+  + 'static;
+type BoxedJob = Box<Job>;
 
 pub struct ThreadPool {
-  workers: Vec<(Worker, mpsc::Sender<Job>)>,
+  workers: Vec<(Worker, mpsc::Sender<BoxedJob>)>,
   last_send: usize,
 }
 impl ThreadPool {
   pub fn new(
     size: usize,
-    fs_cache: &FsCache,
-    response_cache: &ResponseCache,
-    bindings: &Arc<FunctionBindings>,
+    cache: Caches,
     registry: &Registry,
     connections: &Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
     assert!(size > 0);
 
-    // let job_receiver = Arc::new(Mutex::new(job_receiver));
     let mut workers = Vec::with_capacity(size);
-    for id in 0..size {
+    for id in 0..size - 1 {
       let (job_sender, job_receiver) = mpsc::channel();
       workers.push((
         Worker::new(
           id,
           job_receiver,
-          Arc::clone(&fs_cache),
-          Arc::clone(&response_cache),
-          Arc::clone(&bindings),
+          Caches::clone(&cache),
           registry.try_clone().expect("Failed to clone registry!"),
           Arc::clone(&connections),
         ),
         job_sender,
       ));
     }
+    // Last
+    let (job_sender, job_receiver) = mpsc::channel();
+    workers.push((
+      Worker::new(
+        size - 1,
+        job_receiver,
+        Caches::clone(&cache),
+        registry.try_clone().expect("Failed to clone registry!"),
+        Arc::clone(&connections),
+      ),
+      job_sender,
+    ));
     Self {
       workers,
       last_send: 0,
@@ -105,9 +105,7 @@ impl ThreadPool {
   pub fn execute<F>(&mut self, f: F) -> usize
   where
     F: FnOnce(
-        &mut FsCache,
-        &mut ResponseCache,
-        &mut Arc<FunctionBindings>,
+        &mut Caches,
         &mut HashMap<Token, Connection>,
         &Registry,
         &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -125,9 +123,7 @@ impl ThreadPool {
   pub fn execute_on<F>(&self, worker_id: usize, f: F) -> Result<(), ()>
   where
     F: FnOnce(
-        &mut FsCache,
-        &mut ResponseCache,
-        &mut Arc<FunctionBindings>,
+        &mut Caches,
         &mut HashMap<Token, Connection>,
         &Registry,
         &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -151,20 +147,12 @@ pub struct HandlerPool {
   server_config: Arc<ServerConfig>,
 }
 impl HandlerPool {
-  pub fn new(
-    config: Arc<ServerConfig>,
-    fs_cache: FsCache,
-    response_cache: ResponseCache,
-    bindings: Arc<FunctionBindings>,
-    registry: &Registry,
-  ) -> Self {
+  pub fn new(config: Arc<ServerConfig>, cache: Caches, registry: &Registry) -> Self {
     let global_connections = Arc::new(Mutex::new(HashMap::new()));
     Self {
       pool: ThreadPool::new(
         num_cpus::get() as usize - 1,
-        &fs_cache,
-        &response_cache,
-        &bindings,
+        cache,
         registry,
         &global_connections,
       ),
@@ -176,23 +164,14 @@ impl HandlerPool {
   pub fn accept(&mut self, socket: TcpStream, addr: SocketAddr, token: Token) {
     let config = Arc::clone(&self.server_config);
     let session = ServerSession::new(&config);
-    let thread_id = self.pool.execute(
-      move |fs_cache, response_cache, bindings, connections, registry, _| {
-        println!("Accepting new connection from: {:?}", addr);
+    let thread_id = self.pool.execute(move |_, connections, registry, _| {
+      println!("Accepting new connection from: {:?}", addr);
 
-        let mut connection = Connection::new(
-          socket,
-          token,
-          session,
-          Arc::clone(&fs_cache),
-          Arc::clone(&response_cache),
-          Arc::clone(&bindings),
-        );
+      let mut connection = Connection::new(socket, token, session);
 
-        connection.register(registry);
-        connections.insert(token, connection);
-      },
-    );
+      connection.register(registry);
+      connections.insert(token, connection);
+    });
     // Getting the lock on global connections! Have to release it quick!
     {
       let mut connections = self.connections.lock().unwrap();
@@ -221,11 +200,11 @@ impl HandlerPool {
       .pool
       .execute_on(
         thread_id,
-        move |_, _, _, connections, registry, global_connections| {
+        move |cache, connections, registry, global_connections| {
           // println!("Thread-local connections: {}", connections.len());
           if let Some(connection) = connections.get_mut(&event.token()) {
             // let pre_processing = std::time::Instant::now();
-            connection.ready(registry, &event);
+            connection.ready(registry, &event, cache);
             // let post_processing = pre_processing.elapsed();
             if connection.is_closed() {
               connections.remove(&event.token());

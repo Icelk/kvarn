@@ -46,8 +46,7 @@ fn main() {
         ("text/html", true)
     });
     let server = arktis::Config::with_bindings(bindings, 443);
-    let fc = server.get_fs_cache();
-    let rc = server.get_response_cache();
+    let mut cache = server.clone_cache();
     thread::spawn(move || server.run());
 
     for line in stdin().lock().lines() {
@@ -57,7 +56,7 @@ fn main() {
                 match command {
                     "rcc" => {
                         // Responds cache clear
-                        let mut rc = rc.lock().unwrap();
+                        let mut rc = cache.mut_response().lock().unwrap();
                         let uri = match Uri::builder()
                             .path_and_query(words.next().unwrap_or(&""))
                             .build()
@@ -75,7 +74,7 @@ fn main() {
                     }
                     "fcc" => {
                         // File cache clear
-                        let mut fc = fc.lock().unwrap();
+                        let mut fc = cache.mut_fs().lock().unwrap();
                         let path = PathBuf::from(words.next().unwrap_or(&""));
                         match fc.remove(&path) {
                             Some(..) => println!("Removed item from cache!"),
@@ -83,20 +82,24 @@ fn main() {
                         };
                     }
                     "crc" => {
-                        let mut rc = rc.lock().unwrap();
+                        let mut rc = cache.mut_response().lock().unwrap();
                         rc.clear();
                         println!("Cleared response cache!");
                     }
                     "cfc" => {
-                        let mut fc = fc.lock().unwrap();
+                        let mut fc = cache.mut_fs().lock().unwrap();
                         fc.clear();
                         println!("Cleared file system cache!");
                     }
                     "cc" => {
-                        let mut rc = rc.lock().unwrap();
-                        let mut fc = fc.lock().unwrap();
-                        rc.clear();
-                        fc.clear();
+                        {
+                            let mut rc = cache.mut_response().lock().unwrap();
+                            rc.clear();
+                        }
+                        {
+                            let mut fc = cache.mut_fs().lock().unwrap();
+                            fc.clear();
+                        }
                         println!("Cleared all caches!");
                     }
                     _ => {

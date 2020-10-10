@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 
 use crate::char_const::*;
-use crate::{read_file, FsCache};
+use crate::{read_source, SourceCache};
 
 #[cfg(feature = "php")]
 pub use php::handle_php as php;
@@ -81,16 +81,15 @@ pub mod php {
 #[cfg(feature = "templates")]
 pub mod templates {
   use super::*;
+  use crate::{Caches, TemplateCache};
   use std::path::PathBuf;
+  use std::slice::Iter;
   use std::sync::Arc;
   use std::{collections::HashMap, str};
 
-  pub fn handle_template(arguments: &[&[u8]], file: &[u8], fs_cache: &mut FsCache) -> Vec<u8> {
-    // Get files
-    let template_files = get_files(arguments, fs_cache);
-
-    // Check for templates
-    let templates = extract_templates(&template_files);
+  pub fn handle_template(arguments: &[&[u8]], file: &[u8], cache: &mut Caches) -> Vec<u8> {
+    // Get templates, from cache or file
+    let templates = read_templates(arguments.iter().skip(1).copied(), cache);
 
     #[derive(Eq, PartialEq)]
     enum Stage {
@@ -132,9 +131,10 @@ pub mod templates {
               // Good; we have UTF-8
               if let Ok(key) = str::from_utf8(&file[placeholder_start + 1..position]) {
                 // If it is a valid template?
-                if let Some(template) = templates.get(key) {
+                // Frick, we have to own the value for it to be borrow for Arc<String>, no &str here :(
+                if let Some(template) = templates.get(&key.to_owned()) {
                   // Push template byte-slice to the response
-                  for byte in *template {
+                  for byte in &**template {
                     response.push(*byte);
                   }
                 }
@@ -160,86 +160,122 @@ pub mod templates {
     }
     response
   }
-  fn get_files(arguments: &[&[u8]], fs_cache: &mut FsCache) -> Vec<Arc<Vec<u8>>> {
-    let template_dir = PathBuf::from("templates");
+  fn read_templates<'a, 'b, I: DoubleEndedIterator<Item = &'a [u8]>>(
+    files: I,
+    cache: &'b mut Caches,
+  ) -> HashMap<Arc<String>, Arc<Vec<u8>>> {
+    let mut templates = HashMap::with_capacity(32);
 
-    let mut files = Vec::with_capacity(arguments.len() - 1);
-    for template in arguments.iter().skip(1).rev() {
+    for template in files.rev() {
       if let Ok(template) = str::from_utf8(template) {
-        if let Some(file) = read_file(&template_dir.join(template), fs_cache) {
-          files.push(file);
-        };
+        if let Some(map) = read_templates_from_file(template, cache) {
+          for (key, value) in map.iter() {
+            templates.insert(Arc::clone(key), Arc::clone(value));
+          }
+        }
       }
     }
-    files
-  }
-  fn extract_templates(files: &[Arc<Vec<u8>>]) -> HashMap<&str, &[u8]> {
-    let mut templates = HashMap::new();
-    for file in files {
-      let mut last_was_lf = true;
-      let mut escape = false;
-      let mut name_start = 0;
-      let mut name_end = 0usize;
-      let mut newline_size = 1;
-      for (position, byte) in file.iter().enumerate() {
-        // Ignore all CR characters
-        if *byte == CR {
-          newline_size = 2;
-          continue;
-        }
-        // If previous char was \, escape!
-        // New template, process previous!
-        if !escape && last_was_lf && *byte == L_SQ_BRACKET {
-          // If name is longer than empty
-          if name_end.checked_sub(name_start + 2).is_some() {
-            // Check if we have a valid UTF-8 string
-            if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
-              // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
-              let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
-                newline_size
-              } else {
-                if file.get(name_end) == Some(&SPACE) {
-                  1
-                } else {
-                  0
-                }
-              };
-              // Then insert template; name we got from previous step, then bytes from where the previous template definition ended, then our current position, just before the start of the next template
-              // Returns a byte-slice of the file
-              templates.insert(
-                name,
-                &file[name_end + add_after_name..position - newline_size],
-              );
-            }
-          }
-          // Set start of template name to now
-          name_start = position;
-        }
-        if *byte == R_SQ_BRACKET {
-          name_end = position + 1;
-        }
 
-        last_was_lf = *byte == LF;
-        escape = *byte == ESCAPE;
+    templates
+  }
+  fn read_templates_from_file(
+    template_set: &str,
+    cache: &mut Caches,
+  ) -> Option<Arc<HashMap<Arc<String>, Arc<Vec<u8>>>>> {
+    {
+      let template_cache = cache.mut_template().lock().unwrap();
+      if let Some(template) = template_cache.get(template_set) {
+        return Some(template);
       }
-      // Because we add the definitions in the start of the new one, check for last in the end of file
-      if name_end.checked_sub(name_start + 2).is_some() {
-        if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
-          // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
-          let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
-            newline_size
-          } else {
-            if file.get(name_end) == Some(&SPACE) {
-              1
-            } else {
-              0
-            }
-          };
-          templates.insert(
-            name,
-            &file[name_end + add_after_name..file.len() - newline_size],
-          );
+    }
+    let mut template_dir = PathBuf::from("templates");
+    template_dir.push(template_set);
+
+    match read_source(&template_dir, cache.mut_fs()) {
+      Some(file) => {
+        let templates = extract_templates(&file[..]);
+        match cache.mut_template().try_lock() {
+          Ok(mut cache) => Some(
+            match cache.cache(template_set.to_owned(), Arc::new(templates)) {
+              Some(failed) => failed,
+              None => cache.get(template_set).unwrap(),
+            },
+          ),
+          Err(err) => match err {
+            std::sync::TryLockError::WouldBlock => Some(Arc::new(templates)),
+            _ => panic!("Source lock is poisoned!"),
+          },
         }
+      }
+      None => None,
+    }
+  }
+  fn extract_templates(file: &[u8]) -> HashMap<Arc<String>, Arc<Vec<u8>>> {
+    let mut templates = HashMap::with_capacity(16);
+
+    let mut last_was_lf = true;
+    let mut escape = false;
+    let mut name_start = 0;
+    let mut name_end = 0usize;
+    let mut newline_size = 1;
+    for (position, byte) in file.iter().enumerate() {
+      // Ignore all CR characters
+      if *byte == CR {
+        newline_size = 2;
+        continue;
+      }
+      // If previous char was \, escape!
+      // New template, process previous!
+      if !escape && last_was_lf && *byte == L_SQ_BRACKET {
+        // If name is longer than empty
+        if name_end.checked_sub(name_start + 2).is_some() {
+          // Check if we have a valid UTF-8 string
+          if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
+            // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
+            let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
+              newline_size
+            } else {
+              if file.get(name_end) == Some(&SPACE) {
+                1
+              } else {
+                0
+              }
+            };
+            // Then insert template; name we got from previous step, then bytes from where the previous template definition ended, then our current position, just before the start of the next template
+            // Returns a byte-slice of the file
+            templates.insert(
+              Arc::new(name.to_owned()),
+              Arc::new(file[name_end + add_after_name..position - newline_size].to_vec()),
+            );
+          }
+        }
+        // Set start of template name to now
+        name_start = position;
+      }
+      if *byte == R_SQ_BRACKET {
+        name_end = position + 1;
+      }
+
+      last_was_lf = *byte == LF;
+      escape = *byte == ESCAPE;
+    }
+    // Because we add the definitions in the start of the new one, check for last in the end of file
+    if name_end.checked_sub(name_start + 2).is_some() {
+      if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
+        // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
+        let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
+          newline_size
+        } else {
+          if file.get(name_end) == Some(&SPACE) {
+            1
+          } else {
+            0
+          }
+        };
+        templates.insert(
+          Arc::new(name.to_owned()),
+          Arc::new(file[name_end + add_after_name..file.len() - newline_size].to_vec()),
+        );
       }
     }
     templates
