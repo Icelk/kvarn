@@ -1159,13 +1159,16 @@ fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
     Ok(mut file) => {
       let mut buffer = Vec::with_capacity(4096);
       match file.read_to_end(&mut buffer) {
-        Ok(..) => {
-          let mut cache = cache.lock().unwrap();
-          Some(match cache.cache(path.clone(), Arc::new(buffer)) {
+        Ok(..) => match cache.try_lock() {
+          Ok(mut cache) => Some(match cache.cache(path.clone(), Arc::new(buffer)) {
             Some(failed) => failed,
             None => cache.get(&path).unwrap(),
-          })
-        }
+          }),
+          Err(err) => match err {
+            std::sync::TryLockError::WouldBlock => Some(Arc::new(buffer)),
+            _ => panic!("Source lock is poisoned!"),
+          },
+        },
         Err(..) => None,
       }
     }
