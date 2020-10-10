@@ -1,11 +1,15 @@
+// For when no features are present
+#![allow(unused_imports)]
+
 use crate::char_const::*;
 use crate::{read_file, FsCache};
 
-// #[cfg(feature = "php")]
+#[cfg(feature = "php")]
 pub use php::handle_php as php;
+#[cfg(feature = "templates")]
 pub use templates::handle_template as template;
 
-// #[cfg(feature = "php")]
+#[cfg(feature = "php")]
 pub mod php {
   use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
   use std::path::PathBuf;
@@ -74,6 +78,7 @@ pub mod php {
   }
 }
 
+#[cfg(feature = "templates")]
 pub mod templates {
   use super::*;
   use std::path::PathBuf;

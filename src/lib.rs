@@ -933,6 +933,7 @@ impl Connection {
   }
 }
 
+#[allow(unused_variables)]
 fn process_request<W: Write>(
   socket: &mut W,
   request: Request<&[u8]>,
@@ -982,6 +983,8 @@ fn process_request<W: Write>(
           return Ok(());
         }
       };
+      // PHP needs it, so don't give a warning!
+      #[allow(unused_mut)]
       let mut cache = true;
       // Read file etc...
       let mut iter = body.iter();
@@ -1012,6 +1015,7 @@ fn process_request<W: Write>(
 
         if let Some(test) = extension_args.get(0) {
           match test {
+            #[cfg(feature = "php")]
             &b"php" => {
               println!("Handle php!");
               match extensions::php(socket, raw_request, &path) {
@@ -1029,6 +1033,7 @@ fn process_request<W: Write>(
                 _ => {}
               };
             }
+            #[cfg(feature = "templates")]
             &b"tmpl" if extension_args.len() > 1 => {
               body = Arc::new(extensions::template(
                 &extension_args[..],
