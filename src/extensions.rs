@@ -1,8 +1,8 @@
 // For when no features are present
 #![allow(unused_imports)]
 
-use crate::char_const::*;
-use crate::{read_source, SourceCache};
+use crate::chars::*;
+use crate::{read_source, FsCache};
 
 #[cfg(feature = "php")]
 pub use php::handle_php as php;
@@ -81,13 +81,13 @@ pub mod php {
 #[cfg(feature = "templates")]
 pub mod templates {
   use super::*;
-  use crate::{Caches, TemplateCache};
+  use crate::{Storage, TemplateCache};
   use std::path::PathBuf;
   use std::slice::Iter;
   use std::sync::Arc;
   use std::{collections::HashMap, str};
 
-  pub fn handle_template(arguments: &[&[u8]], file: &[u8], cache: &mut Caches) -> Vec<u8> {
+  pub fn handle_template(arguments: &[&[u8]], file: &[u8], cache: &mut Storage) -> Vec<u8> {
     // Get templates, from cache or file
     let templates = read_templates(arguments.iter().skip(1).copied(), cache);
 
@@ -162,7 +162,7 @@ pub mod templates {
   }
   fn read_templates<'a, 'b, I: DoubleEndedIterator<Item = &'a [u8]>>(
     files: I,
-    cache: &'b mut Caches,
+    cache: &'b mut Storage,
   ) -> HashMap<Arc<String>, Arc<Vec<u8>>> {
     let mut templates = HashMap::with_capacity(32);
 
@@ -180,7 +180,7 @@ pub mod templates {
   }
   fn read_templates_from_file(
     template_set: &str,
-    cache: &mut Caches,
+    cache: &mut Storage,
   ) -> Option<Arc<HashMap<Arc<String>, Arc<Vec<u8>>>>> {
     {
       let template_cache = cache.mut_template().lock().unwrap();

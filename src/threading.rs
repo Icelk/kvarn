@@ -1,4 +1,4 @@
-use crate::{Caches, Connection, MioEvent};
+use crate::{Connection, Storage};
 use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
 use rustls::{ServerConfig, ServerSession};
@@ -16,7 +16,7 @@ impl Worker {
   pub fn new(
     id: usize,
     receiver: mpsc::Receiver<BoxedJob>,
-    mut cache: Caches,
+    mut cache: Storage,
     registry: Registry,
     mut global_connections: Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
@@ -40,7 +40,7 @@ impl Worker {
 }
 
 type Job = dyn FnOnce(
-    &mut Caches,
+    &mut Storage,
     &mut HashMap<Token, Connection>,
     &Registry,
     &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -55,7 +55,7 @@ pub struct ThreadPool {
 impl ThreadPool {
   pub fn new(
     size: usize,
-    cache: Caches,
+    cache: Storage,
     registry: &Registry,
     connections: &Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
@@ -68,7 +68,7 @@ impl ThreadPool {
         Worker::new(
           id,
           job_receiver,
-          Caches::clone(&cache),
+          Storage::clone(&cache),
           registry.try_clone().expect("Failed to clone registry!"),
           Arc::clone(&connections),
         ),
@@ -81,7 +81,7 @@ impl ThreadPool {
       Worker::new(
         size - 1,
         job_receiver,
-        Caches::clone(&cache),
+        Storage::clone(&cache),
         registry.try_clone().expect("Failed to clone registry!"),
         Arc::clone(&connections),
       ),
@@ -105,7 +105,7 @@ impl ThreadPool {
   pub fn execute<F>(&mut self, f: F) -> usize
   where
     F: FnOnce(
-        &mut Caches,
+        &mut Storage,
         &mut HashMap<Token, Connection>,
         &Registry,
         &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -123,7 +123,7 @@ impl ThreadPool {
   pub fn execute_on<F>(&self, worker_id: usize, f: F) -> Result<(), ()>
   where
     F: FnOnce(
-        &mut Caches,
+        &mut Storage,
         &mut HashMap<Token, Connection>,
         &Registry,
         &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -147,7 +147,7 @@ pub struct HandlerPool {
   server_config: Arc<ServerConfig>,
 }
 impl HandlerPool {
-  pub fn new(config: Arc<ServerConfig>, cache: Caches, registry: &Registry) -> Self {
+  pub fn new(config: Arc<ServerConfig>, cache: Storage, registry: &Registry) -> Self {
     let global_connections = Arc::new(Mutex::new(HashMap::new()));
     Self {
       pool: ThreadPool::new(
@@ -179,7 +179,7 @@ impl HandlerPool {
     }
   }
 
-  pub fn handle(&mut self, event: MioEvent, _time: std::time::Instant) {
+  pub fn handle(&mut self, event: crate::connection::MioEvent, _time: std::time::Instant) {
     let token = event.raw_token();
 
     // This takes an unnoticeable fraction of a second
