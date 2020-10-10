@@ -12,15 +12,35 @@ use std::{
   fs::File,
   io::{self, Read, Write},
 };
+mod extensions;
 mod threading;
+use char_const::*;
 
 const HTTPS_SERVER: Token = Token(0);
 const RESERVED_TOKENS: usize = 1024;
 #[cfg(windows)]
-static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
+const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
 #[cfg(unix)]
-static SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
+const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
 
+pub mod char_const {
+  /// Line feed
+  pub const LF: u8 = 10;
+  /// Carrage return
+  pub const CR: u8 = 13;
+  /// ` `
+  pub const SPACE: u8 = 32;
+  /// `!`
+  pub const BANG: u8 = 33;
+  /// `>`
+  pub const PIPE: u8 = 62;
+  /// `[`
+  pub const L_SQ_BRACKET: u8 = 91;
+  /// `\`
+  pub const ESCAPE: u8 = 92;
+  /// `]`
+  pub const R_SQ_BRACKET: u8 = 93;
+}
 pub mod config {
   use super::{Cache, MioEvent};
   use super::{HTTPS_SERVER, RESERVED_TOKENS};
@@ -788,7 +808,7 @@ impl Connection {
             .session
             .write_all(&default_error(413, &close, Some(&mut self.fs_cache))[..]);
         }
-        // todo!();
+
         match parse::parse_request(&request[..]) {
           Ok(parsed) => {
             // Get close header
@@ -955,7 +975,7 @@ fn process_request<W: Write>(
           return Ok(());
         }
       };
-      let body = match read_file(&path, &mut fs_cache) {
+      let mut body = match read_file(&path, &mut fs_cache) {
         Some(response) => response,
         None => {
           socket.write_all(&default_error(404, close, Some(&mut fs_cache))[..])?;
@@ -965,14 +985,10 @@ fn process_request<W: Write>(
       let mut cache = true;
       // Read file etc...
       let mut iter = body.iter();
-      static LF: u8 = 10;
-      static CR: u8 = 13;
-      static SPACE: u8 = 32;
-      static BANG: u8 = 33;
-      static PIPE: u8 = 62;
+      // If file starts with "!>", meaning it's an extension-dependent file!
       if iter.next() == Some(&BANG) && iter.next() == Some(&PIPE) {
-        // We have a file to interpret
-        let interpreter = {
+        // Get extention arguments
+        let extension_args = {
           let mut args = Vec::with_capacity(8);
           let mut last_break = 2;
           let mut current_index = 2;
@@ -993,31 +1009,32 @@ fn process_request<W: Write>(
           }
           args
         };
-        println!("Found: {} items", interpreter.len());
 
-        for item in &interpreter {
-          println!("Got text: '{}'", String::from_utf8_lossy(item));
-        }
-
-        if let Some(test) = interpreter.get(0) {
+        if let Some(test) = extension_args.get(0) {
           match test {
-            &b"php" if interpreter.len() > 0 => {
+            &b"php" => {
               println!("Handle php!");
-              match handle_php(socket, raw_request, &path) {
-                Ok(..) => {
+              match extensions::php(socket, raw_request, &path) {
+                Ok(()) => {
                   // Don't write headers!
                   write_headers = false;
                   // Check cache settings
-                  cache = match interpreter.get(1) {
-                    Some(cache) => match cache {
-                      &b"false" | &b"no-cache" | &b"nocache" => false,
-                      _ => true,
-                    },
-                    None => true,
-                  };
+                  cache = extension_args
+                    .get(1)
+                    .and_then(|arg| {
+                      Some(arg != b"false" && arg != b"no-cache" && arg != b"nocache")
+                    })
+                    .unwrap_or(true);
                 }
                 _ => {}
               };
+            }
+            &b"tmpl" if extension_args.len() > 1 => {
+              body = Arc::new(extensions::template(
+                &extension_args[..],
+                &body[..],
+                &mut fs_cache,
+              ));
             }
             _ => {}
           }
@@ -1154,60 +1171,4 @@ fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
     }
     Err(..) => None,
   }
-}
-
-#[allow(unused_variables)]
-fn handle_php<W: Write>(socket: &mut W, request: &[u8], path: &PathBuf) -> Result<(), io::Error> {
-  unimplemented!();
-  use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
-
-  // Take the thread name and make a file of that instead. Try the line for line mode instead.
-  let mut temp = File::create("temp.php")?;
-  let mut file = File::open(path)?;
-  let mut buffer = [0; 4096];
-  let mut first = true;
-  loop {
-    let read = file.read(&mut buffer)?;
-    if read == 0 {
-      break;
-    }
-    if first {
-      let read_till = {
-        let mut out = 0;
-        for byte in buffer.iter() {
-          out += 1;
-          if *byte == 10 {
-            break;
-          }
-        }
-        out
-      };
-      println!("Discard first {}", read_till);
-      temp.write_all(&mut &buffer[read_till..read])?;
-      first = false;
-    } else {
-      temp.write_all(&mut buffer[..read])?;
-    }
-  }
-
-  let mut php =
-    match TcpStream::connect(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6633))) {
-      Err(err) => {
-        panic!("Failed to get PHP: {:?}", err);
-      }
-      Ok(socket) => socket,
-    };
-
-  todo!("Change path to /temp.php! Or implement interpreter!");
-  php.write_all(request)?;
-  loop {
-    let mut buffer = [0; 4096];
-    let read = php.read(&mut buffer)?;
-    if read == 0 {
-      break;
-    }
-    socket.write_all(&mut buffer[0..read])?;
-  }
-
-  Ok(())
 }

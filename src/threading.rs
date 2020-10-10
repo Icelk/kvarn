@@ -200,7 +200,7 @@ impl HandlerPool {
     }
   }
 
-  pub fn handle(&mut self, event: MioEvent, time: std::time::Instant) {
+  pub fn handle(&mut self, event: MioEvent, _time: std::time::Instant) {
     let token = event.raw_token();
 
     // This takes an unnoticeable fraction of a second
@@ -237,7 +237,7 @@ impl HandlerPool {
             }
           // println!(
           //   "Request took: {} μs. Processing took: {} μs. Processing and global cons: {} μs.",
-          //   time.elapsed().as_micros(),
+          //   _time.elapsed().as_micros(),
           //   post_processing.as_micros(),
           //   pre_processing.elapsed().as_micros(),
           // );
