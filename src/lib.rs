@@ -245,6 +245,12 @@ impl Storage {
     }
   }
 
+  pub fn clear(&mut self) {
+    self.fs.lock().unwrap().clear();
+    self.response.lock().unwrap().clear();
+    self.template.lock().unwrap().clear();
+  }
+
   #[inline]
   pub fn clone_fs(&self) -> FsCache {
     Arc::clone(&self.fs)

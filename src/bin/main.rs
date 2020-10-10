@@ -92,14 +92,7 @@ fn main() {
                         println!("Cleared file system cache!");
                     }
                     "cc" => {
-                        {
-                            let mut rc = cache.mut_response().lock().unwrap();
-                            rc.clear();
-                        }
-                        {
-                            let mut fc = cache.mut_fs().lock().unwrap();
-                            fc.clear();
-                        }
+                        cache.clear();
                         println!("Cleared all caches!");
                     }
                     _ => {
