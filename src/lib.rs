@@ -340,6 +340,7 @@ fn process_request<W: Write>(
       return Ok(());
     }
   }
+
   let mut write_headers = true;
   let mut do_cache = true;
   // Get from function or cache, to enable processing (extensions) from functions!
@@ -366,21 +367,22 @@ fn process_request<W: Write>(
       (Arc::new(response), Cow::Borrowed(content_type))
     }
     // No function, try read from FS cache.
-    None => (
+    None => {
       // Body
-      match read_file(&path, storage) {
+      let body = match read_file(&path, storage) {
         Some(response) => response,
         None => {
           socket.write_all(&default_error(404, close, Some(storage))[..])?;
           return Ok(());
         }
-      },
+      };
+      if request.uri().query().is_some() {
+        do_cache = false;
+      }
       // Content mime type
-      Cow::Owned(format!(
-        "{}",
-        mime_guess::from_path(&path).first_or_octet_stream()
-      )),
-    ),
+      let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
+      (body, Cow::Owned(content_type))
+    }
   };
   // Read file etc...
   let mut bytes = body.iter();
