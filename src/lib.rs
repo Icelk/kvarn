@@ -397,7 +397,7 @@ fn process_request<W: Write>(
         if *byte == LF {
           if current_index - last_break > 1 {
             args.push(
-              &body[last_break..if body.get(current_index - 1) == Some(&LF) {
+              &body[last_break..if body.get(current_index - 1) == Some(&CR) {
                 current_index - 1
               } else {
                 current_index
