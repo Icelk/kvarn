@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 
 use crate::chars::*;
-use crate::{read_source, FsCache};
+use crate::{read_file, FsCache};
 
 #[cfg(feature = "php")]
 pub use php::handle_php as php;
@@ -32,7 +32,12 @@ pub mod php {
     let mut buffer = [0; 4096];
     let mut first = true;
     loop {
-      let read = file.read(&mut buffer)?;
+      let read = match file.read(&mut buffer) {
+        Ok(0) => break,
+        Ok(read) => read,
+        Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+        Err(err) => return Err(err),
+      };
       if read == 0 {
         break;
       }
@@ -67,10 +72,12 @@ pub mod php {
     php.write_all(request)?;
     loop {
       let mut buffer = [0; 4096];
-      let read = php.read(&mut buffer)?;
-      if read == 0 {
-        break;
-      }
+      let read = match php.read(&mut buffer) {
+        Ok(0) => break,
+        Ok(read) => read,
+        Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+        Err(err) => return Err(err),
+      };
       socket.write_all(&mut buffer[0..read])?;
     }
 
@@ -87,9 +94,9 @@ pub mod templates {
   use std::sync::Arc;
   use std::{collections::HashMap, str};
 
-  pub fn handle_template(arguments: &[&[u8]], file: &[u8], cache: &mut Storage) -> Vec<u8> {
+  pub fn handle_template(arguments: &[&[u8]], file: &[u8], storage: &mut Storage) -> Vec<u8> {
     // Get templates, from cache or file
-    let templates = read_templates(arguments.iter().skip(1).copied(), cache);
+    let templates = read_templates(arguments.iter().skip(1).copied(), storage);
 
     #[derive(Eq, PartialEq)]
     enum Stage {
@@ -160,15 +167,15 @@ pub mod templates {
     }
     response
   }
-  fn read_templates<'a, 'b, I: DoubleEndedIterator<Item = &'a [u8]>>(
+  fn read_templates<'a, I: DoubleEndedIterator<Item = &'a [u8]>>(
     files: I,
-    cache: &'b mut Storage,
+    storage: &mut Storage,
   ) -> HashMap<Arc<String>, Arc<Vec<u8>>> {
     let mut templates = HashMap::with_capacity(32);
 
     for template in files.rev() {
       if let Ok(template) = str::from_utf8(template) {
-        if let Some(map) = read_templates_from_file(template, cache) {
+        if let Some(map) = read_templates_from_file(template, storage) {
           for (key, value) in map.iter() {
             templates.insert(Arc::clone(key), Arc::clone(value));
           }
@@ -180,31 +187,25 @@ pub mod templates {
   }
   fn read_templates_from_file(
     template_set: &str,
-    cache: &mut Storage,
+    storage: &mut Storage,
   ) -> Option<Arc<HashMap<Arc<String>, Arc<Vec<u8>>>>> {
-    {
-      let template_cache = cache.mut_template().lock().unwrap();
-      if let Some(template) = template_cache.get(template_set) {
+    if let Some(lock) = storage.try_template() {
+      if let Some(template) = lock.get(template_set) {
         return Some(template);
       }
     }
     let mut template_dir = PathBuf::from("templates");
     template_dir.push(template_set);
 
-    match read_source(&template_dir, cache.mut_fs()) {
+    match read_file(&template_dir, storage) {
       Some(file) => {
-        let templates = extract_templates(&file[..]);
-        match cache.mut_template().try_lock() {
-          Ok(mut cache) => Some(
-            match cache.cache(template_set.to_owned(), Arc::new(templates)) {
-              Some(failed) => failed,
-              None => cache.get(template_set).unwrap(),
-            },
-          ),
-          Err(err) => match err {
-            std::sync::TryLockError::WouldBlock => Some(Arc::new(templates)),
-            _ => panic!("Source lock is poisoned!"),
+        let templates = Arc::new(extract_templates(&file[..]));
+        match storage.try_template() {
+          Some(mut cache) => match cache.cache(template_set.to_owned(), templates) {
+            Some(failed) => Some(failed),
+            None => Some(cache.get(template_set).unwrap()),
           },
+          None => Some(templates),
         }
       }
       None => None,

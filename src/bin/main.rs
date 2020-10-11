@@ -43,13 +43,15 @@ fn main() {
                 .unwrap_or("/")
                 .as_bytes(),
         );
-        buffer
-            .extend(&b"'.</h1>Well, hope you enjoy <a href=\"/\">my site</a>!</main>[footer]"[..]);
+        buffer.extend(
+            &b"'.</h1>Well, hope you enjoy <a href=\"/\">my site</a>!</main>\
+            [footer]"[..],
+        );
 
         ("text/html", true)
     });
     let server = arktis::Config::with_bindings(bindings, 443);
-    let mut cache = server.clone_cache();
+    let mut storage = server.clone_storage();
     thread::spawn(move || server.run());
 
     for line in stdin().lock().lines() {
@@ -57,45 +59,57 @@ fn main() {
             let mut words = line.split(" ");
             if let Some(command) = words.next() {
                 match command {
-                    "rcc" => {
-                        // Responds cache clear
-                        let mut rc = cache.mut_response().lock().unwrap();
-                        let uri = match Uri::builder()
-                            .path_and_query(words.next().unwrap_or(&""))
-                            .build()
-                        {
-                            Ok(uri) => uri,
-                            Err(..) => {
-                                eprintln!("Failed to format path");
-                                continue;
-                            }
-                        };
-                        match rc.remove(&uri) {
-                            Some(..) => println!("Removed item from cache!"),
-                            None => println!("No item to remove"),
-                        };
-                    }
                     "fcc" => {
                         // File cache clear
-                        let mut fc = cache.mut_fs().lock().unwrap();
-                        let path = PathBuf::from(words.next().unwrap_or(&""));
-                        match fc.remove(&path) {
-                            Some(..) => println!("Removed item from cache!"),
-                            None => println!("No item to remove"),
-                        };
+                        match storage.try_fs() {
+                            Some(mut lock) => {
+                                let path = PathBuf::from(words.next().unwrap_or(&""));
+                                match lock.remove(&path) {
+                                    Some(..) => println!("Removed item from cache!"),
+                                    None => println!("No item to remove"),
+                                };
+                            }
+                            None => println!("File system cache in use by server!"),
+                        }
                     }
-                    "crc" => {
-                        let mut rc = cache.mut_response().lock().unwrap();
-                        rc.clear();
-                        println!("Cleared response cache!");
+                    "rcc" => {
+                        // Responds cache clear
+                        match storage.try_response() {
+                            Some(mut lock) => {
+                                let uri = match Uri::builder()
+                                    .path_and_query(words.next().unwrap_or(&""))
+                                    .build()
+                                {
+                                    Ok(uri) => uri,
+                                    Err(..) => {
+                                        eprintln!("Failed to format path");
+                                        continue;
+                                    }
+                                };
+                                match lock.remove(&uri) {
+                                    Some(..) => println!("Removed item from cache!"),
+                                    None => println!("No item to remove"),
+                                };
+                            }
+                            None => println!("Response cache in use by server!"),
+                        }
                     }
-                    "cfc" => {
-                        let mut fc = cache.mut_fs().lock().unwrap();
-                        fc.clear();
-                        println!("Cleared file system cache!");
-                    }
+                    "cfc" => match storage.try_fs() {
+                        Some(mut lock) => {
+                            lock.clear();
+                            println!("Cleared file system cache!");
+                        }
+                        None => println!("File system cache in use by server!"),
+                    },
+                    "crc" => match storage.try_response() {
+                        Some(mut lock) => {
+                            lock.clear();
+                            println!("Cleared response cache!");
+                        }
+                        None => println!("Response cache in use by server!"),
+                    },
                     "cc" => {
-                        cache.clear();
+                        storage.clear();
                         println!("Cleared all caches!");
                     }
                     _ => {

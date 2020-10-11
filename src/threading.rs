@@ -16,7 +16,7 @@ impl Worker {
   pub fn new(
     id: usize,
     receiver: mpsc::Receiver<BoxedJob>,
-    mut cache: Storage,
+    mut storage: Storage,
     registry: Registry,
     mut global_connections: Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
@@ -27,7 +27,7 @@ impl Worker {
       .spawn(move || loop {
         let job = receiver.recv().unwrap();
         job(
-          &mut cache,
+          &mut storage,
           &mut connections,
           &registry,
           &mut global_connections,
@@ -55,7 +55,7 @@ pub struct ThreadPool {
 impl ThreadPool {
   pub fn new(
     size: usize,
-    cache: Storage,
+    storage: Storage,
     registry: &Registry,
     connections: &Arc<Mutex<HashMap<usize, usize>>>,
   ) -> Self {
@@ -68,7 +68,7 @@ impl ThreadPool {
         Worker::new(
           id,
           job_receiver,
-          Storage::clone(&cache),
+          Storage::clone(&storage),
           registry.try_clone().expect("Failed to clone registry!"),
           Arc::clone(&connections),
         ),
@@ -81,7 +81,7 @@ impl ThreadPool {
       Worker::new(
         size - 1,
         job_receiver,
-        Storage::clone(&cache),
+        Storage::clone(&storage),
         registry.try_clone().expect("Failed to clone registry!"),
         Arc::clone(&connections),
       ),
@@ -147,12 +147,12 @@ pub struct HandlerPool {
   server_config: Arc<ServerConfig>,
 }
 impl HandlerPool {
-  pub fn new(config: Arc<ServerConfig>, cache: Storage, registry: &Registry) -> Self {
+  pub fn new(config: Arc<ServerConfig>, storage: Storage, registry: &Registry) -> Self {
     let global_connections = Arc::new(Mutex::new(HashMap::new()));
     Self {
       pool: ThreadPool::new(
         num_cpus::get() as usize - 1,
-        cache,
+        storage,
         registry,
         &global_connections,
       ),
