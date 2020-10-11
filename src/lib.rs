@@ -389,14 +389,20 @@ fn process_request<W: Write>(
   // If file starts with "!>", meaning it's an extension-dependent file!
   if bytes.next() == Some(&BANG) && bytes.next() == Some(&PIPE) {
     // Get extention arguments
-    let extension_args = {
+    let (extension_args, content_start) = {
       let mut args = Vec::with_capacity(8);
       let mut last_break = 2;
       let mut current_index = 2;
       for byte in bytes {
-        if *byte == CR || *byte == LF {
+        if *byte == LF {
           if current_index - last_break > 1 {
-            args.push(&body[last_break..current_index]);
+            args.push(
+              &body[last_break..if body.get(current_index - 1) == Some(&LF) {
+                current_index - 1
+              } else {
+                current_index
+              }],
+            );
           }
           break;
         }
@@ -408,7 +414,8 @@ fn process_request<W: Write>(
           last_break = current_index;
         }
       }
-      args
+      // Plus one, since loop breaks before
+      (args, current_index + 1)
     };
 
     if let Some(test) = extension_args.get(0) {
@@ -433,11 +440,13 @@ fn process_request<W: Write>(
         &b"tmpl" if extension_args.len() > 1 => {
           body = Arc::new(extensions::template(
             &extension_args[..],
-            &body[..],
+            &body[content_start..],
             storage,
           ));
         }
-        _ => {}
+        _ => {
+          body = Arc::new(body[content_start..].to_vec());
+        }
       }
     }
   };

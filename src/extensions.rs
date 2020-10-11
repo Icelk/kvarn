@@ -1,7 +1,7 @@
 // For when no features are present
-// #![allow(unused_imports)]
-
+#[allow(unused_imports)]
 use crate::chars::*;
+#[allow(unused_imports)]
 use crate::{read_file, Storage};
 
 #[cfg(feature = "php")]
@@ -98,26 +98,19 @@ pub mod templates {
 
     #[derive(Eq, PartialEq)]
     enum Stage {
-      ExtensionDefinition,
       Text,
       Placeholder,
     };
 
     let mut response = Vec::new();
 
-    let mut stage = Stage::ExtensionDefinition;
+    let mut stage = Stage::Text;
     let mut placeholder_start = 0;
     let mut escaped = 0;
     for (position, byte) in file.iter().enumerate() {
       let is_escape = *byte == ESCAPE;
 
       match stage {
-        // If in extension definition stage, check when it ends
-        Stage::ExtensionDefinition => {
-          if *byte == LF {
-            stage = Stage::Text;
-          }
-        }
         // If in text stage, check for left bracket. Then set the variables for starting identifying the placeholder for template
         // Push the current byte to response, if not start of placeholder
         Stage::Text if (escaped == 0 && !is_escape) || escaped == 1 => {
