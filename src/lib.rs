@@ -457,6 +457,8 @@ fn process_request<W: Write>(
     response.extend(b"Content-Type: ".iter());
     response.extend(content_type.as_bytes());
     response.extend(b"\r\n");
+    // Temporary cache header
+    response.extend(b"Cache-Control: max-age=120\r\n");
     response.extend(SERVER_HEADER);
     response.extend(b"\r\n");
     response.extend(body.iter());
@@ -472,9 +474,7 @@ fn process_request<W: Write>(
     if let Some(mut lock) = storage.try_response() {
       let uri = request.into_parts().0.uri;
       println!("Caching uri {}", &uri);
-      if lock.cache(uri, response).is_some() {
-        println!("Overrote cache!");
-      };
+      let _ = lock.cache(uri, response);
     }
   }
   Ok(())
@@ -547,8 +547,8 @@ fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<Vec<u8>>> {
           let buffer = Arc::new(buffer);
           match storage.try_fs() {
             Some(mut lock) => match lock.cache(path.clone(), buffer) {
-              Some(failed) => Some(failed),
-              None => Some(lock.get(path).unwrap()),
+              Err(failed) => Some(failed),
+              Ok(()) => Some(lock.get(path).unwrap()),
             },
             None => Some(buffer),
           }
@@ -605,9 +605,9 @@ pub mod cache {
   #[allow(dead_code)]
   impl<K: Eq + Hash + Clone, V: Size> Cache<K, V> {
     #[inline]
-    pub fn cache(&mut self, key: K, value: Arc<V>) -> Option<Arc<V>> {
+    pub fn cache(&mut self, key: K, value: Arc<V>) -> Result<(), Arc<V>> {
       if value.count() > self.size_limit {
-        return Some(value);
+        return Err(value);
       }
       if self.map.len() >= self.max_items {
         // Reduce number of items!
@@ -621,7 +621,7 @@ pub mod cache {
         }
       }
       self.map.insert(key, value);
-      None
+      Ok(())
     }
   }
   impl<K: Eq + Hash + Clone, V> Cache<K, V> {

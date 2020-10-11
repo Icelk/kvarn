@@ -1,8 +1,8 @@
 // For when no features are present
-#![allow(unused_imports)]
+// #![allow(unused_imports)]
 
 use crate::chars::*;
-use crate::{read_file, FsCache};
+use crate::{read_file, Storage};
 
 #[cfg(feature = "php")]
 pub use php::handle_php as php;
@@ -88,9 +88,7 @@ pub mod php {
 #[cfg(feature = "templates")]
 pub mod templates {
   use super::*;
-  use crate::{Storage, TemplateCache};
   use std::path::PathBuf;
-  use std::slice::Iter;
   use std::sync::Arc;
   use std::{collections::HashMap, str};
 
@@ -202,8 +200,8 @@ pub mod templates {
         let templates = Arc::new(extract_templates(&file[..]));
         match storage.try_template() {
           Some(mut cache) => match cache.cache(template_set.to_owned(), templates) {
-            Some(failed) => Some(failed),
-            None => Some(cache.get(template_set).unwrap()),
+            Err(failed) => Some(failed),
+            Ok(()) => Some(cache.get(template_set).unwrap()),
           },
           None => Some(templates),
         }

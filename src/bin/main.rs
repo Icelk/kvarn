@@ -35,14 +35,7 @@ fn main() {
             [body]\
             <main style='text-align: center;'><h1>You are visiting: '"[..],
         );
-        buffer.extend(
-            request
-                .uri()
-                .path_and_query()
-                .and_then(|path| Some(path.as_str()))
-                .unwrap_or("/")
-                .as_bytes(),
-        );
+        buffer.extend(request.uri().path().as_bytes());
         buffer.extend(
             &b"'.</h1>Well, hope you enjoy <a href=\"/\">my site</a>!</main>\
             [footer]"[..],
@@ -54,6 +47,7 @@ fn main() {
     let mut storage = server.clone_storage();
     thread::spawn(move || server.run());
 
+    // Commands in console
     for line in stdin().lock().lines() {
         if let Ok(line) = line {
             let mut words = line.split(" ");
