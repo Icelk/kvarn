@@ -438,8 +438,6 @@ fn process_request<W: Write>(
     socket.write_all(&body[..])?;
     body
   };
-  // Flush all contents, important for compression
-  socket.flush()?;
 
   if do_cache {
     let mut response_cache = cache.mut_response().lock().unwrap();
@@ -752,6 +750,8 @@ pub mod connection {
               {
                 eprintln!("Failed to write to session! {:?}", err);
               };
+              // Flush all contents, important for compression
+              let _ = self.session.flush();
             }
             Err(err) => {
               eprintln!(
