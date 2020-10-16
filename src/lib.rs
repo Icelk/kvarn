@@ -254,6 +254,9 @@ impl Storage {
   /// Always remember to handle the case if the lock isn't acquired; just don't return None!
   #[inline]
   pub fn try_fs(&mut self) -> Option<sync::MutexGuard<'_, FsCacheInner>> {
+    #[cfg(feature = "no-cache")]
+    return None;
+    #[cfg(not(feature = "no-cache"))]
     match self.fs.try_lock() {
       Ok(lock) => Some(lock),
       Err(ref err) => match err {
@@ -267,6 +270,9 @@ impl Storage {
   /// Always remember to handle the case if the lock isn't acquired; just don't return None!
   #[inline]
   pub fn try_response(&mut self) -> Option<sync::MutexGuard<'_, ResponseCacheInner>> {
+    #[cfg(feature = "no-cache")]
+    return None;
+    #[cfg(not(feature = "no-cache"))]
     match self.response.try_lock() {
       Ok(lock) => Some(lock),
       Err(ref err) => match err {
@@ -280,6 +286,9 @@ impl Storage {
   /// Always remember to handle the case if the lock isn't acquired; just don't return None!
   #[inline]
   pub fn try_template(&mut self) -> Option<sync::MutexGuard<'_, TemplateCacheInner>> {
+    #[cfg(feature = "no-cache")]
+    return None;
+    #[cfg(not(feature = "no-cache"))]
     match self.template.try_lock() {
       Ok(lock) => Some(lock),
       Err(ref err) => match err {
@@ -289,34 +298,17 @@ impl Storage {
     }
   }
   #[inline]
-  pub fn bindings(&mut self) -> &Bindings {
+  pub fn get_bindings(&mut self) -> &Bindings {
     &self.bindings
-  }
-
-  #[inline]
-  fn clone_fs(&self) -> FsCache {
-    Arc::clone(&self.fs)
-  }
-  #[inline]
-  fn clone_response(&self) -> ResponseCache {
-    Arc::clone(&self.response)
-  }
-  #[inline]
-  fn clone_template(&self) -> TemplateCache {
-    Arc::clone(&self.template)
-  }
-  #[inline]
-  fn clone_bindings(&self) -> Bindings {
-    Arc::clone(&self.bindings)
   }
 }
 impl Clone for Storage {
   fn clone(&self) -> Self {
     Storage {
-      fs: self.clone_fs(),
-      response: self.clone_response(),
-      template: self.clone_template(),
-      bindings: self.clone_bindings(),
+      fs: Arc::clone(&self.fs),
+      response: Arc::clone(&self.response),
+      template: Arc::clone(&self.template),
+      bindings: Arc::clone(&self.bindings),
     }
   }
 }
@@ -354,7 +346,7 @@ fn process_request<W: Write>(
 
   // PHP needs it, so don't give a warning!
   #[allow(unused_mut)]
-  let (mut body, content_type) = match storage.bindings().get(request.uri().path()) {
+  let (mut body, content_type) = match storage.get_bindings().get(request.uri().path()) {
     // We've got an function, call it and return body and result!
     Some(callback) => {
       let mut response = Vec::with_capacity(2048);
@@ -469,7 +461,8 @@ fn process_request<W: Write>(
     response.extend(content_type.as_bytes());
     response.extend(b"\r\n");
     // Temporary cache header
-    response.extend(b"Cache-Control: max-age=120\r\n");
+    // response.extend(b"Cache-Control: max-age=120\r\n");
+    response.extend(b"Cache-Control: no-store\r\n");
     response.extend(SERVER_HEADER);
     response.extend(b"\r\n");
     response.extend(body.iter());

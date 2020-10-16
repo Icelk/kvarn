@@ -20,3 +20,5 @@ default = ["templates", "php"]
 templates = []
 # Enables PHP interpretation of files
 php = []
+# Disables the cache
+no-cache = []
