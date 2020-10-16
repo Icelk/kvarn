@@ -121,7 +121,7 @@ impl Config {
   /// Use a loop to capture the main thread.
   ///
   /// # Examples
-  /// ```
+  /// ```no_run
   /// use arktis::Config;
   /// use std::io::{stdin, BufRead};
   /// use std::thread;
