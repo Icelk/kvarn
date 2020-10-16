@@ -1188,7 +1188,7 @@ pub mod parse {
       return Err(());
     }
     let is_dir = path.ends_with("/");
-    path = path.split_at(1).1;
+    path = unsafe { std::str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
     let mut buf = PathBuf::from("public");
     buf.push(path);
