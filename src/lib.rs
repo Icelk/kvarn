@@ -1,3 +1,5 @@
+use http;
+use mime_guess;
 use mio::net::{TcpListener, TcpStream};
 use std::borrow::Cow;
 use std::net;
@@ -8,7 +10,7 @@ use std::{
   io::{self, prelude::*},
 };
 
-pub use bindings::FunctionBindings;
+pub use bindings::{ContentType, FunctionBindings};
 pub use cache::*;
 pub use chars::*;
 pub use connection::Connection;
@@ -313,7 +315,6 @@ impl Clone for Storage {
   }
 }
 
-#[allow(unused_variables)]
 fn process_request<W: Write>(
   socket: &mut W,
   request: http::Request<&[u8]>,
@@ -346,7 +347,10 @@ fn process_request<W: Write>(
 
   // PHP needs it, so don't give a warning!
   #[allow(unused_mut)]
-  let (mut body, content_type) = match storage.get_bindings().get(request.uri().path()) {
+  let (mut body, content_type) = match storage
+    .get_bindings()
+    .get_binding(request.method(), request.uri().path())
+  {
     // We've got an function, call it and return body and result!
     Some(callback) => {
       let mut response = Vec::with_capacity(2048);
@@ -356,7 +360,7 @@ fn process_request<W: Write>(
       if &response[..5] == b"HTTP/" {
         write_headers = false;
       }
-      (Arc::new(response), Cow::Borrowed(content_type))
+      (Arc::new(response), content_type)
     }
     // No function, try read from FS cache.
     None => {
@@ -376,9 +380,27 @@ fn process_request<W: Write>(
         do_cache = false;
       }
       // Content mime type
-      let content_type = format!("{}", mime_guess::from_path(&path).first_or_octet_stream());
-      (body, Cow::Owned(content_type))
+      (body, ContentType::AutoOrDownload)
     }
+  };
+  let content_type = match content_type {
+    ContentType::Str(s) => Cow::Borrowed(s),
+    ContentType::MIME(mime) => Cow::Owned(format!("{}", mime)),
+    ContentType::HTML => Cow::Borrowed("text/html"),
+    ContentType::PlainText => Cow::Borrowed("text/plain"),
+    ContentType::Download => Cow::Borrowed("application/octet-stream"),
+    ContentType::AutoOrDownload => Cow::Owned(format!(
+      "{}",
+      mime_guess::from_path(&path).first_or_octet_stream()
+    )),
+    ContentType::AutoOrPlain => Cow::Owned(format!(
+      "{}",
+      mime_guess::from_path(&path).first_or_text_plain()
+    )),
+    ContentType::AutoOrHTML => Cow::Owned(format!(
+      "{}",
+      mime_guess::from_path(&path).first_or(mime::TEXT_HTML)
+    )),
   };
   // Read file etc...
   let mut bytes = body.iter();
@@ -904,23 +926,35 @@ pub mod connection {
   }
 }
 pub mod bindings {
+  use http::Method;
   use http::Request;
+  use mime::Mime;
   use std::collections::HashMap;
 
-  type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync;
+  type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + Send + Sync;
+
+  pub enum ContentType {
+    Str(&'static str),
+    MIME(Mime),
+    HTML,
+    PlainText,
+    Download,
+    AutoOrDownload,
+    AutoOrPlain,
+    AutoOrHTML,
+  }
+  impl Default for ContentType {
+    fn default() -> Self {
+      Self::AutoOrDownload
+    }
+  }
 
   /// Function bindings to have fast dynamic pages.
   ///
   /// Functions can be associated with URLs by calling the `bind` function.
   pub struct FunctionBindings {
-    page_map: HashMap<
-      String,
-      Box<dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync>,
-    >,
-    dir_map: HashMap<
-      String,
-      Box<dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + Send + Sync>,
-    >,
+    page_map: HashMap<String, Box<Binding>>,
+    dir_map: HashMap<String, Box<Binding>>,
   }
   impl FunctionBindings {
     /// Creates a new, empty set of bindings.
@@ -938,35 +972,70 @@ pub mod bindings {
     /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not.
     /// # Examples
     /// ```
-    /// use arktis::{FunctionBindings, write_generic_error};
+    /// use arktis::{FunctionBindings, ContentType, write_generic_error};
     ///
     /// let mut bindings = FunctionBindings::new();
     ///
-    /// bindings.bind("/test", |buffer, request| {
+    /// bindings.get_page("/test", |buffer, request| {
     ///    buffer.extend(b"<h1>Welcome to my site!</h1> You are calling: ".iter());
     ///    buffer.extend(format!("{}", request.uri()).as_bytes());
     ///
-    ///    ("text/html", true)
+    ///    (ContentType::HTML, true)
     /// });
-    /// bindings.bind("/throw_500", |mut buffer, _| {
+    /// bindings.get_page("/throw_500", |mut buffer, _| {
     ///   write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
     ///
-    ///   ("text/html", false)
+    ///   (ContentType::HTML, false)
     /// });
     /// ```
     #[inline]
-    pub fn bind<F>(&mut self, path: &str, callback: F)
+    pub fn bind_page<F>(&mut self, method: &Method, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
     {
-      self.page_map.insert(String::from(path), Box::new(callback));
+      self
+        .page_map
+        .insert(format!("{}@{}", method, path), Box::new(callback));
     }
     /// Unbinds a function from a page.
     ///
     /// Returns None if path wasn't bind.
     #[inline]
-    pub fn unbind(&mut self, path: &str) -> Option<()> {
-      self.page_map.remove(path).and(Some(()))
+    pub fn unbind_page(&mut self, method: &http::Method, path: &str) -> Option<()> {
+      self
+        .page_map
+        .remove(&format!("{}@{}", method, path))
+        .and(Some(()))
+    }
+    /// Binds a page to this function, when using the GET method.
+    ///
+    /// See `bind_page` for more general cases.
+    #[inline]
+    pub fn get_page<F>(&mut self, path: &str, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+    {
+      self.bind_page(&Method::GET, path, callback);
+    }
+    /// Binds a page to this function, when using the POST method.
+    ///
+    /// See `bind_page` for more general cases.
+    #[inline]
+    pub fn post_page<F>(&mut self, path: &str, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+    {
+      self.bind_page(&Method::PUT, path, callback);
+    }
+    /// Binds a page to this function, when using the PUT method.
+    ///
+    /// See `bind_page` for more general cases.
+    #[inline]
+    pub fn put_page<F>(&mut self, path: &str, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+    {
+      self.bind_page(&Method::POST, path, callback);
     }
 
     /// Binds a function to a directory; if the requests path starts with any entry, it gets directed to the associated function. Case sensitive.
@@ -974,37 +1043,77 @@ pub mod bindings {
     /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not.
     /// # Examples
     /// ```
-    /// use arktis::FunctionBindings;
+    /// use arktis::{FunctionBindings, ContentType};
+    /// use http::Method;
     ///
     /// let mut bindings = FunctionBindings::new();
     ///
-    /// bindings.bind_dir("/api/v1", |buffer, request| {
+    /// bindings.bind_dir(&Method::GET, "/api/v1", |buffer, request| {
     ///    buffer.extend(b"<h1>Welcome to my <i>new</i> <b>API</b>!</h1> You are calling: ".iter());
     ///    buffer.extend(format!("{}", request.uri()).as_bytes());
     ///
-    ///    ("text/html", false)
+    ///    (ContentType::HTML, false)
     /// });
     /// ```
     #[inline]
-    pub fn bind_dir<F>(&mut self, path: &str, callback: F)
+    pub fn bind_dir<F>(&mut self, method: &Method, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (&'static str, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
     {
-      self.dir_map.insert(String::from(path), Box::new(callback));
+      self
+        .dir_map
+        .insert(format!("{}@{}", method, path), Box::new(callback));
     }
     /// Unbinds a function from a directory.
     ///
     /// Returns None if path wasn't bind.
     #[inline]
-    pub fn unbind_dir(&mut self, path: &str) -> Option<()> {
-      self.dir_map.remove(path).and(Some(()))
+    pub fn unbind_dir(&mut self, method: &http::Method, path: &str) -> Option<()> {
+      self
+        .dir_map
+        .remove(&format!("{}@{}", method, path))
+        .and(Some(()))
+    }
+    /// Binds a directory to this function, when using the GET method.
+    ///
+    /// See `bind_dir` for more general cases.
+    #[inline]
+    pub fn get_dir<F>(&mut self, path: &str, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+    {
+      self.bind_dir(&Method::GET, path, callback);
+    }
+    /// Binds a directory to this function, when using the POST method.
+    ///
+    /// See `bind_dir` for more general cases.
+    #[inline]
+    pub fn post_dir<F>(&mut self, path: &str, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+    {
+      self.bind_dir(&Method::PUT, path, callback);
+    }
+    /// Binds a directory to this function, when using the PUT method.
+    ///
+    /// See `bind_dir` for more general cases.
+    #[inline]
+    pub fn put_dir<F>(&mut self, path: &str, callback: F)
+    where
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+    {
+      self.bind_dir(&Method::POST, path, callback);
     }
     /// Gets the function associated with the URL, if there is one.
     #[inline]
-    pub fn get(&self, path: &str) -> Option<&Box<Binding>> {
-      self.page_map.get(path).or_else(|| {
+    pub fn get_binding(&self, method: &http::Method, path: &str) -> Option<&Box<Binding>> {
+      let mut key = String::with_capacity(64);
+      key.push_str(method.as_str());
+      key.push('@');
+      key.push_str(path);
+      self.page_map.get(&key).or_else(|| {
         for (binding_path, binding_fn) in self.dir_map.iter() {
-          if path.starts_with(binding_path.as_str()) {
+          if key.starts_with(binding_path.as_str()) {
             return Some(binding_fn);
           }
         }

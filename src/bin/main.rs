@@ -8,7 +8,7 @@ use std::thread;
 fn main() {
     let mut bindings = arktis::FunctionBindings::new();
     let times_called = Arc::new(Mutex::new(0));
-    bindings.bind("/test", move |buffer, request| {
+    bindings.get_page("/test", move |buffer, request| {
         let mut tc = times_called.lock().unwrap();
         *tc += 1;
 
@@ -21,14 +21,14 @@ fn main() {
             .as_bytes(),
         );
 
-        ("text/html", false)
+        (arktis::ContentType::HTML, false)
     });
-    bindings.bind("/throw_500", |mut buffer, _| {
+    bindings.get_page("/throw_500", |mut buffer, _| {
         arktis::write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
 
-        ("text/html", false)
+        (arktis::ContentType::HTML, false)
     });
-    bindings.bind_dir("/capturing", |buffer, request| {
+    bindings.get_dir("/capturing", |buffer, request| {
         buffer.extend(
             &b"!> tmpl standard\n\
             [head]\
@@ -41,7 +41,7 @@ fn main() {
             [footer]"[..],
         );
 
-        ("text/html", true)
+        (arktis::ContentType::HTML, true)
     });
     let server = arktis::Config::with_bindings(bindings, 443);
     let mut storage = server.clone_storage();
