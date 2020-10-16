@@ -222,7 +222,7 @@ pub struct Storage {
 impl Storage {
   pub fn new() -> Self {
     Storage {
-      fs: Arc::new(Mutex::new(Cache::new())),
+      fs: Arc::new(Mutex::new(Cache::with_max_size(65536))),
       response: Arc::new(Mutex::new(Cache::new())),
       template: Arc::new(Mutex::new(Cache::with_max(128))),
       bindings: Arc::new(FunctionBindings::new()),
@@ -238,7 +238,7 @@ impl Storage {
   }
   pub fn from_bindings(bindings: Bindings) -> Self {
     Storage {
-      fs: Arc::new(Mutex::new(Cache::new())),
+      fs: Arc::new(Mutex::new(Cache::with_max_size(65536))),
       response: Arc::new(Mutex::new(Cache::new())),
       template: Arc::new(Mutex::new(Cache::with_max(128))),
       bindings,
@@ -667,7 +667,15 @@ pub mod cache {
       Cache {
         map: HashMap::with_capacity(max_items / 16 + 1),
         max_items,
-        size_limit: 4194304,
+        size_limit: 4194304, // 4MiB
+      }
+    }
+    pub fn with_max_size(max_size: usize) -> Self {
+      assert!(max_size > 1024);
+      Cache {
+        map: HashMap::with_capacity(64),
+        max_items: 1024,
+        size_limit: max_size,
       }
     }
     pub fn with_max_and_size(max_items: usize, size_limit: usize) -> Self {
