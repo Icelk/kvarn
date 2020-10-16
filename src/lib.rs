@@ -1184,7 +1184,7 @@ pub mod parse {
 
   pub fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
     let mut path = uri.path();
-    if path.contains("../") {
+    if path.contains("./") {
       return Err(());
     }
     let is_dir = path.ends_with("/");
