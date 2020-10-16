@@ -360,6 +360,10 @@ fn process_request<W: Write>(
     }
     // No function, try read from FS cache.
     None => {
+      if request.method() != http::Method::GET {
+        socket.write_all(&default_error(404, close, Some(storage))[..])?;
+        return Ok(());
+      }
       // Body
       let body = match read_file(&path, storage) {
         Some(response) => response,
