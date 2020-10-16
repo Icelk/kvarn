@@ -188,6 +188,7 @@ impl Config {
       }
     }
   }
+  #[inline]
   fn next_id(&mut self) -> usize {
     self.con_id = match self.con_id.checked_add(1) {
       Some(id) => id,
@@ -245,6 +246,7 @@ impl Storage {
     }
   }
 
+  #[inline]
   pub fn clear(&mut self) {
     self.fs.lock().unwrap().clear();
     self.response.lock().unwrap().clear();
@@ -711,6 +713,7 @@ pub mod cache {
 }
 pub mod connection {
   use super::*;
+  use http::Version;
   use mio::{event::Event, Interest, Registry, Token};
   use rustls::{ServerSession, Session};
 
@@ -811,36 +814,48 @@ pub mod connection {
             let _ = self
               .session
               .write_all(&default_error(413, &close, Some(storage))[..]);
-          }
+          } else {
+            match parse::parse_request(&request[..request_len]) {
+              Ok(parsed) => {
+                // Get close header
+                close = ConnectionHeader::from_close({
+                  match parsed.headers().get("connection") {
+                    Some(connection) => {
+                      connection == http::header::HeaderValue::from_static("close")
+                    }
+                    None => false,
+                  }
+                });
 
-          match parse::parse_request(&request[..request_len]) {
-            Ok(parsed) => {
-              // Get close header
-              close = ConnectionHeader::from_close({
-                match parsed.headers().get("connection") {
-                  Some(connection) => connection == http::header::HeaderValue::from_static("close"),
-                  None => false,
+                match parsed.version() {
+                  Version::HTTP_11 => {
+                    if let Err(err) =
+                      process_request(&mut self.session, parsed, &request[..], &close, storage)
+                    {
+                      eprintln!("Failed to write to session! {:?}", err);
+                    };
+                    // Flush all contents, important for compression
+                    let _ = self.session.flush();
+                  }
+                  _ => {
+                    // Unsupported HTTP version!
+                    let _ = self
+                      .session
+                      .write_all(&default_error(505, &close, Some(storage))[..]);
+                  }
                 }
-              });
-
-              if let Err(err) =
-                process_request(&mut self.session, parsed, &request[..], &close, storage)
-              {
-                eprintln!("Failed to write to session! {:?}", err);
-              };
-              // Flush all contents, important for compression
-              let _ = self.session.flush();
-            }
-            Err(err) => {
-              eprintln!(
-                "Failed to parse request, write something as a response? Err: {:?}",
-                err
-              );
-              let _ = self
-                .session
-                .write_all(&default_error(400, &close, Some(storage))[..]);
-            }
-          };
+              }
+              Err(err) => {
+                eprintln!(
+                  "Failed to parse request, write something as a response? Err: {:?}",
+                  err
+                );
+                let _ = self
+                  .session
+                  .write_all(&default_error(400, &close, Some(storage))[..]);
+              }
+            };
+          }
 
           if close.close() {
             self.session.send_close_notify();
