@@ -464,9 +464,29 @@ fn process_request<W: Write>(
             storage,
           ));
         }
-        _ => {
-          body = Arc::new(body[content_start..].to_vec());
-        }
+        // If extension not found in file, check file ending!
+        _ => match path.extension().and_then(|path| path.to_str()) {
+          #[cfg(feature = "php")]
+          Some(".php") => {
+            println!("Handling php!");
+            match extensions::php(socket, raw_request, &path) {
+              Ok(()) => {
+                // Don't write headers!
+                write_headers = false;
+                // Check cache settings
+                do_cache = extension_args
+                  .get(1)
+                  .and_then(|arg| Some(arg != b"false" && arg != b"no-cache" && arg != b"nocache"))
+                  .unwrap_or(true);
+              }
+              _ => {}
+            };
+          }
+          // If nothing found, return a new body, with the extension ripped out!
+          _ => {
+            body = Arc::new(body[content_start..].to_vec());
+          }
+        },
       }
     }
   };
