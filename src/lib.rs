@@ -351,16 +351,9 @@ impl std::str::FromStr for Cached {
       Err(Self::Err::ContainsSpace)
     } else {
       match s.to_ascii_lowercase().as_str() {
-        "false" => Ok(Self::Dynamic),
-        "dynamic" => Ok(Self::Dynamic),
-        "no-cache" => Ok(Self::Dynamic),
-
-        "changing" => Ok(Self::Changing),
-        "may-change" => Ok(Self::Changing),
-
-        "static" => Ok(Self::Static),
-        "immutable" => Ok(Self::Static),
-
+        "false" | "no-cache" | "dynamic" => Ok(Self::Dynamic),
+        "changing" | "may-change" => Ok(Self::Changing),
+        "true" | "static" | "immutable" => Ok(Self::Static),
         "" => Err(Self::Err::StringEmpty),
         _ => Err(Self::Err::UndefinedKeyword),
       }
