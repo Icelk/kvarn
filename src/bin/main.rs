@@ -40,6 +40,7 @@ fn main() {
             &b"'.</h1>Well, hope you enjoy <a href=\"/\">my site</a>!</main>\
             [footer]"[..],
         );
+        println!("Parsed: {:#?}", arktis::parse::format_headers(request));
 
         (arktis::ContentType::HTML, true)
     });

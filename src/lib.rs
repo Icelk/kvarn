@@ -16,6 +16,7 @@ pub use chars::*;
 pub use connection::Connection;
 
 mod extensions;
+pub mod parse;
 mod threading;
 
 const HTTPS_SERVER: mio::Token = mio::Token(0);
@@ -325,18 +326,20 @@ fn process_request<W: Write>(
   storage: &mut Storage,
 ) -> Result<(), io::Error> {
   // println!("Got request: {:?}", &request);
-  // Load from cache
-  // Try get response cache lock
-  if let Some(lock) = storage.try_response() {
-    // If response is in cache
-    if let Some(response) = lock.get(request.uri()) {
-      // println!("Getting from cache!");
-      socket.write_all(&response[..])?;
-      return Ok(());
+  if request.method() == &http::Method::GET {
+    // Load from cache
+    // Try get response cache lock
+    if let Some(lock) = storage.try_response() {
+      // If response is in cache
+      if let Some(response) = lock.get(request.uri()) {
+        // println!("Getting from cache!");
+        socket.write_all(&response[..])?;
+        return Ok(());
+      }
     }
   }
 
-  let mut write_headers = true;
+  let mut handled_headers = false;
   let mut do_cache = true;
   // Get from function or cache, to enable processing (extensions) from functions!
   let path = match parse::convert_uri(request.uri()) {
@@ -360,7 +363,7 @@ fn process_request<W: Write>(
       do_cache = cache;
       // Check if callback contains headers
       if &response[..5] == b"HTTP/" {
-        write_headers = false;
+        handled_headers = true;
       }
       (Arc::new(response), content_type)
     }
@@ -446,7 +449,7 @@ fn process_request<W: Write>(
           match extensions::php(socket, raw_request, &path) {
             Ok(()) => {
               // Don't write headers!
-              write_headers = false;
+              handled_headers = true;
               // Check cache settings
               do_cache = extension_args
                 .get(1)
@@ -472,7 +475,7 @@ fn process_request<W: Write>(
             match extensions::php(socket, raw_request, &path) {
               Ok(()) => {
                 // Don't write headers!
-                write_headers = false;
+                handled_headers = true;
                 // Check cache settings
                 do_cache = extension_args
                   .get(1)
@@ -491,7 +494,7 @@ fn process_request<W: Write>(
     }
   };
 
-  let response = if write_headers {
+  let response = if !handled_headers {
     let mut response = Vec::with_capacity(4096);
     response.extend(
       b"HTTP/1.1 200 OK\r\n\
@@ -513,16 +516,18 @@ fn process_request<W: Write>(
     response.extend(b"Cache-Control: no-store\r\n");
     response.extend(SERVER_HEADER);
     response.extend(b"\r\n");
-    response.extend(body.iter());
+    if request.method() != &http::Method::HEAD {
+      response.extend(body.iter());
+    }
 
-    socket.write_all(&response[..])?;
     Arc::new(response)
   } else {
-    socket.write_all(&body[..])?;
+    // Headers handled! Taking for granted user handled HEAD method.
     body
   };
+  socket.write_all(&response[..])?;
 
-  if do_cache {
+  if do_cache && request.method() == &http::Method::GET {
     if let Some(mut lock) = storage.try_response() {
       let uri = request.into_parts().0.uri;
       println!("Caching uri {}", &uri);
@@ -914,8 +919,8 @@ pub mod connection {
           return Err(());
         }
         _ => {
-          if self.session.process_new_packets().is_err() {
-            eprintln!("Failed to process packets");
+          if let Err(err) = self.session.process_new_packets() {
+            eprintln!("Failed to process packets {}", err);
             self.close();
             return Err(());
           };
@@ -1052,12 +1057,19 @@ pub mod bindings {
     }
     /// Binds a page to this function, when using the GET method.
     ///
+    /// Also binds HEAD method of same url, if no other function defined.
+    /// Head request responds with same as GET request, to alter behaviour, define HEAD function.
+    /// Check [MDN reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/HEAD) for more info on implementation.
+    ///
     /// See `bind_page` for more general cases.
     #[inline]
     pub fn get_page<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync + Clone,
     {
+      if let None = self.page_map.get(path) {
+        self.bind_page(&Method::HEAD, path, callback.clone());
+      }
       self.bind_page(&Method::GET, path, callback);
     }
     /// Binds a page to this function, when using the POST method.
@@ -1119,12 +1131,19 @@ pub mod bindings {
     }
     /// Binds a directory to this function, when using the GET method.
     ///
+    /// Also binds HEAD method of same url, if no other function defined.
+    /// Head request responds with same as GET request, to alter behaviour, define HEAD function.
+    /// Check [MDN reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/HEAD) for more info on implementation.
+    ///
     /// See `bind_dir` for more general cases.
     #[inline]
     pub fn get_dir<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync + Clone,
     {
+      if let None = self.dir_map.get(path) {
+        self.bind_dir(&Method::HEAD, path, callback.clone());
+      }
       self.bind_dir(&Method::GET, path, callback);
     }
     /// Binds a directory to this function, when using the POST method.
@@ -1217,141 +1236,6 @@ pub mod tls_server_config {
     } else {
       Ok(server_config)
     }
-  }
-}
-pub mod parse {
-  use http::{header::*, Method, Request, Uri, Version};
-  use std::path::PathBuf;
-
-  enum DecodeStage {
-    Method,
-    Path,
-    Version,
-    HeaderName(i32),
-    HeaderValue(i32),
-  }
-  impl DecodeStage {
-    fn next(&mut self) {
-      *self = match self {
-        DecodeStage::Method => DecodeStage::Path,
-        DecodeStage::Path => DecodeStage::Version,
-        DecodeStage::Version => DecodeStage::HeaderName(0),
-        DecodeStage::HeaderName(n) => DecodeStage::HeaderValue(*n),
-        DecodeStage::HeaderValue(n) => DecodeStage::HeaderName(*n + 1),
-      }
-    }
-  }
-  const LF: u8 = 10;
-  const CR: u8 = 13;
-  const SPACE: u8 = 32;
-  const COLON: u8 = 58;
-  pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, http::Error> {
-    let mut parse_stage = DecodeStage::Method;
-    // Method is max 7 bytes long
-    let mut method = [0; 7];
-    let mut method_index = 0;
-    let mut path = Vec::with_capacity(32);
-    // Version is 8 bytes long
-    let mut version = [0; 8];
-    let mut version_index = 0;
-    let mut parsed = Request::builder();
-    let mut current_header_name = Vec::with_capacity(32);
-    let mut current_header_value = Vec::with_capacity(128);
-    let mut lf_in_row = 0;
-    let mut last_header_byte = 0;
-    for byte in buffer {
-      last_header_byte += 1;
-      if *byte == CR {
-        continue;
-      }
-      if *byte == LF {
-        lf_in_row += 1;
-        if lf_in_row == 2 {
-          break;
-        }
-      } else {
-        lf_in_row = 0;
-      }
-      match parse_stage {
-        DecodeStage::Method => {
-          if *byte == SPACE || method_index == method.len() {
-            parse_stage.next();
-            continue;
-          }
-          method[method_index] = *byte;
-          method_index += 1;
-        }
-        DecodeStage::Path => {
-          if *byte == SPACE {
-            parse_stage.next();
-            continue;
-          }
-          path.push(*byte);
-        }
-        DecodeStage::Version => {
-          if *byte == LF || version_index == version.len() {
-            parse_stage.next();
-            continue;
-          }
-          version[version_index] = *byte;
-          version_index += 1;
-        }
-        DecodeStage::HeaderName(..) => {
-          if *byte == COLON {
-            continue;
-          }
-          if *byte == SPACE {
-            parse_stage.next();
-            continue;
-          }
-          current_header_name.push(*byte);
-        }
-        DecodeStage::HeaderValue(..) => {
-          if *byte == LF {
-            let name = HeaderName::from_bytes(&current_header_name[..]);
-            let value = HeaderValue::from_bytes(&current_header_value[..]);
-            if name.is_ok() && value.is_ok() {
-              parsed = parsed.header(name.unwrap(), value.unwrap());
-            }
-            current_header_name.clear();
-            current_header_value.clear();
-            parse_stage.next();
-            continue;
-          }
-          current_header_value.push(*byte);
-        }
-      };
-    }
-    parsed
-      .method(Method::from_bytes(&method[..]).unwrap_or(Method::GET))
-      .uri(Uri::from_maybe_shared(path).unwrap_or(Uri::from_static("/")))
-      .version(match &version[..] {
-        b"HTTP/0.9" => Version::HTTP_09,
-        b"HTTP/1.0" => Version::HTTP_10,
-        b"HTTP/1.1" => Version::HTTP_11,
-        b"HTTP/2" => Version::HTTP_2,
-        b"HTTP/2.0" => Version::HTTP_2,
-        b"HTTP/3" => Version::HTTP_3,
-        b"HTTP/3.0" => Version::HTTP_3,
-        _ => Version::default(),
-      })
-      .body(&buffer[last_header_byte..])
-  }
-
-  pub fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
-    let mut path = uri.path();
-    if path.contains("./") {
-      return Err(());
-    }
-    let is_dir = path.ends_with("/");
-    path = unsafe { std::str::from_utf8_unchecked(&path.as_bytes()[1..]) };
-
-    let mut buf = PathBuf::from("public");
-    buf.push(path);
-    if is_dir {
-      buf.push("index.html");
-    };
-    Ok(buf)
   }
 }
 
