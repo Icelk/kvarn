@@ -21,18 +21,20 @@ fn main() {
             .as_bytes(),
         );
 
-        (arktis::ContentType::HTML, false)
+        (arktis::ContentType::HTML, arktis::Cached::Dynamic)
     });
     bindings.get_page("/throw_500", |mut buffer, _| {
         arktis::write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
 
-        (arktis::ContentType::HTML, false)
+        (arktis::ContentType::HTML, arktis::Cached::Dynamic)
     });
     bindings.get_dir("/capturing", |buffer, request| {
         buffer.extend(
             &b"!> tmpl standard\n\
             [head]\
-            [body]\
+            [dependencies]\
+            [close-head]\
+            [navbar]\
             <main style='text-align: center;'><h1>You are visiting: '"[..],
         );
         buffer.extend(request.uri().path().as_bytes());
@@ -42,7 +44,7 @@ fn main() {
         );
         println!("Parsed: {:#?}", arktis::parse::format_headers(request));
 
-        (arktis::ContentType::HTML, true)
+        (arktis::ContentType::HTML, arktis::Cached::Static)
     });
     let server = arktis::Config::with_bindings(bindings, 443);
     let mut storage = server.clone_storage();

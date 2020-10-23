@@ -10,14 +10,14 @@ use std::{
   io::{self, prelude::*},
 };
 
-pub use bindings::{ContentType, FunctionBindings};
-pub use cache::*;
-pub use chars::*;
-pub use connection::Connection;
-
 mod extensions;
 pub mod parse;
 mod threading;
+
+pub use bindings::{ContentType, FunctionBindings};
+pub use cache::types::*;
+pub use chars::*;
+pub use connection::Connection;
 
 const HTTPS_SERVER: mio::Token = mio::Token(0);
 const RESERVED_TOKENS: usize = 1024;
@@ -223,6 +223,7 @@ pub struct Storage {
 }
 impl Storage {
   pub fn new() -> Self {
+    use cache::Cache;
     Storage {
       fs: Arc::new(Mutex::new(Cache::with_max_size(65536))),
       response: Arc::new(Mutex::new(Cache::new())),
@@ -239,6 +240,7 @@ impl Storage {
     }
   }
   pub fn from_bindings(bindings: Bindings) -> Self {
+    use cache::Cache;
     Storage {
       fs: Arc::new(Mutex::new(Cache::with_max_size(65536))),
       response: Arc::new(Mutex::new(Cache::new())),
@@ -318,6 +320,54 @@ impl Clone for Storage {
   }
 }
 
+pub enum ParseCachedErr {
+  StringEmpty,
+  UndefinedKeyword,
+  ContainsSpace,
+  FailedToParse,
+}
+pub enum Cached {
+  Dynamic,
+  Changing,
+  Static,
+}
+impl Cached {
+  pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+    std::str::from_utf8(bytes).ok().and_then(|s| s.parse().ok())
+  }
+
+  pub fn do_internal_cache(&self) -> bool {
+    match self {
+      Self::Dynamic | Self::Changing => false,
+      Self::Static => true,
+    }
+  }
+}
+impl std::str::FromStr for Cached {
+  type Err = ParseCachedErr;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    if s.contains(' ') {
+      Err(Self::Err::ContainsSpace)
+    } else {
+      match s.to_ascii_lowercase().as_str() {
+        "false" => Ok(Self::Dynamic),
+        "dynamic" => Ok(Self::Dynamic),
+        "no-cache" => Ok(Self::Dynamic),
+
+        "changing" => Ok(Self::Changing),
+        "may-change" => Ok(Self::Changing),
+
+        "static" => Ok(Self::Static),
+        "immutable" => Ok(Self::Static),
+
+        "" => Err(Self::Err::StringEmpty),
+        _ => Err(Self::Err::UndefinedKeyword),
+      }
+    }
+  }
+}
+
 fn process_request<W: Write>(
   socket: &mut W,
   request: http::Request<&[u8]>,
@@ -340,7 +390,7 @@ fn process_request<W: Write>(
   }
 
   let mut handled_headers = false;
-  let mut do_cache = true;
+  // let mut cached = Cached::Static;
   // Get from function or cache, to enable processing (extensions) from functions!
   let path = match parse::convert_uri(request.uri()) {
     Ok(path) => path,
@@ -350,9 +400,9 @@ fn process_request<W: Write>(
     }
   };
 
-  // PHP needs it, so don't give a warning!
+  // Extensions need body and cache setting to be mutable; to replace it.
   #[allow(unused_mut)]
-  let (mut body, content_type) = match storage
+  let (mut body, content_type, mut cached) = match storage
     .get_bindings()
     .get_binding(request.method(), request.uri().path())
   {
@@ -360,12 +410,11 @@ fn process_request<W: Write>(
     Some(callback) => {
       let mut response = Vec::with_capacity(2048);
       let (content_type, cache) = callback(&mut response, &request);
-      do_cache = cache;
       // Check if callback contains headers
       if &response[..5] == b"HTTP/" {
         handled_headers = true;
       }
-      (Arc::new(response), content_type)
+      (Arc::new(response), content_type, cache)
     }
     // No function, try read from FS cache.
     None => {
@@ -381,11 +430,8 @@ fn process_request<W: Write>(
           return Ok(());
         }
       };
-      if request.uri().query().is_some() {
-        do_cache = false;
-      }
       // Content mime type
-      (body, ContentType::AutoOrDownload)
+      (body, ContentType::AutoOrDownload, Cached::Static)
     }
   };
   let content_type = match content_type {
@@ -407,92 +453,53 @@ fn process_request<W: Write>(
       mime_guess::from_path(&path).first_or(mime::TEXT_HTML)
     )),
   };
-  // Read file etc...
-  let mut bytes = body.iter();
-  // If file starts with "!>", meaning it's an extension-dependent file!
-  if bytes.next() == Some(&BANG) && bytes.next() == Some(&PIPE) {
-    // Get extention arguments
-    let (extension_args, content_start) = {
-      let mut args = Vec::with_capacity(8);
-      let mut last_break = 2;
-      let mut current_index = 2;
-      for byte in bytes {
-        if *byte == LF {
-          if current_index - last_break > 1 {
-            args.push(
-              &body[last_break..if body.get(current_index - 1) == Some(&CR) {
-                current_index - 1
-              } else {
-                current_index
-              }],
-            );
-          }
-          break;
-        }
-        if *byte == SPACE && current_index - last_break > 1 {
-          args.push(&body[last_break..current_index]);
-        }
-        current_index += 1;
-        if *byte == SPACE {
-          last_break = current_index;
-        }
-      }
-      // Plus one, since loop breaks before
-      (args, current_index + 1)
-    };
+  // Apply extensions
+  {
+    pub use extensions::FileType::*;
+    pub use extensions::KnownExtension::*;
 
-    if let Some(test) = extension_args.get(0) {
-      match test {
+    match extensions::identify(&body[..], path.extension().and_then(|path| path.to_str())) {
+      // An extension is identified, handle it!
+      DefinedExtension(extension, content_start, template_args) => match extension {
         #[cfg(feature = "php")]
-        &b"php" => {
+        PHP => {
           println!("Handling php!");
           match extensions::php(socket, raw_request, &path) {
             Ok(()) => {
               // Don't write headers!
               handled_headers = true;
               // Check cache settings
-              do_cache = extension_args
+              cached = template_args
                 .get(1)
-                .and_then(|arg| Some(arg != b"false" && arg != b"no-cache" && arg != b"nocache"))
-                .unwrap_or(true);
+                .and_then(|arg| std::str::from_utf8(arg).ok())
+                .and_then(|arg| arg.parse().ok())
+                .unwrap_or(Cached::Static);
             }
             _ => {}
           };
         }
         #[cfg(feature = "templates")]
-        &b"tmpl" if extension_args.len() > 1 => {
+        Template => {
           body = Arc::new(extensions::template(
-            &extension_args[..],
+            &template_args[..],
             &body[content_start..],
             storage,
           ));
         }
-        // If extension not found in file, check file ending!
-        _ => match path.extension().and_then(|path| path.to_str()) {
-          #[cfg(feature = "php")]
-          Some(".php") => {
-            println!("Handling php!");
-            match extensions::php(socket, raw_request, &path) {
-              Ok(()) => {
-                // Don't write headers!
-                handled_headers = true;
-                // Check cache settings
-                do_cache = extension_args
-                  .get(1)
-                  .and_then(|arg| Some(arg != b"false" && arg != b"no-cache" && arg != b"nocache"))
-                  .unwrap_or(true);
-              }
-              _ => {}
-            };
+        SetCache => {
+          if let Some(cache) = template_args.get(1).and_then(|arg| Cached::from_bytes(arg)) {
+            cached = cache;
           }
-          // If nothing found, return a new body, with the extension ripped out!
-          _ => {
-            body = Arc::new(body[content_start..].to_vec());
-          }
-        },
+        }
+      },
+      // Remove the extension definition.
+      UnknownExtension(content_start, _) => {
+        body = Arc::new(body[content_start..].to_vec());
       }
-    }
-  };
+      // Do nothing!
+      Raw => {}
+    };
+  }
 
   let response = if !handled_headers {
     let mut response = Vec::with_capacity(4096);
@@ -511,9 +518,12 @@ fn process_request<W: Write>(
     response.extend(b"Content-Type: ".iter());
     response.extend(content_type.as_bytes());
     response.extend(b"\r\n");
-    // Temporary cache header
-    // response.extend(b"Cache-Control: max-age=120\r\n");
-    response.extend(b"Cache-Control: no-store\r\n");
+    // Cache header!
+    response.extend(match cached {
+      Cached::Dynamic => b"Cache-Control: no-store\r\n".iter(),
+      Cached::Changing => b"Cache-Control: max-age=120\r\n".iter(),
+      Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n".iter(),
+    });
     response.extend(SERVER_HEADER);
     response.extend(b"\r\n");
     if request.method() != &http::Method::HEAD {
@@ -527,7 +537,7 @@ fn process_request<W: Write>(
   };
   socket.write_all(&response[..])?;
 
-  if do_cache && request.method() == &http::Method::GET {
+  if cached.do_internal_cache() && request.method() == &http::Method::GET {
     if let Some(mut lock) = storage.try_response() {
       let uri = request.into_parts().0.uri;
       println!("Caching uri {}", &uri);
@@ -623,13 +633,17 @@ pub mod cache {
   use std::collections::HashMap;
   use std::{borrow::Borrow, hash::Hash};
 
-  pub type FsCacheInner = Cache<PathBuf, Vec<u8>>;
-  pub type FsCache = Arc<Mutex<FsCacheInner>>;
-  pub type ResponseCacheInner = Cache<Uri, Vec<u8>>;
-  pub type ResponseCache = Arc<Mutex<ResponseCacheInner>>;
-  pub type TemplateCacheInner = Cache<String, HashMap<Arc<String>, Arc<Vec<u8>>>>;
-  pub type TemplateCache = Arc<Mutex<TemplateCacheInner>>;
-  pub type Bindings = Arc<FunctionBindings>;
+  pub mod types {
+    use super::*;
+
+    pub type FsCacheInner = Cache<PathBuf, Vec<u8>>;
+    pub type FsCache = Arc<Mutex<FsCacheInner>>;
+    pub type ResponseCacheInner = Cache<Uri, Vec<u8>>;
+    pub type ResponseCache = Arc<Mutex<ResponseCacheInner>>;
+    pub type TemplateCacheInner = Cache<String, HashMap<Arc<String>, Arc<Vec<u8>>>>;
+    pub type TemplateCache = Arc<Mutex<TemplateCacheInner>>;
+    pub type Bindings = Arc<FunctionBindings>;
+  }
 
   pub trait Size {
     fn count(&self) -> usize;
@@ -974,12 +988,11 @@ pub mod connection {
   }
 }
 pub mod bindings {
+  use super::Cached;
   use http::Method;
   use http::Request;
   use mime::Mime;
   use std::collections::HashMap;
-
-  type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + Send + Sync;
 
   pub enum ContentType {
     Str(&'static str),
@@ -996,6 +1009,8 @@ pub mod bindings {
       Self::AutoOrDownload
     }
   }
+
+  type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + Send + Sync;
 
   /// Function bindings to have fast dynamic pages.
   ///
@@ -1039,7 +1054,7 @@ pub mod bindings {
     #[inline]
     pub fn bind_page<F>(&mut self, method: &Method, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
       self
         .page_map
@@ -1065,7 +1080,7 @@ pub mod bindings {
     #[inline]
     pub fn get_page<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync + Clone,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync + Clone,
     {
       if let None = self.page_map.get(path) {
         self.bind_page(&Method::HEAD, path, callback.clone());
@@ -1078,7 +1093,7 @@ pub mod bindings {
     #[inline]
     pub fn post_page<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
       self.bind_page(&Method::PUT, path, callback);
     }
@@ -1088,7 +1103,7 @@ pub mod bindings {
     #[inline]
     pub fn put_page<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
       self.bind_page(&Method::POST, path, callback);
     }
@@ -1113,7 +1128,7 @@ pub mod bindings {
     #[inline]
     pub fn bind_dir<F>(&mut self, method: &Method, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
       self
         .dir_map
@@ -1139,7 +1154,7 @@ pub mod bindings {
     #[inline]
     pub fn get_dir<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync + Clone,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync + Clone,
     {
       if let None = self.dir_map.get(path) {
         self.bind_dir(&Method::HEAD, path, callback.clone());
@@ -1152,7 +1167,7 @@ pub mod bindings {
     #[inline]
     pub fn post_dir<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
       self.bind_dir(&Method::PUT, path, callback);
     }
@@ -1162,7 +1177,7 @@ pub mod bindings {
     #[inline]
     pub fn put_dir<F>(&mut self, path: &str, callback: F)
     where
-      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, bool) + 'static + Send + Sync,
+      F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
       self.bind_dir(&Method::POST, path, callback);
     }

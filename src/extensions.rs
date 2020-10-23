@@ -9,6 +9,21 @@ pub use php::handle_php as php;
 #[cfg(feature = "templates")]
 pub use templates::handle_template as template;
 
+/// All known extensions
+#[derive(Debug)]
+pub enum KnownExtension {
+  PHP,
+  Template,
+  SetCache,
+}
+/// What type is this file, raw, unknown extension, or known extension?
+#[derive(Debug)]
+pub enum FileType<'a> {
+  Raw,
+  UnknownExtension(usize, Vec<&'a [u8]>),
+  DefinedExtension(KnownExtension, usize, Vec<&'a [u8]>),
+}
+
 #[cfg(feature = "php")]
 pub mod php {
   use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
@@ -272,4 +287,66 @@ pub mod templates {
     }
     templates
   }
+}
+
+pub fn identify<'a, 'b>(bytes: &'a [u8], file_extension: Option<&'b str>) -> FileType<'a> {
+  use FileType::*;
+  use KnownExtension::*;
+
+  // If file starts with "!>", meaning it's an extension-dependent file!
+  if bytes.starts_with(&[BANG, PIPE]) {
+    // Get extention arguments
+    let (args, content_start) = parse_args(&bytes[2..]);
+    // Add two, because of the BANG and PIPE start!
+    let content_start = content_start + 2;
+
+    if let Some(test) = args.get(0) {
+      match test {
+        #[cfg(feature = "php")]
+        &b"php" => DefinedExtension(PHP, content_start, args),
+        #[cfg(feature = "templates")]
+        &b"tmpl" if args.len() > 1 => DefinedExtension(Template, content_start, args),
+        &b"cache" => DefinedExtension(SetCache, content_start, args),
+        // If extension not found in file, check file ending!
+        _ => match file_extension {
+          #[cfg(feature = "php")]
+          Some(".php") => DefinedExtension(PHP, content_start, args),
+          // If nothing found, return a new body, with the extension ripped out!
+          _ => UnknownExtension(content_start, args),
+        },
+      }
+    } else {
+      Raw
+    }
+  } else {
+    Raw
+  }
+}
+fn parse_args(bytes: &[u8]) -> (Vec<&[u8]>, usize) {
+  let mut args = Vec::with_capacity(8);
+  let mut last_break = 0;
+  let mut current_index = 0;
+  for byte in bytes {
+    if *byte == LF {
+      if current_index - last_break > 1 {
+        args.push(
+          &bytes[last_break..if bytes.get(current_index - 1) == Some(&CR) {
+            current_index - 1
+          } else {
+            current_index
+          }],
+        );
+      }
+      break;
+    }
+    if *byte == SPACE && current_index - last_break > 1 {
+      args.push(&bytes[last_break..current_index]);
+    }
+    current_index += 1;
+    if *byte == SPACE {
+      last_break = current_index;
+    }
+  }
+  // Plus one, since loop breaks before
+  (args, current_index + 1)
 }
