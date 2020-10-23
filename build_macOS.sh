@@ -1,3 +1,5 @@
+echo "Needs '/.cargo/config' file!"
+
 # Add osxcross toolchain to path
 export PATH="/mnt/m/RustOSX/osxcross/target/bin:$PATH"
 

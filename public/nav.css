@@ -1,0 +1,370 @@
+/* Entire document */
+
+:root
+{
+  font-family: "Raleway", sans-serif;
+  text-align: justify;
+}
+
+body
+{
+  color: var(--text-primary);
+  background-color: var(--bg-main);
+  transition: var(--transition);
+  margin: 0;
+}
+
+/* Select, input, button, and textarea */
+
+select, input, button, textarea
+{
+  font-family: inherit;
+  background-color: #dfdfdf;
+  border-color: #7f7f7f;
+  pointer-events: initial;
+}
+
+textarea
+{
+  border-width: 0.4em;
+  border-radius: 1em;
+  border-style: double;
+  padding: 0.2em;
+}
+
+select, input, button
+{
+  border-width: 0.2em;
+  border-radius: 0.4em;
+  border-style: solid;
+  padding: 0.1em;
+}
+
+/* Math */
+
+math, .math
+{
+  display: inline-block;
+  vertical-align: middle;
+  line-height: normal;
+}
+
+math.bracket
+{
+  font-size: 3em;
+  font-weight: lighter;
+}
+
+/* Scripts, used on 'div' or 'span'. Defaults to both (use a <br/> to access) or sub, you can use sup to access the upper value */
+
+.script
+{
+  display: inline-block;
+  font-size: 0.8em;
+  text-align: left;
+  vertical-align: -0.5em;
+  margin-bottom: -0.25em;
+  line-height: 1em;
+}
+
+.script.sup
+{
+  vertical-align: 0.5em;
+}
+
+/* Overlay */
+
+.overlay
+{
+  position: fixed;
+  pointer-events: none;
+  /* Please add pointer-events: initial; to the interactive elements */
+  padding: 0.5em;
+  z-index: 9001;
+}
+
+.overlay.top, .overlay.bottom
+{
+  left: 0;
+  right: 0;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Works terribly */
+
+.overlay.left, .overlay.right
+{
+  top: 50%;
+  transform: translateY(-50.25%);
+}
+
+.overlay.top
+{
+  top: 0;
+  bottom: inherit;
+  transform: inherit;
+}
+
+.overlay.bottom
+{
+  top: inherit;
+  bottom: 0;
+  transform: inherit;
+}
+
+.overlay.left
+{
+  left: 0;
+  right: inherit;
+}
+
+.overlay.right
+{
+  right: 0;
+  left: inherit;
+}
+
+/* SVG animations */
+
+.animatable
+{
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
+/* Scrollbar */
+
+body::-webkit-scrollbar
+{
+  width: 0.25rem;
+}
+
+body::-webkit-scrollbar-track
+{
+  background: var(--bg-primary);
+}
+
+body::-webkit-scrollbar-thumb
+{
+  background: var(--bg-secondary);
+}
+
+/* Navbar */
+
+.nav
+{
+  position: fixed;
+  background-color: var(--bg-primary);
+  transition: var(--transition), width var(--transition-speed) ease;
+  overflow: hidden;
+  z-index: 100;
+}
+
+.navbar
+{
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.nav-item
+{
+  width: 100%;
+  text-transform: capitalize;
+}
+
+.bottomItem
+{
+  margin-top: auto;
+}
+
+.nav-link
+{
+  display: flex;
+  align-items: center;
+  height: var(--nav-dimensions);
+  color: var(--text-primary);
+  text-decoration: none;
+  filter: grayscale(100%) opacity(0.7);
+  transition: calc(var(--transition-speed) / 2);
+  cursor: pointer;
+}
+
+.nav-link:hover
+{
+  filter: grayscale(0%) opacity(1);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.link-text
+{
+  display: none;
+  margin-left: 1rem;
+  white-space: nowrap;
+}
+
+/* https://heroicons.dev/ */
+.nav-link svg
+{
+  width: 2rem;
+  min-width: 2rem;
+  margin: 0 calc(calc(var(--nav-dimensions) / 2) - 1rem);
+}
+
+.fa-primary
+{
+  color: #ff7eee;
+  color: var(--image-primary);
+}
+
+.fa-secondary
+{
+  color: #df49a6;
+  color: var(--image-secondary);
+}
+
+.fa-primary, .fa-secondary
+{
+  transition: var(--transition-speed);
+}
+
+.logo
+{
+  transition: var(--transition);
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  font-size: 1.5rem;
+  letter-spacing: 0.3rem;
+  width: 100%;
+}
+
+.logo svg
+{
+  transform: rotate(0deg);
+  transition: var(--transition-speed);
+}
+
+.logo-text
+{
+  display: inline;
+  position: absolute;
+  left: -20rem;
+  transition: left var(--transition-speed);
+}
+
+.nav:hover .logo svg
+{
+  transform: rotate(-180deg);
+}
+
+.dropdown
+{
+  height: 0;
+  overflow: hidden;
+  border-left: calc(var(--nav-dimensions) / 8) solid var(--bg-secondary);
+  border-right: calc(var(--nav-dimensions) / 8) solid var(--bg-secondary);
+  background-color: var(--bg-main);
+  transition: var(--transition), height calc(var(--transition-speed)) ease;
+}
+
+.has-dropdown > a
+{
+  cursor: default;
+}
+
+/* Small screens */
+@media only screen and (max-width: 600px)
+{
+  .nav
+  {
+    bottom: 0;
+    width: 100%;
+    height: var(--nav-dimensions);
+  }
+  .logo
+  {
+    display: none;
+  }
+  .navbar
+  {
+    flex-direction: row;
+  }
+  .nav-link
+  {
+    justify-content: center;
+  }
+  .has-dropdown
+  {
+    display: none;
+  }
+}
+
+/* Large screens */
+@media only screen and (min-width: 600px)
+{
+  .nav
+  {
+    top: 0;
+    width: var(--nav-dimensions);
+    height: 100vh;
+  }
+  .nav:hover
+  {
+    width: calc(var(--nav-dimensions) + 11rem);
+  }
+  .nav:hover .link-text
+  {
+    display: inline;
+  }
+  .nav:hover .logo svg
+  {
+    margin-left: calc(var(--nav-dimensions) + 8rem);
+  }
+  .nav:hover .logo-text
+  {
+    left: 0;
+  }
+  main
+  {
+    margin-left: calc(var(--nav-dimensions));
+  }
+}
+
+.theme-icon
+{
+  display: none;
+}
+
+.dark #darkIcon
+{
+  display: block;
+}
+
+.light #lightIcon
+{
+  display: block;
+}
+
+.solar #solarIcon
+{
+  display: block;
+}
+
+@media (prefers-color-scheme: light)
+{
+  :root
+  {
+    content: "light";
+  }
+}
