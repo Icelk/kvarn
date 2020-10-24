@@ -103,7 +103,7 @@ pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, http::Error> {
     };
   }
   parsed
-    .method(Method::from_bytes(&method[..]).unwrap_or(Method::GET))
+    .method(Method::from_bytes(&method[..method_index]).unwrap_or(Method::GET))
     .uri(Uri::from_maybe_shared(path).unwrap_or(Uri::from_static("/")))
     .version(match &version[..] {
       b"HTTP/0.9" => Version::HTTP_09,
