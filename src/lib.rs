@@ -373,15 +373,15 @@ fn process_request<W: Write>(
   let method = request.method();
   let mut handled_method = false;
 
-  let is_get = || match method {
-    #[inline]
+  let is_get = match method {
     &http::Method::GET | &http::Method::HEAD => true,
     _ => false,
   };
+  let mut allowed_method = is_get;
 
   // let write_error = |code: u32| {};
   // println!("Got request: {:?}", &request);
-  if is_get() {
+  if is_get {
     // Load from cache
     // Try get response cache lock
     if let Some(lock) = storage.try_response() {
@@ -465,7 +465,7 @@ fn process_request<W: Write>(
       // NEEDS TO COVER ALL POSSIBILITIES FOR LAST `_ =>` TO MAKE SENSE!
       DefinedExtension(extension, content_start, template_args) => match extension {
         #[cfg(feature = "php")]
-        // Take all methods!
+        // Accept all methods!
         PHP => {
           println!("Handling php!");
           match extensions::php(socket, raw_request, &path) {
@@ -483,14 +483,14 @@ fn process_request<W: Write>(
           };
         }
         #[cfg(feature = "templates")]
-        Template if is_get() | handled_method => {
+        Template if allowed_method => {
           body = ByteResponse::new_arc(extensions::template(
             &template_args[..],
             body.from(content_start),
             storage,
           ));
         }
-        SetCache if is_get() | handled_method => {
+        SetCache if allowed_method => {
           if let Some(cache) = template_args.get(1).and_then(|arg| Cached::from_bytes(arg)) {
             cached = cache;
           }
@@ -502,11 +502,11 @@ fn process_request<W: Write>(
         }
       },
       // Remove the extension definition.
-      UnknownExtension(content_start, _) if is_get() | handled_method => {
+      UnknownExtension(content_start, _) if allowed_method => {
         body = ByteResponse::new_arc(body.from(content_start).to_vec());
       }
       // Do nothing!
-      Raw if is_get() | handled_method => {}
+      Raw if allowed_method => {}
       // If method didn't match, return 405 err!
       _ => {
         body = ByteResponse::new_arc(default_error(405, close, Some(storage)));
@@ -550,7 +550,7 @@ fn process_request<W: Write>(
 
   socket.write_all(response.get_from_method(method))?;
 
-  if cached.do_internal_cache() && is_get() {
+  if cached.do_internal_cache() && is_get {
     if let Some(mut lock) = storage.try_response() {
       let uri = request.into_parts().0.uri;
       println!("Caching uri {}", &uri);
