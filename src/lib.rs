@@ -371,17 +371,17 @@ fn process_request<W: Write>(
   storage: &mut Storage,
 ) -> Result<(), io::Error> {
   let method = request.method();
+  let mut handled_method = false;
 
-  fn is_get(method: &http::Method) -> bool {
-    match method {
-      &http::Method::GET | &http::Method::HEAD => true,
-      _ => false,
-    }
-  }
+  let is_get = || match method {
+    #[inline]
+    &http::Method::GET | &http::Method::HEAD => true,
+    _ => false,
+  };
 
   // let write_error = |code: u32| {};
   // println!("Got request: {:?}", &request);
-  if is_get(method) {
+  if is_get() {
     // Load from cache
     // Try get response cache lock
     if let Some(lock) = storage.try_response() {
@@ -418,6 +418,7 @@ fn process_request<W: Write>(
       if &response[..5] == b"HTTP/" {
         handled_headers = true;
       }
+      handled_method = true;
       (ByteResponse::new_arc(response), content_type, cache)
     }
     // No function, try read from FS cache.
@@ -434,6 +435,7 @@ fn process_request<W: Write>(
       (body, ContentType::AutoOrDownload, Cached::Static)
     }
   };
+
   let content_type = match content_type {
     ContentType::Str(s) => Cow::Borrowed(s),
     ContentType::MIME(mime) => Cow::Owned(format!("{}", mime)),
@@ -460,6 +462,7 @@ fn process_request<W: Write>(
 
     match extensions::identify(body.get(), path.extension().and_then(|path| path.to_str())) {
       // An extension is identified, handle it!
+      // NEEDS TO COVER ALL POSSIBILITIES FOR LAST `_ =>` TO MAKE SENSE!
       DefinedExtension(extension, content_start, template_args) => match extension {
         #[cfg(feature = "php")]
         // Take all methods!
@@ -480,14 +483,14 @@ fn process_request<W: Write>(
           };
         }
         #[cfg(feature = "templates")]
-        Template if is_get(method) => {
+        Template if is_get() | handled_method => {
           body = ByteResponse::new_arc(extensions::template(
             &template_args[..],
             body.from(content_start),
             storage,
           ));
         }
-        SetCache if is_get(method) => {
+        SetCache if is_get() | handled_method => {
           if let Some(cache) = template_args.get(1).and_then(|arg| Cached::from_bytes(arg)) {
             cached = cache;
           }
@@ -499,11 +502,11 @@ fn process_request<W: Write>(
         }
       },
       // Remove the extension definition.
-      UnknownExtension(content_start, _) if is_get(method) => {
+      UnknownExtension(content_start, _) if is_get() | handled_method => {
         body = ByteResponse::new_arc(body.from(content_start).to_vec());
       }
       // Do nothing!
-      Raw if is_get(method) => {}
+      Raw if is_get() | handled_method => {}
       // If method didn't match, return 405 err!
       _ => {
         body = ByteResponse::new_arc(default_error(405, close, Some(storage)));
@@ -547,7 +550,7 @@ fn process_request<W: Write>(
 
   socket.write_all(response.get_from_method(method))?;
 
-  if cached.do_internal_cache() {
+  if cached.do_internal_cache() && is_get() {
     if let Some(mut lock) = storage.try_response() {
       let uri = request.into_parts().0.uri;
       println!("Caching uri {}", &uri);
@@ -871,7 +874,7 @@ pub mod connection {
   use mio::{event::Event, Interest, Registry, Token};
   use rustls::{ServerSession, Session};
 
-  #[derive(PartialEq)]
+  #[derive(PartialEq, Debug)]
   pub enum ConnectionHeader {
     KeepAlive,
     Close,
@@ -1210,7 +1213,7 @@ pub mod bindings {
     where
       F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
-      self.bind_page(&Method::PUT, path, callback);
+      self.bind_page(&Method::POST, path, callback);
     }
     /// Binds a page to this function, when using the PUT method.
     ///
@@ -1220,7 +1223,7 @@ pub mod bindings {
     where
       F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
-      self.bind_page(&Method::POST, path, callback);
+      self.bind_page(&Method::PUT, path, callback);
     }
 
     /// Binds a function to a directory; if the requests path starts with any entry, it gets directed to the associated function. Case sensitive.
@@ -1284,7 +1287,7 @@ pub mod bindings {
     where
       F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
-      self.bind_dir(&Method::PUT, path, callback);
+      self.bind_dir(&Method::POST, path, callback);
     }
     /// Binds a directory to this function, when using the PUT method.
     ///
@@ -1294,7 +1297,7 @@ pub mod bindings {
     where
       F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
     {
-      self.bind_dir(&Method::POST, path, callback);
+      self.bind_dir(&Method::PUT, path, callback);
     }
     /// Gets the function associated with the URL, if there is one.
     #[inline]
