@@ -22,4 +22,7 @@ templates = []
 # Enables PHP interpretation of files
 php = []
 # Disables the cache
-no-cache = []
+no-fs-cache = []
+no-response-cache = []
+no-template-cache = []
+no-cache = ["no-fs-cache", "no-response-cache", "no-template-cache"]

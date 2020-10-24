@@ -261,9 +261,9 @@ impl Storage {
   /// Always remember to handle the case if the lock isn't acquired; just don't return None!
   #[inline]
   pub fn try_fs(&mut self) -> Option<sync::MutexGuard<'_, FsCacheInner>> {
-    #[cfg(feature = "no-cache")]
+    #[cfg(feature = "no-fs-cache")]
     return None;
-    #[cfg(not(feature = "no-cache"))]
+    #[cfg(not(feature = "no-fs-cache"))]
     match self.fs.try_lock() {
       Ok(lock) => Some(lock),
       Err(ref err) => match err {
@@ -277,9 +277,9 @@ impl Storage {
   /// Always remember to handle the case if the lock isn't acquired; just don't return None!
   #[inline]
   pub fn try_response(&mut self) -> Option<sync::MutexGuard<'_, ResponseCacheInner>> {
-    #[cfg(feature = "no-cache")]
+    #[cfg(feature = "no-response-cache")]
     return None;
-    #[cfg(not(feature = "no-cache"))]
+    #[cfg(not(feature = "no-response-cache"))]
     match self.response.try_lock() {
       Ok(lock) => Some(lock),
       Err(ref err) => match err {
@@ -293,9 +293,9 @@ impl Storage {
   /// Always remember to handle the case if the lock isn't acquired; just don't return None!
   #[inline]
   pub fn try_template(&mut self) -> Option<sync::MutexGuard<'_, TemplateCacheInner>> {
-    #[cfg(feature = "no-cache")]
+    #[cfg(feature = "no-template-cache")]
     return None;
-    #[cfg(not(feature = "no-cache"))]
+    #[cfg(not(feature = "no-template-cache"))]
     match self.template.try_lock() {
       Ok(lock) => Some(lock),
       Err(ref err) => match err {
@@ -643,22 +643,22 @@ pub mod cache {
   }
   impl<T> Size for Vec<T> {
     fn count(&self) -> usize {
-      self.len()
+      self.len() * std::mem::size_of::<T>()
     }
   }
   impl<T> Size for dyn Borrow<Vec<T>> {
     fn count(&self) -> usize {
-      self.borrow().len()
+      self.borrow().len() * std::mem::size_of::<T>()
     }
   }
   impl<K, V> Size for HashMap<K, V> {
     fn count(&self) -> usize {
-      self.len()
+      self.len() * std::mem::size_of::<V>()
     }
   }
   impl<K, V> Size for dyn Borrow<HashMap<K, V>> {
     fn count(&self) -> usize {
-      self.borrow().len()
+      self.borrow().len() * std::mem::size_of::<V>()
     }
   }
   pub struct Cache<K, V> {
