@@ -369,14 +369,22 @@ fn process_request<W: Write>(
   close: &connection::ConnectionHeader,
   storage: &mut Storage,
 ) -> Result<(), io::Error> {
+  let method = request.method();
+
+  fn is_get(method: &http::Method) -> bool {
+    match method {
+      &http::Method::GET | &http::Method::HEAD => true,
+      _ => false,
+    }
+  }
   // println!("Got request: {:?}", &request);
-  if request.method() == &http::Method::GET || request.method() == &http::Method::HEAD {
+  if is_get(method) {
     // Load from cache
     // Try get response cache lock
     if let Some(lock) = storage.try_response() {
       // If response is in cache
       if let Some(response) = lock.get(request.uri()) {
-        socket.write_all(response.get_from_method(request.method()))?;
+        socket.write_all(response.get_from_method(method))?;
         return Ok(());
       }
     }
@@ -397,7 +405,7 @@ fn process_request<W: Write>(
   #[allow(unused_mut)]
   let (mut body, content_type, mut cached) = match storage
     .get_bindings()
-    .get_binding(request.method(), request.uri().path())
+    .get_binding(method, request.uri().path())
   {
     // We've got an function, call it and return body and result!
     Some(callback) => {
@@ -411,10 +419,6 @@ fn process_request<W: Write>(
     }
     // No function, try read from FS cache.
     None => {
-      if request.method() != http::Method::GET {
-        socket.write_all(&default_error(404, close, Some(storage))[..])?;
-        return Ok(());
-      }
       // Body
       let body = match read_file(&path, storage) {
         Some(response) => response,
@@ -455,6 +459,7 @@ fn process_request<W: Write>(
       // An extension is identified, handle it!
       DefinedExtension(extension, content_start, template_args) => match extension {
         #[cfg(feature = "php")]
+        // Take all methods!
         PHP => {
           println!("Handling php!");
           match extensions::php(socket, raw_request, &path) {
@@ -472,25 +477,35 @@ fn process_request<W: Write>(
           };
         }
         #[cfg(feature = "templates")]
-        Template => {
+        Template if is_get(method) => {
           body = ByteResponse::new_arc(extensions::template(
             &template_args[..],
             body.from(content_start),
             storage,
           ));
         }
-        SetCache => {
+        SetCache if is_get(method) => {
           if let Some(cache) = template_args.get(1).and_then(|arg| Cached::from_bytes(arg)) {
             cached = cache;
           }
         }
+        // If method didn't match, return 405 err!
+        _ => {
+          socket.write_all(&default_error(405, close, Some(storage))[..])?;
+          return Ok(());
+        }
       },
       // Remove the extension definition.
-      UnknownExtension(content_start, _) => {
+      UnknownExtension(content_start, _) if is_get(method) => {
         body = ByteResponse::new_arc(body.from(content_start).to_vec());
       }
       // Do nothing!
-      Raw => {}
+      Raw if is_get(method) => {}
+      // If method didn't match, return 405 err!
+      _ => {
+        socket.write_all(&default_error(405, close, Some(storage))[..])?;
+        return Ok(());
+      }
     };
   }
 
@@ -527,7 +542,7 @@ fn process_request<W: Write>(
     body
   };
 
-  socket.write_all(response.get_from_method(request.method()))?;
+  socket.write_all(response.get_from_method(method))?;
 
   if cached.do_internal_cache() {
     if let Some(mut lock) = storage.try_response() {
