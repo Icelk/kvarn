@@ -16,6 +16,7 @@ mod threading;
 
 pub use bindings::{ContentType, FunctionBindings};
 pub use cache::types::*;
+pub use cache::ByteResponse;
 pub use chars::*;
 pub use connection::Connection;
 
@@ -369,14 +370,13 @@ fn process_request<W: Write>(
   storage: &mut Storage,
 ) -> Result<(), io::Error> {
   // println!("Got request: {:?}", &request);
-  if request.method() == &http::Method::GET {
+  if request.method() == &http::Method::GET || request.method() == &http::Method::HEAD {
     // Load from cache
     // Try get response cache lock
     if let Some(lock) = storage.try_response() {
       // If response is in cache
       if let Some(response) = lock.get(request.uri()) {
-        // println!("Getting from cache!");
-        socket.write_all(&response[..])?;
+        socket.write_all(response.get_from_method(request.method()))?;
         return Ok(());
       }
     }
@@ -407,7 +407,7 @@ fn process_request<W: Write>(
       if &response[..5] == b"HTTP/" {
         handled_headers = true;
       }
-      (Arc::new(response), content_type, cache)
+      (ByteResponse::new_arc(response), content_type, cache)
     }
     // No function, try read from FS cache.
     None => {
@@ -451,7 +451,7 @@ fn process_request<W: Write>(
     pub use extensions::FileType::*;
     pub use extensions::KnownExtension::*;
 
-    match extensions::identify(&body[..], path.extension().and_then(|path| path.to_str())) {
+    match extensions::identify(body.get(), path.extension().and_then(|path| path.to_str())) {
       // An extension is identified, handle it!
       DefinedExtension(extension, content_start, template_args) => match extension {
         #[cfg(feature = "php")]
@@ -473,9 +473,9 @@ fn process_request<W: Write>(
         }
         #[cfg(feature = "templates")]
         Template => {
-          body = Arc::new(extensions::template(
+          body = ByteResponse::new_arc(extensions::template(
             &template_args[..],
-            &body[content_start..],
+            body.from(content_start),
             storage,
           ));
         }
@@ -487,7 +487,7 @@ fn process_request<W: Write>(
       },
       // Remove the extension definition.
       UnknownExtension(content_start, _) => {
-        body = Arc::new(body[content_start..].to_vec());
+        body = ByteResponse::new_arc(body.from(content_start).to_vec());
       }
       // Do nothing!
       Raw => {}
@@ -519,18 +519,17 @@ fn process_request<W: Write>(
     });
     response.extend(SERVER_HEADER);
     response.extend(b"\r\n");
-    if request.method() != &http::Method::HEAD {
-      response.extend(body.iter());
-    }
+    response.extend(body.get());
 
-    Arc::new(response)
+    ByteResponse::new_arc(response)
   } else {
     // Headers handled! Taking for granted user handled HEAD method.
     body
   };
-  socket.write_all(&response[..])?;
 
-  if cached.do_internal_cache() && request.method() == &http::Method::GET {
+  socket.write_all(response.get_from_method(request.method()))?;
+
+  if cached.do_internal_cache() {
     if let Some(mut lock) = storage.try_response() {
       let uri = request.into_parts().0.uri;
       println!("Caching uri {}", &uri);
@@ -576,7 +575,7 @@ fn default_error(
     Some(file) => {
       buffer.extend(b"Content-Length: ");
       buffer.extend(format!("{}\r\n\r\n", file.len()).as_bytes());
-      buffer.extend(&file[..]);
+      buffer.extend(file.get());
     }
     None => {
       let error = get_default(code);
@@ -592,7 +591,7 @@ pub fn write_generic_error<W: Write>(writer: &mut W, code: u16) -> Result<(), io
   writer.write_all(&default_error(code, &connection::ConnectionHeader::KeepAlive, None)[..])
 }
 
-fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<Vec<u8>>> {
+fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<ByteResponse>> {
   if let Some(lock) = storage.try_fs() {
     if let Some(cached) = lock.get(path) {
       return Some(cached);
@@ -604,7 +603,7 @@ fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<Vec<u8>>> {
       let mut buffer = Vec::with_capacity(4096);
       match file.read_to_end(&mut buffer) {
         Ok(..) => {
-          let buffer = Arc::new(buffer);
+          let buffer = ByteResponse::new_arc_no_head(buffer);
           match storage.try_fs() {
             Some(mut lock) => match lock.cache(path.clone(), buffer) {
               Err(failed) => Some(failed),
@@ -626,12 +625,88 @@ pub mod cache {
   use std::collections::HashMap;
   use std::{borrow::Borrow, hash::Hash};
 
+  pub struct ByteResponse {
+    bytes: Vec<u8>,
+    body_start: usize,
+  }
+  impl ByteResponse {
+    #[inline]
+    pub fn new(bytes: Vec<u8>) -> Self {
+      Self {
+        body_start: Self::get_start(&bytes[..]),
+        bytes,
+      }
+    }
+    #[inline]
+    pub fn new_no_head(bytes: Vec<u8>) -> Self {
+      Self {
+        body_start: 0,
+        bytes,
+      }
+    }
+    #[inline]
+    pub fn new_arc(bytes: Vec<u8>) -> Arc<Self> {
+      Arc::new(Self::new(bytes))
+    }
+    #[inline]
+    /// Used when computing body start isn't
+    pub fn new_arc_no_head(bytes: Vec<u8>) -> Arc<Self> {
+      Arc::new(Self::new_no_head(bytes))
+    }
+
+    fn get_start(bytes: &[u8]) -> usize {
+      let mut newlines_in_row = 0;
+      for (position, byte) in bytes.iter().enumerate() {
+        match *byte {
+          LF | CR => newlines_in_row += 1,
+          _ => newlines_in_row = 0,
+        }
+        if newlines_in_row == 4 {
+          return position;
+        }
+      }
+      0
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+      self.bytes.len()
+    }
+
+    #[inline]
+    pub fn get(&self) -> &[u8] {
+      &self.bytes[..]
+    }
+    #[inline]
+    pub fn get_head(&self) -> &[u8] {
+      &self.bytes[..self.body_start]
+    }
+    #[inline]
+    pub fn get_body(&self) -> &[u8] {
+      &self.bytes[self.body_start..]
+    }
+    #[inline]
+    pub fn get_from_method(&self, method: &http::Method) -> &[u8] {
+      match method {
+        &http::Method::HEAD => self.get_head(),
+        _ => self.get(),
+      }
+    }
+    #[inline]
+    pub fn from(&self, from: usize) -> &[u8] {
+      &self.bytes[from..]
+    }
+    #[inline]
+    pub fn to(&self, to: usize) -> &[u8] {
+      &self.bytes[..to]
+    }
+  }
+
   pub mod types {
     use super::*;
 
-    pub type FsCacheInner = Cache<PathBuf, Vec<u8>>;
+    pub type FsCacheInner = Cache<PathBuf, ByteResponse>;
     pub type FsCache = Arc<Mutex<FsCacheInner>>;
-    pub type ResponseCacheInner = Cache<Uri, Vec<u8>>;
+    pub type ResponseCacheInner = Cache<Uri, ByteResponse>;
     pub type ResponseCache = Arc<Mutex<ResponseCacheInner>>;
     pub type TemplateCacheInner = Cache<String, HashMap<Arc<String>, Arc<Vec<u8>>>>;
     pub type TemplateCache = Arc<Mutex<TemplateCacheInner>>;
@@ -661,6 +736,12 @@ pub mod cache {
       self.borrow().len() * std::mem::size_of::<V>()
     }
   }
+  impl Size for ByteResponse {
+    fn count(&self) -> usize {
+      self.get().len()
+    }
+  }
+
   pub struct Cache<K, V> {
     map: HashMap<K, Arc<V>>,
     max_items: usize,
