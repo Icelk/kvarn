@@ -327,6 +327,7 @@ pub enum ParseCachedErr {
   ContainsSpace,
   FailedToParse,
 }
+#[derive(Debug)]
 pub enum Cached {
   Dynamic,
   Changing,
@@ -377,6 +378,8 @@ fn process_request<W: Write>(
       _ => false,
     }
   }
+
+  // let write_error = |code: u32| {};
   // println!("Got request: {:?}", &request);
   if is_get(method) {
     // Load from cache
@@ -423,8 +426,8 @@ fn process_request<W: Write>(
       let body = match read_file(&path, storage) {
         Some(response) => response,
         None => {
-          socket.write_all(&default_error(404, close, Some(storage))[..])?;
-          return Ok(());
+          handled_headers = true;
+          ByteResponse::new_arc(default_error(404, close, Some(storage)))
         }
       };
       // Content mime type
@@ -491,8 +494,8 @@ fn process_request<W: Write>(
         }
         // If method didn't match, return 405 err!
         _ => {
-          socket.write_all(&default_error(405, close, Some(storage))[..])?;
-          return Ok(());
+          body = ByteResponse::new_arc(default_error(405, close, Some(storage)));
+          handled_headers = true;
         }
       },
       // Remove the extension definition.
@@ -503,8 +506,8 @@ fn process_request<W: Write>(
       Raw if is_get(method) => {}
       // If method didn't match, return 405 err!
       _ => {
-        socket.write_all(&default_error(405, close, Some(storage))[..])?;
-        return Ok(());
+        body = ByteResponse::new_arc(default_error(405, close, Some(storage)));
+        handled_headers = true;
       }
     };
   }
@@ -578,14 +581,6 @@ fn default_error(
     buffer.extend(b"Keep-Alive\r\n");
   }
 
-  fn get_default(code: u16) -> &'static [u8] {
-    // Hard-coded defaults
-    match code {
-          404 => &b"<html><head><title>404 Not Found</title></head><body><center><h1>404 Not Found</h1><hr><a href='/'>Return home</a></center></body></html>"[..],
-          _ => &b"<html><head><title>Unknown Error</title></head><body><center><h1>An unexpected error occurred, <a href='/'>return home</a>?</h1></center></body></html>"[..],
-        }
-  }
-
   match storage.and_then(|cache| read_file(&PathBuf::from(format!("{}.html", code)), cache)) {
     Some(file) => {
       buffer.extend(b"Content-Length: ");
@@ -593,10 +588,41 @@ fn default_error(
       buffer.extend(file.get());
     }
     None => {
-      let error = get_default(code);
+      let mut body = Vec::with_capacity(1024);
+      // let error = get_default(code);
+      match code {
+        _ => {
+          // Get code and reason!
+          let status = http::StatusCode::from_u16(code).ok();
+          let write_code = |body: &mut Vec<_>| match status {
+            #[inline]
+            Some(status) => body.extend(status.as_str().as_bytes()),
+            None => body.extend(format!("{}", code).as_bytes()),
+          };
+          let reason = status.and_then(|status| status.canonical_reason());
+
+          body.extend(b"<html><head><title>");
+          // Code and reason
+          write_code(&mut body);
+          body.extend(b" ");
+          if let Some(reason) = reason {
+            body.extend(reason.as_bytes());
+          }
+
+          body.extend(b"</title></head><body><center><h1>");
+          // Code and reason
+          write_code(&mut body);
+          body.extend(b" ");
+          if let Some(reason) = reason {
+            body.extend(reason.as_bytes());
+          }
+          body.extend(b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>");
+        }
+      }
+
       buffer.extend(b"Content-Length: ");
-      buffer.extend(format!("{}\r\n\r\n", error.len()).as_bytes());
-      buffer.extend(error);
+      buffer.extend(format!("{}\r\n\r\n", body.len()).as_bytes());
+      buffer.append(&mut body);
     }
   };
 
