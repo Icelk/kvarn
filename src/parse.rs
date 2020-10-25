@@ -277,7 +277,11 @@ pub fn format_list_header(header: &str) -> Vec<ValueQualitySet> {
       }
       quality_start_byte = 0;
       end_byte = 0;
-      start_byte = position + 1;
+      start_byte = if header.as_bytes().get(position + 1) == Some(&SPACE) {
+        position + 2
+      } else {
+        position + 1
+      };
       in_quality = false;
     }
   }
@@ -289,7 +293,7 @@ pub fn format_list_header(header: &str) -> Vec<ValueQualitySet> {
     Some(quality) => quality,
     None => 1.0,
   };
-  match header.get(start_byte..end_byte) {
+  match header.get(start_byte..) {
     Some(accept) => list.push(ValueQualitySet {
       value: accept,
       quality,
