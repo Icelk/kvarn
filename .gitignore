@@ -1,4 +1,6 @@
 /target
+/public
+/templates
 *.pem
 php.exe
 php7ts.dll
