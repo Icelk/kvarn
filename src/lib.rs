@@ -444,7 +444,6 @@ fn process_request<W: Write>(
     };
 
     let content_type = match content_type {
-        ContentType::Str(s) => Cow::Borrowed(s),
         ContentType::MIME(mime) => Cow::Owned(format!("{}", mime)),
         ContentType::HTML => Cow::Borrowed("text/html"),
         ContentType::PlainText => Cow::Borrowed("text/plain"),
@@ -530,13 +529,37 @@ fn process_request<W: Write>(
     // The response MUST contain all vary headers, else it won't be cached!
     let vary: Vec<&str> = vec![/* "Content-Type", */ "Accept-Encoding"];
 
-    let (compression, _identity_forbidden) = match request
+    let compression = match request
         .headers()
         .get("Accept-Encoding")
         .and_then(|header| header.to_str().ok())
     {
-        Some(header) => encoding_from_header(header),
-        None => (CompressionAlgorithm::Identity, false),
+        Some(header) => {
+            let (algorithm, identity_forbidden) = compression_from_header(header);
+            // Filter content types for compressed formats
+            if (content_type.starts_with("application")
+                && !content_type.contains("xml")
+                && !content_type.contains("json")
+                && content_type != "application/pdf"
+                && content_type != "application/javascript"
+                && content_type != "application/json"
+                && content_type != "application/graphql")
+                || content_type.starts_with("image")
+                || content_type.starts_with("audio")
+                || content_type.starts_with("video")
+            {
+                if identity_forbidden {
+                    handled_headers = true;
+                    body = default_error(405, &close, Some(storage));
+                    algorithm
+                } else {
+                    CompressionAlgorithm::Identity
+                }
+            } else {
+                algorithm
+            }
+        }
+        None => CompressionAlgorithm::Identity,
     };
 
     let response = if !handled_headers {
@@ -861,7 +884,7 @@ enum CompressionAlgorithm {
     // Deflate,
     Identity,
 }
-fn encoding_from_header(header: &str) -> (CompressionAlgorithm, bool) {
+fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
     let header = header.to_ascii_lowercase();
     let mut options = parse::format_list_header(&header);
 
@@ -1553,7 +1576,6 @@ pub mod bindings {
     use std::collections::HashMap;
 
     pub enum ContentType {
-        Str(&'static str),
         MIME(Mime),
         HTML,
         PlainText,
