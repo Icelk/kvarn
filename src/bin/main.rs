@@ -1,4 +1,4 @@
-use arktis;
+use arktis::{self, Cached::*, Config, ContentType::*, FunctionBindings};
 use http::uri::Uri;
 use std::io::{prelude::*, stdin};
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ fn main() {
             .as_bytes(),
         );
 
-        (arktis::ContentType::HTML, arktis::Cached::Dynamic)
+        (Html, Dynamic)
     });
     bindings.get_page("/throw_500", |mut buffer, _| {
         arktis::write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
@@ -44,9 +44,9 @@ fn main() {
         );
         println!("Parsed: {:#?}", arktis::parse::format_headers(request));
 
-        (arktis::ContentType::HTML, arktis::Cached::Static)
+        (Html, Static)
     });
-    let server = arktis::Config::with_bindings(bindings, 443);
+    let server = Config::with_bindings(bindings, 443);
     let mut storage = server.clone_storage();
     thread::spawn(move || server.run());
 

@@ -444,8 +444,8 @@ fn process_request<W: Write>(
     };
 
     let content_type = match content_type {
-        ContentType::MIME(mime) => Cow::Owned(format!("{}", mime)),
-        ContentType::HTML => Cow::Borrowed("text/html"),
+        ContentType::FromMime(mime) => Cow::Owned(format!("{}", mime)),
+        ContentType::Html => Cow::Borrowed("text/html"),
         ContentType::PlainText => Cow::Borrowed("text/plain"),
         ContentType::Download => Cow::Borrowed("application/octet-stream"),
         ContentType::AutoOrDownload => Cow::Owned(format!(
@@ -1576,15 +1576,14 @@ pub mod connection {
 }
 
 pub mod bindings {
-    use super::Cached;
-    use http::Method;
+    use super::{Cached, Storage};
     use http::Request;
     use mime::Mime;
     use std::collections::HashMap;
 
     pub enum ContentType {
-        MIME(Mime),
-        HTML,
+        FromMime(Mime),
+        Html,
         PlainText,
         Download,
         AutoOrDownload,
