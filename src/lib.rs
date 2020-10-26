@@ -399,7 +399,6 @@ fn process_request<W: Write>(
         }
     }
 
-    let mut handled_headers = false;
     // Get from function or cache, to enable processing (extensions) from functions!
     let path = match parse::convert_uri(request.uri()) {
         Ok(path) => path,
@@ -423,7 +422,6 @@ fn process_request<W: Write>(
                 allowed_method = true;
                 // Check if callback contains headers. Change to response struct in future!
                 if &response[..5] == b"HTTP/" {
-                    handled_headers = true;
                     (ByteResponse::with_header(response), content_type, cache)
                 } else {
                     (ByteResponse::without_header(response), content_type, cache)
@@ -434,10 +432,7 @@ fn process_request<W: Write>(
                 // Body
                 let body = match read_file(&path, storage) {
                     Some(response) => ByteResponse::Borrowed(response),
-                    None => {
-                        handled_headers = true;
-                        default_error(404, close, Some(storage))
-                    }
+                    None => default_error(404, close, Some(storage)),
                 };
                 // Content mime type
                 (body, ContentType::AutoOrDownload, Cached::Static)
@@ -510,7 +505,6 @@ fn process_request<W: Write>(
                 // If method didn't match, return 405 err!
                 _ => {
                     body = default_error(405, close, Some(storage));
-                    handled_headers = true;
                 }
             },
             // Remove the extension definition.
@@ -522,7 +516,6 @@ fn process_request<W: Write>(
             // If method didn't match, return 405 err!
             _ => {
                 body = default_error(405, close, Some(storage));
-                handled_headers = true;
             }
         };
     }
@@ -549,7 +542,6 @@ fn process_request<W: Write>(
                 || content_type.starts_with("video")
             {
                 if identity_forbidden {
-                    handled_headers = true;
                     body = default_error(406, &close, Some(storage));
                     algorithm
                 } else {
@@ -562,60 +554,61 @@ fn process_request<W: Write>(
         None => CompressionAlgorithm::Identity,
     };
 
-    let response = if !handled_headers {
-        let mut response = Vec::with_capacity(4096);
-        let body = Compressors::compress(body.get_body(), &compression);
-        response.extend(
-            b"HTTP/1.1 200 OK\r\n\
+    let response = match body {
+        ByteResponse::NoHead(_) | ByteResponse::Borrowed(_) => {
+            let mut response = Vec::with_capacity(4096);
+            let body = Compressors::compress(body.get_body(), &compression);
+            response.extend(
+                b"HTTP/1.1 200 OK\r\n\
         Connection: ",
-        );
-        if close.close() {
-            response.extend(b"Close\r\n");
-        } else {
-            response.extend(b"Keep-Alive\r\n");
-        }
-        response.extend(b"Content-Length: ");
-        response.extend(format!("{}\r\n", body.len()).as_bytes());
-        response.extend(b"Content-Type: ");
-        response.extend(content_type.as_bytes());
-        response.extend(b"\r\n");
-        response.extend(b"Content-Encoding: ");
-        response.extend(
-            match compression {
-                CompressionAlgorithm::Identity => "identity",
-                #[cfg(feature = "brotli")]
-                CompressionAlgorithm::Brotli => "br",
-                #[cfg(feature = "gzip")]
-                CompressionAlgorithm::Gzip => "gzip",
+            );
+            if close.close() {
+                response.extend(b"Close\r\n");
+            } else {
+                response.extend(b"Keep-Alive\r\n");
             }
-            .as_bytes(),
-        );
-        response.extend(b"\r\n");
-        // Cache header!
-        response.extend(match cached {
-            Cached::Dynamic => b"Cache-Control: no-store\r\n",
-            Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
-            Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n",
-        });
-        if !vary.is_empty() {
-            response.extend(b"Vary: ");
-            let mut iter = vary.iter();
-            response.extend(iter.next().unwrap().as_bytes());
-
-            for vary in iter {
-                response.extend(b", ");
-                response.extend(vary.as_bytes());
-            }
+            response.extend(b"Content-Length: ");
+            response.extend(format!("{}\r\n", body.len()).as_bytes());
+            response.extend(b"Content-Type: ");
+            response.extend(content_type.as_bytes());
             response.extend(b"\r\n");
-        }
-        response.extend(SERVER_HEADER);
-        response.extend(b"\r\n");
-        // response.extend(body.iter());
+            response.extend(b"Content-Encoding: ");
+            response.extend(
+                match compression {
+                    CompressionAlgorithm::Identity => "identity",
+                    #[cfg(feature = "brotli")]
+                    CompressionAlgorithm::Brotli => "br",
+                    #[cfg(feature = "gzip")]
+                    CompressionAlgorithm::Gzip => "gzip",
+                }
+                .as_bytes(),
+            );
+            response.extend(b"\r\n");
+            // Cache header!
+            response.extend(match cached {
+                Cached::Dynamic => b"Cache-Control: no-store\r\n",
+                Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
+                Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n",
+            });
+            if !vary.is_empty() {
+                response.extend(b"Vary: ");
+                let mut iter = vary.iter();
+                response.extend(iter.next().unwrap().as_bytes());
 
-        ByteResponse::Separated(response, Arc::new(body))
-    } else {
+                for vary in iter {
+                    response.extend(b", ");
+                    response.extend(vary.as_bytes());
+                }
+                response.extend(b"\r\n");
+            }
+            response.extend(SERVER_HEADER);
+            response.extend(b"\r\n");
+            // response.extend(body.iter());
+
+            ByteResponse::Separated(response, Arc::new(body))
+        }
         // Headers handled! Taking for granted user handled HEAD method.
-        body
+        _ => body,
     };
 
     // Write to socket!
@@ -976,6 +969,7 @@ pub mod cache {
     use std::{borrow::Borrow, hash::Hash};
 
     #[derive(Debug)]
+    /// Variants Borrowed and NoHead doesn't contain a head, and Single doesn't need to.
     pub enum ByteResponse {
         Single(Vec<u8>, usize),
         Separated(Vec<u8>, Arc<Vec<u8>>),
@@ -1063,7 +1057,6 @@ pub mod cache {
         }
         #[inline]
         pub fn get_body(&self) -> &[u8] {
-            // &self.bytes[self.body_start..]
             match self {
                 Self::Single(vec, start) => &vec[*start..],
                 Self::Separated(_, body) => &body[..],
