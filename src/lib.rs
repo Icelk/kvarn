@@ -412,20 +412,20 @@ fn process_request<W: Write>(
     };
 
     // Extensions need body and cache setting to be mutable; to replace it.
-    #[allow(unused_mut)]
-    let (mut body, content_type, mut cached) = match storage
-        .get_bindings()
-        .get_binding(method, request.uri().path())
-    {
-        // We've got an function, call it and return body and result!
-        Some(callback) => {
-            let mut response = Vec::with_capacity(2048);
-            let (content_type, cache) = callback(&mut response, &request);
-            // Check if callback contains headers
-            if &response[..5] == b"HTTP/" {
-                handled_headers = true;
-            }
-            allowed_method = true;
+    // Used to bypass immutable/mutable rule. It is safe because the binding reference isn't affected by changing the cache.
+    let cache: *mut Storage = storage;
+    let (mut body, content_type, mut cached) =
+        match storage.get_bindings().get_binding(request.uri().path()) {
+            // We've got an function, call it and return body and result!
+            Some(callback) => {
+                let mut response = Vec::with_capacity(2048);
+                let (content_type, cache) =
+                    callback(&mut response, &request, unsafe { &mut *cache });
+                // Check if callback contains headers
+                if &response[..5] == b"HTTP/" {
+                    handled_headers = true;
+                }
+                allowed_method = true;
             (ByteResponse::single(response), content_type, cache)
         }
         // No function, try read from FS cache.
@@ -1617,170 +1617,87 @@ pub mod bindings {
             }
         }
         /// Binds a function to a path. Case sensitive.
+        /// Don't forget to handle methods other than `GET`. `HEAD` is implemented in the backend.
         ///
-        /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not.
+        /// Fn needs to return a tuple with the content type (e.g. `text/html`), and whether the return value should be cached or not.
         /// # Examples
         /// ```
-        /// use arktis::{FunctionBindings, ContentType, write_generic_error};
+        /// use arktis::{FunctionBindings, ContentType, write_error, Cached};
         ///
         /// let mut bindings = FunctionBindings::new();
         ///
-        /// bindings.get_page("/test", |buffer, request| {
+        /// bindings.bind_page("/test", |buffer, request, _| {
         ///    buffer.extend(b"<h1>Welcome to my site!</h1> You are calling: ".iter());
         ///    buffer.extend(format!("{}", request.uri()).as_bytes());
         ///
-        ///    (ContentType::HTML, true)
+        ///    (ContentType::Html, Cached::Static)
         /// });
-        /// bindings.get_page("/throw_500", |mut buffer, _| {
-        ///   write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
+        /// bindings.bind_page("/throw_500", |mut buffer, _, storage| {
+        ///   write_error(&mut buffer, 500, storage);
         ///
-        ///   (ContentType::HTML, false)
+        ///   (ContentType::Html, Cached::Changing)
         /// });
         /// ```
         #[inline]
-        pub fn bind_page<F>(&mut self, method: &Method, path: &str, callback: F)
+        pub fn bind_page<F>(&mut self, path: &str, callback: F)
         where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
+            F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut Storage) -> (ContentType, Cached)
+                + 'static
+                + Send
+                + Sync,
         {
-            self.page_map
-                .insert(format!("{}@{}", method, path), Box::new(callback));
+            self.page_map.insert(path.to_owned(), Box::new(callback));
         }
         /// Unbinds a function from a page.
         ///
-        /// Returns None if path wasn't bind.
+        /// Returns `None` if path wasn't bind.
         #[inline]
-        pub fn unbind_page(&mut self, method: &http::Method, path: &str) -> Option<()> {
-            self.page_map
-                .remove(&format!("{}@{}", method, path))
-                .and(Some(()))
-        }
-        /// Binds a page to this function, when using the GET method.
-        ///
-        /// Also binds HEAD method of same url, if no other function defined.
-        /// Head request responds with same as GET request, to alter behaviour, define HEAD function.
-        /// Check [MDN reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/HEAD) for more info on implementation.
-        ///
-        /// See `bind_page` for more general cases.
-        #[inline]
-        pub fn get_page<F>(&mut self, path: &str, callback: F)
-        where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached)
-                + 'static
-                + Send
-                + Sync
-                + Clone,
-        {
-            if let None = self.page_map.get(path) {
-                self.bind_page(&Method::HEAD, path, callback.clone());
-            }
-            self.bind_page(&Method::GET, path, callback);
-        }
-        /// Binds a page to this function, when using the POST method.
-        ///
-        /// See `bind_page` for more general cases.
-        #[inline]
-        pub fn post_page<F>(&mut self, path: &str, callback: F)
-        where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
-        {
-            self.bind_page(&Method::POST, path, callback);
-        }
-        /// Binds a page to this function, when using the PUT method.
-        ///
-        /// See `bind_page` for more general cases.
-        #[inline]
-        pub fn put_page<F>(&mut self, path: &str, callback: F)
-        where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
-        {
-            self.bind_page(&Method::PUT, path, callback);
+        pub fn unbind_page(&mut self, path: &str) -> Option<()> {
+            self.page_map.remove(path).and(Some(()))
         }
 
         /// Binds a function to a directory; if the requests path starts with any entry, it gets directed to the associated function. Case sensitive.
+        /// Don't forget to handle methods other than `GET`. `HEAD` is implemented in the backend.
         ///
-        /// Fn needs to return a tuple with the content type (e.g. "text/html"), and whether the return value should be cached or not.
+        /// Fn needs to return a tuple with the content type (e.g. `text/html`), and whether the return value should be cached or not.
         /// # Examples
         /// ```
-        /// use arktis::{FunctionBindings, ContentType};
+        /// use arktis::{FunctionBindings, ContentType, Cached};
         /// use http::Method;
         ///
         /// let mut bindings = FunctionBindings::new();
         ///
-        /// bindings.bind_dir(&Method::GET, "/api/v1", |buffer, request| {
+        /// bindings.bind_dir("/api/v1", |buffer, request, _| {
         ///    buffer.extend(b"<h1>Welcome to my <i>new</i> <b>API</b>!</h1> You are calling: ".iter());
         ///    buffer.extend(format!("{}", request.uri()).as_bytes());
         ///
-        ///    (ContentType::HTML, false)
+        ///    (ContentType::Html, Cached::Dynamic)
         /// });
         /// ```
         #[inline]
-        pub fn bind_dir<F>(&mut self, method: &Method, path: &str, callback: F)
+        pub fn bind_dir<F>(&mut self, path: &str, callback: F)
         where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
+            F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut Storage) -> (ContentType, Cached)
+                + 'static
+                + Send
+                + Sync,
         {
-            self.dir_map
-                .insert(format!("{}@{}", method, path), Box::new(callback));
+            self.dir_map.insert(path.to_owned(), Box::new(callback));
         }
         /// Unbinds a function from a directory.
         ///
         /// Returns None if path wasn't bind.
         #[inline]
-        pub fn unbind_dir(&mut self, method: &http::Method, path: &str) -> Option<()> {
-            self.dir_map
-                .remove(&format!("{}@{}", method, path))
-                .and(Some(()))
+        pub fn unbind_dir(&mut self, path: &str) -> Option<()> {
+            self.dir_map.remove(path).and(Some(()))
         }
-        /// Binds a directory to this function, when using the GET method.
-        ///
-        /// Also binds HEAD method of same url, if no other function defined.
-        /// Head request responds with same as GET request, to alter behaviour, define HEAD function.
-        /// Check [MDN reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/HEAD) for more info on implementation.
-        ///
-        /// See `bind_dir` for more general cases.
-        #[inline]
-        pub fn get_dir<F>(&mut self, path: &str, callback: F)
-        where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached)
-                + 'static
-                + Send
-                + Sync
-                + Clone,
-        {
-            if let None = self.dir_map.get(path) {
-                self.bind_dir(&Method::HEAD, path, callback.clone());
-            }
-            self.bind_dir(&Method::GET, path, callback);
-        }
-        /// Binds a directory to this function, when using the POST method.
-        ///
-        /// See `bind_dir` for more general cases.
-        #[inline]
-        pub fn post_dir<F>(&mut self, path: &str, callback: F)
-        where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
-        {
-            self.bind_dir(&Method::POST, path, callback);
-        }
-        /// Binds a directory to this function, when using the PUT method.
-        ///
-        /// See `bind_dir` for more general cases.
-        #[inline]
-        pub fn put_dir<F>(&mut self, path: &str, callback: F)
-        where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + 'static + Send + Sync,
-        {
-            self.bind_dir(&Method::PUT, path, callback);
-        }
+
         /// Gets the function associated with the URL, if there is one.
         #[inline]
-        pub fn get_binding(&self, method: &http::Method, path: &str) -> Option<&Box<Binding>> {
-            let mut key = String::with_capacity(64);
-            key.push_str(method.as_str());
-            key.push('@');
-            key.push_str(path);
-            self.page_map.get(&key).or_else(|| {
+        pub fn get_binding(&self, path: &str) -> Option<&Box<Binding>> {
+            self.page_map.get(path).or_else(|| {
                 for (binding_path, binding_fn) in self.dir_map.iter() {
-                    if key.starts_with(binding_path.as_str()) {
+                    if path.starts_with(binding_path.as_str()) {
                         return Some(binding_fn);
                     }
                 }

@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() {
-    let mut bindings = arktis::FunctionBindings::new();
+    let mut bindings = FunctionBindings::new();
     let times_called = Arc::new(Mutex::new(0));
-    bindings.get_page("/test", move |buffer, request| {
+    bindings.bind_page("/test", move |buffer, request, _| {
         let mut tc = times_called.lock().unwrap();
         *tc += 1;
 
@@ -23,12 +23,10 @@ fn main() {
 
         (Html, Dynamic)
     });
-    bindings.get_page("/throw_500", |mut buffer, _| {
-        arktis::write_generic_error(&mut buffer, 500).expect("Failed to write to Vec!?");
-
-        (arktis::ContentType::HTML, arktis::Cached::Dynamic)
+    bindings.bind_page("/throw_500", |mut buffer, _, storage| {
+        arktis::write_error(&mut buffer, 500, storage)
     });
-    bindings.get_dir("/capturing", |buffer, request| {
+    bindings.bind_dir("/capturing", |buffer, request, _| {
         buffer.extend(
             &b"!> tmpl standard\n\
             [head]\
