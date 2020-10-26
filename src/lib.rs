@@ -395,11 +395,7 @@ fn process_request<W: Write>(
             // If response is in cache
             if let Some(response) = lock.resolve(request.uri(), request.headers()) {
                 // println!("Got cache! {}", request.uri());
-                match method {
-                    &http::Method::HEAD => return socket.write_all(response.get_head().unwrap()),
-                    _ => return response.write_all(socket),
-                }
-                // return socket.write_all(response.get_from_method(method));
+                return response.write_as_method(socket, method);
             }
         }
     }
@@ -600,10 +596,7 @@ fn process_request<W: Write>(
     };
 
     // Write to socket!
-    match method {
-        &http::Method::HEAD => socket.write_all(response.get_head().unwrap())?,
-        _ => response.write_all(socket)?,
-    }
+    response.write_as_method(socket, method)?;
 
     if cached.do_internal_cache() && is_get {
         if let Some(mut lock) = storage.response_blocking() {
@@ -728,6 +721,7 @@ fn default_error(
 
     ByteResponse::Separated(buffer, body)
 }
+
 pub fn write_generic_error<W: Write>(writer: &mut W, code: u16) -> Result<(), io::Error> {
     default_error(code, &connection::ConnectionHeader::KeepAlive, None).write_all(writer)
 }
@@ -963,6 +957,31 @@ pub mod cache {
                 Self::Borrowed(borrow) => writer.write_all(&borrow[..]),
             }
         }
+        pub fn write_as_method<W: Write>(
+            &self,
+            writer: &mut W,
+            method: &http::Method,
+        ) -> io::Result<()> {
+            match method {
+                &http::Method::HEAD => {
+                    if let Some(head) = self.get_head() {
+                        writer.write_all(head)
+                    } else {
+                        Ok(())
+                    }
+                }
+                _ => match self {
+                    Self::Single(vec, _) => writer.write_all(&vec[..]),
+                    Self::Separated(head, body) => {
+                        writer.write_all(&head[..])?;
+                        writer.write_all(&body[..])
+                    }
+                    Self::NoHead(body) => writer.write_all(&body[..]),
+                    Self::Borrowed(borrow) => writer.write_all(&borrow[..]),
+                },
+            }
+        }
+
         #[inline]
         pub fn get_head(&self) -> Option<&[u8]> {
             match self {
