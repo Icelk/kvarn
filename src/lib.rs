@@ -1207,38 +1207,45 @@ pub mod cache {
     }
 
     pub trait Size {
-        fn count(&self) -> usize;
+        fn size(&self) -> usize;
     }
     impl<T> Size for Vec<T> {
-        fn count(&self) -> usize {
+        fn size(&self) -> usize {
             self.len() * std::mem::size_of::<T>()
         }
     }
     impl<T> Size for dyn Borrow<Vec<T>> {
-        fn count(&self) -> usize {
+        fn size(&self) -> usize {
             self.borrow().len() * std::mem::size_of::<T>()
         }
     }
     impl<K, V> Size for HashMap<K, V> {
-        fn count(&self) -> usize {
+        fn size(&self) -> usize {
             self.len() * std::mem::size_of::<V>()
         }
     }
     impl<K, V> Size for dyn Borrow<HashMap<K, V>> {
-        fn count(&self) -> usize {
+        fn size(&self) -> usize {
             self.borrow().len() * std::mem::size_of::<V>()
         }
     }
     impl Size for ByteResponse {
-        fn count(&self) -> usize {
+        fn size(&self) -> usize {
             self.len()
         }
     }
     impl Size for CacheType {
-        fn count(&self) -> usize {
+        fn size(&self) -> usize {
             match self {
-                Self::Vary(..) => 0,
-                Self::Data(data) => data.count(),
+                Self::Vary(vary) => {
+                    // for data in  {}
+                    vary.data
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .fold(0, |acc, data| acc + data.1.size())
+                }
+                Self::Data(data) => data.size(),
             }
         }
     }
@@ -1252,7 +1259,7 @@ pub mod cache {
     impl<K: Eq + Hash + Clone, V: Size> Cache<K, V> {
         #[inline]
         pub fn cache(&mut self, key: K, value: Arc<V>) -> Result<(), Arc<V>> {
-            if value.count() > self.size_limit {
+            if value.size() > self.size_limit {
                 return Err(value);
             }
             if self.map.len() >= self.max_items {
