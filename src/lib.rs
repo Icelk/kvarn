@@ -419,12 +419,15 @@ fn process_request<W: Write>(
                 let mut response = Vec::with_capacity(2048);
                 let (content_type, cache) =
                     callback(&mut response, &request, unsafe { &mut *cache });
-                // Check if callback contains headers
+
+                allowed_method = true;
+                // Check if callback contains headers. Change to response struct in future!
                 if &response[..5] == b"HTTP/" {
                     handled_headers = true;
+                    (ByteResponse::with_header(response), content_type, cache)
+                } else {
+                    (ByteResponse::without_header(response), content_type, cache)
                 }
-                allowed_method = true;
-                (ByteResponse::with_header(response), content_type, cache)
             }
             // No function, try read from FS cache.
             None => {
