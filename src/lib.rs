@@ -375,7 +375,7 @@ impl std::str::FromStr for Cached {
 fn process_request<W: Write>(
     socket: &mut W,
     request: http::Request<&[u8]>,
-    raw_request: &[u8],
+    _raw_request: &[u8],
     close: &connection::ConnectionHeader,
     storage: &mut Storage,
 ) -> Result<(), io::Error> {
@@ -473,19 +473,19 @@ fn process_request<W: Write>(
                 // Accept all methods!
                 PHP => {
                     println!("Handling php!");
-                    match extensions::php(socket, raw_request, &path) {
-                        Ok(()) => {
-                            // Don't write headers!
-                            handled_headers = true;
-                            // Check cache settings
-                            cached = template_args
-                                .get(1)
-                                .and_then(|arg| std::str::from_utf8(arg).ok())
-                                .and_then(|arg| arg.parse().ok())
-                                .unwrap_or(Cached::Static);
-                        }
-                        _ => {}
-                    };
+                    todo!("Give a Vec instead!");
+                    // match extensions::php(socket, raw_request, &path) {
+                    //     Ok(()) => {
+                    //         // Don't write headers!
+                    //         // Check cache settings
+                    //         cached = template_args
+                    //             .get(1)
+                    //             .and_then(|arg| std::str::from_utf8(arg).ok())
+                    //             .and_then(|arg| arg.parse().ok())
+                    //             .unwrap_or(Cached::Static);
+                    //     }
+                    //     _ => {}
+                    // };
                 }
                 #[cfg(feature = "templates")]
                 Template if allowed_method => {

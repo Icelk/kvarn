@@ -17,7 +17,7 @@ brotli = { version = "3.3.0", optional = true }
 flate2 = { version = "1.0.18", optional = true }
 
 [features]
-default = ["templates", "php", "compression"]
+default = ["templates", "compression"]
 
 # Enables the template extention
 templates = []

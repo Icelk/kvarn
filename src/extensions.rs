@@ -12,7 +12,9 @@ pub use templates::handle_template as template;
 /// All known extensions
 #[derive(Debug)]
 pub enum KnownExtension {
+    #[cfg(feature = "php")]
     PHP,
+    #[cfg(feature = "templates")]
     Template,
     SetCache,
 }
