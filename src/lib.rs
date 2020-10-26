@@ -289,6 +289,17 @@ impl Storage {
       },
     }
   }
+  /// Gets the lock of response cache.
+  #[inline]
+  pub fn response_blocking(&mut self) -> Option<sync::MutexGuard<'_, ResponseCacheInner>> {
+    #[cfg(feature = "no-response-cache")]
+    return None;
+    #[cfg(not(feature = "no-response-cache"))]
+    match self.response.lock() {
+      Ok(lock) => Some(lock),
+      Err(..) => panic!("Lock is poisoned!"),
+    }
+  }
   /// Tries to get the lock of template cache.
   ///
   /// Always remember to handle the case if the lock isn't acquired; just don't return None!
