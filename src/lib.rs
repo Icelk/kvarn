@@ -493,7 +493,7 @@ fn process_request<W: Write>(
                 }
                 #[cfg(feature = "templates")]
                 Template if allowed_method => {
-                    body = ByteResponse::single(extensions::template(
+                    body = ByteResponse::no_head(extensions::template(
                         &template_args[..],
                         body.from(content_start),
                         storage,
