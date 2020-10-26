@@ -543,7 +543,6 @@ fn process_request<W: Write>(
                 && !content_type.contains("json")
                 && content_type != "application/pdf"
                 && content_type != "application/javascript"
-                && content_type != "application/json"
                 && content_type != "application/graphql")
                 || content_type.starts_with("image")
                 || content_type.starts_with("audio")
@@ -551,7 +550,7 @@ fn process_request<W: Write>(
             {
                 if identity_forbidden {
                     handled_headers = true;
-                    body = default_error(405, &close, Some(storage));
+                    body = default_error(406, &close, Some(storage));
                     algorithm
                 } else {
                     CompressionAlgorithm::Identity
