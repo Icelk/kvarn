@@ -117,6 +117,45 @@ pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, http::Error> {
     })
     .body(&buffer[last_header_byte..])
 }
+pub fn parse_only_headers(buffer: &[u8]) -> http::HeaderMap {
+  let mut stage = DecodeStage::Method;
+  let mut map = http::HeaderMap::new();
+  let mut header_name_start = 0;
+  let mut header_name_end = 0;
+  let mut header_value_start = 0;
+
+  for (position, byte) in buffer.iter().enumerate() {
+    match stage {
+      DecodeStage::Method if *byte == LF => {
+        stage = DecodeStage::HeaderName(0);
+        header_name_start = position + 1;
+      }
+      DecodeStage::HeaderName(current_header) if *byte == COLON => {
+        header_name_end = position;
+        if buffer.get(position + 1) == Some(&SPACE) {
+          header_value_start = position + 2;
+        } else {
+          header_value_start = position + 1;
+        }
+        stage = DecodeStage::HeaderValue(current_header);
+      }
+      DecodeStage::HeaderValue(current_header) if *byte == CR => {
+        let name =
+          http::header::HeaderName::from_bytes(&buffer[header_name_start..header_name_end]);
+        let value = http::header::HeaderValue::from_bytes(&buffer[header_value_start..position]);
+
+        if name.is_ok() && value.is_ok() {
+          map.insert(name.unwrap(), value.unwrap());
+        }
+        header_name_start = position + 2;
+        stage = DecodeStage::HeaderName(current_header);
+      }
+      _ => {}
+    }
+  }
+
+  map
+}
 
 #[derive(Debug)]
 pub struct HeaderInfo<'a> {
@@ -172,10 +211,15 @@ pub struct ValueQualitySet<'a> {
   pub value: &'a str,
   pub quality: f32,
 }
-#[derive(Debug)]
-pub struct KeyValuePair<'a> {
-  pub key: &'a str,
-  pub value: &'a str,
+impl PartialEq for ValueQualitySet<'_> {
+  fn eq(&self, other: &Self) -> bool {
+    self.value == other.value
+  }
+}
+impl PartialEq<str> for ValueQualitySet<'_> {
+  fn eq(&self, other: &str) -> bool {
+    self.value == other
+  }
 }
 
 /// Formats headers to extract useful info.
