@@ -315,7 +315,7 @@ impl Storage {
         }
     }
     #[inline]
-    pub fn get_bindings(&mut self) -> &Bindings {
+    pub fn get_bindings(&self) -> &Bindings {
         &self.bindings
     }
 }
