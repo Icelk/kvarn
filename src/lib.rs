@@ -382,8 +382,6 @@ fn process_request<W: Write>(
   storage: &mut Storage,
 ) -> Result<(), io::Error> {
   let method = request.method();
-  let mut handled_method = false;
-
   let is_get = match method {
     &http::Method::GET | &http::Method::HEAD => true,
     _ => false,
@@ -395,11 +393,15 @@ fn process_request<W: Write>(
   if is_get {
     // Load from cache
     // Try get response cache lock
-    if let Some(lock) = storage.try_response() {
+    if let Some(lock) = storage.response_blocking() {
       // If response is in cache
-      if let Some(response) = lock.get(request.uri()) {
-        socket.write_all(response.get_from_method(method))?;
-        return Ok(());
+      if let Some(response) = lock.resolve(request.uri(), request.headers()) {
+        // println!("Got cache! {}", request.uri());
+        match method {
+          &http::Method::HEAD => return socket.write_all(response.get_head().unwrap()),
+          _ => return response.write_all(socket),
+        }
+        // return socket.write_all(response.get_from_method(method));
       }
     }
   }
@@ -410,7 +412,7 @@ fn process_request<W: Write>(
   let path = match parse::convert_uri(request.uri()) {
     Ok(path) => path,
     Err(()) => {
-      socket.write_all(&default_error(403, close, Some(storage))[..])?;
+      &default_error(403, close, Some(storage)).write_all(socket)?;
       return Ok(());
     }
   };
@@ -429,17 +431,17 @@ fn process_request<W: Write>(
       if &response[..5] == b"HTTP/" {
         handled_headers = true;
       }
-      handled_method = true;
-      (ByteResponse::new_arc(response), content_type, cache)
+      allowed_method = true;
+      (ByteResponse::single(response), content_type, cache)
     }
     // No function, try read from FS cache.
     None => {
       // Body
       let body = match read_file(&path, storage) {
-        Some(response) => response,
+        Some(response) => ByteResponse::Borrowed(response),
         None => {
           handled_headers = true;
-          ByteResponse::new_arc(default_error(404, close, Some(storage)))
+          default_error(404, close, Some(storage))
         }
       };
       // Content mime type
@@ -471,7 +473,10 @@ fn process_request<W: Write>(
     pub use extensions::FileType::*;
     pub use extensions::KnownExtension::*;
 
-    match extensions::identify(body.get(), path.extension().and_then(|path| path.to_str())) {
+    match extensions::identify(
+      body.get_body(),
+      path.extension().and_then(|path| path.to_str()),
+    ) {
       // An extension is identified, handle it!
       // NEEDS TO COVER ALL POSSIBILITIES FOR LAST `_ =>` TO MAKE SENSE!
       DefinedExtension(extension, content_start, template_args) => match extension {
@@ -495,7 +500,7 @@ fn process_request<W: Write>(
         }
         #[cfg(feature = "templates")]
         Template if allowed_method => {
-          body = ByteResponse::new_arc(extensions::template(
+          body = ByteResponse::single(extensions::template(
             &template_args[..],
             body.from(content_start),
             storage,
@@ -508,64 +513,140 @@ fn process_request<W: Write>(
         }
         // If method didn't match, return 405 err!
         _ => {
-          body = ByteResponse::new_arc(default_error(405, close, Some(storage)));
+          body = default_error(405, close, Some(storage));
           handled_headers = true;
         }
       },
       // Remove the extension definition.
       UnknownExtension(content_start, _) if allowed_method => {
-        body = ByteResponse::new_arc(body.from(content_start).to_vec());
+        body = ByteResponse::single(body.from(content_start).to_vec());
       }
       // Do nothing!
       Raw if allowed_method => {}
       // If method didn't match, return 405 err!
       _ => {
-        body = ByteResponse::new_arc(default_error(405, close, Some(storage)));
+        body = default_error(405, close, Some(storage));
         handled_headers = true;
       }
     };
   }
 
+  // The response MUST contain all vary headers, else it won't be cached!
+  let vary: Vec<&str> = vec![/* "Content-Type", */ "Accept-Encoding"];
+
+  let (compression, _identity_forbidden) = match request
+    .headers()
+    .get("Accept-Encoding")
+    .and_then(|header| header.to_str().ok())
+  {
+    Some(header) => encoding_from_header(header),
+    None => (CompressionAlgorithm::Identity, false),
+  };
+
   let response = if !handled_headers {
     let mut response = Vec::with_capacity(4096);
+    let body = Compressors::compress(body.get_body(), &compression);
     response.extend(
       b"HTTP/1.1 200 OK\r\n\
-        Connection: "
-        .iter(),
+        Connection: ",
     );
     if close.close() {
-      response.extend(b"Close\r\n".iter());
+      response.extend(b"Close\r\n");
     } else {
-      response.extend(b"Keep-Alive\r\n".iter());
+      response.extend(b"Keep-Alive\r\n");
     }
-    response.extend(b"Content-Length: ".iter());
+    response.extend(b"Content-Length: ");
     response.extend(format!("{}\r\n", body.len()).as_bytes());
-    response.extend(b"Content-Type: ".iter());
+    response.extend(b"Content-Type: ");
     response.extend(content_type.as_bytes());
+    response.extend(b"\r\n");
+    response.extend(b"Content-Encoding: ");
+    response.extend(
+      match compression {
+        CompressionAlgorithm::Identity => "identity",
+        #[cfg(feature = "brotli")]
+        CompressionAlgorithm::Brotli => "br",
+        #[cfg(feature = "gzip")]
+        CompressionAlgorithm::Gzip => "gzip",
+      }
+      .as_bytes(),
+    );
     response.extend(b"\r\n");
     // Cache header!
     response.extend(match cached {
-      Cached::Dynamic => b"Cache-Control: no-store\r\n".iter(),
-      Cached::Changing => b"Cache-Control: max-age=120\r\n".iter(),
-      Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n".iter(),
+      Cached::Dynamic => b"Cache-Control: no-store\r\n",
+      Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
+      Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n",
     });
+    if !vary.is_empty() {
+      response.extend(b"Vary: ");
+      let mut iter = vary.iter();
+      response.extend(iter.next().unwrap().as_bytes());
+
+      for vary in iter {
+        response.extend(b", ");
+        response.extend(vary.as_bytes());
+      }
+      response.extend(b"\r\n");
+    }
     response.extend(SERVER_HEADER);
     response.extend(b"\r\n");
-    response.extend(body.get());
+    // response.extend(body.iter());
 
-    ByteResponse::new_arc(response)
+    ByteResponse::Separated(response, Arc::new(body))
   } else {
     // Headers handled! Taking for granted user handled HEAD method.
     body
   };
 
-  socket.write_all(response.get_from_method(method))?;
+  // Write to socket!
+  match method {
+    &http::Method::HEAD => socket.write_all(response.get_head().unwrap())?,
+    _ => response.write_all(socket)?,
+  }
 
   if cached.do_internal_cache() && is_get {
-    if let Some(mut lock) = storage.try_response() {
+    if let Some(mut lock) = storage.response_blocking() {
       let uri = request.into_parts().0.uri;
       println!("Caching uri {}", &uri);
-      let _ = lock.cache(uri, response);
+      match vary.is_empty() {
+        false => {
+          let headers = {
+            let headers = parse::parse_only_headers(response.get_head().unwrap());
+            let mut is_ok = true;
+            let mut buffer = Vec::with_capacity(vary.len());
+            for vary_header in vary.iter() {
+              let header = match *vary_header {
+                "Accept-Encoding" => "Content-Encoding",
+                _ => vary_header,
+              };
+              match headers.get(header) {
+                Some(header) => {
+                  buffer.push(header.clone()) // ToDo: Remove in future!
+                }
+                None => {
+                  is_ok = false;
+                  break;
+                }
+              }
+            }
+            match is_ok {
+              true => Some(buffer),
+              false => None,
+            }
+          };
+          match headers {
+            Some(headers) => {
+              // println!("Adding variant with headers: {:?}", &headers);
+              let _ = lock.add_variant(uri, response, headers, &vary[..]);
+            }
+            None => eprintln!("Vary header not present in response!"),
+          }
+        }
+        true => {
+          let _ = lock.cache(uri, Arc::new(cache::CacheType::with_data(response)));
+        }
+      }
     }
   }
   Ok(())
@@ -575,7 +656,7 @@ fn default_error(
   code: u16,
   close: &connection::ConnectionHeader,
   storage: Option<&mut Storage>,
-) -> Vec<u8> {
+) -> ByteResponse {
   let mut buffer = Vec::with_capacity(512);
   buffer.extend(b"HTTP/1.1 ");
   buffer.extend(
@@ -594,12 +675,16 @@ fn default_error(
   } else {
     buffer.extend(b"Keep-Alive\r\n");
   }
+  buffer.extend(b"Content-Encoding: identity\r\n");
 
-  match storage.and_then(|cache| read_file(&PathBuf::from(format!("{}.html", code)), cache)) {
+  let body = match storage
+    .and_then(|cache| read_file(&PathBuf::from(format!("{}.html", code)), cache))
+  {
     Some(file) => {
       buffer.extend(b"Content-Length: ");
       buffer.extend(format!("{}\r\n\r\n", file.len()).as_bytes());
-      buffer.extend(file.get());
+      // buffer.extend(file.get_body());
+      file
     }
     None => {
       let mut body = Vec::with_capacity(1024);
@@ -636,17 +721,18 @@ fn default_error(
 
       buffer.extend(b"Content-Length: ");
       buffer.extend(format!("{}\r\n\r\n", body.len()).as_bytes());
-      buffer.append(&mut body);
+      // buffer.append(&mut body);
+      Arc::new(body)
     }
   };
 
-  buffer
+  ByteResponse::Separated(buffer, body)
 }
 pub fn write_generic_error<W: Write>(writer: &mut W, code: u16) -> Result<(), io::Error> {
-  writer.write_all(&default_error(code, &connection::ConnectionHeader::KeepAlive, None)[..])
+  default_error(code, &connection::ConnectionHeader::KeepAlive, None).write_all(writer)
 }
 
-fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<ByteResponse>> {
+fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<Vec<u8>>> {
   if let Some(lock) = storage.try_fs() {
     if let Some(cached) = lock.get(path) {
       return Some(cached);
@@ -658,7 +744,7 @@ fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<ByteResponse>>
       let mut buffer = Vec::with_capacity(4096);
       match file.read_to_end(&mut buffer) {
         Ok(..) => {
-          let buffer = ByteResponse::new_arc_no_head(buffer);
+          let buffer = Arc::new(buffer);
           match storage.try_fs() {
             Some(mut lock) => match lock.cache(path.clone(), buffer) {
               Err(failed) => Some(failed),
@@ -674,39 +760,189 @@ fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<ByteResponse>>
   }
 }
 
+#[allow(dead_code)]
+enum Compressors {
+  Raw(Vec<u8>),
+  #[cfg(feature = "brotli")]
+  Brotli(brotli::CompressorWriter<Vec<u8>>),
+  #[cfg(feature = "gzip")]
+  Gzip(flate2::write::GzEncoder<Vec<u8>>),
+}
+#[allow(dead_code)]
+impl Compressors {
+  #[inline]
+  pub fn new(vec: Vec<u8>, compressor: &CompressionAlgorithm) -> Self {
+    match compressor {
+      #[cfg(feature = "brotli")]
+      CompressionAlgorithm::Brotli => Self::brotli(vec),
+      #[cfg(feature = "gzip")]
+      CompressionAlgorithm::Gzip => Self::gzip(vec),
+      CompressionAlgorithm::Identity => Self::raw(vec),
+    }
+  }
+  #[inline]
+  pub fn raw(vec: Vec<u8>) -> Self {
+    Self::Raw(vec)
+  }
+  #[inline]
+  #[cfg(feature = "brotli")]
+  pub fn brotli(vec: Vec<u8>) -> Self {
+    Self::Brotli(brotli::CompressorWriter::new(vec, 4096, 8, 21))
+  }
+  #[inline]
+  #[cfg(feature = "gzip")]
+  pub fn gzip(vec: Vec<u8>) -> Self {
+    Self::Gzip(flate2::write::GzEncoder::new(
+      vec,
+      flate2::Compression::fast(),
+    ))
+  }
+
+  /// Very small footprint.
+  ///
+  /// On identity compressing, only takes allocation and copying time; only few micro seconds.
+  pub fn compress(bytes: &[u8], compressor: &CompressionAlgorithm) -> Vec<u8> {
+    match compressor {
+      CompressionAlgorithm::Identity => bytes.to_vec(),
+      CompressionAlgorithm::Brotli => {
+        let buffer = Vec::with_capacity(bytes.len() / 2);
+        let mut c = brotli::CompressorWriter::new(buffer, 4096, 8, 21);
+        c.write(bytes).expect("Failed to compress using Brotli!");
+        c.flush().expect("Failed to compress using Brotli!");
+        let mut buffer = c.into_inner();
+        buffer.shrink_to_fit();
+        buffer
+      }
+      CompressionAlgorithm::Gzip => {
+        let buffer = Vec::with_capacity(bytes.len() / 2);
+        let mut c = flate2::write::GzEncoder::new(buffer, flate2::Compression::fast());
+        c.write(bytes).expect("Failed to compress using gzip!");
+        let mut buffer = c.finish().expect("Failed to compress using gzip!");
+        buffer.shrink_to_fit();
+        buffer
+      }
+    }
+  }
+
+  /// Make a trait to call same fn on every?
+  #[inline]
+  pub fn write(&mut self, bytes: &[u8]) {
+    match self {
+      Self::Raw(buffer) => {
+        buffer.extend(bytes);
+      }
+      #[cfg(feature = "brotli")]
+      Self::Brotli(compressor) => {
+        if let Err(err) = compressor.write_all(bytes) {
+          eprintln!("Error compressing: {}", err);
+        };
+      }
+      #[cfg(feature = "gzip")]
+      Self::Gzip(compressor) => {
+        if let Err(err) = compressor.write_all(bytes) {
+          eprintln!("Error compressing: {}", err);
+        };
+      }
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> Vec<u8> {
+    match self {
+      Self::Raw(buffer) => buffer,
+      #[cfg(feature = "brotli")]
+      Self::Brotli(compressor) => compressor.into_inner(),
+      #[cfg(feature = "gzip")]
+      Self::Gzip(compressor) => compressor.finish().unwrap(),
+    }
+  }
+}
+
+/// Types of encoding to use.
+///
+/// Does not include DEFLATE because of bad support
+enum CompressionAlgorithm {
+  #[cfg(feature = "brotli")]
+  Brotli,
+  #[cfg(feature = "gzip")]
+  Gzip,
+  // Deflate,
+  Identity,
+}
+fn encoding_from_header(header: &str) -> (CompressionAlgorithm, bool) {
+  let header = header.to_ascii_lowercase();
+  let mut options = parse::format_list_header(&header);
+
+  options.sort_by(|a, b| b.quality.partial_cmp(&a.quality).unwrap());
+
+  let identity = options.iter().position(|option| option == "identity");
+  let identity_forbidden = if let Some(identity) = identity {
+    options.get(identity).unwrap().quality == 0.0
+  } else {
+    false
+  };
+
+  // println!("Options: {:?}", options);
+
+  // If Brotli enabled, prioritize it if quality == 1
+  #[cfg(feature = "brotli")]
+  if options.is_empty()
+    || options.iter().any(|option| {
+      option
+        == &parse::ValueQualitySet {
+          value: "br",
+          quality: 1.0,
+        }
+    })
+  {
+    return (CompressionAlgorithm::Brotli, identity_forbidden);
+  }
+  match options[0].value {
+    #[cfg(feature = "gzip")]
+    "gzip" => (CompressionAlgorithm::Gzip, identity_forbidden),
+    #[cfg(feature = "brotli")]
+    "br" => (CompressionAlgorithm::Brotli, identity_forbidden),
+    _ => (CompressionAlgorithm::Identity, identity_forbidden),
+  }
+}
+
 pub mod cache {
   use super::*;
   use http::Uri;
   use std::collections::HashMap;
   use std::{borrow::Borrow, hash::Hash};
 
-  pub struct ByteResponse {
-    bytes: Vec<u8>,
-    body_start: usize,
+  #[derive(Debug)]
+  pub enum ByteResponse {
+    Single(Vec<u8>, usize),
+    Separated(Vec<u8>, Arc<Vec<u8>>),
+    NoHead(Vec<u8>),
+    Borrowed(Arc<Vec<u8>>),
   }
   impl ByteResponse {
     #[inline]
-    pub fn new(bytes: Vec<u8>) -> Self {
-      Self {
-        body_start: Self::get_start(&bytes[..]),
-        bytes,
-      }
+    pub fn single(bytes: Vec<u8>) -> Self {
+      let start = Self::get_start(&bytes[..]);
+      Self::Single(bytes, start)
     }
+    // #[inline]
+    // pub fn new_no_head(bytes: Vec<u8>) -> Self {
+    //   Self {
+    //     body_start: 0,
+    //     bytes,
+    //   }
+    // }
     #[inline]
-    pub fn new_no_head(bytes: Vec<u8>) -> Self {
-      Self {
-        body_start: 0,
-        bytes,
-      }
+    pub fn no_head(body: Vec<u8>) -> Self {
+      Self::NoHead(body)
     }
     #[inline]
     pub fn new_arc(bytes: Vec<u8>) -> Arc<Self> {
-      Arc::new(Self::new(bytes))
+      Arc::new(Self::single(bytes))
     }
     #[inline]
     /// Used when computing body start isn't
     pub fn new_arc_no_head(bytes: Vec<u8>) -> Arc<Self> {
-      Arc::new(Self::new_no_head(bytes))
+      Arc::new(Self::no_head(bytes))
     }
 
     fn get_start(bytes: &[u8]) -> usize {
@@ -717,51 +953,274 @@ pub mod cache {
           _ => newlines_in_row = 0,
         }
         if newlines_in_row == 4 {
-          return position;
+          return position + 1;
         }
       }
       0
     }
     #[inline]
     pub fn len(&self) -> usize {
-      self.bytes.len()
+      match self {
+        Self::Single(vec, _) => vec.len(),
+        Self::Separated(head, body) => head.len() + body.len(),
+        Self::NoHead(body) => body.len(),
+        Self::Borrowed(borrow) => borrow.len(),
+      }
     }
 
     #[inline]
-    pub fn get(&self) -> &[u8] {
-      &self.bytes[..]
-    }
-    #[inline]
-    pub fn get_head(&self) -> &[u8] {
-      &self.bytes[..self.body_start]
-    }
-    #[inline]
-    pub fn get_body(&self) -> &[u8] {
-      &self.bytes[self.body_start..]
-    }
-    #[inline]
-    pub fn get_from_method(&self, method: &http::Method) -> &[u8] {
-      match method {
-        &http::Method::HEAD => self.get_head(),
-        _ => self.get(),
+    pub fn write_all<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+      match self {
+        Self::Single(vec, _) => writer.write_all(&vec[..]),
+        Self::Separated(head, body) => {
+          writer.write_all(&head[..])?;
+          writer.write_all(&body[..])
+        }
+        Self::NoHead(body) => writer.write_all(&body[..]),
+        Self::Borrowed(borrow) => writer.write_all(&borrow[..]),
       }
     }
     #[inline]
+    pub fn get_head(&self) -> Option<&[u8]> {
+      match self {
+        Self::Single(vec, start) if start > &0 => Some(&vec[..*start]),
+        Self::Separated(head, _) => Some(&head[..]),
+        _ => None,
+      }
+    }
+    #[inline]
+    pub fn get_body(&self) -> &[u8] {
+      // &self.bytes[self.body_start..]
+      match self {
+        Self::Single(vec, start) => &vec[*start..],
+        Self::Separated(_, body) => &body[..],
+        Self::NoHead(body) => &body[..],
+        Self::Borrowed(borrow) => &borrow[..],
+      }
+    }
+    // #[inline]
+    // pub fn get_from_method(&self, method: &http::Method) -> &[u8] {
+    //   match method {
+    //     &http::Method::HEAD => self.get_head(),
+    //     _ => self.get(),
+    //   }
+    // }
+    // #[inline]
+    // pub fn from(&self, from: usize) -> &[u8] {
+    //   &self.bytes[from..]
+    // }
+    // #[inline]
+    // pub fn to(&self, to: usize) -> &[u8] {
+    //   &self.bytes[..to]
+    // }
+    #[inline]
     pub fn from(&self, from: usize) -> &[u8] {
-      &self.bytes[from..]
+      &self.get_body()[from..]
     }
     #[inline]
     pub fn to(&self, to: usize) -> &[u8] {
-      &self.bytes[..to]
+      &self.get_body()[..to]
+    }
+  }
+  pub struct VaryMaster {
+    vary_headers: Vec<&'static str>,
+    data: Mutex<Vec<(Vec<http::HeaderValue>, Arc<ByteResponse>)>>,
+  }
+  pub enum CacheType {
+    Data(Arc<ByteResponse>),
+    Vary(VaryMaster),
+  }
+  impl CacheType {
+    pub fn with_data(data: ByteResponse) -> Self {
+      Self::Data(Arc::new(data))
+    }
+    pub fn varies(headers: Vec<&'static str>) -> Self {
+      Self::Vary(VaryMaster {
+        vary_headers: headers,
+        data: Mutex::new(Vec::new()),
+      })
+    }
+    pub fn varies_with_data(
+      structure: Vec<&'static str>,
+      data: Arc<ByteResponse>,
+      headers: Vec<http::HeaderValue>,
+    ) -> Self {
+      Self::Vary(VaryMaster {
+        vary_headers: structure,
+        data: Mutex::new(vec![(headers, data)]),
+      })
+    }
+
+    pub fn resolve(
+      &self,
+      // uri: &http::Uri,
+      // cache: &ResponseCacheInner,
+      headers: &http::HeaderMap,
+    ) -> Option<Arc<ByteResponse>> {
+      // match self {
+      //   Self::Data(data) => Some(Arc::clone(data)),
+      //   Self::Vary(vary) => {
+      //     let imported_path = uri.path_and_query().unwrap();
+      //     let mut path_and_query = String::with_capacity(imported_path.as_str().len() + 128);
+      //     path_and_query.push_str(imported_path.as_str());
+      //     path_and_query.push('\u{0000}');
+
+      //     for vary_header in &vary.vary_headers[..] {
+      //       if let Some(header) = headers
+      //         .get(vary_header)
+      //         .and_then(|header| header.to_str().ok())
+      //       {
+      //         println!("Header: {:?}", header);
+      //         path_and_query.push_str(header);
+      //       } else {
+      //         return None;
+      //       }
+      //       path_and_query.push('\u{0000}');
+      //     }
+
+      //     let uri = Uri::builder()
+      //       .path_and_query(http::uri::PathAndQuery::from_maybe_shared(path_and_query).unwrap())
+      //       .build()
+      //       .unwrap();
+
+      //     println!("Getting from cache: {}", uri);
+
+      //     match cache.get(&uri) {
+      //       Some(data) => match &*data {
+      //         TestEnum::Data(data) => Some(Arc::clone(data)),
+      //         TestEnum::Vary(..) => panic!("Vary should not point to another vary!"),
+      //       },
+      //       None => None,
+      //     }
+      //   }
+      // }
+      match self {
+        Self::Data(data) => Some(Arc::clone(data)),
+        Self::Vary(vary) => {
+          let mut results = Vec::new();
+          let mut iter = vary.vary_headers.iter().enumerate();
+
+          let all_data = vary.data.lock().unwrap();
+          {
+            let (position, name) = iter.next().unwrap();
+
+            let required_data = {
+              headers.get(*name);
+              // unimplemented!("Sort through all in list, and if none or starts with *, accept all further down.");
+              Vec::<&str>::new()
+            };
+
+            // Match with all cached data!
+            for data in all_data.iter() {
+              // If nothing required
+              if required_data.is_empty() {
+                // Push!
+                results.push(data);
+              } else {
+                'match_supported: for supported_header in required_data.iter() {
+                  // If any header contains star or matches required!
+                  if data.0.get(position).unwrap() == supported_header
+                    || supported_header.starts_with('*')
+                  {
+                    results.push(data);
+                    break 'match_supported;
+                  }
+                }
+              }
+            }
+          }
+          for (position, header_to_compare) in iter {
+            results.retain(|&current| {
+              let required_data = {
+                headers.get(*header_to_compare);
+                // unimplemented!("Sort through all in list, and if none or starts with *, accept all further down.");
+                Vec::<&str>::new()
+              };
+
+              if required_data.is_empty() {
+                // Keep!
+                return true;
+              } else {
+                for supported_header in required_data.iter() {
+                  // If any header contains star or matches required!
+                  if current.0.get(position).unwrap() == supported_header
+                    || supported_header.starts_with('*')
+                  {
+                    return true;
+                  }
+                }
+              }
+              false
+            })
+          }
+
+          // println!("Results: {:?}", results);
+
+          results
+            .get(0)
+            .and_then(|result| Some(Arc::clone(&result.1)))
+        }
+      }
+    }
+
+    pub fn add_variant(
+      &self,
+      response: Arc<ByteResponse>,
+      headers: Vec<http::HeaderValue>,
+      structure: &[&'static str],
+    ) -> Result<(), ()> {
+      match self {
+        // So data (header) structure is identical
+        Self::Vary(vary) if structure == vary.vary_headers => {
+          let mut data = vary.data.lock().unwrap();
+          data.push((headers, response));
+          Ok(())
+        }
+        _ => Err(()),
+      }
+    }
+  }
+  impl<K: Clone + Hash + Eq> Cache<K, CacheType> {
+    pub fn resolve<Q: ?Sized + Hash + Eq>(
+      &self,
+      key: &Q,
+      headers: &http::HeaderMap,
+    ) -> Option<Arc<ByteResponse>>
+    where
+      K: Borrow<Q>,
+    {
+      let data = self.get(key)?;
+      data.resolve(headers)
+    }
+    pub fn add_variant(
+      &mut self,
+      key: K,
+      response: ByteResponse,
+      headers: Vec<http::HeaderValue>,
+      structure: &[&'static str],
+    ) -> Result<(), ()> {
+      match self.get(&key) {
+        Some(varied) => varied.add_variant(Arc::new(response), headers, structure),
+        None => self
+          .cache(
+            key,
+            Arc::new(CacheType::varies_with_data(
+              structure.to_vec(),
+              Arc::new(response),
+              headers,
+            )),
+          )
+          .or(Err(())),
+      }
     }
   }
 
   pub mod types {
     use super::*;
 
-    pub type FsCacheInner = Cache<PathBuf, ByteResponse>;
+    pub type FsCacheInner = Cache<PathBuf, Vec<u8>>;
     pub type FsCache = Arc<Mutex<FsCacheInner>>;
-    pub type ResponseCacheInner = Cache<Uri, ByteResponse>;
+    pub type ResponseCacheInner = Cache<Uri, CacheType>;
     pub type ResponseCache = Arc<Mutex<ResponseCacheInner>>;
     pub type TemplateCacheInner = Cache<String, HashMap<Arc<String>, Arc<Vec<u8>>>>;
     pub type TemplateCache = Arc<Mutex<TemplateCacheInner>>;
@@ -793,7 +1252,15 @@ pub mod cache {
   }
   impl Size for ByteResponse {
     fn count(&self) -> usize {
-      self.get().len()
+      self.len()
+    }
+  }
+  impl Size for CacheType {
+    fn count(&self) -> usize {
+      match self {
+        Self::Vary(..) => 0,
+        Self::Data(data) => data.count(),
+      }
     }
   }
 
@@ -979,9 +1446,7 @@ pub mod connection {
           let mut close = ConnectionHeader::KeepAlive;
           if request_len == request.len() {
             eprintln!("Request too large!");
-            let _ = self
-              .session
-              .write_all(&default_error(413, &close, Some(storage))[..]);
+            let _ = default_error(413, &close, Some(storage)).write_all(&mut self.session);
           } else {
             match parse::parse_request(&request[..request_len]) {
               Ok(parsed) => {
@@ -1007,9 +1472,7 @@ pub mod connection {
                   }
                   _ => {
                     // Unsupported HTTP version!
-                    let _ = self
-                      .session
-                      .write_all(&default_error(505, &close, Some(storage))[..]);
+                    let _ = default_error(505, &close, Some(storage)).write_all(&mut self.session);
                   }
                 }
               }
@@ -1018,9 +1481,7 @@ pub mod connection {
                   "Failed to parse request, write something as a response? Err: {:?}",
                   err
                 );
-                let _ = self
-                  .session
-                  .write_all(&default_error(400, &close, Some(storage))[..]);
+                let _ = default_error(400, &close, Some(storage)).write_all(&mut self.session);
               }
             };
           }

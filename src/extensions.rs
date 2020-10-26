@@ -205,7 +205,7 @@ pub mod templates {
 
     match read_file(&template_dir, storage) {
       Some(file) => {
-        let templates = Arc::new(extract_templates(file.get()));
+        let templates = Arc::new(extract_templates(&file[..]));
         match storage.try_template() {
           Some(mut cache) => match cache.cache(template_set.to_owned(), templates) {
             Err(failed) => Some(failed),
