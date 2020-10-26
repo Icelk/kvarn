@@ -386,7 +386,6 @@ fn process_request<W: Write>(
     };
     let mut allowed_method = is_get;
 
-    // let write_error = |code: u32| {};
     // println!("Got request: {:?}", &request);
     if is_get {
         // Load from cache
@@ -401,7 +400,6 @@ fn process_request<W: Write>(
     }
 
     let mut handled_headers = false;
-    // let mut cached = Cached::Static;
     // Get from function or cache, to enable processing (extensions) from functions!
     let path = match parse::convert_uri(request.uri()) {
         Ok(path) => path,
@@ -426,22 +424,22 @@ fn process_request<W: Write>(
                     handled_headers = true;
                 }
                 allowed_method = true;
-            (ByteResponse::single(response), content_type, cache)
-        }
-        // No function, try read from FS cache.
-        None => {
-            // Body
-            let body = match read_file(&path, storage) {
-                Some(response) => ByteResponse::Borrowed(response),
-                None => {
-                    handled_headers = true;
-                    default_error(404, close, Some(storage))
-                }
-            };
-            // Content mime type
-            (body, ContentType::AutoOrDownload, Cached::Static)
-        }
-    };
+                (ByteResponse::with_header(response), content_type, cache)
+            }
+            // No function, try read from FS cache.
+            None => {
+                // Body
+                let body = match read_file(&path, storage) {
+                    Some(response) => ByteResponse::Borrowed(response),
+                    None => {
+                        handled_headers = true;
+                        default_error(404, close, Some(storage))
+                    }
+                };
+                // Content mime type
+                (body, ContentType::AutoOrDownload, Cached::Static)
+            }
+        };
 
     let content_type = match content_type {
         ContentType::FromMime(mime) => Cow::Owned(format!("{}", mime)),
@@ -493,9 +491,9 @@ fn process_request<W: Write>(
                 }
                 #[cfg(feature = "templates")]
                 Template if allowed_method => {
-                    body = ByteResponse::no_head(extensions::template(
+                    body = ByteResponse::without_header(extensions::template(
                         &template_args[..],
-                        body.from(content_start),
+                        body.body_from(content_start),
                         storage,
                     ));
                 }
@@ -514,7 +512,7 @@ fn process_request<W: Write>(
             },
             // Remove the extension definition.
             UnknownExtension(content_start, _) if allowed_method => {
-                body = ByteResponse::single(body.from(content_start).to_vec());
+                body = ByteResponse::with_header(body.body_from(content_start).to_vec());
             }
             // Do nothing!
             Raw if allowed_method => {}
@@ -634,7 +632,7 @@ fn process_request<W: Write>(
                         for vary_header in vary.iter() {
                             let header = match *vary_header {
                                 "Accept-Encoding" => "Content-Encoding",
-                                _ => vary_header,
+                                _ => *vary_header,
                             };
                             match headers.get(header) {
                                 Some(header) => {
@@ -653,7 +651,6 @@ fn process_request<W: Write>(
                     };
                     match headers {
                         Some(headers) => {
-                            // println!("Adding variant with headers: {:?}", &headers);
                             let _ = lock.add_variant(uri, response, headers, &vary[..]);
                         }
                         None => eprintln!("Vary header not present in response!"),
@@ -745,8 +742,57 @@ fn default_error(
     ByteResponse::Separated(buffer, body)
 }
 
-pub fn write_generic_error<W: Write>(writer: &mut W, code: u16) -> Result<(), io::Error> {
-    default_error(code, &connection::ConnectionHeader::KeepAlive, None).write_all(writer)
+/// Writes a generic error to `buffer`.
+/// For the version using the file system to deliver error messages, use `write_error`.
+///
+/// Returns (`text/html`, `Cached::Static`) to feed to binding closure.
+/// If you don't want it to cache, construct a custom return value.
+///
+/// # Examples
+/// ```
+/// use arktis::{FunctionBindings, write_generic_error};
+///
+/// let mut bindings = FunctionBindings::new();
+///
+/// bindings.bind_page("/throw_500", |mut buffer, _, _| {
+///   write_generic_error(&mut buffer, 500)
+/// });
+/// ```
+pub fn write_generic_error(buffer: &mut Vec<u8>, code: u16) -> (ContentType, Cached) {
+    default_error(code, &connection::ConnectionHeader::KeepAlive, None)
+        .write_all(buffer)
+        .expect("Failed to write to vec!");
+    (ContentType::Html, Cached::Dynamic)
+}
+/// Writes a error to `buffer`.
+/// For the version not using the file system, but generic hard-coded errors, use `write_generic_error`.
+///
+/// Returns (`text/html`, `Cached::Static`) to feed to binding closure.
+/// If you don't want it to cache, construct a custom return value.
+///
+/// # Examples
+/// ```
+/// use arktis::{FunctionBindings, write_error};
+///
+/// let mut bindings = FunctionBindings::new();
+///
+/// bindings.bind_page("/throw_500", |mut buffer, _, storage| {
+///   write_error(&mut buffer, 500, storage)
+/// });
+/// ```
+pub fn write_error(
+    buffer: &mut Vec<u8>,
+    code: u16,
+    storage: &mut Storage,
+) -> (ContentType, Cached) {
+    default_error(
+        code,
+        &connection::ConnectionHeader::KeepAlive,
+        Some(storage),
+    )
+    .write_all(buffer)
+    .expect("Failed to write to vec!");
+    (ContentType::Html, Cached::Dynamic)
 }
 
 fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<Vec<u8>>> {
@@ -936,12 +982,12 @@ pub mod cache {
     }
     impl ByteResponse {
         #[inline]
-        pub fn single(bytes: Vec<u8>) -> Self {
+        pub fn with_header(bytes: Vec<u8>) -> Self {
             let start = Self::get_start(&bytes[..]);
             Self::Single(bytes, start)
         }
         #[inline]
-        pub fn no_head(body: Vec<u8>) -> Self {
+        pub fn without_header(body: Vec<u8>) -> Self {
             Self::NoHead(body)
         }
 
@@ -1023,27 +1069,12 @@ pub mod cache {
                 Self::Borrowed(borrow) => &borrow[..],
             }
         }
-        // #[inline]
-        // pub fn get_from_method(&self, method: &http::Method) -> &[u8] {
-        //   match method {
-        //     &http::Method::HEAD => self.get_head(),
-        //     _ => self.get(),
-        //   }
-        // }
-        // #[inline]
-        // pub fn from(&self, from: usize) -> &[u8] {
-        //   &self.bytes[from..]
-        // }
-        // #[inline]
-        // pub fn to(&self, to: usize) -> &[u8] {
-        //   &self.bytes[..to]
-        // }
         #[inline]
-        pub fn from(&self, from: usize) -> &[u8] {
+        pub fn body_from(&self, from: usize) -> &[u8] {
             &self.get_body()[from..]
         }
         #[inline]
-        pub fn to(&self, to: usize) -> &[u8] {
+        pub fn body_to(&self, to: usize) -> &[u8] {
             &self.get_body()[..to]
         }
     }
@@ -1596,7 +1627,8 @@ pub mod bindings {
         }
     }
 
-    type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>) -> (ContentType, Cached) + Send + Sync;
+    type Binding =
+        dyn Fn(&mut Vec<u8>, &Request<&[u8]>, &mut Storage) -> (ContentType, Cached) + Send + Sync;
 
     /// Function bindings to have fast dynamic pages.
     ///
