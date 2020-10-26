@@ -431,7 +431,7 @@ fn process_request<W: Write>(
             None => {
                 // Body
                 let body = match read_file(&path, storage) {
-                    Some(response) => ByteResponse::Borrowed(response),
+                    Some(response) => ByteResponse::BorrowedBody(response),
                     None => default_error(404, close, Some(storage)),
                 };
                 // Content mime type
@@ -555,7 +555,7 @@ fn process_request<W: Write>(
     };
 
     let response = match body {
-        ByteResponse::NoHead(_) | ByteResponse::Borrowed(_) => {
+        ByteResponse::Body(_) | ByteResponse::BorrowedBody(_) => {
             let mut response = Vec::with_capacity(4096);
             let body = Compressors::compress(body.get_body(), &compression);
             response.extend(
@@ -605,7 +605,7 @@ fn process_request<W: Write>(
             response.extend(b"\r\n");
             // response.extend(body.iter());
 
-            ByteResponse::Separated(response, Arc::new(body))
+            ByteResponse::Both(response, Arc::new(body))
         }
         // Headers handled! Taking for granted user handled HEAD method.
         _ => body,
@@ -734,7 +734,7 @@ fn default_error(
         }
     };
 
-    ByteResponse::Separated(buffer, body)
+    ByteResponse::Both(buffer, body)
 }
 
 /// Writes a generic error to `buffer`.
@@ -969,22 +969,24 @@ pub mod cache {
     use std::{borrow::Borrow, hash::Hash};
 
     #[derive(Debug)]
-    /// Variants Borrowed and NoHead doesn't contain a head, and Single doesn't need to.
+    /// A response in byte form to query head or only body. Can be used when a if a buffer contains HTTP headers is unknown.
+    ///
+    /// Variants `Body` and `BorrowedBody` doesn't contain a head, a head in `Merged` is optional.
     pub enum ByteResponse {
-        Single(Vec<u8>, usize),
-        Separated(Vec<u8>, Arc<Vec<u8>>),
-        NoHead(Vec<u8>),
-        Borrowed(Arc<Vec<u8>>),
+        Merged(Vec<u8>, usize),
+        Both(Vec<u8>, Arc<Vec<u8>>),
+        Body(Vec<u8>),
+        BorrowedBody(Arc<Vec<u8>>),
     }
     impl ByteResponse {
         #[inline]
         pub fn with_header(bytes: Vec<u8>) -> Self {
             let start = Self::get_start(&bytes[..]);
-            Self::Single(bytes, start)
+            Self::Merged(bytes, start)
         }
         #[inline]
         pub fn without_header(body: Vec<u8>) -> Self {
-            Self::NoHead(body)
+            Self::Body(body)
         }
 
         fn get_start(bytes: &[u8]) -> usize {
@@ -1003,23 +1005,23 @@ pub mod cache {
         #[inline]
         pub fn len(&self) -> usize {
             match self {
-                Self::Single(vec, _) => vec.len(),
-                Self::Separated(head, body) => head.len() + body.len(),
-                Self::NoHead(body) => body.len(),
-                Self::Borrowed(borrow) => borrow.len(),
+                Self::Merged(vec, _) => vec.len(),
+                Self::Both(head, body) => head.len() + body.len(),
+                Self::Body(body) => body.len(),
+                Self::BorrowedBody(borrow) => borrow.len(),
             }
         }
 
         #[inline]
         pub fn write_all<W: Write>(&self, writer: &mut W) -> io::Result<()> {
             match self {
-                Self::Single(vec, _) => writer.write_all(&vec[..]),
-                Self::Separated(head, body) => {
+                Self::Merged(vec, _) => writer.write_all(&vec[..]),
+                Self::Both(head, body) => {
                     writer.write_all(&head[..])?;
                     writer.write_all(&body[..])
                 }
-                Self::NoHead(body) => writer.write_all(&body[..]),
-                Self::Borrowed(borrow) => writer.write_all(&borrow[..]),
+                Self::Body(body) => writer.write_all(&body[..]),
+                Self::BorrowedBody(borrow) => writer.write_all(&borrow[..]),
             }
         }
         pub fn write_as_method<W: Write>(
@@ -1036,13 +1038,13 @@ pub mod cache {
                     }
                 }
                 _ => match self {
-                    Self::Single(vec, _) => writer.write_all(&vec[..]),
-                    Self::Separated(head, body) => {
+                    Self::Merged(vec, _) => writer.write_all(&vec[..]),
+                    Self::Both(head, body) => {
                         writer.write_all(&head[..])?;
                         writer.write_all(&body[..])
                     }
-                    Self::NoHead(body) => writer.write_all(&body[..]),
-                    Self::Borrowed(borrow) => writer.write_all(&borrow[..]),
+                    Self::Body(body) => writer.write_all(&body[..]),
+                    Self::BorrowedBody(borrow) => writer.write_all(&borrow[..]),
                 },
             }
         }
@@ -1050,18 +1052,18 @@ pub mod cache {
         #[inline]
         pub fn get_head(&self) -> Option<&[u8]> {
             match self {
-                Self::Single(vec, start) if start > &0 => Some(&vec[..*start]),
-                Self::Separated(head, _) => Some(&head[..]),
+                Self::Merged(vec, start) if start > &0 => Some(&vec[..*start]),
+                Self::Both(head, _) => Some(&head[..]),
                 _ => None,
             }
         }
         #[inline]
         pub fn get_body(&self) -> &[u8] {
             match self {
-                Self::Single(vec, start) => &vec[*start..],
-                Self::Separated(_, body) => &body[..],
-                Self::NoHead(body) => &body[..],
-                Self::Borrowed(borrow) => &borrow[..],
+                Self::Merged(vec, start) => &vec[*start..],
+                Self::Both(_, body) => &body[..],
+                Self::Body(body) => &body[..],
+                Self::BorrowedBody(borrow) => &borrow[..],
             }
         }
         #[inline]
@@ -1077,6 +1079,8 @@ pub mod cache {
         vary_headers: Vec<&'static str>,
         data: Mutex<Vec<(Vec<http::HeaderValue>, Arc<ByteResponse>)>>,
     }
+
+    /// A enum to contain data about the cached data. Can either be `Data`, when no `Vary` header is present, or `Vary` if it must contain several values.
     pub enum CacheType {
         Data(Arc<ByteResponse>),
         Vary(VaryMaster),
@@ -1085,13 +1089,13 @@ pub mod cache {
         pub fn with_data(data: ByteResponse) -> Self {
             Self::Data(Arc::new(data))
         }
-        pub fn varies(headers: Vec<&'static str>) -> Self {
+        pub fn vary(headers: Vec<&'static str>) -> Self {
             Self::Vary(VaryMaster {
                 vary_headers: headers,
                 data: Mutex::new(Vec::new()),
             })
         }
-        pub fn varies_with_data(
+        pub fn vary_with_data(
             structure: Vec<&'static str>,
             data: Arc<ByteResponse>,
             headers: Vec<http::HeaderValue>,
@@ -1173,7 +1177,7 @@ pub mod cache {
             response: Arc<ByteResponse>,
             headers: Vec<http::HeaderValue>,
             structure: &[&'static str],
-        ) -> Result<(), ()> {
+        ) -> Result<(), Arc<ByteResponse>> {
             match self {
                 // So data (header) structure is identical
                 Self::Vary(vary) if structure == vary.vary_headers => {
@@ -1181,7 +1185,7 @@ pub mod cache {
                     data.push((headers, response));
                     Ok(())
                 }
-                _ => Err(()),
+                _ => Err(response),
             }
         }
     }
@@ -1205,11 +1209,18 @@ pub mod cache {
             structure: &[&'static str],
         ) -> Result<(), ()> {
             match self.get(&key) {
-                Some(varied) => varied.add_variant(Arc::new(response), headers, structure),
+                Some(varied) => {
+                    if response.size() > self.size_limit {
+                        return Err(());
+                    }
+                    varied
+                        .add_variant(Arc::new(response), headers, structure)
+                        .or(Err(()))
+                }
                 None => self
                     .cache(
                         key,
-                        Arc::new(CacheType::varies_with_data(
+                        Arc::new(CacheType::vary_with_data(
                             structure.to_vec(),
                             Arc::new(response),
                             headers,
