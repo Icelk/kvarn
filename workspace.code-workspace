@@ -1,11 +1,14 @@
 {
 	"folders": [
 		{
-			"path": ".\\"
+			"path": ".\\production_server\\public"
 		},
 		{
-			"path": ".\\public"
-		}
+			"path": ".\\production_server"
+		},
+		{
+			"path": ".\\"
+		},
 	],
 	"settings": {}
 }
