@@ -509,7 +509,7 @@ fn process_request<W: Write>(
             },
             // Remove the extension definition.
             UnknownExtension(content_start, _) if allowed_method => {
-                body = ByteResponse::with_header(body.body_from(content_start).to_vec());
+                body = ByteResponse::without_header(body.body_from(content_start).to_vec());
             }
             // Do nothing!
             Raw if allowed_method => {}
