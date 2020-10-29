@@ -968,7 +968,6 @@ pub mod cache {
     use std::collections::HashMap;
     use std::{borrow::Borrow, hash::Hash};
 
-    #[derive(Debug)]
     /// A response in byte form to query head or only body. Can be used when a if a buffer contains HTTP headers is unknown.
     ///
     /// Variants `Body` and `BorrowedBody` doesn't contain a head, a head in `Merged` is optional.
@@ -1073,6 +1072,18 @@ pub mod cache {
         #[inline]
         pub fn body_to(&self, to: usize) -> &[u8] {
             &self.get_body()[..to]
+        }
+    }
+    impl std::fmt::Debug for ByteResponse {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+            match self {
+                Self::Merged(_, starts_at) => {
+                    write!(f, "ByteResponse::Merged, starts at {}", starts_at)
+                }
+                Self::Both(_, _) => write!(f, "ByteResponse::Both"),
+                Self::Body(_) => write!(f, "ByteResponse::Body"),
+                Self::BorrowedBody(_) => write!(f, "ByteResponse::BorrowedBody"),
+            }
         }
     }
     pub struct VaryMaster {
