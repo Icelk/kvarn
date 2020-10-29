@@ -44,8 +44,15 @@ fn main() {
 
         (Html, Static)
     });
-    let server = Config::with_bindings(bindings, 443);
+    let mut server = Config::with_bindings(bindings, 443);
     let mut storage = server.clone_storage();
+    server.add_extension(arktis::extension_helper::BoundExtension {
+        ext: arktis::extension_helper::Extension::new(&|| 9, &|value, _| {
+            println!("Value: {}", value)
+        }),
+        extension_aliases: &["test"],
+        file_extension_aliases: &["i_dunno", "no"],
+    });
     thread::spawn(move || server.run());
 
     // Commands in console

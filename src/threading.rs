@@ -1,4 +1,4 @@
-use crate::{Connection, Storage};
+use crate::{Connection, ExtensionMap, Extensions, Storage};
 use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
 use rustls::{ServerConfig, ServerSession};
@@ -16,22 +16,30 @@ impl Worker {
     pub fn new(
         id: usize,
         receiver: mpsc::Receiver<BoxedJob>,
-        mut storage: Storage,
         registry: Registry,
         mut global_connections: Arc<Mutex<HashMap<usize, usize>>>,
+        mut storage: Storage,
+        mut extensions: Extensions,
     ) -> Self {
         let mut connections = HashMap::new();
 
         let handle = thread::Builder::new()
             .name(format!("Worker: {}", id))
-            .spawn(move || loop {
-                let job = receiver.recv().unwrap();
-                job(
-                    &mut storage,
-                    &mut connections,
-                    &registry,
-                    &mut global_connections,
-                );
+            .spawn(move || {
+                // Init all map's values
+                extensions.init_all();
+                let mut extensions = extensions.get_maps();
+
+                loop {
+                    let job = receiver.recv().unwrap();
+                    job(
+                        &mut storage,
+                        &mut extensions,
+                        &mut connections,
+                        &registry,
+                        &mut global_connections,
+                    );
+                }
             })
             .expect("Failed to create thread!");
 
@@ -41,6 +49,7 @@ impl Worker {
 
 type Job = dyn FnOnce(
         &mut Storage,
+        &mut ExtensionMap,
         &mut HashMap<Token, Connection>,
         &Registry,
         &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -55,9 +64,10 @@ pub struct ThreadPool {
 impl ThreadPool {
     pub fn new(
         size: usize,
-        storage: Storage,
         registry: &Registry,
         connections: &Arc<Mutex<HashMap<usize, usize>>>,
+        storage: Storage,
+        extensions: Extensions,
     ) -> Self {
         assert!(size > 0);
 
@@ -68,9 +78,10 @@ impl ThreadPool {
                 Worker::new(
                     id,
                     job_receiver,
-                    Storage::clone(&storage),
                     registry.try_clone().expect("Failed to clone registry!"),
                     Arc::clone(&connections),
+                    Storage::clone(&storage),
+                    Extensions::clone(&extensions),
                 ),
                 job_sender,
             ));
@@ -81,9 +92,10 @@ impl ThreadPool {
             Worker::new(
                 size - 1,
                 job_receiver,
-                Storage::clone(&storage),
                 registry.try_clone().expect("Failed to clone registry!"),
                 Arc::clone(&connections),
+                storage,
+                extensions,
             ),
             job_sender,
         ));
@@ -106,6 +118,7 @@ impl ThreadPool {
     where
         F: FnOnce(
                 &mut Storage,
+                &mut ExtensionMap,
                 &mut HashMap<Token, Connection>,
                 &Registry,
                 &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -124,6 +137,7 @@ impl ThreadPool {
     where
         F: FnOnce(
                 &mut Storage,
+                &mut ExtensionMap,
                 &mut HashMap<Token, Connection>,
                 &Registry,
                 &mut Arc<Mutex<HashMap<usize, usize>>>,
@@ -147,14 +161,20 @@ pub struct HandlerPool {
     server_config: Arc<ServerConfig>,
 }
 impl HandlerPool {
-    pub fn new(config: Arc<ServerConfig>, storage: Storage, registry: &Registry) -> Self {
+    pub fn new(
+        config: Arc<ServerConfig>,
+        storage: Storage,
+        extensions: Extensions,
+        registry: &Registry,
+    ) -> Self {
         let global_connections = Arc::new(Mutex::new(HashMap::new()));
         Self {
             pool: ThreadPool::new(
                 num_cpus::get() as usize - 1,
-                storage,
                 registry,
                 &global_connections,
+                storage,
+                extensions,
             ),
             connections: global_connections,
             server_config: config,
@@ -164,7 +184,7 @@ impl HandlerPool {
     pub fn accept(&mut self, socket: TcpStream, addr: SocketAddr, token: Token) {
         let config = Arc::clone(&self.server_config);
         let session = ServerSession::new(&config);
-        let thread_id = self.pool.execute(move |_, connections, registry, _| {
+        let thread_id = self.pool.execute(move |_, _, connections, registry, _| {
             println!("Accepting new connection from: {:?}", addr);
 
             let mut connection = Connection::new(socket, token, session);
@@ -199,11 +219,11 @@ impl HandlerPool {
         self.pool
             .execute_on(
                 thread_id,
-                move |cache, connections, registry, global_connections| {
+                move |cache, extensions, connections, registry, global_connections| {
                     // println!("Thread-local connections: {}", connections.len());
                     if let Some(connection) = connections.get_mut(&event.token()) {
                         let pre_processing = std::time::Instant::now();
-                        connection.ready(registry, &event, cache);
+                        connection.ready(registry, &event, cache, extensions);
                         let post_processing = pre_processing.elapsed();
                         if connection.is_closed() {
                             connections.remove(&event.token());

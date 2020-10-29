@@ -296,14 +296,16 @@ pub mod templates {
     }
 }
 
+const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE];
+
 pub fn identify<'a, 'b>(bytes: &'a [u8], file_extension: Option<&'b str>) -> FileType<'a> {
     use FileType::*;
     use KnownExtension::*;
 
     // If file starts with "!>", meaning it's an extension-dependent file!
-    if bytes.starts_with(&[BANG, PIPE]) {
+    if bytes.starts_with(EXTENSION_PREFIX) {
         // Get extention arguments
-        let (args, content_start) = parse_args(&bytes[2..]);
+        let (args, content_start) = parse_args(&bytes[EXTENSION_PREFIX.len()..]);
         // Add two, because of the BANG and PIPE start!
         let content_start = content_start + 2;
 
@@ -356,4 +358,11 @@ fn parse_args(bytes: &[u8]) -> (Vec<&[u8]>, usize) {
     }
     // Plus one, since loop breaks before
     (args, current_index + 1)
+}
+pub fn extension_args(bytes: &[u8]) -> (Vec<&[u8]>, usize) {
+    if bytes.starts_with(EXTENSION_PREFIX) {
+        parse_args(&bytes[EXTENSION_PREFIX.len()..])
+    } else {
+        (Vec::new(), 0)
+    }
 }

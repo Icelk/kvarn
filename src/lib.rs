@@ -10,6 +10,7 @@ use std::{
     io::{self, prelude::*},
 };
 
+pub mod extension_helper;
 mod extensions;
 pub mod parse;
 mod threading;
@@ -19,6 +20,7 @@ pub use cache::types::*;
 pub use cache::ByteResponse;
 pub use chars::*;
 pub use connection::Connection;
+pub use extension_helper::*;
 
 const HTTPS_SERVER: mio::Token = mio::Token(0);
 const RESERVED_TOKENS: usize = 1024;
@@ -50,6 +52,7 @@ pub struct Config {
     server_config: Arc<rustls::ServerConfig>,
     con_id: usize,
     storage: Storage,
+    extensions: Extensions,
 }
 impl Config {
     pub fn on_port(port: u16) -> Self {
@@ -65,6 +68,7 @@ impl Config {
             ),
             con_id: RESERVED_TOKENS,
             storage: Storage::new(),
+            extensions: Extensions::new(),
         }
     }
     pub fn with_config_on_port(config: rustls::ServerConfig, port: u16) -> Self {
@@ -77,6 +81,7 @@ impl Config {
             server_config: Arc::new(config),
             con_id: RESERVED_TOKENS,
             storage: Storage::new(),
+            extensions: Extensions::new(),
         }
     }
     pub fn with_bindings(bindings: FunctionBindings, port: u16) -> Self {
@@ -92,6 +97,7 @@ impl Config {
             ),
             con_id: RESERVED_TOKENS,
             storage: Storage::from_bindings(Arc::new(bindings)),
+            extensions: Extensions::new(),
         }
     }
     pub fn new(config: rustls::ServerConfig, bindings: FunctionBindings, port: u16) -> Self {
@@ -104,6 +110,7 @@ impl Config {
             server_config: Arc::new(config),
             con_id: RESERVED_TOKENS,
             storage: Storage::from_bindings(Arc::new(bindings)),
+            extensions: Extensions::new(),
         }
     }
 
@@ -116,6 +123,10 @@ impl Config {
     #[inline]
     pub fn clone_inner(&self) -> Arc<rustls::ServerConfig> {
         Arc::clone(&self.server_config)
+    }
+
+    pub fn add_extension(&mut self, ext: BoundExtension) {
+        self.extensions.add_extension(ext);
     }
 
     /// Runs a server from the config on a new thread, not blocking the current thread.
@@ -168,8 +179,12 @@ impl Config {
             .register(&mut self.socket, HTTPS_SERVER, mio::Interest::READABLE)
             .expect("Failed to register HTTPS server");
 
-        let mut thread_handler =
-            threading::HandlerPool::new(self.clone_inner(), self.clone_storage(), poll.registry());
+        let mut thread_handler = threading::HandlerPool::new(
+            self.clone_inner(),
+            self.clone_storage(),
+            Extensions::clone(&self.extensions),
+            poll.registry(),
+        );
 
         loop {
             poll.poll(&mut events, None).expect("Failed to poll!");
@@ -375,9 +390,10 @@ impl std::str::FromStr for Cached {
 fn process_request<W: Write>(
     socket: &mut W,
     request: http::Request<&[u8]>,
-    _raw_request: &[u8],
+    raw_request: &[u8],
     close: &connection::ConnectionHeader,
     storage: &mut Storage,
+    extensions: &mut ExtensionMap,
 ) -> Result<(), io::Error> {
     let method = request.method();
     let is_get = match method {
@@ -462,6 +478,45 @@ fn process_request<W: Write>(
         pub use extensions::FileType::*;
         pub use extensions::KnownExtension::*;
 
+        {
+            // Search through extension map!
+            let (extension_args, content_start) = extensions::extension_args(body.get_body());
+            let name = extension_args
+                .get(0)
+                .and_then(|arg| std::str::from_utf8(arg).ok());
+            let file_extension = path.extension().and_then(|path| path.to_str());
+            match extensions.get(name, file_extension) {
+                Some(extension) => {
+                    let args = extension_args
+                        .iter()
+                        .filter_map(|bytes| {
+                            std::str::from_utf8(bytes)
+                                .ok()
+                                .map(|valid_str| valid_str.to_owned())
+                        })
+                        .collect();
+                    unsafe {
+                        extension.run(RequestData {
+                            response: &mut body,
+                            content_start,
+                            cached: &mut cached,
+                            args,
+                            storage,
+                            request: &request,
+                            raw_request,
+                            path: &path,
+                        })
+                    }
+                }
+                // Do nothing
+                None if allowed_method => {}
+                _ => {
+                    body = default_error(405, close, Some(storage));
+                }
+            };
+        }
+
+        // Remove or optimize
         match extensions::identify(
             body.get_body(),
             path.extension().and_then(|path| path.to_str()),
@@ -1447,7 +1502,13 @@ pub mod connection {
             }
         }
 
-        pub fn ready(&mut self, registry: &Registry, event: &MioEvent, storage: &mut Storage) {
+        pub fn ready(
+            &mut self,
+            registry: &Registry,
+            event: &MioEvent,
+            storage: &mut Storage,
+            extensions: &mut ExtensionMap,
+        ) {
             // If socket is readable, read from socket to session
             if event.readable() && self.decrypt().is_ok() {
                 // Read request from session to buffer
@@ -1507,6 +1568,7 @@ pub mod connection {
                                             &request[..],
                                             &close,
                                             storage,
+                                            extensions,
                                         ) {
                                             eprintln!("Failed to write to session! {:?}", err);
                                         };
