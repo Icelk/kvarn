@@ -1,14 +1,17 @@
 {
 	"folders": [
 		{
+			"name": "Public Server Data",
 			"path": ".\\production_server\\public"
 		},
 		{
+			"name": "Server Binary",
 			"path": ".\\production_server"
 		},
 		{
+			"name": "Main Server Lib",
 			"path": ".\\"
 		},
 	],
-	"settings": {}
+	"settings": {},
 }

@@ -7,6 +7,6 @@
     "rustls"
   ],
   "files.exclude": {
-    "production_server": true
-  }
+    "production_server": true,
+  },
 }
