@@ -918,7 +918,7 @@ impl Compressors {
         match compressor {
             CompressionAlgorithm::Identity => bytes.to_vec(),
             CompressionAlgorithm::Brotli => {
-                let buffer = Vec::with_capacity(bytes.len() / 2);
+                let buffer = Vec::with_capacity(bytes.len() / 3 + 128);
                 let mut c = brotli::CompressorWriter::new(buffer, 4096, 8, 21);
                 c.write(bytes).expect("Failed to compress using Brotli!");
                 c.flush().expect("Failed to compress using Brotli!");
@@ -927,7 +927,7 @@ impl Compressors {
                 buffer
             }
             CompressionAlgorithm::Gzip => {
-                let buffer = Vec::with_capacity(bytes.len() / 2);
+                let buffer = Vec::with_capacity(bytes.len() / 3 + 128);
                 let mut c = flate2::write::GzEncoder::new(buffer, flate2::Compression::fast());
                 c.write(bytes).expect("Failed to compress using gzip!");
                 let mut buffer = c.finish().expect("Failed to compress using gzip!");
