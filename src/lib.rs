@@ -25,9 +25,11 @@ pub use extension_helper::*;
 const HTTPS_SERVER: mio::Token = mio::Token(0);
 const RESERVED_TOKENS: usize = 1024;
 #[cfg(windows)]
-const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
 #[cfg(unix)]
-const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
+pub const SERVER_NAME: &str = "Arktis";
+
 pub mod chars {
     /// Line feed
     pub const LF: u8 = 10;
