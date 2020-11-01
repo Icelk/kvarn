@@ -130,6 +130,9 @@ impl Config {
     pub fn add_extension(&mut self, ext: BoundExtension) {
         self.extensions.add_extension(ext);
     }
+    pub fn external_extension<F: Fn() -> BoundExtension>(&mut self, external_extension: F) {
+        self.extensions.add_extension(external_extension());
+    }
 
     /// Runs a server from the config on a new thread, not blocking the current thread.
     ///
@@ -393,6 +396,16 @@ impl std::str::FromStr for Cached {
     }
 }
 
+/// The main request processing function.
+///
+/// First checks if something's in cache, then write it to the socket and return.
+///
+/// Then, check if a binding is available. If one is, give it a `Vec` to populate. Wrap that `Vec` in a `ByteResponse` to get separation between body and head.
+/// If not, get from the FS instead, and wrap in `Arc` inside a `ByteResponse`. Sets appropriate content type and cache settings.
+///
+/// Then matches content type to get a `str`.
+///
+/// Checks extension in body of `ByteResponse`.
 fn process_request<W: Write>(
     socket: &mut W,
     request: http::Request<&[u8]>,
