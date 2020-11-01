@@ -457,24 +457,6 @@ fn process_request<W: Write>(
             }
         };
 
-    let content_type = match content_type {
-        ContentType::FromMime(mime) => Cow::Owned(format!("{}", mime)),
-        ContentType::Html => Cow::Borrowed("text/html"),
-        ContentType::PlainText => Cow::Borrowed("text/plain"),
-        ContentType::Download => Cow::Borrowed("application/octet-stream"),
-        ContentType::AutoOrDownload => Cow::Owned(format!(
-            "{}",
-            mime_guess::from_path(&path).first_or_octet_stream()
-        )),
-        ContentType::AutoOrPlain => Cow::Owned(format!(
-            "{}",
-            mime_guess::from_path(&path).first_or_text_plain()
-        )),
-        ContentType::AutoOrHTML => Cow::Owned(format!(
-            "{}",
-            mime_guess::from_path(&path).first_or(mime::TEXT_HTML)
-        )),
-    };
     // Apply extensions
     {
         pub use extensions::FileType::*;
@@ -507,6 +489,7 @@ fn process_request<W: Write>(
                             request: &request,
                             raw_request,
                             path: &path,
+                            content_type: &mut content_type,
                         })
                     }
                 }
@@ -577,6 +560,24 @@ fn process_request<W: Write>(
         };
     }
 
+    let content_type = match content_type {
+        ContentType::FromMime(mime) => Cow::Owned(format!("{}", mime)),
+        ContentType::Html => Cow::Borrowed("text/html"),
+        ContentType::PlainText => Cow::Borrowed("text/plain"),
+        ContentType::Download => Cow::Borrowed("application/octet-stream"),
+        ContentType::AutoOrDownload => Cow::Owned(format!(
+            "{}",
+            mime_guess::from_path(&path).first_or_octet_stream()
+        )),
+        ContentType::AutoOrPlain => Cow::Owned(format!(
+            "{}",
+            mime_guess::from_path(&path).first_or_text_plain()
+        )),
+        ContentType::AutoOrHTML => Cow::Owned(format!(
+            "{}",
+            mime_guess::from_path(&path).first_or(mime::TEXT_HTML)
+        )),
+    };
     // The response MUST contain all vary headers, else it won't be cached!
     let vary: Vec<&str> = vec![/* "Content-Type", */ "Accept-Encoding"];
 

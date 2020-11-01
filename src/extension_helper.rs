@@ -50,31 +50,6 @@ impl ExtensionMap {
                 None => None,
             },
         }
-        // match name.and_then(|name| self.name.get_mut(name)) {
-        //     Some(name) => match name {
-        //         ExtensionPointer::Data(data) => Some(data),
-        //         ExtensionPointer::ReferenceToName(name) => {
-        //             let name = name.clone();
-        //             self.name
-        //                 .get_mut(name)
-        //                 .and_then(|pointer| Some(pointer.assume_data()))
-        //         }
-        //         ExtensionPointer::ReferenceToFE(..) => unreachable!(),
-        //     },
-        //     None => match file_extension
-        //         .and_then(|file_extension| self.extensions.get_mut(file_extension))
-        //     {
-        //         Some(file_extension) => match file_extension {
-        //             ExtensionPointer::Data(data) => Some(data),
-        //             ExtensionPointer::ReferenceToName(name) => self
-        //                 .name
-        //                 .get_mut(name)
-        //                 .and_then(|pointer| Some(pointer.assume_data())),
-        //             ExtensionPointer::ReferenceToFE(..) => unreachable!(),
-        //         },
-        //         None => None,
-        //     },
-        // }
     }
 }
 enum ExtensionPointer {
@@ -110,22 +85,6 @@ impl Clone for ExtensionPointer {
         }
     }
 }
-// pub struct Extensions<W: Write> {
-//     vec: Arc<Vec<BoundExtension<W>>>,
-// }
-// impl<W: Write> Extensions<W> {
-//     // pub fn get_all(&self) -> &[BoundExtension<W>] {
-//     //     &self.vec[..]
-//     // }
-//     // pub fn init_all(&mut self)
-// }
-// impl<W: Write> Clone for Extensions<W> {
-//     fn clone(&self) -> Self {
-//         Self {
-//             vec: Arc::clone(&self.vec),
-//         }
-//     }
-// }
 pub struct Extensions {
     vec: Vec<BoundExtension>,
 }
@@ -249,6 +208,7 @@ pub struct RequestData<'a> {
     pub request: &'a http::Request<&'a [u8]>,
     pub raw_request: &'a [u8],
     pub path: &'a PathBuf,
+    pub content_type: &'a mut ContentType,
 }
 
 pub trait Ext {
@@ -283,7 +243,7 @@ pub trait Ext {
     /// ```
     /// use arktis::extension_helper::{Extension, Ext};
     ///
-    /// let mut ext: Box<Ext<std::net::TcpStream>> = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
+    /// let mut ext = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
     /// ext.init();
     /// unsafe { ext.uninit() };
     /// ```
@@ -291,7 +251,7 @@ pub trait Ext {
     /// ```no_run
     /// use arktis::extension_helper::{Extension, Ext};
     ///
-    /// let mut ext: Box<Ext<std::net::TcpStream>> = Extension::new(&|| "A str!", &|value, _| println!("Value: {}", value));
+    /// let mut ext = Extension::new(&|| "A str!", &|value, _| println!("Value: {}", value));
     /// unsafe { ext.uninit() };
     /// ```
     unsafe fn uninit(self: Box<Self>);
