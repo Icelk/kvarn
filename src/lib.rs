@@ -618,10 +618,96 @@ fn process_request<W: Write>(
         None => CompressionAlgorithm::Identity,
     };
 
-    let response = match body {
+    let response = match byte_response {
+        ByteResponse::Merged(_, _, partial_header) if partial_header => {
+            let partial_head = byte_response.get_head().unwrap();
+            let mut head = Vec::with_capacity(2048);
+            if !partial_head.starts_with(b"HTTP") {
+                head.extend(b"HTTP/1.1 200 OK\r\n");
+            }
+            // Adding partial head
+            head.extend_from_slice(partial_head);
+            // Remove last CRLF if, header doesn't end here!
+            if head.ends_with(&[CR, LF]) {
+                head.truncate(head.len() - 2);
+            }
+            // Parse the present headers
+            let present_headers = parse::parse_only_headers(partial_head);
+            let compress = !present_headers.contains_key(CONTENT_ENCODING);
+            let varies = present_headers.contains_key(VARY);
+            let body = if compress && !varies {
+                Compressors::compress(byte_response.get_body(), &compression)
+            } else {
+                byte_response.into_body()
+            };
+
+            use http::header::*;
+
+            if !present_headers.contains_key(CONNECTION) {
+                head.extend(b"Connection: ");
+                if close.close() {
+                    head.extend(b"Close\r\n");
+                } else {
+                    head.extend(b"Keep-Alive\r\n");
+                }
+            }
+            if compress && !varies {
+                // Compression
+                head.extend(b"Content-Encoding: ");
+                head.extend(
+                    match compression {
+                        CompressionAlgorithm::Identity => "identity",
+                        #[cfg(feature = "brotli")]
+                        CompressionAlgorithm::Brotli => "br",
+                        #[cfg(feature = "gzip")]
+                        CompressionAlgorithm::Gzip => "gzip",
+                    }
+                    .as_bytes(),
+                );
+                head.extend(b"\r\n");
+            }
+            if !present_headers.contains_key(CONTENT_LENGTH) {
+                // Length
+                head.extend(b"Content-Length: ");
+                head.extend(format!("{}\r\n", body.len()).as_bytes());
+            }
+
+            if !present_headers.contains_key(CONTENT_TYPE) {
+                head.extend(b"Content-Type: ");
+                head.extend(content_type.as_bytes());
+                head.extend(b"\r\n");
+            }
+            if !present_headers.contains_key(CACHE_CONTROL) {
+                // Cache header!
+                head.extend(match cached {
+                    Cached::Dynamic => b"Cache-Control: no-store\r\n",
+                    Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
+                    Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n",
+                });
+            }
+
+            if !varies && !vary.is_empty() {
+                head.extend(b"Vary: ");
+                let mut iter = vary.iter();
+                head.extend(iter.next().unwrap().as_bytes());
+
+                for vary in iter {
+                    head.extend(b", ");
+                    head.extend(vary.as_bytes());
+                }
+                head.extend(b"\r\n");
+            }
+
+            // Add server signature
+            head.extend(SERVER_HEADER);
+            // Close header
+            head.extend(b"\r\n");
+
+            // Return byte response
+            ByteResponse::Both(head, body)
+        }
         ByteResponse::Body(_) | ByteResponse::BorrowedBody(_) => {
             let mut response = Vec::with_capacity(4096);
-            let body = Compressors::compress(body.get_body(), &compression);
             response.extend(
                 b"HTTP/1.1 200 OK\r\n\
         Connection: ",
@@ -631,11 +717,7 @@ fn process_request<W: Write>(
             } else {
                 response.extend(b"Keep-Alive\r\n");
             }
-            response.extend(b"Content-Length: ");
-            response.extend(format!("{}\r\n", body.len()).as_bytes());
-            response.extend(b"Content-Type: ");
-            response.extend(content_type.as_bytes());
-            response.extend(b"\r\n");
+            // Compression
             response.extend(b"Content-Encoding: ");
             response.extend(
                 match compression {
@@ -648,12 +730,21 @@ fn process_request<W: Write>(
                 .as_bytes(),
             );
             response.extend(b"\r\n");
+            let body = Compressors::compress(byte_response.get_body(), &compression);
+            // Length
+            response.extend(b"Content-Length: ");
+            response.extend(format!("{}\r\n", body.len()).as_bytes());
+
+            response.extend(b"Content-Type: ");
+            response.extend(content_type.as_bytes());
+            response.extend(b"\r\n");
             // Cache header!
             response.extend(match cached {
                 Cached::Dynamic => b"Cache-Control: no-store\r\n",
                 Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
                 Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n",
             });
+
             if !vary.is_empty() {
                 response.extend(b"Vary: ");
                 let mut iter = vary.iter();

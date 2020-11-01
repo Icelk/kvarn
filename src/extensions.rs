@@ -208,7 +208,7 @@ pub mod templates {
         let mut template_dir = PathBuf::from("templates");
         template_dir.push(template_set);
 
-        match read_file(&template_dir, storage) {
+        match read_file(&template_dir, storage.get_fs()) {
             Some(file) => {
                 let templates = Arc::new(extract_templates(&file[..]));
                 match storage.try_template() {
