@@ -748,7 +748,7 @@ fn process_request<W: Write>(
                 Cached::Dynamic => b"Cache-Control: no-store\r\n",
                 Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
                 Cached::Static | Cached::PerQuery => {
-                    b"Cache-Control: public, max-age=604800, immutable\r\n"
+                    &b"Cache-Control: public, max-age=604800, immutable\r\n"[..]
                 }
             });
 
@@ -890,14 +890,14 @@ fn default_error(
                         body.extend(reason.as_bytes());
                     }
 
-                    body.extend(b"</title></head><body><center><h1>");
+                    body.extend(&b"</title></head><body><center><h1>"[..]);
                     // Code and reason
                     write_code(&mut body);
                     body.extend(b" ");
                     if let Some(reason) = reason {
                         body.extend(reason.as_bytes());
                     }
-                    body.extend(b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>");
+                    body.extend(&b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>"[..]);
                 }
             }
 
@@ -1753,10 +1753,17 @@ pub mod connection {
                 }
             }
             if event.writable() {
-                if let Err(..) = self.session.write_tls(&mut self.socket) {
-                    eprintln!("Error writing to socket!");
-                    self.close();
-                };
+                match self.session.write_tls(&mut self.socket) {
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                        // If the whole message couldn't be transmitted in one round
+                    }
+                    Err(err) => {
+                        eprintln!("Error writing to socket! {:?}", err,);
+                        self.close();
+                    }
+                    // Do nothing!
+                    Ok(..) => {}
+                }
             }
 
             if self.closing {
