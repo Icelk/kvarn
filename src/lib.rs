@@ -654,7 +654,7 @@ fn process_request<W: Write>(
                 head.extend(
                     match compression {
                         CompressionAlgorithm::Identity => "identity",
-                        #[cfg(feature = "brotli")]
+                        #[cfg(feature = "br")]
                         CompressionAlgorithm::Brotli => "br",
                         #[cfg(feature = "gzip")]
                         CompressionAlgorithm::Gzip => "gzip",
@@ -719,7 +719,7 @@ fn process_request<W: Write>(
             response.extend(
                 match compression {
                     CompressionAlgorithm::Identity => "identity",
-                    #[cfg(feature = "brotli")]
+                    #[cfg(feature = "br")]
                     CompressionAlgorithm::Brotli => "br",
                     #[cfg(feature = "gzip")]
                     CompressionAlgorithm::Gzip => "gzip",
@@ -980,7 +980,7 @@ fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
 #[allow(dead_code)]
 enum Compressors {
     Raw(Vec<u8>),
-    #[cfg(feature = "brotli")]
+    #[cfg(feature = "br")]
     Brotli(brotli::CompressorWriter<Vec<u8>>),
     #[cfg(feature = "gzip")]
     Gzip(flate2::write::GzEncoder<Vec<u8>>),
@@ -990,7 +990,7 @@ impl Compressors {
     #[inline]
     pub fn new(vec: Vec<u8>, compressor: &CompressionAlgorithm) -> Self {
         match compressor {
-            #[cfg(feature = "brotli")]
+            #[cfg(feature = "br")]
             CompressionAlgorithm::Brotli => Self::brotli(vec),
             #[cfg(feature = "gzip")]
             CompressionAlgorithm::Gzip => Self::gzip(vec),
@@ -1002,7 +1002,7 @@ impl Compressors {
         Self::Raw(vec)
     }
     #[inline]
-    #[cfg(feature = "brotli")]
+    #[cfg(feature = "br")]
     pub fn brotli(vec: Vec<u8>) -> Self {
         Self::Brotli(brotli::CompressorWriter::new(vec, 4096, 8, 21))
     }
@@ -1047,7 +1047,7 @@ impl Compressors {
             Self::Raw(buffer) => {
                 buffer.extend(bytes);
             }
-            #[cfg(feature = "brotli")]
+            #[cfg(feature = "br")]
             Self::Brotli(compressor) => {
                 if let Err(err) = compressor.write_all(bytes) {
                     eprintln!("Error compressing: {}", err);
@@ -1065,7 +1065,7 @@ impl Compressors {
     pub fn finish(self) -> Vec<u8> {
         match self {
             Self::Raw(buffer) => buffer,
-            #[cfg(feature = "brotli")]
+            #[cfg(feature = "br")]
             Self::Brotli(compressor) => compressor.into_inner(),
             #[cfg(feature = "gzip")]
             Self::Gzip(compressor) => compressor.finish().unwrap(),
@@ -1077,7 +1077,7 @@ impl Compressors {
 ///
 /// Does not include DEFLATE because of bad support
 enum CompressionAlgorithm {
-    #[cfg(feature = "brotli")]
+    #[cfg(feature = "br")]
     Brotli,
     #[cfg(feature = "gzip")]
     Gzip,
@@ -1100,7 +1100,7 @@ fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
     // println!("Options: {:?}", options);
 
     // If Brotli enabled, prioritize it if quality == 1
-    #[cfg(feature = "brotli")]
+    #[cfg(feature = "br")]
     if options.is_empty()
         || options.iter().any(|option| {
             option
@@ -1115,7 +1115,7 @@ fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
     match options[0].value {
         #[cfg(feature = "gzip")]
         "gzip" => (CompressionAlgorithm::Gzip, identity_forbidden),
-        #[cfg(feature = "brotli")]
+        #[cfg(feature = "br")]
         "br" => (CompressionAlgorithm::Brotli, identity_forbidden),
         _ => (CompressionAlgorithm::Identity, identity_forbidden),
     }
