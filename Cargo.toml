@@ -41,7 +41,3 @@ no-cache = ["no-fs-cache", "no-response-cache", "no-template-cache"]
 compression = ["br", "gzip"]
 br = ["brotli"]
 gzip = ["flate2"]
-
-[[example]]
-name = "ext"
-path = "examples/extensions/main.rs"
