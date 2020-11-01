@@ -365,6 +365,7 @@ pub enum ParseCachedErr {
 pub enum Cached {
     Dynamic,
     Changing,
+    PerQuery,
     Static,
 }
 impl Cached {
@@ -375,7 +376,13 @@ impl Cached {
     pub fn do_internal_cache(&self) -> bool {
         match self {
             Self::Dynamic | Self::Changing => false,
-            Self::Static => true,
+            Self::Static | Self::PerQuery => true,
+        }
+    }
+    pub fn query_matters(&self) -> bool {
+        match self {
+            Self::Dynamic | Self::PerQuery => true,
+            Self::Static | Self::Changing => false,
         }
     }
 }
@@ -415,8 +422,7 @@ fn process_request<W: Write>(
     storage: &mut Storage,
     extensions: &mut ExtensionMap,
 ) -> Result<(), io::Error> {
-    let method = request.method();
-    let is_get = match method {
+    let is_get = match request.method() {
         &http::Method::GET | &http::Method::HEAD => true,
         _ => false,
     };
@@ -430,7 +436,7 @@ fn process_request<W: Write>(
             // If response is in cache
             if let Some(response) = lock.resolve(request.uri(), request.headers()) {
                 // println!("Got cache! {}", request.uri());
-                return response.write_as_method(socket, method);
+                return response.write_as_method(socket, request.method());
             }
         }
     }
@@ -520,6 +526,7 @@ fn process_request<W: Write>(
             };
         }
 
+        // Needs to be removed soon.
         // Remove or optimize
         match extensions::identify(
             byte_response.get_body(),
@@ -562,7 +569,7 @@ fn process_request<W: Write>(
         };
     }
 
-    let content_type = content_type.as_str(path);
+    let content_str = content_type.as_str(path);
     // The response MUST contain all vary headers, else it won't be cached!
     let vary: Vec<&str> = vec![/* "Content-Type", */ "Accept-Encoding"];
 
@@ -574,15 +581,15 @@ fn process_request<W: Write>(
         Some(header) => {
             let (algorithm, identity_forbidden) = compression_from_header(header);
             // Filter content types for compressed formats
-            if (content_type.starts_with("application")
-                && !content_type.contains("xml")
-                && !content_type.contains("json")
-                && content_type != "application/pdf"
-                && content_type != "application/javascript"
-                && content_type != "application/graphql")
-                || content_type.starts_with("image")
-                || content_type.starts_with("audio")
-                || content_type.starts_with("video")
+            if (content_str.starts_with("application")
+                && !content_str.contains("xml")
+                && !content_str.contains("json")
+                && content_str != "application/pdf"
+                && content_str != "application/javascript"
+                && content_str != "application/graphql")
+                || content_str.starts_with("image")
+                || content_str.starts_with("audio")
+                || content_str.starts_with("video")
             {
                 if identity_forbidden {
                     byte_response = default_error(406, &close, Some(&mut storage.fs));
@@ -653,7 +660,7 @@ fn process_request<W: Write>(
 
             if !present_headers.contains_key(CONTENT_TYPE) {
                 head.extend(b"Content-Type: ");
-                head.extend(content_type.as_bytes());
+                head.extend(content_str.as_bytes());
                 head.extend(b"\r\n");
             }
             if !present_headers.contains_key(CACHE_CONTROL) {
@@ -661,7 +668,9 @@ fn process_request<W: Write>(
                 head.extend(match cached {
                     Cached::Dynamic => b"Cache-Control: no-store\r\n",
                     Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
-                    Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n",
+                    Cached::Static | Cached::PerQuery => {
+                        b"Cache-Control: public, max-age=604800, immutable\r\n"
+                    }
                 });
             }
 
@@ -715,13 +724,15 @@ fn process_request<W: Write>(
             response.extend(format!("{}\r\n", body.len()).as_bytes());
 
             response.extend(b"Content-Type: ");
-            response.extend(content_type.as_bytes());
+            response.extend(content_str.as_bytes());
             response.extend(b"\r\n");
             // Cache header!
             response.extend(match cached {
                 Cached::Dynamic => b"Cache-Control: no-store\r\n",
                 Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
-                Cached::Static => b"Cache-Control: public, max-age=604800, immutable\r\n",
+                Cached::Static | Cached::PerQuery => {
+                    b"Cache-Control: public, max-age=604800, immutable\r\n"
+                }
             });
 
             if !vary.is_empty() {
@@ -748,11 +759,21 @@ fn process_request<W: Write>(
     };
 
     // Write to socket!
-    response.write_as_method(socket, method)?;
+    response.write_as_method(socket, request.method())?;
 
     if cached.do_internal_cache() && is_get {
         if let Some(mut lock) = storage.response_blocking() {
             let uri = request.into_parts().0.uri;
+            let uri = if !cached.query_matters() {
+                let bytes = uri.path().as_bytes().to_vec(); // ToDo: Remove cloning of slice!
+                if let Ok(uri) = http::Uri::from_maybe_shared(bytes) {
+                    uri
+                } else {
+                    uri
+                }
+            } else {
+                uri
+            };
             println!("Caching uri {}", &uri);
             match vary.is_empty() {
                 false => {

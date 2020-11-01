@@ -10,6 +10,8 @@ pub fn php() -> BoundExtension {
             // Content type will be HTML!
             // Will be overriden by headers from PHP.
             *data.content_type = ContentType::Html;
+            // So it won't remove the query before caching!
+            *data.cached = Cached::PerQuery;
 
             let output = match cgi::fcgi_from_data(&data) {
                 Ok(vec) => vec,
