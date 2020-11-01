@@ -453,6 +453,7 @@ fn process_request<W: Write>(
             None => {
                 // Body
                 let body = match read_file(&path, storage.get_fs()) {
+                    Some(response) => ByteResponse::without_header_shared(response),
                     None => default_error(404, close, Some(storage.get_fs())),
                 };
                 // Content mime type
@@ -533,9 +534,9 @@ fn process_request<W: Write>(
                 }
                 #[cfg(feature = "templates")]
                 Template if allowed_method => {
-                    body = ByteResponse::without_header(extensions::template(
+                    byte_response = ByteResponse::without_header(extensions::template(
                         &template_args[..],
-                        body.body_from(content_start),
+                        byte_response.body_from(content_start),
                         storage,
                     ));
                 }
@@ -664,11 +665,13 @@ fn process_request<W: Write>(
                 }
                 response.extend(b"\r\n");
             }
-            response.extend(SERVER_HEADER);
-            response.extend(b"\r\n");
-            // response.extend(body.iter());
 
-            ByteResponse::Both(response, Arc::new(body))
+            response.extend(SERVER_HEADER);
+            // Close header
+            response.extend(b"\r\n");
+
+            // Return byte response
+            ByteResponse::Both(response, body)
         }
         // Headers handled! Taking for granted user handled HEAD method.
         _ => byte_response,
@@ -755,7 +758,7 @@ fn default_error(
             buffer.extend(b"Content-Length: ");
             buffer.extend(format!("{}\r\n\r\n", file.len()).as_bytes());
             // buffer.extend(file.get_body());
-            file
+            (*file).clone()
         }
         None => {
             let mut body = Vec::with_capacity(1024);
@@ -793,7 +796,7 @@ fn default_error(
             buffer.extend(b"Content-Length: ");
             buffer.extend(format!("{}\r\n\r\n", body.len()).as_bytes());
             // buffer.append(&mut body);
-            Arc::new(body)
+            body
         }
     };
 
@@ -1040,8 +1043,8 @@ pub mod cache {
     ///
     /// Variants `Body` and `BorrowedBody` doesn't contain a head, a head in `Merged` is optional.
     pub enum ByteResponse {
-        Merged(Vec<u8>, usize),
-        Both(Vec<u8>, Arc<Vec<u8>>),
+        Merged(Vec<u8>, usize, bool),
+        Both(Vec<u8>, Vec<u8>),
         Body(Vec<u8>),
         BorrowedBody(Arc<Vec<u8>>),
     }
@@ -1049,11 +1052,20 @@ pub mod cache {
         #[inline]
         pub fn with_header(bytes: Vec<u8>) -> Self {
             let start = Self::get_start(&bytes[..]);
-            Self::Merged(bytes, start)
+            Self::Merged(bytes, start, false)
+        }
+        #[inline]
+        pub fn with_partial_header(bytes: Vec<u8>) -> Self {
+            let start = Self::get_start(&bytes[..]);
+            Self::Merged(bytes, start, true)
         }
         #[inline]
         pub fn without_header(body: Vec<u8>) -> Self {
             Self::Body(body)
+        }
+        #[inline]
+        pub fn without_header_shared(shared_body: Arc<Vec<u8>>) -> Self {
+            Self::BorrowedBody(shared_body)
         }
 
         fn get_start(bytes: &[u8]) -> usize {
@@ -1072,7 +1084,7 @@ pub mod cache {
         #[inline]
         pub fn len(&self) -> usize {
             match self {
-                Self::Merged(vec, _) => vec.len(),
+                Self::Merged(vec, _, _) => vec.len(),
                 Self::Both(head, body) => head.len() + body.len(),
                 Self::Body(body) => body.len(),
                 Self::BorrowedBody(borrow) => borrow.len(),
@@ -1082,7 +1094,7 @@ pub mod cache {
         #[inline]
         pub fn write_all<W: Write>(&self, writer: &mut W) -> io::Result<()> {
             match self {
-                Self::Merged(vec, _) => writer.write_all(&vec[..]),
+                Self::Merged(vec, _, _) => writer.write_all(&vec[..]),
                 Self::Both(head, body) => {
                     writer.write_all(&head[..])?;
                     writer.write_all(&body[..])
@@ -1105,7 +1117,7 @@ pub mod cache {
                     }
                 }
                 _ => match self {
-                    Self::Merged(vec, _) => writer.write_all(&vec[..]),
+                    Self::Merged(vec, _, _) => writer.write_all(&vec[..]),
                     Self::Both(head, body) => {
                         writer.write_all(&head[..])?;
                         writer.write_all(&body[..])
@@ -1119,18 +1131,46 @@ pub mod cache {
         #[inline]
         pub fn get_head(&self) -> Option<&[u8]> {
             match self {
-                Self::Merged(vec, start) if start > &0 => Some(&vec[..*start]),
+                Self::Merged(vec, start, _) if *start > 0 => Some(&vec[..*start]),
                 Self::Both(head, _) => Some(&head[..]),
                 _ => None,
             }
         }
         #[inline]
+        pub fn into_head(self) -> Vec<u8> {
+            match self {
+                Self::Merged(mut vec, start, _) if start > 0 => {
+                    vec.truncate(start);
+                    vec
+                }
+                Self::Both(head, _) => head,
+                _ => Vec::new(),
+            }
+        }
+        #[inline]
         pub fn get_body(&self) -> &[u8] {
             match self {
-                Self::Merged(vec, start) => &vec[*start..],
+                Self::Merged(vec, start, _) => &vec[*start..],
                 Self::Both(_, body) => &body[..],
                 Self::Body(body) => &body[..],
                 Self::BorrowedBody(borrow) => &borrow[..],
+            }
+        }
+        #[inline]
+        pub fn into_body(self) -> Vec<u8> {
+            match self {
+                Self::Merged(mut vec, start, _) => {
+                    let p = vec.as_mut_ptr();
+                    let len = vec.len();
+                    let cap = vec.capacity();
+
+                    unsafe {
+                        Vec::from_raw_parts(p.offset(start as isize), len - start, cap - start)
+                    }
+                }
+                Self::Both(_, body) => body,
+                Self::Body(body) => body,
+                Self::BorrowedBody(borrowed) => (*borrowed).clone(),
             }
         }
         #[inline]
@@ -1145,7 +1185,7 @@ pub mod cache {
     impl std::fmt::Debug for ByteResponse {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
             match self {
-                Self::Merged(_, starts_at) => {
+                Self::Merged(_, starts_at, _) => {
                     write!(f, "ByteResponse::Merged, starts at {}", starts_at)
                 }
                 Self::Both(_, _) => write!(f, "ByteResponse::Both"),
