@@ -288,6 +288,10 @@ impl Storage {
             },
         }
     }
+    #[inline]
+    pub fn get_fs(&mut self) -> &mut FsCache {
+        &mut self.fs
+    }
     /// Tries to get the lock of response cache.
     ///
     /// Always remember to handle the case if the lock isn't acquired; just don't return None!
@@ -421,7 +425,7 @@ fn process_request<W: Write>(
     let path = match parse::convert_uri(request.uri()) {
         Ok(path) => path,
         Err(()) => {
-            &default_error(403, close, Some(storage)).write_all(socket)?;
+            &default_error(403, close, Some(storage.get_fs())).write_all(socket)?;
             return Ok(());
         }
     };
@@ -429,13 +433,13 @@ fn process_request<W: Write>(
     // Extensions need body and cache setting to be mutable; to replace it.
     // Used to bypass immutable/mutable rule. It is safe because the binding reference isn't affected by changing the cache.
     let cache: *mut Storage = storage;
-    let (mut body, content_type, mut cached) =
+    let (mut byte_response, mut content_type, mut cached) =
         match storage.get_bindings().get_binding(request.uri().path()) {
             // We've got an function, call it and return body and result!
             Some(callback) => {
                 let mut response = Vec::with_capacity(2048);
                 let (content_type, cache) =
-                    callback(&mut response, &request, unsafe { &mut *cache });
+                    callback(&mut response, &request, unsafe { (*cache).get_fs() });
 
                 allowed_method = true;
                 // Check if callback contains headers. Change to response struct in future!
@@ -448,9 +452,8 @@ fn process_request<W: Write>(
             // No function, try read from FS cache.
             None => {
                 // Body
-                let body = match read_file(&path, storage) {
-                    Some(response) => ByteResponse::BorrowedBody(response),
-                    None => default_error(404, close, Some(storage)),
+                let body = match read_file(&path, storage.get_fs()) {
+                    None => default_error(404, close, Some(storage.get_fs())),
                 };
                 // Content mime type
                 (body, ContentType::AutoOrDownload, Cached::Static)
@@ -464,7 +467,8 @@ fn process_request<W: Write>(
 
         {
             // Search through extension map!
-            let (extension_args, content_start) = extensions::extension_args(body.get_body());
+            let (extension_args, content_start) =
+                extensions::extension_args(byte_response.get_body());
             let name = extension_args
                 .get(0)
                 .and_then(|arg| std::str::from_utf8(arg).ok());
@@ -481,7 +485,7 @@ fn process_request<W: Write>(
                         .collect();
                     unsafe {
                         extension.run(RequestData {
-                            response: &mut body,
+                            response: &mut byte_response,
                             content_start,
                             cached: &mut cached,
                             args,
@@ -496,14 +500,14 @@ fn process_request<W: Write>(
                 // Do nothing
                 None if allowed_method => {}
                 _ => {
-                    body = default_error(405, close, Some(storage));
+                    byte_response = default_error(405, close, Some(storage.get_fs()));
                 }
             };
         }
 
         // Remove or optimize
         match extensions::identify(
-            body.get_body(),
+            byte_response.get_body(),
             path.extension().and_then(|path| path.to_str()),
         ) {
             // An extension is identified, handle it!
@@ -544,18 +548,19 @@ fn process_request<W: Write>(
                 }
                 // If method didn't match, return 405 err!
                 _ => {
-                    body = default_error(405, close, Some(storage));
+                    byte_response = default_error(405, close, Some(&mut storage.fs));
                 }
             },
             // Remove the extension definition.
             UnknownExtension(content_start, _) if allowed_method => {
-                body = ByteResponse::without_header(body.body_from(content_start).to_vec());
+                byte_response =
+                    ByteResponse::without_header(byte_response.body_from(content_start).to_vec());
             }
             // Do nothing!
             Raw if allowed_method => {}
             // If method didn't match, return 405 err!
             _ => {
-                body = default_error(405, close, Some(storage));
+                byte_response = default_error(405, close, Some(&mut storage.fs));
             }
         };
     }
@@ -600,7 +605,7 @@ fn process_request<W: Write>(
                 || content_type.starts_with("video")
             {
                 if identity_forbidden {
-                    body = default_error(406, &close, Some(storage));
+                    byte_response = default_error(406, &close, Some(&mut storage.fs));
                     algorithm
                 } else {
                     CompressionAlgorithm::Identity
@@ -666,7 +671,7 @@ fn process_request<W: Write>(
             ByteResponse::Both(response, Arc::new(body))
         }
         // Headers handled! Taking for granted user handled HEAD method.
-        _ => body,
+        _ => byte_response,
     };
 
     // Write to socket!
@@ -721,7 +726,7 @@ fn process_request<W: Write>(
 fn default_error(
     code: u16,
     close: &connection::ConnectionHeader,
-    storage: Option<&mut Storage>,
+    cache: Option<&mut FsCache>,
 ) -> ByteResponse {
     let mut buffer = Vec::with_capacity(512);
     buffer.extend(b"HTTP/1.1 ");
@@ -743,7 +748,7 @@ fn default_error(
     }
     buffer.extend(b"Content-Encoding: identity\r\n");
 
-    let body = match storage
+    let body = match cache
         .and_then(|cache| read_file(&PathBuf::from(format!("{}.html", code)), cache))
     {
         Some(file) => {
@@ -833,26 +838,26 @@ pub fn write_generic_error(buffer: &mut Vec<u8>, code: u16) -> (ContentType, Cac
 ///   write_error(&mut buffer, 500, storage)
 /// });
 /// ```
-pub fn write_error(
-    buffer: &mut Vec<u8>,
-    code: u16,
-    storage: &mut Storage,
-) -> (ContentType, Cached) {
-    default_error(
-        code,
-        &connection::ConnectionHeader::KeepAlive,
-        Some(storage),
-    )
-    .write_all(buffer)
-    .expect("Failed to write to vec!");
+pub fn write_error(buffer: &mut Vec<u8>, code: u16, cache: &mut FsCache) -> (ContentType, Cached) {
+    default_error(code, &connection::ConnectionHeader::KeepAlive, Some(cache))
+        .write_all(buffer)
+        .expect("Failed to write to vec!");
     (ContentType::Html, Cached::Dynamic)
 }
 
-fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<Vec<u8>>> {
-    if let Some(lock) = storage.try_fs() {
-        if let Some(cached) = lock.get(path) {
-            return Some(cached);
+fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
+    match cache.try_lock() {
+        Ok(lock) => {
+            if let Some(cached) = lock.get(path) {
+                return Some(cached);
+            }
         }
+        Err(ref err) => match err {
+            std::sync::TryLockError::Poisoned(..) => {
+                panic!("File System cache is poisoned!");
+            }
+            std::sync::TryLockError::WouldBlock => {}
+        },
     }
 
     match File::open(path) {
@@ -861,12 +866,17 @@ fn read_file(path: &PathBuf, storage: &mut Storage) -> Option<Arc<Vec<u8>>> {
             match file.read_to_end(&mut buffer) {
                 Ok(..) => {
                     let buffer = Arc::new(buffer);
-                    match storage.try_fs() {
-                        Some(mut lock) => match lock.cache(path.clone(), buffer) {
+                    match cache.try_lock() {
+                        Ok(mut lock) => match lock.cache(path.clone(), buffer) {
                             Err(failed) => Some(failed),
                             Ok(()) => Some(lock.get(path).unwrap()),
                         },
-                        None => Some(buffer),
+                        Err(ref err) => match err {
+                            std::sync::TryLockError::Poisoned(..) => {
+                                panic!("File System cache is poisoned!");
+                            }
+                            std::sync::TryLockError::WouldBlock => Some(buffer),
+                        },
                     }
                 }
                 Err(..) => None,
@@ -1547,8 +1557,8 @@ pub mod connection {
                     let mut close = ConnectionHeader::KeepAlive;
                     if request_len == request.len() {
                         eprintln!("Request too large!");
-                        let _ =
-                            default_error(413, &close, Some(storage)).write_all(&mut self.session);
+                        let _ = default_error(413, &close, Some(storage.get_fs()))
+                            .write_all(&mut self.session);
                     } else {
                         match parse::parse_request(&request[..request_len]) {
                             Ok(parsed) => {
@@ -1580,7 +1590,7 @@ pub mod connection {
                                     }
                                     _ => {
                                         // Unsupported HTTP version!
-                                        let _ = default_error(505, &close, Some(storage))
+                                        let _ = default_error(505, &close, Some(storage.get_fs()))
                                             .write_all(&mut self.session);
                                     }
                                 }
@@ -1590,7 +1600,7 @@ pub mod connection {
                   "Failed to parse request, write something as a response? Err: {:?}",
                   err
                 );
-                                let _ = default_error(400, &close, Some(storage))
+                                let _ = default_error(400, &close, Some(storage.get_fs()))
                                     .write_all(&mut self.session);
                             }
                         };
@@ -1689,7 +1699,7 @@ pub mod connection {
 }
 
 pub mod bindings {
-    use super::{Cached, Storage};
+    use super::{Cached, FsCache};
     use http::Request;
     use mime::Mime;
     use std::collections::HashMap;
@@ -1710,7 +1720,7 @@ pub mod bindings {
     }
 
     type Binding =
-        dyn Fn(&mut Vec<u8>, &Request<&[u8]>, &mut Storage) -> (ContentType, Cached) + Send + Sync;
+        dyn Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (ContentType, Cached) + Send + Sync;
 
     /// Function bindings to have fast dynamic pages.
     ///
@@ -1755,7 +1765,7 @@ pub mod bindings {
         #[inline]
         pub fn bind_page<F>(&mut self, path: &str, callback: F)
         where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut Storage) -> (ContentType, Cached)
+            F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (ContentType, Cached)
                 + 'static
                 + Send
                 + Sync,
@@ -1791,7 +1801,7 @@ pub mod bindings {
         #[inline]
         pub fn bind_dir<F>(&mut self, path: &str, callback: F)
         where
-            F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut Storage) -> (ContentType, Cached)
+            F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (ContentType, Cached)
                 + 'static
                 + Send
                 + Sync,
