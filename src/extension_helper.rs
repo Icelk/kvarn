@@ -17,12 +17,12 @@ impl ExtensionMap {
                 ExtensionPointer::Data(..) => self
                     .name
                     .get_mut(name.unwrap())
-                    .and_then(|data| Some(data.assume_data())),
+                    .map(|data| data.assume_data()),
                 ExtensionPointer::ReferenceToName(pointer) => {
                     let pointer = *pointer;
                     self.name
                         .get_mut(pointer)
-                        .and_then(|pointer| Some(pointer.assume_data()))
+                        .map(|pointer| pointer.assume_data())
                 }
                 ExtensionPointer::ReferenceToFE(..) => {
                     unreachable!("No references to file extensions should be made from name map")
@@ -33,18 +33,18 @@ impl ExtensionMap {
                     ExtensionPointer::Data(..) => self
                         .extensions
                         .get_mut(file_extension.unwrap())
-                        .and_then(|data| Some(data.assume_data())),
+                        .map(|data| data.assume_data()),
                     ExtensionPointer::ReferenceToName(pointer) => {
                         let pointer = *pointer;
                         self.name
                             .get_mut(pointer)
-                            .and_then(|pointer| Some(pointer.assume_data()))
+                            .map(|pointer| pointer.assume_data())
                     }
                     ExtensionPointer::ReferenceToFE(pointer) => {
                         let pointer = *pointer;
                         self.extensions
                             .get_mut(pointer)
-                            .and_then(|pointer| Some(pointer.assume_data()))
+                            .map(|pointer| pointer.assume_data())
                     }
                 },
                 None => None,

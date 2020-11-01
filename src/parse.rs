@@ -170,16 +170,9 @@ impl HeaderInfo<'_> {
     pub fn entire_known_url(&self) -> String {
         // Create with appropriate capacity
         let mut string = String::with_capacity(
-            self.url
-                .host()
-                .and_then(|host| Some(host.len()))
-                .unwrap_or(0)
+            self.url.host().map(|host| host.len()).unwrap_or(0)
                 + self.url.path().len()
-                + self
-                    .url
-                    .query()
-                    .and_then(|query| Some(query.len()))
-                    .unwrap_or(0),
+                + self.url.query().map(|query| query.len()).unwrap_or(0),
         );
         if let Some(host) = self.url.host() {
             string.push_str(host);
@@ -252,19 +245,19 @@ pub fn format_headers<T>(request: &Request<T>) -> HeaderInfo {
         url,
         queries: uri
             .query()
-            .and_then(|q| Some(format_query(q)))
+            .map(|q| format_query(q))
             .unwrap_or(HashMap::new()),
         accept: request
             .headers()
             .get("accept")
             .and_then(|accept| accept.to_str().ok())
-            .and_then(|accept| Some(format_list_header(accept)))
+            .map(|accept| format_list_header(accept))
             .unwrap_or(Vec::new()),
         accept_lang: request
             .headers()
             .get("accept-language")
             .and_then(|accept| accept.to_str().ok())
-            .and_then(|accept| Some(format_list_header(accept)))
+            .map(|accept| format_list_header(accept))
             .unwrap_or(Vec::new()),
     }
 }

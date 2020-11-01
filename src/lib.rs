@@ -1372,9 +1372,7 @@ pub mod cache {
                         })
                     }
 
-                    results
-                        .get(0)
-                        .and_then(|result| Some(Arc::clone(&result.1)))
+                    results.get(0).map(|result| Arc::clone(&result.1))
                 }
             }
         }
@@ -1508,12 +1506,7 @@ pub mod cache {
             }
             if self.map.len() >= self.max_items {
                 // Reduce number of items!
-                if let Some(last) = self
-                    .map
-                    .iter()
-                    .next()
-                    .and_then(|value| Some(value.0.clone()))
-                {
+                if let Some(last) = self.map.iter().next().map(|value| value.0.clone()) {
                     self.map.remove(&last);
                 }
             }
@@ -1560,7 +1553,7 @@ pub mod cache {
         where
             K: Borrow<Q>,
         {
-            self.map.get(key).and_then(|value| Some(Arc::clone(value)))
+            self.map.get(key).map(|value| Arc::clone(value))
         }
         #[inline]
         pub fn cached(&self, key: &K) -> bool {
