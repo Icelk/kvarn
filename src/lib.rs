@@ -361,7 +361,7 @@ pub enum ParseCachedErr {
     ContainsSpace,
     FailedToParse,
 }
-#[derive(Debug)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Cached {
     Dynamic,
     Changing,
@@ -383,6 +383,12 @@ impl Cached {
         match self {
             Self::Dynamic | Self::PerQuery => true,
             Self::Static | Self::Changing => false,
+        }
+    }
+    pub fn cached_without_query(&self) -> bool {
+        match self {
+            Self::Dynamic | Self::PerQuery | Self::Changing => false,
+            Self::Static => true,
         }
     }
 }
@@ -567,6 +573,17 @@ fn process_request<W: Write>(
                 byte_response = default_error(405, close, Some(&mut storage.fs));
             }
         };
+    }
+
+    if cached.cached_without_query() {
+        let bytes = request.uri().path().as_bytes().to_vec(); // ToDo: Remove cloning of slice!
+        if let Ok(uri) = http::Uri::from_maybe_shared(bytes) {
+            if let Some(lock) = storage.response_blocking() {
+                if let Some(response) = lock.resolve(&uri, request.headers()) {
+                    return response.write_as_method(socket, request.method());
+                };
+            }
+        }
     }
 
     let content_str = content_type.as_str(path);
