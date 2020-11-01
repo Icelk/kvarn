@@ -32,7 +32,7 @@ impl ExtensionMap {
                 Some(pointer) => match pointer {
                     ExtensionPointer::Data(..) => self
                         .extensions
-                        .get_mut(name.unwrap())
+                        .get_mut(file_extension.unwrap())
                         .and_then(|data| Some(data.assume_data())),
                     ExtensionPointer::ReferenceToName(pointer) => {
                         let pointer = *pointer;
