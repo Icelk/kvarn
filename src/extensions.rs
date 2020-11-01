@@ -4,16 +4,12 @@ use crate::chars::*;
 #[allow(unused_imports)]
 use crate::{read_file, Storage};
 
-#[cfg(feature = "php")]
-pub use php::handle_php as php;
 #[cfg(feature = "templates")]
 pub use templates::handle_template as template;
 
 /// All known extensions
 #[derive(Debug)]
 pub enum KnownExtension {
-    #[cfg(feature = "php")]
-    PHP,
     #[cfg(feature = "templates")]
     Template,
     SetCache,
@@ -24,84 +20,6 @@ pub enum FileType<'a> {
     Raw,
     UnknownExtension(usize, Vec<&'a [u8]>),
     DefinedExtension(KnownExtension, usize, Vec<&'a [u8]>),
-}
-
-#[cfg(feature = "php")]
-pub mod php {
-    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
-    use std::path::PathBuf;
-    use std::{
-        fs::File,
-        io::{self, prelude::*},
-    };
-
-    #[allow(unused_variables)]
-    pub fn handle_php<W: Write>(
-        socket: &mut W,
-        request: &[u8],
-        path: &PathBuf,
-    ) -> Result<(), io::Error> {
-        unimplemented!();
-
-        // Take the thread name and make a file of that instead. Try the line for line mode instead.
-        let mut temp = File::create("temp.php")?;
-        let mut file = File::open(path)?;
-        let mut buffer = [0; 4096];
-        let mut first = true;
-        loop {
-            let read = match file.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(read) => read,
-                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) => return Err(err),
-            };
-            if read == 0 {
-                break;
-            }
-            if first {
-                let read_till = {
-                    let mut out = 0;
-                    for byte in buffer.iter() {
-                        out += 1;
-                        if *byte == 10 {
-                            break;
-                        }
-                    }
-                    out
-                };
-                println!("Discard first {}", read_till);
-                temp.write_all(&mut &buffer[read_till..read])?;
-                first = false;
-            } else {
-                temp.write_all(&mut buffer[..read])?;
-            }
-        }
-
-        let mut php = match TcpStream::connect(SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::LOCALHOST,
-            6633,
-        ))) {
-            Err(err) => {
-                panic!("Failed to get PHP: {:?}", err);
-            }
-            Ok(socket) => socket,
-        };
-
-        todo!("Change path to /temp.php! Or implement interpreter!");
-        php.write_all(request)?;
-        loop {
-            let mut buffer = [0; 4096];
-            let read = match php.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(read) => read,
-                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) => return Err(err),
-            };
-            socket.write_all(&mut buffer[0..read])?;
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(feature = "templates")]
@@ -311,15 +229,11 @@ pub fn identify<'a, 'b>(bytes: &'a [u8], file_extension: Option<&'b str>) -> Fil
 
         if let Some(test) = args.get(0) {
             match test {
-                #[cfg(feature = "php")]
-                &b"php" => DefinedExtension(PHP, content_start, args),
                 #[cfg(feature = "templates")]
                 &b"tmpl" if args.len() > 1 => DefinedExtension(Template, content_start, args),
                 &b"cache" => DefinedExtension(SetCache, content_start, args),
                 // If extension not found in file, check file ending!
                 _ => match file_extension {
-                    #[cfg(feature = "php")]
-                    Some(".php") => DefinedExtension(PHP, content_start, args),
                     // If nothing found, return a new body, with the extension ripped out!
                     _ => UnknownExtension(content_start, args),
                 },

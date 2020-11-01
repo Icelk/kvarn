@@ -28,8 +28,6 @@ default = ["templates", "compression"]
 
 # Enables the template extention
 templates = []
-# Enables PHP interpretation of files
-php = []
 
 # Disables the cache
 no-fs-cache = []

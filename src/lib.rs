@@ -528,24 +528,6 @@ fn process_request<W: Write>(
             // An extension is identified, handle it!
             // NEEDS TO COVER ALL POSSIBILITIES FOR LAST `_ =>` TO MAKE SENSE!
             DefinedExtension(extension, content_start, template_args) => match extension {
-                #[cfg(feature = "php")]
-                // Accept all methods!
-                PHP => {
-                    println!("Handling php!");
-                    todo!("Give a Vec instead!");
-                    // match extensions::php(socket, raw_request, &path) {
-                    //     Ok(()) => {
-                    //         // Don't write headers!
-                    //         // Check cache settings
-                    //         cached = template_args
-                    //             .get(1)
-                    //             .and_then(|arg| std::str::from_utf8(arg).ok())
-                    //             .and_then(|arg| arg.parse().ok())
-                    //             .unwrap_or(Cached::Static);
-                    //     }
-                    //     _ => {}
-                    // };
-                }
                 #[cfg(feature = "templates")]
                 Template if allowed_method => {
                     byte_response = ByteResponse::without_header(extensions::template(
