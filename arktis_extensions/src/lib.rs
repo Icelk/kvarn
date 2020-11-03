@@ -1,30 +1,6 @@
 #[allow(unused_imports)]
 use arktis::*;
 
-#[cfg(feature = "php")]
-pub fn php() -> BoundExtension {
-    BoundExtension {
-        extension_aliases: &[],
-        file_extension_aliases: &["php"],
-        ext: Extension::new(&|| {}, &|_, data| {
-            // Content type will be HTML!
-            // Will be overriden by headers from PHP.
-            *data.content_type = ContentType::Html;
-            // So it won't remove the query before caching!
-            *data.cached = Cached::PerQuery;
-
-            let output = match cgi::fcgi_from_data(&data) {
-                Ok(vec) => vec,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    return;
-                }
-            };
-            *data.response = ByteResponse::with_partial_header(output);
-        }),
-    }
-}
-
 #[cfg(feature = "fastcgi-client")]
 pub mod cgi {
     use super::*;
@@ -133,5 +109,39 @@ pub mod parse {
         let mut file_path = std::env::current_dir()?;
         file_path.push(path);
         Ok(file_path)
+    }
+}
+
+#[cfg(feature = "php")]
+pub fn php() -> BoundExtension {
+    BoundExtension {
+        extension_aliases: &[],
+        file_extension_aliases: &["php"],
+        ext: Extension::new(&|| {}, &|_, data| {
+            // Content type will be HTML!
+            // Will be overriden by headers from PHP.
+            *data.content_type = ContentType::Html;
+            // So it won't remove the query before caching!
+            *data.cached = Cached::PerQuery;
+
+            let output = match cgi::fcgi_from_data(&data) {
+                Ok(vec) => vec,
+                Err(err) => {
+                    eprintln!("{}", err);
+                    return;
+                }
+            };
+            *data.response = ByteResponse::with_partial_header(output);
+        }),
+    }
+}
+
+pub fn download() -> BoundExtension {
+    BoundExtension {
+        extension_aliases: &["download"],
+        file_extension_aliases: &[],
+        ext: Extension::new(&|| {}, &|_, data| {
+            *data.content_type = ContentType::Download;
+        }),
     }
 }
