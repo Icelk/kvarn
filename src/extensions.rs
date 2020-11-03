@@ -214,7 +214,7 @@ pub mod templates {
     }
 }
 
-const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE];
+pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE];
 
 pub fn identify<'a, 'b>(bytes: &'a [u8], file_extension: Option<&'b str>) -> FileType<'a> {
     use FileType::*;

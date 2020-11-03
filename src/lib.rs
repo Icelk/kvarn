@@ -30,6 +30,7 @@ pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
 #[cfg(unix)]
 pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
 pub const SERVER_NAME: &str = "Arktis";
+pub const LINE_ENDING: &[u8] = b"\r\n";
 
 pub mod chars {
     /// Line feed
@@ -373,6 +374,16 @@ impl Cached {
         std::str::from_utf8(bytes).ok().and_then(|s| s.parse().ok())
     }
 
+    pub fn as_bytes(&self) -> &'static [u8] {
+        match self {
+            Cached::Dynamic => b"Cache-Control: no-store\r\n",
+            Cached::Changing => b"Cache-Control: max-age=120\r\n",
+            Cached::Static | Cached::PerQuery => {
+                b"Cache-Control: public, max-age=604800, immutable\r\n"
+            }
+        }
+    }
+
     pub fn do_internal_cache(&self) -> bool {
         match self {
             Self::Dynamic | Self::Changing => false,
@@ -402,6 +413,7 @@ impl std::str::FromStr for Cached {
             match s.to_ascii_lowercase().as_str() {
                 "false" | "no-cache" | "dynamic" => Ok(Self::Dynamic),
                 "changing" | "may-change" => Ok(Self::Changing),
+                "per-query" | "query" => Ok(Self::PerQuery),
                 "true" | "static" | "immutable" => Ok(Self::Static),
                 "" => Err(Self::Err::StringEmpty),
                 _ => Err(Self::Err::UndefinedKeyword),
@@ -648,26 +660,14 @@ fn process_request<W: Write>(
 
             if !present_headers.contains_key(CONNECTION) {
                 head.extend(b"Connection: ");
-                if close.close() {
-                    head.extend(b"Close\r\n");
-                } else {
-                    head.extend(b"Keep-Alive\r\n");
-                }
+                head.extend(close.as_bytes());
+                head.extend(LINE_ENDING);
             }
             if compress && !varies {
                 // Compression
                 head.extend(b"Content-Encoding: ");
-                head.extend(
-                    match compression {
-                        CompressionAlgorithm::Identity => "identity",
-                        #[cfg(feature = "br")]
-                        CompressionAlgorithm::Brotli => "br",
-                        #[cfg(feature = "gzip")]
-                        CompressionAlgorithm::Gzip => "gzip",
-                    }
-                    .as_bytes(),
-                );
-                head.extend(b"\r\n");
+                head.extend(compression.as_bytes());
+                head.extend(LINE_ENDING);
             }
             if !present_headers.contains_key(CONTENT_LENGTH) {
                 // Length
@@ -678,17 +678,11 @@ fn process_request<W: Write>(
             if !present_headers.contains_key(CONTENT_TYPE) {
                 head.extend(b"Content-Type: ");
                 head.extend(content_str.as_bytes());
-                head.extend(b"\r\n");
+                head.extend(LINE_ENDING);
             }
             if !present_headers.contains_key(CACHE_CONTROL) {
                 // Cache header!
-                head.extend(match cached {
-                    Cached::Dynamic => b"Cache-Control: no-store\r\n",
-                    Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
-                    Cached::Static | Cached::PerQuery => {
-                        b"Cache-Control: public, max-age=604800, immutable\r\n"
-                    }
-                });
+                head.extend(cached.as_bytes());
             }
 
             if !varies && !vary.is_empty() {
@@ -700,41 +694,27 @@ fn process_request<W: Write>(
                     head.extend(b", ");
                     head.extend(vary.as_bytes());
                 }
-                head.extend(b"\r\n");
+                head.extend(LINE_ENDING);
             }
 
             // Add server signature
             head.extend(SERVER_HEADER);
             // Close header
-            head.extend(b"\r\n");
+            head.extend(LINE_ENDING);
 
             // Return byte response
             ByteResponse::Both(head, body)
         }
         ByteResponse::Body(_) | ByteResponse::BorrowedBody(_) => {
             let mut response = Vec::with_capacity(4096);
-            response.extend(
-                b"HTTP/1.1 200 OK\r\n\
-        Connection: ",
-            );
-            if close.close() {
-                response.extend(b"Close\r\n");
-            } else {
-                response.extend(b"Keep-Alive\r\n");
-            }
+            response.extend(b"HTTP/1.1 200 OK\r\n");
+            response.extend(b"Connection: ");
+            response.extend(close.as_bytes());
+            response.extend(LINE_ENDING);
             // Compression
             response.extend(b"Content-Encoding: ");
-            response.extend(
-                match compression {
-                    CompressionAlgorithm::Identity => "identity",
-                    #[cfg(feature = "br")]
-                    CompressionAlgorithm::Brotli => "br",
-                    #[cfg(feature = "gzip")]
-                    CompressionAlgorithm::Gzip => "gzip",
-                }
-                .as_bytes(),
-            );
-            response.extend(b"\r\n");
+            response.extend(compression.as_bytes());
+            response.extend(LINE_ENDING);
             let body = Compressors::compress(byte_response.get_body(), &compression);
             // Length
             response.extend(b"Content-Length: ");
@@ -742,31 +722,26 @@ fn process_request<W: Write>(
 
             response.extend(b"Content-Type: ");
             response.extend(content_str.as_bytes());
-            response.extend(b"\r\n");
+            response.extend(LINE_ENDING);
             // Cache header!
-            response.extend(match cached {
-                Cached::Dynamic => b"Cache-Control: no-store\r\n",
-                Cached::Changing => &b"Cache-Control: max-age=120\r\n"[..],
-                Cached::Static | Cached::PerQuery => {
-                    &b"Cache-Control: public, max-age=604800, immutable\r\n"[..]
-                }
-            });
+            response.extend(cached.as_bytes());
 
             if !vary.is_empty() {
                 response.extend(b"Vary: ");
                 let mut iter = vary.iter();
+                // Can unwrap, since it isn't empty!
                 response.extend(iter.next().unwrap().as_bytes());
 
                 for vary in iter {
                     response.extend(b", ");
                     response.extend(vary.as_bytes());
                 }
-                response.extend(b"\r\n");
+                response.extend(LINE_ENDING);
             }
 
             response.extend(SERVER_HEADER);
             // Close header
-            response.extend(b"\r\n");
+            response.extend(LINE_ENDING);
 
             // Return byte response
             ByteResponse::Both(response, body)
@@ -778,7 +753,7 @@ fn process_request<W: Write>(
     // Write to socket!
     response.write_as_method(socket, request.method())?;
 
-    if cached.do_internal_cache() && is_get {
+    if is_get && cached.do_internal_cache() {
         if let Some(mut lock) = storage.response_blocking() {
             let uri = request.into_parts().0.uri;
             let uri = if !cached.query_matters() {
@@ -1103,6 +1078,17 @@ enum CompressionAlgorithm {
     Gzip,
     // Deflate,
     Identity,
+}
+impl CompressionAlgorithm {
+    pub fn as_bytes(&self) -> &'static [u8] {
+        match self {
+            CompressionAlgorithm::Identity => b"identity",
+            #[cfg(feature = "br")]
+            CompressionAlgorithm::Brotli => b"br",
+            #[cfg(feature = "gzip")]
+            CompressionAlgorithm::Gzip => b"gzip",
+        }
+    }
 }
 fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
     let header = header.to_ascii_lowercase();
@@ -1611,6 +1597,12 @@ pub mod connection {
         }
         pub fn close(&self) -> bool {
             *self == Self::Close
+        }
+        pub fn as_bytes(&self) -> &'static [u8] {
+            match self {
+                ConnectionHeader::Close => b"close",
+                ConnectionHeader::KeepAlive => b"keep-alive",
+            }
         }
     }
     #[derive(Clone, Copy)]
