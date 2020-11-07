@@ -134,7 +134,7 @@ impl Config {
     pub fn add_extension(&mut self, ext: BoundExtension) {
         self.extensions.add_extension(ext);
     }
-    pub fn external_extension<F: Fn() -> BoundExtension>(&mut self, external_extension: F) {
+    pub fn mount_extension<F: Fn() -> BoundExtension>(&mut self, external_extension: F) {
         self.extensions.add_extension(external_extension());
     }
 
@@ -1779,7 +1779,7 @@ pub mod connection {
         token: Token,
         layer: InformationLayer,
         closing: bool,
-        scheme: ConnectionScheme,
+        _scheme: ConnectionScheme,
     }
     impl Connection {
         pub fn new_tls(
@@ -1793,7 +1793,7 @@ pub mod connection {
                 token,
                 layer: InformationLayer::TLS(session),
                 closing: false,
-                scheme,
+                _scheme: scheme,
             }
         }
         pub fn new_raw(socket: TcpStream, token: Token, scheme: ConnectionScheme) -> Self {
@@ -1802,7 +1802,7 @@ pub mod connection {
                 token,
                 layer: InformationLayer::Buffered(BufferedLayer::new()),
                 closing: false,
-                scheme,
+                _scheme: scheme,
             }
         }
 
