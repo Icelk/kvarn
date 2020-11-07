@@ -693,7 +693,8 @@ fn process_request<W: Write>(
             if !present_headers.contains_key(CONTENT_LENGTH) {
                 // Length
                 head.extend(b"Content-Length: ");
-                head.extend(format!("{}\r\n", body.len()).as_bytes());
+                head.extend(body.len().to_string().as_bytes());
+                head.extend(LINE_ENDING);
             }
 
             if !present_headers.contains_key(CONTENT_TYPE) {
@@ -739,7 +740,8 @@ fn process_request<W: Write>(
             let body = Compressors::compress(byte_response.get_body(), &compression);
             // Length
             response.extend(b"Content-Length: ");
-            response.extend(format!("{}\r\n", body.len()).as_bytes());
+            response.extend(body.len().to_string().as_bytes());
+            response.extend(LINE_ENDING);
 
             response.extend(b"Content-Type: ");
             response.extend(content_str.as_bytes());
@@ -874,7 +876,7 @@ fn default_error(
                     let write_code = |body: &mut Vec<_>| match status {
                         #[inline]
                         Some(status) => body.extend(status.as_str().as_bytes()),
-                        None => body.extend(format!("{}", code).as_bytes()),
+                        None => body.extend(code.to_string().as_bytes()),
                     };
                     let reason = status.and_then(|status| status.canonical_reason());
 

@@ -28,7 +28,7 @@ pub mod cgi {
         };
         let mut client = Client::new(stream, false);
 
-        let len = format!("{}", body.len());
+        let len = body.len().to_string();
 
         let params = Params::with_predefine()
             .set_request_method(method)
