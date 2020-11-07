@@ -41,6 +41,8 @@ pub mod chars {
     pub const SPACE: u8 = 32;
     /// `!`
     pub const BANG: u8 = 33;
+    /// `&`
+    pub const AMPERSAND: u8 = 38;
     /// `>`
     pub const PIPE: u8 = 62;
     /// `[`
@@ -529,40 +531,30 @@ fn process_request<W: Write>(
             // Search through extension map!
             let (extension_args, content_start) =
                 extensions::extension_args(byte_response.get_body());
-            let name = extension_args
-                .get(0)
-                .and_then(|arg| std::str::from_utf8(arg).ok());
-            let file_extension = path.extension().and_then(|path| path.to_str());
-            match extensions.get(name, file_extension) {
-                Some(extension) => {
-                    let args = extension_args
-                        .iter()
-                        .filter_map(|bytes| {
-                            std::str::from_utf8(bytes)
-                                .ok()
-                                .map(|valid_str| valid_str.to_owned())
-                        })
-                        .collect();
-                    unsafe {
+            for segment in extension_args {
+                let name = segment.get(0).map(|string| string.as_str());
+                let file_extension = path.extension().and_then(|path| path.to_str());
+                match extensions.get(name, file_extension) {
+                    Some(extension) => unsafe {
                         extension.run(RequestData {
                             response: &mut byte_response,
                             content_start,
                             cached: &mut cached,
-                            args,
+                            args: segment,
                             storage,
                             request: &request,
                             raw_request,
                             path: &path,
                             content_type: &mut content_type,
                         })
+                    },
+                    // Do nothing
+                    None if allowed_method => {}
+                    _ => {
+                        byte_response = default_error(405, close, Some(storage.get_fs()));
                     }
-                }
-                // Do nothing
-                None if allowed_method => {}
-                _ => {
-                    byte_response = default_error(405, close, Some(storage.get_fs()));
-                }
-            };
+                };
+            }
         }
 
         // Needs to be removed soon.
