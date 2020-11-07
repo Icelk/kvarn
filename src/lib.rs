@@ -1224,7 +1224,7 @@ pub mod cache {
         }
 
         #[inline]
-        pub fn write_all<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        pub fn write_all(&self, writer: &mut dyn Write) -> io::Result<()> {
             match self {
                 Self::Merged(vec, _, _) => writer.write_all(&vec[..]),
                 Self::Both(head, body) => {
@@ -1235,9 +1235,9 @@ pub mod cache {
                 Self::BorrowedBody(borrow) => writer.write_all(&borrow[..]),
             }
         }
-        pub fn write_as_method<W: Write>(
+        pub fn write_as_method(
             &self,
-            writer: &mut W,
+            writer: &mut dyn Write,
             method: &http::Method,
         ) -> io::Result<()> {
             match method {
@@ -1584,7 +1584,6 @@ pub mod cache {
                 size_limit,
             }
         }
-        #[inline]
         pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> Option<Arc<V>>
         where
             K: Borrow<Q>,
@@ -1672,7 +1671,7 @@ pub mod connection {
             }
         }
         #[inline]
-        pub fn push<R: Read>(&mut self, mut reader: R) -> io::Result<()> {
+        pub fn push(&mut self, reader: &mut dyn Read) -> io::Result<()> {
             reader.read_to_end(&mut self.buffer).and(Ok(()))
         }
         #[inline]
@@ -1710,9 +1709,9 @@ pub mod connection {
 
     impl InformationLayer {
         #[inline]
-        fn read<R: Read>(
+        fn read(
             bytes: &mut [u8],
-            mut reader: R,
+            reader: &mut dyn Read,
             close_on_0: bool,
         ) -> Result<usize, PullError> {
             let mut read = 0;
@@ -1737,9 +1736,9 @@ pub mod connection {
             Ok(read)
         }
         #[inline]
-        pub fn pull<R: Read>(
+        pub fn pull(
             &mut self,
-            mut reader: R,
+            reader: &mut dyn Read,
             mut buffer: &mut [u8],
         ) -> Result<usize, PullError> {
             match self {
@@ -1749,7 +1748,7 @@ pub mod connection {
                 }
                 InformationLayer::TLS(session) => {
                     // Loop on read_tls
-                    match session.read_tls(&mut reader) {
+                    match session.read_tls(reader) {
                         Err(err) => {
                             if let io::ErrorKind::WouldBlock = err.kind() {}
                             return Err(err.into());
@@ -1768,21 +1767,21 @@ pub mod connection {
             }
         }
         #[inline]
-        pub fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
+        pub fn write(&mut self, mut bytes: &[u8]) -> io::Result<()> {
             match self {
-                InformationLayer::Buffered(buffered) => buffered.push(bytes),
+                InformationLayer::Buffered(buffered) => buffered.push(&mut bytes),
                 InformationLayer::TLS(session) => session.write_all(bytes),
             }
         }
         #[inline]
-        pub fn push<W: Write>(&mut self, mut writer: W) -> Result<(), io::Error> {
+        pub fn push(&mut self, writer: &mut dyn Write) -> Result<(), io::Error> {
             match self {
                 InformationLayer::Buffered(buffered) => {
                     writer.write_all(buffered.pull())?;
                     buffered.clear();
                     Ok(())
                 }
-                InformationLayer::TLS(session) => session.write_tls(&mut writer).and(Ok(())),
+                InformationLayer::TLS(session) => session.write_tls(writer).and(Ok(())),
             }
         }
         #[inline]
