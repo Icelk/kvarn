@@ -3,6 +3,7 @@ use mime::Mime;
 use mime_guess;
 use mio::net::{TcpListener, TcpStream};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::net;
 use std::path::PathBuf;
 use std::sync::{self, Arc, Mutex};
@@ -20,10 +21,9 @@ pub use bindings::{ContentType, FunctionBindings};
 pub use cache::types::*;
 pub use cache::ByteResponse;
 pub use chars::*;
-pub use connection::Connection;
+pub use connection::{Connection, ConnectionScheme};
 pub use extension_helper::*;
 
-const HTTPS_SERVER: mio::Token = mio::Token(0);
 const RESERVED_TOKENS: usize = 1024;
 #[cfg(windows)]
 pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
@@ -52,20 +52,16 @@ pub mod chars {
 }
 
 pub struct Config {
-    socket: TcpListener,
+    sockets: HashMap<mio::Token, (u16, ConnectionScheme)>,
     server_config: Arc<rustls::ServerConfig>,
     con_id: usize,
     storage: Storage,
     extensions: Extensions,
 }
 impl Config {
-    pub fn on_port(port: u16) -> Self {
+    pub fn on_ports(ports: &[(u16, ConnectionScheme)]) -> Self {
         Config {
-            socket: TcpListener::bind(net::SocketAddr::new(
-                net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)),
-                port,
-            ))
-            .expect("Failed to bind to port"),
+            sockets: Self::make_portmap(ports),
             server_config: Arc::new(
                 tls_server_config::get_server_config("cert.pem", "privkey.pem")
                     .expect("Failed to read certificate"),
@@ -75,26 +71,21 @@ impl Config {
             extensions: Extensions::new(),
         }
     }
-    pub fn with_config_on_port(config: rustls::ServerConfig, port: u16) -> Self {
+    pub fn with_config_on_port(
+        config: rustls::ServerConfig,
+        ports: &[(u16, ConnectionScheme)],
+    ) -> Self {
         Config {
-            socket: TcpListener::bind(net::SocketAddr::new(
-                net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)),
-                port,
-            ))
-            .expect("Failed to bind to port"),
+            sockets: Self::make_portmap(ports),
             server_config: Arc::new(config),
             con_id: RESERVED_TOKENS,
             storage: Storage::new(),
             extensions: Extensions::new(),
         }
     }
-    pub fn with_bindings(bindings: FunctionBindings, port: u16) -> Self {
+    pub fn with_bindings(bindings: FunctionBindings, ports: &[(u16, ConnectionScheme)]) -> Self {
         Config {
-            socket: TcpListener::bind(net::SocketAddr::new(
-                net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)),
-                port,
-            ))
-            .expect("Failed to bind to port"),
+            sockets: Self::make_portmap(ports),
             server_config: Arc::new(
                 tls_server_config::get_server_config("cert.pem", "privkey.pem")
                     .expect("Failed to read certificate"),
@@ -104,18 +95,28 @@ impl Config {
             extensions: Extensions::new(),
         }
     }
-    pub fn new(config: rustls::ServerConfig, bindings: FunctionBindings, port: u16) -> Self {
+    pub fn new(
+        config: rustls::ServerConfig,
+        bindings: FunctionBindings,
+        ports: &[(u16, ConnectionScheme)],
+    ) -> Self {
         Config {
-            socket: TcpListener::bind(net::SocketAddr::new(
-                net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)),
-                port,
-            ))
-            .expect("Failed to bind to port"),
+            sockets: Self::make_portmap(ports),
             server_config: Arc::new(config),
             con_id: RESERVED_TOKENS,
             storage: Storage::from_bindings(Arc::new(bindings)),
             extensions: Extensions::new(),
         }
+    }
+
+    fn make_portmap(
+        ports: &[(u16, ConnectionScheme)],
+    ) -> HashMap<mio::Token, (u16, ConnectionScheme)> {
+        let mut map = HashMap::new();
+        for (position, port) in ports.iter().enumerate() {
+            map.insert(mio::Token(position), port.clone());
+        }
+        map
     }
 
     /// Clones the Storage of this config, returning an owned reference-counted struct containing all caches and bindings
@@ -182,9 +183,23 @@ impl Config {
     pub fn run(mut self) {
         let mut poll = mio::Poll::new().expect("Failed to create a poll instance");
         let mut events = mio::Events::with_capacity(1024);
-        poll.registry()
-            .register(&mut self.socket, HTTPS_SERVER, mio::Interest::READABLE)
-            .expect("Failed to register HTTPS server");
+        let mut listeners = self
+            .sockets
+            .iter()
+            .map(|(token, (port, scheme))| {
+                let mut socket = TcpListener::bind(net::SocketAddr::new(
+                    net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)),
+                    *port,
+                ))
+                .expect("Failed to bind port");
+
+                poll.registry()
+                    .register(&mut socket, *token, mio::Interest::READABLE)
+                    .expect("Failed to register HTTPS server");
+
+                (*token, (socket, scheme.clone()))
+            })
+            .collect::<HashMap<mio::Token, (TcpListener, ConnectionScheme)>>();
 
         let mut thread_handler = threading::HandlerPool::new(
             self.clone_inner(),
@@ -197,9 +212,10 @@ impl Config {
             poll.poll(&mut events, None).expect("Failed to poll!");
 
             for event in events.iter() {
-                match event.token() {
-                    HTTPS_SERVER => {
-                        self.accept(&mut thread_handler)
+                match listeners.get_mut(&event.token()) {
+                    Some((listener, scheme)) => {
+                        let id = self.next_id();
+                        Self::accept(&mut thread_handler, scheme.clone(), listener, id)
                             .expect("Failed to accept message!");
                     }
                     _ => {
@@ -219,12 +235,17 @@ impl Config {
         self.con_id
     }
 
-    pub fn accept(&mut self, handler: &mut threading::HandlerPool) -> Result<(), std::io::Error> {
+    pub fn accept(
+        handler: &mut threading::HandlerPool,
+        scheme: ConnectionScheme,
+        socket: &mut TcpListener,
+        id: usize,
+    ) -> Result<(), std::io::Error> {
         loop {
-            match self.socket.accept() {
+            match socket.accept() {
                 Ok((socket, addr)) => {
-                    let token = mio::Token(self.next_id());
-                    handler.accept(socket, addr, token);
+                    let token = mio::Token(id);
+                    handler.accept(socket, addr, token, scheme.clone());
                 }
                 Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {
@@ -279,7 +300,7 @@ impl Storage {
 
     /// Tries to get the lock of file cache.
     ///
-    /// Always remember to handle the case if the lock isn't acquired; just don't return None!
+    /// Always remember to handle the case if the lock isn't acquired; just don't return `None`!
     #[inline]
     pub fn try_fs(&mut self) -> Option<sync::MutexGuard<'_, FsCacheInner>> {
         #[cfg(feature = "no-fs-cache")]
@@ -1130,7 +1151,6 @@ fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
 pub mod cache {
     use super::*;
     use http::Uri;
-    use std::collections::HashMap;
     use std::{borrow::Borrow, hash::Hash};
 
     /// A response in byte form to query head or only body. Can be used when a if a buffer contains HTTP headers is unknown.
@@ -1632,19 +1652,203 @@ pub mod connection {
             self.token
         }
     }
+    pub struct BufferedLayer {
+        buffer: Vec<u8>,
+    }
+    impl BufferedLayer {
+        pub fn new() -> Self {
+            Self {
+                buffer: Vec::with_capacity(4096),
+            }
+        }
+        #[inline]
+        pub fn push<R: Read>(&mut self, mut reader: R) -> io::Result<()> {
+            reader.read_to_end(&mut self.buffer).and(Ok(()))
+        }
+        #[inline]
+        pub fn pull(&self) -> &[u8] {
+            &self.buffer[..]
+        }
+        #[inline]
+        pub fn clear(&mut self) {
+            self.buffer.clear();
+        }
+        #[inline]
+        pub fn is_empty(&self) -> bool {
+            self.buffer.is_empty()
+        }
+    }
+    pub enum InformationLayer {
+        Buffered(BufferedLayer),
+        TLS(ServerSession),
+    }
+    pub enum PullError {
+        IO(io::Error),
+        CloseRequest,
+        TLSError(rustls::TLSError),
+    }
+    impl Into<PullError> for io::Error {
+        fn into(self) -> PullError {
+            PullError::IO(self)
+        }
+    }
+    impl Into<PullError> for rustls::TLSError {
+        fn into(self) -> PullError {
+            PullError::TLSError(self)
+        }
+    }
+
+    impl InformationLayer {
+        #[inline]
+        fn read<R: Read>(
+            bytes: &mut [u8],
+            mut reader: R,
+            close_on_0: bool,
+        ) -> Result<usize, PullError> {
+            let mut read = 0;
+            loop {
+                match reader.read(&mut bytes[read..]) {
+                    Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(err) => {
+                        eprintln!("Failed to read! {:?}", err);
+                        return Err(err.into());
+                    }
+                    Ok(0) => {
+                        if close_on_0 {
+                            return Err(PullError::CloseRequest);
+                        } else {
+                            break;
+                        }
+                    }
+                    Ok(rd) => read += rd,
+                }
+            }
+            Ok(read)
+        }
+        #[inline]
+        pub fn pull<R: Read>(
+            &mut self,
+            mut reader: R,
+            mut buffer: &mut [u8],
+        ) -> Result<usize, PullError> {
+            match self {
+                InformationLayer::Buffered(_) => {
+                    // buffered.push(reader).or(Err(()))
+                    InformationLayer::read(&mut buffer, reader, true)
+                }
+                InformationLayer::TLS(session) => {
+                    // Loop on read_tls
+                    match session.read_tls(&mut reader) {
+                        Err(err) => {
+                            if let io::ErrorKind::WouldBlock = err.kind() {}
+                            return Err(err.into());
+                        }
+                        Ok(0) => {
+                            return Err(PullError::CloseRequest);
+                        }
+                        _ => {
+                            if let Err(err) = session.process_new_packets() {
+                                return Err(err.into());
+                            };
+                        }
+                    };
+                    InformationLayer::read(&mut buffer, session, false)
+                }
+            }
+        }
+        #[inline]
+        pub fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
+            match self {
+                InformationLayer::Buffered(buffered) => buffered.push(bytes),
+                InformationLayer::TLS(session) => session.write_all(bytes),
+            }
+        }
+        #[inline]
+        pub fn push<W: Write>(&mut self, mut writer: W) -> Result<(), io::Error> {
+            match self {
+                InformationLayer::Buffered(buffered) => {
+                    writer.write_all(buffered.pull())?;
+                    buffered.clear();
+                    Ok(())
+                }
+                InformationLayer::TLS(session) => session.write_tls(&mut writer).and(Ok(())),
+            }
+        }
+        #[inline]
+        pub fn notify_close(&mut self) {
+            match self {
+                InformationLayer::Buffered(_) => {}
+                InformationLayer::TLS(session) => session.send_close_notify(),
+            }
+        }
+
+        #[inline]
+        pub fn wants_read(&self) -> bool {
+            match self {
+                InformationLayer::Buffered(_) => true,
+                InformationLayer::TLS(session) => session.wants_read(),
+            }
+        }
+        #[inline]
+        pub fn wants_write(&self) -> bool {
+            match self {
+                InformationLayer::Buffered(buffered) => !buffered.is_empty(),
+                InformationLayer::TLS(session) => session.wants_write(),
+            }
+        }
+    }
+    impl Write for InformationLayer {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Self::write(self, bytes)?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            match self {
+                InformationLayer::Buffered(_) => Ok(()),
+                InformationLayer::TLS(session) => session.flush(),
+            }
+        }
+    }
+    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Copy)]
+    pub enum ConnectionScheme {
+        HTTP1,
+        HTTP1S,
+        WS,
+        WSS,
+        HTTP2,
+        HTTP3,
+    }
+
     pub struct Connection {
         socket: TcpStream,
         token: Token,
-        session: ServerSession,
+        layer: InformationLayer,
         closing: bool,
+        scheme: ConnectionScheme,
     }
     impl Connection {
-        pub fn new(socket: TcpStream, token: Token, session: ServerSession) -> Self {
+        pub fn new_tls(
+            socket: TcpStream,
+            token: Token,
+            session: ServerSession,
+            scheme: ConnectionScheme,
+        ) -> Self {
             Self {
                 socket,
                 token,
-                session,
+                layer: InformationLayer::TLS(session),
                 closing: false,
+                scheme,
+            }
+        }
+        pub fn new_raw(socket: TcpStream, token: Token, scheme: ConnectionScheme) -> Self {
+            Self {
+                socket,
+                token,
+                layer: InformationLayer::Buffered(BufferedLayer::new()),
+                closing: false,
+                scheme,
             }
         }
 
@@ -1656,31 +1860,27 @@ pub mod connection {
             extensions: &mut ExtensionMap,
         ) {
             // If socket is readable, read from socket to session
-            if event.readable() && self.decrypt().is_ok() {
+            if event.readable() {
                 // Read request from session to buffer
                 let (request, request_len) = {
                     let mut buffer = [0; 16_384_usize];
-                    let len = {
-                        let mut read = 0;
-                        loop {
-                            match self.session.read(&mut buffer) {
-                                Err(ref err) if err.kind() == io::ErrorKind::ConnectionAborted => {
-                                    self.close();
-                                    break;
-                                }
-                                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => {
-                                    continue
-                                }
-                                Err(err) => {
-                                    eprintln!("Failed to read from session! {:?}", err);
-                                    self.close();
-                                    break;
-                                }
-                                Ok(0) => break,
-                                Ok(rd) => read += rd,
+                    let len = match self.layer.pull(&mut self.socket, &mut buffer) {
+                        Ok(len) => len,
+                        Err(err) => match err {
+                            PullError::CloseRequest => {
+                                self.close();
+                                0
                             }
-                        }
-                        read
+                            PullError::IO(err) => {
+                                eprintln!("Failed with IO: {}", err);
+                                0
+                            }
+                            PullError::TLSError(err) => {
+                                eprintln!("Failed to process packets {}", err);
+                                self.close();
+                                0
+                            }
+                        },
                     };
                     (buffer, len)
                 };
@@ -1691,7 +1891,7 @@ pub mod connection {
                     if request_len == request.len() {
                         eprintln!("Request too large!");
                         let _ = default_error(413, &close, Some(storage.get_fs()))
-                            .write_all(&mut self.session);
+                            .write_all(&mut self.layer);
                     } else {
                         match parse::parse_request(&request[..request_len]) {
                             Ok(parsed) => {
@@ -1709,7 +1909,7 @@ pub mod connection {
                                 match parsed.version() {
                                     Version::HTTP_11 => {
                                         if let Err(err) = process_request(
-                                            &mut self.session,
+                                            &mut self.layer,
                                             parsed,
                                             &request[..],
                                             &close,
@@ -1719,43 +1919,40 @@ pub mod connection {
                                             eprintln!("Failed to write to session! {:?}", err);
                                         };
                                         // Flush all contents, important for compression
-                                        let _ = self.session.flush();
+                                        let _ = self.layer.flush();
                                     }
                                     _ => {
                                         // Unsupported HTTP version!
                                         let _ = default_error(505, &close, Some(storage.get_fs()))
-                                            .write_all(&mut self.session);
+                                            .write_all(&mut self.layer);
                                     }
                                 }
                             }
                             Err(err) => {
-                                eprintln!(
-                  "Failed to parse request, write something as a response? Err: {:?}",
-                  err
-                );
+                                eprintln!("Failed to parse request, write something as a response? Err: {:?}",err,);
                                 let _ = default_error(400, &close, Some(storage.get_fs()))
-                                    .write_all(&mut self.session);
+                                    .write_all(&mut self.layer);
                             }
                         };
                     }
 
                     if close.close() {
-                        self.session.send_close_notify();
+                        self.layer.notify_close();
                     };
                 }
             }
             if event.writable() {
-                match self.session.write_tls(&mut self.socket) {
+                match self.layer.push(&mut self.socket) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                        // If the whole message couldn't be transmitted in one round
+                        // If the whole message couldn't be transmitted in one round, do nothing to allow reregistration
                     }
                     Err(err) => {
-                        eprintln!("Error writing to socket! {:?}", err,);
+                        eprintln!("Error writing to socket! {:?}", err);
                         self.close();
                     }
                     // Do nothing!
-                    Ok(..) => {}
-                }
+                    Ok(_) => {}
+                };
             }
 
             if self.closing {
@@ -1765,32 +1962,6 @@ pub mod connection {
             } else {
                 self.reregister(registry);
             };
-        }
-        fn decrypt(&mut self) -> Result<(), ()> {
-            // Loop on read_tls
-            match self.session.read_tls(&mut self.socket) {
-                Err(err) => {
-                    if let io::ErrorKind::WouldBlock = err.kind() {
-                        eprintln!("Would block!");
-                        return Err(());
-                    } else {
-                        self.close();
-                        return Err(());
-                    }
-                }
-                Ok(0) => {
-                    self.close();
-                    return Err(());
-                }
-                _ => {
-                    if let Err(err) = self.session.process_new_packets() {
-                        eprintln!("Failed to process packets {}", err);
-                        self.close();
-                        return Err(());
-                    };
-                }
-            };
-            Ok(())
         }
 
         #[inline]
@@ -1815,8 +1986,8 @@ pub mod connection {
         }
 
         fn event_set(&self) -> Interest {
-            let rd = self.session.wants_read();
-            let wr = self.session.wants_write();
+            let rd = self.layer.wants_read();
+            let wr = self.layer.wants_write();
 
             if rd && wr {
                 Interest::READABLE | Interest::WRITABLE
@@ -1839,9 +2010,8 @@ pub mod connection {
 }
 
 pub mod bindings {
-    use super::{mime_guess, Cached, Cow, FsCache, Mime};
+    use super::{mime_guess, Cached, Cow, FsCache, HashMap, Mime};
     use http::Request;
-    use std::collections::HashMap;
 
     pub enum ContentType {
         FromMime(Mime),

@@ -1,4 +1,4 @@
-use crate::{Connection, ExtensionMap, Extensions, Storage};
+use crate::{Connection, ConnectionScheme, ExtensionMap, Extensions, Storage};
 use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
 use rustls::{ServerConfig, ServerSession};
@@ -181,13 +181,31 @@ impl HandlerPool {
         }
     }
 
-    pub fn accept(&mut self, socket: TcpStream, addr: SocketAddr, token: Token) {
+    pub fn accept(
+        &mut self,
+        socket: TcpStream,
+        addr: SocketAddr,
+        token: Token,
+        scheme: ConnectionScheme,
+    ) {
         let config = Arc::clone(&self.server_config);
-        let session = ServerSession::new(&config);
         let thread_id = self.pool.execute(move |_, _, connections, registry, _| {
             println!("Accepting new connection from: {:?}", addr);
 
-            let mut connection = Connection::new(socket, token, session);
+            let mut connection = match scheme {
+                ConnectionScheme::HTTP1 | ConnectionScheme::WS => {
+                    Connection::new_raw(socket, token, scheme)
+                }
+                ConnectionScheme::HTTP1S | ConnectionScheme::WSS => {
+                    // We have a session if scheme is HTTP1S
+                    Connection::new_tls(socket, token, ServerSession::new(&config), scheme)
+                }
+                _ => {
+                    eprintln!("Unimplemented!");
+                    drop(socket);
+                    return;
+                }
+            };
 
             connection.register(registry);
             connections.insert(token, connection);
