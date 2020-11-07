@@ -1148,6 +1148,22 @@ fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
     }
 }
 
+/// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
+pub fn into_last<T>(mut vec: Vec<T>, split_at: usize) -> Vec<T> {
+    let p = vec.as_mut_ptr();
+    let len = vec.len();
+    let cap = vec.capacity();
+
+    assert!(split_at < len);
+
+    unsafe {
+        use std::ptr;
+        // Drop slice
+        ptr::drop_in_place(ptr::slice_from_raw_parts_mut(p, split_at));
+        Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at)
+    }
+}
+
 pub mod cache {
     use super::*;
     use http::Uri;
@@ -1273,15 +1289,7 @@ pub mod cache {
         #[inline]
         pub fn into_body(self) -> Vec<u8> {
             match self {
-                Self::Merged(mut vec, start, _) => {
-                    let p = vec.as_mut_ptr();
-                    let len = vec.len();
-                    let cap = vec.capacity();
-
-                    unsafe {
-                        Vec::from_raw_parts(p.offset(start as isize), len - start, cap - start)
-                    }
-                }
+                Self::Merged(vec, start, _) => into_last(vec, start),
                 Self::Both(_, body) => body,
                 Self::Body(body) => body,
                 Self::BorrowedBody(borrowed) => (*borrowed).clone(),
