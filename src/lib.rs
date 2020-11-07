@@ -12,8 +12,7 @@ use std::{
     io::{self, prelude::*},
 };
 
-pub mod extension_helper;
-mod extensions;
+pub mod extensions;
 pub mod parse;
 mod threading;
 
@@ -22,7 +21,7 @@ pub use cache::types::*;
 pub use cache::ByteResponse;
 pub use chars::*;
 pub use connection::{Connection, ConnectionScheme};
-pub use extension_helper::*;
+pub use extensions::*;
 
 const RESERVED_TOKENS: usize = 1024;
 #[cfg(windows)]
@@ -526,8 +525,7 @@ fn process_request<W: Write>(
     {
         {
             // Search through extension map!
-            let (extension_args, content_start) =
-                extensions::extension_args(byte_response.get_body());
+            let (extension_args, content_start) = extension_args(byte_response.get_body());
             for segment in extension_args {
                 let name = segment.get(0).map(|string| string.as_str());
                 let file_extension = path.extension().and_then(|path| path.to_str());
