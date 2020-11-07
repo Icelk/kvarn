@@ -524,9 +524,6 @@ fn process_request<W: Write>(
 
     // Apply extensions
     {
-        pub use extensions::FileType::*;
-        pub use extensions::KnownExtension::*;
-
         {
             // Search through extension map!
             let (extension_args, content_start) =
@@ -556,48 +553,6 @@ fn process_request<W: Write>(
                 };
             }
         }
-
-        // Needs to be removed soon.
-        // Remove or optimize
-        match extensions::identify(
-            byte_response.get_body(),
-            path.extension().and_then(|path| path.to_str()),
-        ) {
-            // An extension is identified, handle it!
-            // NEEDS TO COVER ALL POSSIBILITIES FOR LAST `_ =>` TO MAKE SENSE!
-            DefinedExtension(extension, content_start, template_args) => match extension {
-                #[cfg(feature = "templates")]
-                Template if allowed_method => {
-                    byte_response = ByteResponse::without_header(extensions::template(
-                        &template_args[..],
-                        byte_response.body_from(content_start),
-                        storage,
-                    ));
-                }
-                SetCache if allowed_method => {
-                    if let Some(cache) =
-                        template_args.get(1).and_then(|arg| Cached::from_bytes(arg))
-                    {
-                        cached = cache;
-                    }
-                }
-                // If method didn't match, return 405 err!
-                _ => {
-                    byte_response = default_error(405, close, Some(&mut storage.fs));
-                }
-            },
-            // Remove the extension definition.
-            UnknownExtension(content_start, _) if allowed_method => {
-                byte_response =
-                    ByteResponse::without_header(byte_response.body_from(content_start).to_vec());
-            }
-            // Do nothing!
-            Raw if allowed_method => {}
-            // If method didn't match, return 405 err!
-            _ => {
-                byte_response = default_error(405, close, Some(&mut storage.fs));
-            }
-        };
     }
 
     if cached.cached_without_query() {
@@ -946,7 +901,7 @@ pub fn write_error(buffer: &mut Vec<u8>, code: u16, cache: &mut FsCache) -> (Con
     (ContentType::Html, Cached::Dynamic)
 }
 
-fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
+pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
     match cache.try_lock() {
         Ok(lock) => {
             if let Some(cached) = lock.get(path) {
