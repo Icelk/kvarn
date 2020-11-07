@@ -124,11 +124,6 @@ impl Extensions {
             extension.ext.init();
         }
     }
-    // pub fn build(self) -> Extensions<W> {
-    //     Extensions {
-    //         vec: Arc::new(self.vec),
-    //     }
-    // }
     pub fn get_maps(self) -> ExtensionMap {
         let mut name_map = HashMap::new();
         let mut extension_map = HashMap::new();
@@ -220,7 +215,7 @@ pub trait Ext {
     /// ```no_run
     /// use arktis::extension_helper::{Extension, Ext};
     ///
-    /// let mut ext: Box<Ext<std::net::TcpStream>> = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
+    /// let mut ext = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
     /// ext.init();
     /// # let request_data = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
     /// unsafe { ext.run(request_data) };
@@ -229,7 +224,7 @@ pub trait Ext {
     /// ```no_run
     /// use arktis::extension_helper::{Extension, Ext};
     ///
-    /// let mut ext: Box<Ext<std::net::TcpStream>> = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
+    /// let mut ext = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
     /// # let request_data = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
     /// unsafe { ext.run(request_data) };
     /// ```

@@ -143,11 +143,11 @@ impl Config {
     ///
     /// # Examples
     /// ```no_run
-    /// use arktis::Config;
+    /// use arktis::*;
     /// use std::io::{stdin, BufRead};
     /// use std::thread;
     ///
-    /// let server = Config::on_port(443);
+    /// let server = Config::on_ports(&[(443, ConnectionScheme::HTTP1S)]);
     /// let mut storage = server.clone_storage();
     ///
     /// thread::spawn(move || server.run());
