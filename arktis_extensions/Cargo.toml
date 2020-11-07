@@ -11,5 +11,6 @@ arktis = { path = "../" }
 fastcgi-client = { version = "0.5.0", default-features = false, optional = true }
 
 [features]
-default = ["php"]
+default = ["php", "templates"]
 php = ["fastcgi-client"]
+templates = []
