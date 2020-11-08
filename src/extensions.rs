@@ -53,6 +53,7 @@ fn parse_args(bytes: &[u8]) -> (Vec<Vec<String>>, usize) {
             if *byte == PIPE {
                 // New segment!
                 segments.push(args.split_off(0));
+                // Can be directly after, since a space won't get added, len needs to be more than 0!
                 last_break = current_index + 1;
             }
             last_was_ampersand = false;
@@ -73,7 +74,9 @@ fn parse_args(bytes: &[u8]) -> (Vec<Vec<String>>, usize) {
 }
 pub fn extension_args(bytes: &[u8]) -> (Vec<Vec<String>>, usize) {
     if bytes.starts_with(EXTENSION_PREFIX) {
-        parse_args(&bytes[EXTENSION_PREFIX.len()..])
+        let (vec, content_start) = parse_args(&bytes[EXTENSION_PREFIX.len()..]);
+        // Add EXTENSION_PREFIX.len(), since the fn started counting as though byte 0 was EXTENSION_PREFIX.len() actual byte.
+        (vec, content_start + EXTENSION_PREFIX.len())
     } else {
         (Vec::new(), 0)
     }
