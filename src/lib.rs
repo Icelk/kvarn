@@ -487,6 +487,9 @@ fn process_request<W: Write>(
         {
             // Search through extension map!
             let (extension_args, content_start) = extension_args(byte_response.get_body());
+            // Extension line is removed from body before it is handed to extensions, saving them the confusion.
+            let vec = byte_response.get_first_vec();
+            *vec = vec[content_start..].to_vec();
             for segment in extension_args {
                 let name = segment.get(0).map(|string| string.as_str());
                 let file_extension = path.extension().and_then(|path| path.to_str());
@@ -1214,7 +1217,6 @@ pub mod cache {
                 Self::Body(body) => body,
                 Self::BorrowedBody(borrowed) => {
                     *self = Self::Body((**borrowed).clone());
-                    println!("Self is {:?}", self);
                     match self {
                         Self::Body(vec) => vec,
                         _ => unreachable!(),
