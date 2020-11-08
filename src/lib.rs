@@ -1827,6 +1827,7 @@ pub mod connection {
                             }
                             PullError::IO(err) => {
                                 eprintln!("Failed with IO: {}", err);
+                                self.close();
                                 0
                             }
                             PullError::TLSError(err) => {
