@@ -1262,7 +1262,7 @@ pub mod cache {
         pub fn vary(headers: Vec<&'static str>) -> Self {
             Self::Vary(VaryMaster {
                 vary_headers: headers,
-                data: Mutex::new(Vec::new()),
+                data: Mutex::new(Vec::with_capacity(8)),
             })
         }
         pub fn vary_with_data(
@@ -1280,7 +1280,7 @@ pub mod cache {
             match self {
                 Self::Data(data) => Some(Arc::clone(data)),
                 Self::Vary(vary) => {
-                    let mut results = Vec::new();
+                    let mut results = Vec::with_capacity(8);
                     let mut iter = vary.vary_headers.iter().enumerate();
 
                     let all_data = vary.data.lock().unwrap();

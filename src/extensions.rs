@@ -171,7 +171,9 @@ pub struct Extensions {
 }
 impl Extensions {
     pub fn new() -> Self {
-        Self { vec: Vec::new() }
+        Self {
+            vec: Vec::with_capacity(16),
+        }
     }
     pub fn extend<
         T,

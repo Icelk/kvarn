@@ -1,4 +1,3 @@
-#[allow(unused_imports)]
 use arktis::*;
 
 #[cfg(feature = "templates")]
@@ -174,7 +173,7 @@ pub mod templates {
             Placeholder,
         };
 
-        let mut response = Vec::new();
+        let mut response = Vec::with_capacity(file.len() * 2);
 
         let mut stage = Stage::Text;
         let mut placeholder_start = 0;
