@@ -1057,6 +1057,9 @@ fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
 }
 
 /// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
+///
+/// # Panics
+/// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
 pub fn into_last<T>(mut vec: Vec<T>, split_at: usize) -> Vec<T> {
     let p = vec.as_mut_ptr();
     let len = vec.len();
@@ -1201,6 +1204,22 @@ pub mod cache {
                 Self::Both(_, body) => body,
                 Self::Body(body) => body,
                 Self::BorrowedBody(borrowed) => (*borrowed).clone(),
+            }
+        }
+        #[inline]
+        pub fn get_first_vec(&mut self) -> &mut Vec<u8> {
+            match self {
+                Self::Merged(vec, _, _) => vec,
+                Self::Both(head, _) => head,
+                Self::Body(body) => body,
+                Self::BorrowedBody(borrowed) => {
+                    *self = Self::Body((**borrowed).clone());
+                    println!("Self is {:?}", self);
+                    match self {
+                        Self::Body(vec) => vec,
+                        _ => unreachable!(),
+                    }
+                }
             }
         }
         #[inline]

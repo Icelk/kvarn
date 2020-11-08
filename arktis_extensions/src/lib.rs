@@ -351,8 +351,9 @@ pub fn download() -> BoundExtension {
     BoundExtension {
         extension_aliases: &["download"],
         file_extension_aliases: &[],
-        ext: Extension::new(&|| {}, &|_, data| {
+        ext: Extension::new(&|| {}, &|_, mut data| {
             *data.content_type = ContentType::Download;
+            remove_extension_line(&mut data);
         }),
     }
 }
@@ -361,10 +362,17 @@ pub fn cache() -> BoundExtension {
     BoundExtension {
         extension_aliases: &["cache"],
         file_extension_aliases: &[],
-        ext: Extension::new(&|| {}, &|_, data| {
+        ext: Extension::new(&|| {}, &|_, mut data| {
             if let Some(cache) = data.args.get(1).and_then(|arg| arg.parse().ok()) {
                 *data.cached = cache;
             }
+            remove_extension_line(&mut data);
         }),
     }
+}
+
+#[inline]
+pub fn remove_extension_line(data: &mut RequestData) {
+    let vec = data.response.get_first_vec();
+    *vec = vec[data.content_start..].to_vec();
 }
