@@ -1288,8 +1288,22 @@ pub mod cache {
                         let (position, name) = iter.next().unwrap();
 
                         let required_data = {
-                            headers.get(*name);
-                            Vec::<&str>::new()
+                            let mut data = headers
+                                .get(*name)
+                                .and_then(|header| header.to_str().ok())
+                                .map(|header| parse::format_list_header(header))
+                                .unwrap_or(Vec::new());
+
+                            // Push additional option to data if they should be available!
+                            if name.to_ascii_lowercase() == "accept-encoding" {
+                                if data.iter().find(|data| data.value == "identity").is_none() {
+                                    data.push(parse::ValueQualitySet {
+                                        value: "identity",
+                                        quality: 0.5,
+                                    });
+                                }
+                            }
+                            data
                         };
 
                         // Match with all cached data!
@@ -1301,8 +1315,8 @@ pub mod cache {
                             } else {
                                 'match_supported: for supported_header in required_data.iter() {
                                     // If any header contains star or matches required!
-                                    if data.0.get(position).unwrap() == supported_header
-                                        || supported_header.starts_with('*')
+                                    if data.0.get(position).unwrap() == supported_header.value
+                                        || supported_header.value.starts_with('*')
                                     {
                                         results.push(data);
                                         break 'match_supported;
