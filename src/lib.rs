@@ -20,8 +20,9 @@ pub use bindings::{ContentType, FunctionBindings};
 pub use cache::types::*;
 pub use cache::ByteResponse;
 pub use chars::*;
-pub use connection::{Connection, ConnectionScheme};
+pub use connection::*;
 pub use extensions::*;
+pub use tls_server_config::*;
 
 const RESERVED_TOKENS: usize = 1024;
 #[cfg(windows)]
@@ -53,57 +54,23 @@ pub mod chars {
 }
 
 pub struct Config {
-    sockets: HashMap<mio::Token, (u16, ConnectionScheme)>,
-    server_config: Arc<rustls::ServerConfig>,
+    sockets: HashMap<mio::Token, (u16, ConnectionSecurity)>,
     con_id: usize,
     storage: Storage,
     extensions: Extensions,
 }
 impl Config {
-    pub fn on_ports(ports: &[(u16, ConnectionScheme)]) -> Self {
+    pub fn on_ports(ports: &[(u16, ConnectionSecurity)]) -> Self {
         Config {
             sockets: Self::make_portmap(ports),
-            server_config: Arc::new(
-                tls_server_config::get_server_config("cert.pem", "privkey.pem")
-                    .expect("Failed to read certificate"),
-            ),
             con_id: RESERVED_TOKENS,
             storage: Storage::new(),
             extensions: Extensions::new(),
         }
     }
-    pub fn with_config_on_port(
-        config: rustls::ServerConfig,
-        ports: &[(u16, ConnectionScheme)],
-    ) -> Self {
+    pub fn new(bindings: FunctionBindings, ports: &[(u16, ConnectionSecurity)]) -> Self {
         Config {
             sockets: Self::make_portmap(ports),
-            server_config: Arc::new(config),
-            con_id: RESERVED_TOKENS,
-            storage: Storage::new(),
-            extensions: Extensions::new(),
-        }
-    }
-    pub fn with_bindings(bindings: FunctionBindings, ports: &[(u16, ConnectionScheme)]) -> Self {
-        Config {
-            sockets: Self::make_portmap(ports),
-            server_config: Arc::new(
-                tls_server_config::get_server_config("cert.pem", "privkey.pem")
-                    .expect("Failed to read certificate"),
-            ),
-            con_id: RESERVED_TOKENS,
-            storage: Storage::from_bindings(Arc::new(bindings)),
-            extensions: Extensions::new(),
-        }
-    }
-    pub fn new(
-        config: rustls::ServerConfig,
-        bindings: FunctionBindings,
-        ports: &[(u16, ConnectionScheme)],
-    ) -> Self {
-        Config {
-            sockets: Self::make_portmap(ports),
-            server_config: Arc::new(config),
             con_id: RESERVED_TOKENS,
             storage: Storage::from_bindings(Arc::new(bindings)),
             extensions: Extensions::new(),
@@ -111,8 +78,8 @@ impl Config {
     }
 
     fn make_portmap(
-        ports: &[(u16, ConnectionScheme)],
-    ) -> HashMap<mio::Token, (u16, ConnectionScheme)> {
+        ports: &[(u16, ConnectionSecurity)],
+    ) -> HashMap<mio::Token, (u16, ConnectionSecurity)> {
         let mut map = HashMap::new();
         for (position, port) in ports.iter().enumerate() {
             map.insert(mio::Token(position), port.clone());
@@ -124,11 +91,6 @@ impl Config {
     #[inline]
     pub fn clone_storage(&self) -> Storage {
         Storage::clone(&self.storage)
-    }
-    /// Clones this configs inner config, returning a reference counted rustls ServerConfig
-    #[inline]
-    pub fn clone_inner(&self) -> Arc<rustls::ServerConfig> {
-        Arc::clone(&self.server_config)
     }
 
     pub fn add_extension(&mut self, ext: BoundExtension) {
@@ -184,10 +146,10 @@ impl Config {
     pub fn run(mut self) {
         let mut poll = mio::Poll::new().expect("Failed to create a poll instance");
         let mut events = mio::Events::with_capacity(1024);
-        let mut listeners = self
+        let mut listeners: HashMap<_, _> = self
             .sockets
             .iter()
-            .map(|(token, (port, scheme))| {
+            .map(|(token, (port, connection))| {
                 let mut socket = TcpListener::bind(net::SocketAddr::new(
                     net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)),
                     *port,
@@ -198,12 +160,11 @@ impl Config {
                     .register(&mut socket, *token, mio::Interest::READABLE)
                     .expect("Failed to register HTTPS server");
 
-                (*token, (socket, scheme.clone()))
+                (*token, (socket, ConnectionSecurity::clone(&connection)))
             })
-            .collect::<HashMap<mio::Token, (TcpListener, ConnectionScheme)>>();
+            .collect();
 
         let mut thread_handler = threading::HandlerPool::new(
-            self.clone_inner(),
             self.clone_storage(),
             Extensions::clone(&self.extensions),
             poll.registry(),
@@ -238,7 +199,7 @@ impl Config {
 
     pub fn accept(
         handler: &mut threading::HandlerPool,
-        scheme: ConnectionScheme,
+        connection: ConnectionSecurity,
         socket: &mut TcpListener,
         id: usize,
     ) -> Result<(), std::io::Error> {
@@ -246,7 +207,7 @@ impl Config {
             match socket.accept() {
                 Ok((socket, addr)) => {
                     let token = mio::Token(id);
-                    handler.accept(socket, addr, token, scheme.clone());
+                    handler.accept(socket, addr, token, connection.clone());
                 }
                 Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {
@@ -1554,7 +1515,7 @@ pub mod connection {
     use super::*;
     use http::Version;
     use mio::{event::Event, Interest, Registry, Token};
-    use rustls::{ServerSession, Session};
+    use rustls::{ServerConfig, ServerSession, Session};
 
     #[derive(PartialEq, Debug)]
     pub enum ConnectionHeader {
@@ -1773,6 +1734,51 @@ pub mod connection {
         HTTP2,
         HTTP3,
     }
+    pub enum EncryptionType<'a> {
+        NonSecure,
+        Secure(&'a Arc<ServerConfig>),
+        HTTP2,
+        HTTP3,
+    }
+    pub struct ConnectionSecurity {
+        scheme: ConnectionScheme,
+        tls_config: Option<Arc<ServerConfig>>,
+    }
+    impl ConnectionSecurity {
+        pub fn http1s(config: Arc<ServerConfig>) -> Self {
+            Self {
+                scheme: ConnectionScheme::HTTP1S,
+                tls_config: Some(config),
+            }
+        }
+        pub fn http1() -> Self {
+            Self {
+                scheme: ConnectionScheme::HTTP1,
+                tls_config: None,
+            }
+        }
+
+        pub fn get_config(&self) -> EncryptionType {
+            match self.tls_config.as_ref() {
+                Some(config) => EncryptionType::Secure(config),
+                None => EncryptionType::NonSecure,
+            }
+        }
+        pub fn get_scheme(&self) -> &ConnectionScheme {
+            &self.scheme
+        }
+    }
+    impl Clone for ConnectionSecurity {
+        fn clone(&self) -> Self {
+            Self {
+                scheme: self.scheme,
+                tls_config: self
+                    .tls_config
+                    .as_ref()
+                    .map(|to_clone| Arc::clone(&to_clone)),
+            }
+        }
+    }
 
     pub struct Connection {
         socket: TcpStream,
@@ -1782,27 +1788,44 @@ pub mod connection {
         _scheme: ConnectionScheme,
     }
     impl Connection {
-        pub fn new_tls(
+        fn _new(
             socket: TcpStream,
             token: Token,
-            session: ServerSession,
+            layer: InformationLayer,
             scheme: ConnectionScheme,
         ) -> Self {
             Self {
                 socket,
                 token,
-                layer: InformationLayer::TLS(session),
+                layer,
                 closing: false,
                 _scheme: scheme,
             }
         }
-        pub fn new_raw(socket: TcpStream, token: Token, scheme: ConnectionScheme) -> Self {
-            Self {
-                socket,
-                token,
-                layer: InformationLayer::Buffered(BufferedLayer::new()),
-                closing: false,
-                _scheme: scheme,
+        pub fn new(
+            socket: TcpStream,
+            token: Token,
+            connection: ConnectionSecurity,
+        ) -> Option<Self> {
+            match connection.get_config() {
+                EncryptionType::NonSecure => Some(Self::_new(
+                    socket,
+                    token,
+                    InformationLayer::Buffered(BufferedLayer::new()),
+                    *connection.get_scheme(),
+                )),
+                EncryptionType::Secure(config) => Some(Self::_new(
+                    socket,
+                    token,
+                    InformationLayer::TLS(ServerSession::new(config)),
+                    *connection.get_scheme(),
+                )),
+                _ => {
+                    // Shut down socket if not supported!
+                    let _ = socket.shutdown(net::Shutdown::Both);
+                    drop(socket);
+                    return None;
+                }
             }
         }
 
@@ -2119,6 +2142,7 @@ pub mod bindings {
 
 pub mod tls_server_config {
     use rustls::{internal::pemfile, NoClientAuth, ServerConfig};
+    use std::sync::Arc;
     use std::{
         fs::File,
         io::{self, BufReader},
@@ -2169,6 +2193,14 @@ pub mod tls_server_config {
         } else {
             Ok(server_config)
         }
+    }
+    pub fn optional_server_config<P: AsRef<Path>>(
+        cert_path: P,
+        private_key_path: P,
+    ) -> Option<Arc<ServerConfig>> {
+        get_server_config(cert_path, private_key_path)
+            .ok()
+            .map(|config| Arc::new(config))
     }
 }
 

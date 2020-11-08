@@ -1,7 +1,6 @@
-use crate::{Connection, ConnectionScheme, ExtensionMap, Extensions, Storage};
+use crate::*;
 use mio::{net::TcpStream, Registry, Token};
 use num_cpus;
-use rustls::{ServerConfig, ServerSession};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{mpsc, Arc, Mutex};
@@ -158,15 +157,9 @@ impl ThreadPool {
 pub struct HandlerPool {
     pool: ThreadPool,
     connections: Arc<Mutex<HashMap<usize, usize>>>,
-    server_config: Arc<ServerConfig>,
 }
 impl HandlerPool {
-    pub fn new(
-        config: Arc<ServerConfig>,
-        storage: Storage,
-        extensions: Extensions,
-        registry: &Registry,
-    ) -> Self {
+    pub fn new(storage: Storage, extensions: Extensions, registry: &Registry) -> Self {
         let global_connections = Arc::new(Mutex::new(HashMap::new()));
         Self {
             pool: ThreadPool::new(
@@ -177,7 +170,6 @@ impl HandlerPool {
                 extensions,
             ),
             connections: global_connections,
-            server_config: config,
         }
     }
 
@@ -186,23 +178,15 @@ impl HandlerPool {
         socket: TcpStream,
         addr: SocketAddr,
         token: Token,
-        scheme: ConnectionScheme,
+        connection: ConnectionSecurity,
     ) {
-        let config = Arc::clone(&self.server_config);
         let thread_id = self.pool.execute(move |_, _, connections, registry, _| {
             println!("Accepting new connection from: {:?}", addr);
 
-            let mut connection = match scheme {
-                ConnectionScheme::HTTP1 | ConnectionScheme::WS => {
-                    Connection::new_raw(socket, token, scheme)
-                }
-                ConnectionScheme::HTTP1S | ConnectionScheme::WSS => {
-                    // We have a session if scheme is HTTP1S
-                    Connection::new_tls(socket, token, ServerSession::new(&config), scheme)
-                }
-                _ => {
-                    eprintln!("Unimplemented!");
-                    drop(socket);
+            let mut connection = match Connection::new(socket, token, connection) {
+                Some(connection) => connection,
+                None => {
+                    eprintln!("Unimplemented, shutting down socket!");
                     return;
                 }
             };
