@@ -54,7 +54,7 @@ pub mod cgi {
             Err(err) => Err(FCGIError::FailedToDoRequest(err)),
         }
     }
-    pub fn fcgi_from_data(data: &RequestData) -> Result<Vec<u8>, Cow<'static, str>> {
+    pub fn fcgi_from_data(data: &RequestData, port: u16) -> Result<Vec<u8>, Cow<'static, str>> {
         let file_name = match parse::format_file_name(data.path) {
             Some(name) => name,
             None => {
@@ -74,11 +74,9 @@ pub mod cgi {
             }
         };
 
-        const PORT: u16 = 6633;
-
         // Fetch fastcgi server response.
         match connect_to_fcgi(
-            6633,
+            port,
             data.request.method().as_str(),
             file_name,
             file_path,
@@ -89,7 +87,7 @@ pub mod cgi {
             Err(err) => match err {
                 FCGIError::FailedToConnect(err) => Err(Cow::Owned(format!(
                     "Failed to connect to FastCGI server on port {}. IO Err: {}",
-                    PORT, err
+                    port, err
                 ))),
                 FCGIError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
                     "Failed to request from FastCGI server! Err: {}",
@@ -126,7 +124,7 @@ pub fn php() -> BoundExtension {
             // So it won't remove the query before caching!
             *data.cached = Cached::PerQuery;
 
-            let output = match cgi::fcgi_from_data(&data) {
+            let output = match cgi::fcgi_from_data(&data, 6633) {
                 Ok(vec) => vec,
                 Err(err) => {
                     eprintln!("{}", err);
