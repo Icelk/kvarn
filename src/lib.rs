@@ -427,7 +427,6 @@ fn process_request<W: Write>(
         &http::Method::GET | &http::Method::HEAD => true,
         _ => false,
     };
-    let mut allowed_method = is_get;
 
     // println!("Got request: {:?}", &request);
     if is_get {
@@ -441,6 +440,7 @@ fn process_request<W: Write>(
             }
         }
     }
+    let mut allowed_method = is_get;
 
     // Get from function or cache, to enable processing (extensions) from functions!
     let path = match parse::convert_uri(request.uri()) {
@@ -588,7 +588,9 @@ fn process_request<W: Write>(
     };
 
     let response = match byte_response {
-        ByteResponse::Merged(_, _, partial_header) if partial_header => {
+        ByteResponse::Merged(_, _, partial_header) | ByteResponse::Both(_, _, partial_header)
+            if partial_header =>
+        {
             let partial_head = byte_response.get_head().unwrap();
             let mut head = Vec::with_capacity(2048);
             if !partial_head.starts_with(b"HTTP") {
@@ -658,7 +660,7 @@ fn process_request<W: Write>(
             head.extend(LINE_ENDING);
 
             // Return byte response
-            ByteResponse::Both(head, body)
+            ByteResponse::Both(head, body, false)
         }
         ByteResponse::Body(_) | ByteResponse::BorrowedBody(_) => {
             let mut response = Vec::with_capacity(4096);
@@ -700,7 +702,7 @@ fn process_request<W: Write>(
             response.extend(LINE_ENDING);
 
             // Return byte response
-            ByteResponse::Both(response, body)
+            ByteResponse::Both(response, body, false)
         }
         // Headers handled! Taking for granted user handled HEAD method.
         _ => byte_response,
@@ -839,7 +841,7 @@ fn default_error(
         }
     };
 
-    ByteResponse::Both(buffer, body)
+    ByteResponse::Both(buffer, body, false)
 }
 
 /// Writes a generic error to `buffer`.
@@ -1101,6 +1103,25 @@ pub fn into_last<T>(mut vec: Vec<T>, split_at: usize) -> Vec<T> {
         Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at)
     }
 }
+/// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
+///
+/// # Panics
+/// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
+pub fn into_two<T>(mut vec: Vec<T>, split_at: usize) -> (Vec<T>, Vec<T>) {
+    let p = vec.as_mut_ptr();
+    let len = vec.len();
+    let cap = vec.capacity();
+
+    assert!(split_at < len);
+
+    unsafe {
+        // use std::ptr;
+        let first_vec = Vec::from_raw_parts(p, split_at, split_at);
+        let last_vec =
+            Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at);
+        (first_vec, last_vec)
+    }
+}
 
 pub mod cache {
     use super::*;
@@ -1112,7 +1133,7 @@ pub mod cache {
     /// Variants `Body` and `BorrowedBody` doesn't contain a head, a head in `Merged` is optional.
     pub enum ByteResponse {
         Merged(Vec<u8>, usize, bool),
-        Both(Vec<u8>, Vec<u8>),
+        Both(Vec<u8>, Vec<u8>, bool),
         Body(Vec<u8>),
         BorrowedBody(Arc<Vec<u8>>),
     }
@@ -1153,7 +1174,7 @@ pub mod cache {
         pub fn len(&self) -> usize {
             match self {
                 Self::Merged(vec, _, _) => vec.len(),
-                Self::Both(head, body) => head.len() + body.len(),
+                Self::Both(head, body, _) => head.len() + body.len(),
                 Self::Body(body) => body.len(),
                 Self::BorrowedBody(borrow) => borrow.len(),
             }
@@ -1163,7 +1184,7 @@ pub mod cache {
         pub fn write_all(&self, writer: &mut dyn Write) -> io::Result<()> {
             match self {
                 Self::Merged(vec, _, _) => writer.write_all(&vec[..]),
-                Self::Both(head, body) => {
+                Self::Both(head, body, _) => {
                     writer.write_all(&head[..])?;
                     writer.write_all(&body[..])
                 }
@@ -1186,7 +1207,7 @@ pub mod cache {
                 }
                 _ => match self {
                     Self::Merged(vec, _, _) => writer.write_all(&vec[..]),
-                    Self::Both(head, body) => {
+                    Self::Both(head, body, _) => {
                         writer.write_all(&head[..])?;
                         writer.write_all(&body[..])
                     }
@@ -1200,7 +1221,7 @@ pub mod cache {
         pub fn get_head(&self) -> Option<&[u8]> {
             match self {
                 Self::Merged(vec, start, _) if *start > 0 => Some(&vec[..*start]),
-                Self::Both(head, _) => Some(&head[..]),
+                Self::Both(head, _, _) => Some(&head[..]),
                 _ => None,
             }
         }
@@ -1211,7 +1232,7 @@ pub mod cache {
                     vec.truncate(start);
                     vec
                 }
-                Self::Both(head, _) => head,
+                Self::Both(head, _, _) => head,
                 _ => Vec::new(),
             }
         }
@@ -1219,7 +1240,7 @@ pub mod cache {
         pub fn get_body(&self) -> &[u8] {
             match self {
                 Self::Merged(vec, start, _) => &vec[*start..],
-                Self::Both(_, body) => &body[..],
+                Self::Both(_, body, _) => &body[..],
                 Self::Body(body) => &body[..],
                 Self::BorrowedBody(borrow) => &borrow[..],
             }
@@ -1228,7 +1249,7 @@ pub mod cache {
         pub fn into_body(self) -> Vec<u8> {
             match self {
                 Self::Merged(vec, start, _) => into_last(vec, start),
-                Self::Both(_, body) => body,
+                Self::Both(_, body, _) => body,
                 Self::Body(body) => body,
                 Self::BorrowedBody(borrowed) => (*borrowed).clone(),
             }
@@ -1237,7 +1258,7 @@ pub mod cache {
         pub fn get_first_vec(&mut self) -> &mut Vec<u8> {
             match self {
                 Self::Merged(vec, _, _) => vec,
-                Self::Both(head, _) => head,
+                Self::Both(head, _, _) => head,
                 Self::Body(body) => body,
                 Self::BorrowedBody(borrowed) => {
                     *self = Self::Body((**borrowed).clone());
@@ -1263,7 +1284,7 @@ pub mod cache {
                 Self::Merged(_, starts_at, _) => {
                     write!(f, "ByteResponse::Merged, starts at {}", starts_at)
                 }
-                Self::Both(_, _) => write!(f, "ByteResponse::Both"),
+                Self::Both(_, _, _) => write!(f, "ByteResponse::Both"),
                 Self::Body(_) => write!(f, "ByteResponse::Body"),
                 Self::BorrowedBody(_) => write!(f, "ByteResponse::BorrowedBody"),
             }
@@ -1685,7 +1706,6 @@ pub mod connection {
                     Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
                     Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
                     Err(err) => {
-                        eprintln!("Failed to read! {:?}", err);
                         return Err(err.into());
                     }
                     Ok(0) => {

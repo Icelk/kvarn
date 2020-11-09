@@ -15,7 +15,7 @@
 	],
 	"settings": {
 		"auto-start-terminal.commands": [
-			"cd .\\production_server\\ && cargo run"
+			"cd ./production_server/"
 		]
 	},
 }
