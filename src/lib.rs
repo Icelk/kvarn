@@ -490,29 +490,53 @@ fn process_request<W: Write>(
             // Extension line is removed from body before it is handed to extensions, saving them the confusion.
             let vec = byte_response.get_first_vec();
             *vec = vec[content_start..].to_vec();
+
             for segment in extension_args {
-                let name = segment.get(0).map(|string| string.as_str());
-                let file_extension = path.extension().and_then(|path| path.to_str());
-                match extensions.get(name, file_extension) {
+                if let Some(extension_name) = segment.get(0).map(|string| string.as_str()) {
+                    match extensions.get_name(extension_name) {
+                        Some(extension) => unsafe {
+                            extension.run(RequestData {
+                                response: &mut byte_response,
+                                content_start,
+                                cached: &mut cached,
+                                args: segment,
+                                storage,
+                                request: &request,
+                                raw_request,
+                                path: &path,
+                                content_type: &mut content_type,
+                            });
+                        },
+                        // Do nothing
+                        None if allowed_method => {}
+                        _ => {
+                            byte_response = default_error(405, close, Some(storage.get_fs()));
+                        }
+                    }
+                }
+            }
+
+            if let Some(file_extension) = path.extension().and_then(|path| path.to_str()) {
+                match extensions.get_file_extension(file_extension) {
                     Some(extension) => unsafe {
                         extension.run(RequestData {
                             response: &mut byte_response,
                             content_start,
                             cached: &mut cached,
-                            args: segment,
+                            args: Vec::new(),
                             storage,
                             request: &request,
                             raw_request,
                             path: &path,
                             content_type: &mut content_type,
-                        })
+                        });
                     },
                     // Do nothing
                     None if allowed_method => {}
                     _ => {
                         byte_response = default_error(405, close, Some(storage.get_fs()));
                     }
-                };
+                }
             }
         }
     }

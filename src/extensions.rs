@@ -4,6 +4,14 @@ use std::collections::HashMap;
 pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE];
 pub const EXTENSION_AND: &[u8] = &[AMPERSAND, PIPE];
 
+pub fn second_line(bytes: &[u8]) -> Option<usize> {
+    for (position, byte) in bytes.iter().enumerate() {
+        if *byte == LF {
+            return Some(position + 1);
+        }
+    }
+    None
+}
 fn parse_args(bytes: &[u8]) -> (Vec<Vec<String>>, usize) {
     let mut segments = Vec::with_capacity(bytes.windows(2).fold(1, |acc, value| {
         if value == EXTENSION_AND {
@@ -88,17 +96,12 @@ pub struct ExtensionMap {
     extensions: HashMap<&'static str, ExtensionPointer>,
 }
 impl ExtensionMap {
-    pub fn get<'a, 'b>(
-        &'a mut self,
-        name: Option<&'b str>,
-        file_extension: Option<&'b str>,
-    ) -> Option<&'a mut Box<dyn Ext + Send>> {
-        match name.and_then(|name| self.name.get(name)) {
+    pub fn get_name<'a, 'b>(&'a mut self, name: &'b str) -> Option<&'a mut Box<dyn Ext + Send>> {
+        match self.name.get(name) {
             Some(pointer) => match pointer {
-                ExtensionPointer::Data(..) => self
-                    .name
-                    .get_mut(name.unwrap())
-                    .map(|data| data.assume_data()),
+                ExtensionPointer::Data(..) => {
+                    self.name.get_mut(name).map(|data| data.assume_data())
+                }
                 ExtensionPointer::ReferenceToName(pointer) => {
                     let pointer = *pointer;
                     self.name
@@ -109,27 +112,33 @@ impl ExtensionMap {
                     unreachable!("No references to file extensions should be made from name map")
                 }
             },
-            None => match file_extension.and_then(|fe| self.extensions.get(fe)) {
-                Some(pointer) => match pointer {
-                    ExtensionPointer::Data(..) => self
-                        .extensions
-                        .get_mut(file_extension.unwrap())
-                        .map(|data| data.assume_data()),
-                    ExtensionPointer::ReferenceToName(pointer) => {
-                        let pointer = *pointer;
-                        self.name
-                            .get_mut(pointer)
-                            .map(|pointer| pointer.assume_data())
-                    }
-                    ExtensionPointer::ReferenceToFE(pointer) => {
-                        let pointer = *pointer;
-                        self.extensions
-                            .get_mut(pointer)
-                            .map(|pointer| pointer.assume_data())
-                    }
-                },
-                None => None,
+            None => None,
+        }
+    }
+    pub fn get_file_extension<'a, 'b>(
+        &'a mut self,
+        file_extension: &'b str,
+    ) -> Option<&'a mut Box<dyn Ext + Send>> {
+        match self.extensions.get(file_extension) {
+            Some(pointer) => match pointer {
+                ExtensionPointer::Data(..) => self
+                    .extensions
+                    .get_mut(file_extension)
+                    .map(|data| data.assume_data()),
+                ExtensionPointer::ReferenceToName(pointer) => {
+                    let pointer = *pointer;
+                    self.name
+                        .get_mut(pointer)
+                        .map(|pointer| pointer.assume_data())
+                }
+                ExtensionPointer::ReferenceToFE(pointer) => {
+                    let pointer = *pointer;
+                    self.extensions
+                        .get_mut(pointer)
+                        .map(|pointer| pointer.assume_data())
+                }
             },
+            None => None,
         }
     }
 }
