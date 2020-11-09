@@ -183,7 +183,7 @@ impl HandlerPool {
         let thread_id = self.pool.execute(move |_, _, connections, registry, _| {
             println!("Accepting new connection from: {:?}", addr);
 
-            let mut connection = match Connection::new(socket, token, connection) {
+            let mut connection = match Connection::new(socket, addr, token, connection) {
                 Some(connection) => connection,
                 None => {
                     eprintln!("Unimplemented, shutting down socket!");

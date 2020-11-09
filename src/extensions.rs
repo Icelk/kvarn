@@ -287,6 +287,7 @@ impl Clone for BoundExtension {
 }
 
 pub struct RequestData<'a> {
+    pub adress: &'a net::SocketAddr,
     pub response: &'a mut ByteResponse,
     pub content_start: usize,
     pub cached: &'a mut Cached,

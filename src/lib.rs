@@ -417,6 +417,7 @@ impl std::str::FromStr for Cached {
 /// Checks extension in body of `ByteResponse`.
 fn process_request<W: Write>(
     socket: &mut W,
+    adress: &net::SocketAddr,
     request: http::Request<&[u8]>,
     raw_request: &[u8],
     close: &connection::ConnectionHeader,
@@ -496,6 +497,7 @@ fn process_request<W: Write>(
                     match extensions.get_name(extension_name) {
                         Some(extension) => unsafe {
                             extension.run(RequestData {
+                                adress,
                                 response: &mut byte_response,
                                 content_start,
                                 cached: &mut cached,
@@ -520,6 +522,7 @@ fn process_request<W: Write>(
                 match extensions.get_file_extension(file_extension) {
                     Some(extension) => unsafe {
                         extension.run(RequestData {
+                            adress,
                             response: &mut byte_response,
                             content_start,
                             cached: &mut cached,
@@ -1861,6 +1864,7 @@ pub mod connection {
 
     pub struct Connection {
         socket: TcpStream,
+        adress: net::SocketAddr,
         token: Token,
         layer: InformationLayer,
         closing: bool,
@@ -1869,12 +1873,14 @@ pub mod connection {
     impl Connection {
         fn _new(
             socket: TcpStream,
+            adress: net::SocketAddr,
             token: Token,
             layer: InformationLayer,
             scheme: ConnectionScheme,
         ) -> Self {
             Self {
                 socket,
+                adress,
                 token,
                 layer,
                 closing: false,
@@ -1883,18 +1889,21 @@ pub mod connection {
         }
         pub fn new(
             socket: TcpStream,
+            adress: net::SocketAddr,
             token: Token,
             connection: ConnectionSecurity,
         ) -> Option<Self> {
             match connection.get_config() {
                 EncryptionType::NonSecure => Some(Self::_new(
                     socket,
+                    adress,
                     token,
                     InformationLayer::Buffered(BufferedLayer::new()),
                     *connection.get_scheme(),
                 )),
                 EncryptionType::Secure(config) => Some(Self::_new(
                     socket,
+                    adress,
                     token,
                     InformationLayer::TLS(ServerSession::new(config)),
                     *connection.get_scheme(),
@@ -1967,6 +1976,7 @@ pub mod connection {
                                     Version::HTTP_11 => {
                                         if let Err(err) = process_request(
                                             &mut self.layer,
+                                            &self.adress,
                                             parsed,
                                             &request[..],
                                             &close,

@@ -9,6 +9,7 @@ pub mod cgi {
     use fastcgi_client::{Client, Params};
     use std::borrow::Cow;
     use std::io;
+    use std::net::{IpAddr, SocketAddr};
 
     pub enum FCGIError {
         FailedToConnect(io::Error),
@@ -21,6 +22,7 @@ pub mod cgi {
         file_name: &str,
         file_path: &str,
         uri: &str,
+        adress: &SocketAddr,
         body: &[u8],
     ) -> Result<Vec<u8>, FCGIError> {
         // Create connection to FastCGI server
@@ -31,6 +33,11 @@ pub mod cgi {
         let mut client = Client::new(stream, false);
 
         let len = body.len().to_string();
+        let remote_addr = match adress.ip() {
+            IpAddr::V4(addr) => addr.to_string(),
+            IpAddr::V6(addr) => addr.to_string(),
+        };
+        let remote_port = adress.port().to_string();
 
         let params = Params::with_predefine()
             .set_request_method(method)
@@ -38,13 +45,13 @@ pub mod cgi {
             .set_script_filename(file_path)
             .set_request_uri(uri)
             .set_document_uri(file_name)
-            .set_remote_addr("127.0.0.1")
-            .set_remote_port("12345")
-            .set_server_addr("127.0.0.1")
-            .set_server_port("80")
+            .set_remote_addr(&remote_addr)
+            .set_remote_port(&remote_port)
+            .set_server_addr("0.0.0.0")
+            .set_server_port("")
             .set_server_name(arktis::SERVER_NAME)
             .set_content_type("")
-            .set_content_length(len.as_str());
+            .set_content_length(&len);
 
         match client.do_request(&params, &mut (&*body)) {
             Ok(output) => match output.get_stdout() {
@@ -81,6 +88,7 @@ pub mod cgi {
             file_name,
             file_path,
             data.request.uri().path_and_query().unwrap().as_str(),
+            data.adress,
             data.request.body(),
         ) {
             Ok(vec) => Ok(vec),
@@ -349,6 +357,7 @@ pub fn download() -> BoundExtension {
         extension_aliases: &["download"],
         file_extension_aliases: &[],
         ext: Extension::new(&|| {}, &|_, data| {
+            println!("Downloading to {}", data.adress.to_string());
             *data.content_type = ContentType::Download;
         }),
     }
@@ -360,6 +369,7 @@ pub fn cache() -> BoundExtension {
         file_extension_aliases: &[],
         ext: Extension::new(&|| {}, &|_, data| {
             if let Some(cache) = data.args.get(1).and_then(|arg| arg.parse().ok()) {
+                println!("Downloading to {}", data.adress.to_string());
                 *data.cached = cache;
             }
         }),
