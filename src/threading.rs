@@ -212,7 +212,7 @@ impl HandlerPool {
             match connections.get(&token) {
                 Some(id) => *id,
                 None => {
-                    eprintln!("Connection not found! {:?}", token);
+                    eprintln!("Connection not found in thread registry! {:?}", token);
                     return;
                 }
             }
@@ -242,7 +242,7 @@ impl HandlerPool {
               pre_processing.elapsed().as_micros(),
             );
                     } else {
-                        eprintln!("Connection not found!");
+                        eprintln!("Connection not found in thread-local connection registry!");
                     }
                 },
             )
