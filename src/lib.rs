@@ -420,7 +420,7 @@ fn process_request<W: io::Write>(
         {
             // Search through extension map!
             let (extension_args, content_start) =
-                extensions::extension_args(byte_response.get_body());
+                extensions::parse::extension_args(byte_response.get_body());
             // Extension line is removed from body before it is handed to extensions, saving them the confusion.
             let vec = byte_response.get_first_vec();
             *vec = vec[content_start..].to_vec();
