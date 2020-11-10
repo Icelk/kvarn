@@ -25,10 +25,14 @@ pub use extensions::*;
 pub use tls_server_config::*;
 
 const RESERVED_TOKENS: usize = 1024;
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
-#[cfg(unix)]
-pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Unix)\r\n";
+#[cfg(target_os = "macos")]
+pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (MacOS)\r\n";
+#[cfg(target_os = "linux")]
+pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Linux)\r\n";
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Arktis";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
