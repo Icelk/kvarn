@@ -1,7 +1,5 @@
+use crate::prelude::{str, Cow, HashMap, PathBuf};
 use http::{header::*, Method, Request, Uri, Version};
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 enum DecodeStage {
     Method,
@@ -383,7 +381,8 @@ pub fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
         return Err(());
     }
     let is_dir = path.ends_with("/");
-    path = unsafe { std::str::from_utf8_unchecked(&path.as_bytes()[1..]) };
+    // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
+    path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
     let mut buf = PathBuf::from("public");
     buf.push(path);

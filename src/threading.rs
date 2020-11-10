@@ -1,9 +1,4 @@
-use crate::*;
-use mio::{net::TcpStream, Registry, Token};
-use num_cpus;
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::{mpsc, Arc, Mutex};
+use crate::prelude::*;
 use std::thread;
 
 #[derive(Debug)]
@@ -14,8 +9,8 @@ pub struct Worker {
 impl Worker {
     pub fn new(
         id: usize,
-        receiver: mpsc::Receiver<BoxedJob>,
-        registry: Registry,
+        receiver: sync::mpsc::Receiver<BoxedJob>,
+        registry: mio::Registry,
         mut global_connections: Arc<Mutex<HashMap<usize, usize>>>,
         mut storage: Storage,
         mut extensions: Extensions,
@@ -49,21 +44,21 @@ impl Worker {
 type Job = dyn FnOnce(
         &mut Storage,
         &mut ExtensionMap,
-        &mut HashMap<Token, Connection>,
-        &Registry,
+        &mut HashMap<mio::Token, Connection>,
+        &mio::Registry,
         &mut Arc<Mutex<HashMap<usize, usize>>>,
     ) + Send
     + 'static;
 type BoxedJob = Box<Job>;
 
 pub struct ThreadPool {
-    workers: Vec<(Worker, mpsc::Sender<BoxedJob>)>,
+    workers: Vec<(Worker, sync::mpsc::Sender<BoxedJob>)>,
     last_thread: usize,
 }
 impl ThreadPool {
     pub fn new(
         size: usize,
-        registry: &Registry,
+        registry: &mio::Registry,
         connections: &Arc<Mutex<HashMap<usize, usize>>>,
         storage: Storage,
         extensions: Extensions,
@@ -72,7 +67,7 @@ impl ThreadPool {
 
         let mut workers = Vec::with_capacity(size);
         for id in 0..size - 1 {
-            let (job_sender, job_receiver) = mpsc::channel();
+            let (job_sender, job_receiver) = sync::mpsc::channel();
             workers.push((
                 Worker::new(
                     id,
@@ -86,7 +81,7 @@ impl ThreadPool {
             ));
         }
         // Last
-        let (job_sender, job_receiver) = mpsc::channel();
+        let (job_sender, job_receiver) = sync::mpsc::channel();
         workers.push((
             Worker::new(
                 size - 1,
@@ -118,8 +113,8 @@ impl ThreadPool {
         F: FnOnce(
                 &mut Storage,
                 &mut ExtensionMap,
-                &mut HashMap<Token, Connection>,
-                &Registry,
+                &mut HashMap<mio::Token, Connection>,
+                &mio::Registry,
                 &mut Arc<Mutex<HashMap<usize, usize>>>,
             ) + Send
             + 'static,
@@ -137,8 +132,8 @@ impl ThreadPool {
         F: FnOnce(
                 &mut Storage,
                 &mut ExtensionMap,
-                &mut HashMap<Token, Connection>,
-                &Registry,
+                &mut HashMap<mio::Token, Connection>,
+                &mio::Registry,
                 &mut Arc<Mutex<HashMap<usize, usize>>>,
             ) + Send
             + 'static,
@@ -169,7 +164,7 @@ pub struct HandlerPool {
     connections: Arc<Mutex<HashMap<usize, usize>>>,
 }
 impl HandlerPool {
-    pub fn new(storage: Storage, extensions: Extensions, registry: &Registry) -> Self {
+    pub fn new(storage: Storage, extensions: Extensions, registry: &mio::Registry) -> Self {
         let global_connections = Arc::new(Mutex::new(HashMap::new()));
         Self {
             pool: ThreadPool::new(
@@ -186,8 +181,8 @@ impl HandlerPool {
     pub fn accept(
         &mut self,
         socket: TcpStream,
-        addr: SocketAddr,
-        token: Token,
+        addr: net::SocketAddr,
+        token: mio::Token,
         connection: ConnectionSecurity,
     ) {
         let thread_id = self.pool.execute(move |_, _, connections, registry, _| {

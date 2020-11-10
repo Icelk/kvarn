@@ -1,5 +1,4 @@
 use crate::*;
-use std::collections::HashMap;
 
 pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE];
 pub const EXTENSION_AND: &[u8] = &[AMPERSAND, PIPE];
@@ -351,7 +350,7 @@ impl<T: Send + fmt::Debug> Ext for Extension<T> {
         (self.run_fn)(self.data.as_mut_ptr().as_mut().unwrap(), data);
     }
     fn init(&mut self) {
-        self.data = std::mem::MaybeUninit::new((self.new_fn)());
+        self.data = MaybeUninit::new((self.new_fn)());
     }
     unsafe fn uninit(self: Box<Self>) {
         drop(self.data.assume_init());
@@ -361,7 +360,7 @@ impl<T: Send + fmt::Debug> Ext for Extension<T> {
     }
 }
 pub struct Extension<T: 'static> {
-    data: std::mem::MaybeUninit<T>,
+    data: MaybeUninit<T>,
     new_fn: &'static (dyn Fn() -> T + 'static + Send + Sync),
     run_fn: &'static (dyn Fn(&mut T, RequestData) -> () + 'static + Send + Sync),
 }
@@ -377,7 +376,7 @@ impl<T: fmt::Debug> Extension<T> {
         T: 'static + Send,
     {
         Box::new(Self {
-            data: std::mem::MaybeUninit::uninit(),
+            data: MaybeUninit::uninit(),
             new_fn,
             run_fn,
         })
@@ -386,7 +385,7 @@ impl<T: fmt::Debug> Extension<T> {
 impl<T: Send> Clone for Extension<T> {
     fn clone(&self) -> Self {
         Self {
-            data: std::mem::MaybeUninit::uninit(),
+            data: MaybeUninit::uninit(),
             new_fn: self.new_fn,
             run_fn: self.run_fn,
         }

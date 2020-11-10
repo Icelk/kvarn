@@ -1,4 +1,4 @@
-use arktis::*;
+use arktis::prelude::*;
 
 #[cfg(feature = "templates")]
 pub use templates::templates;
@@ -61,7 +61,10 @@ pub mod cgi {
             Err(err) => Err(FCGIError::FailedToDoRequest(err)),
         }
     }
-    pub fn fcgi_from_data(data: &RequestData, port: u16) -> Result<Vec<u8>, Cow<'static, str>> {
+    pub fn fcgi_from_data(
+        data: &extensions::RequestData,
+        port: u16,
+    ) -> Result<Vec<u8>, Cow<'static, str>> {
         let file_name = match parse::format_file_name(data.path) {
             Some(name) => name,
             None => {
