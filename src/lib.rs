@@ -1,9 +1,12 @@
+#![warn(missing_debug_implementations)]
+
 use http;
 use mime::Mime;
 use mime_guess;
 use mio::net::{TcpListener, TcpStream};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 use std::net;
 use std::path::PathBuf;
 use std::sync::{self, Arc, Mutex};
@@ -57,6 +60,7 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
+#[derive(Debug)]
 pub struct Config {
     sockets: HashMap<mio::Token, (u16, ConnectionSecurity)>,
     con_id: usize,
@@ -223,6 +227,7 @@ impl Config {
     }
 }
 
+#[derive(Debug)]
 pub struct Storage {
     fs: FsCache,
     response: ResponseCache,
@@ -343,6 +348,7 @@ impl Clone for Storage {
     }
 }
 
+#[derive(Debug)]
 pub enum ParseCachedErr {
     StringEmpty,
     UndefinedKeyword,
@@ -1285,8 +1291,8 @@ pub mod cache {
             &self.get_body()[..to]
         }
     }
-    impl std::fmt::Debug for ByteResponse {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    impl fmt::Debug for ByteResponse {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 Self::Merged(_, starts_at, _) => {
                     write!(f, "ByteResponse::Merged, starts at {}", starts_at)
@@ -1297,12 +1303,14 @@ pub mod cache {
             }
         }
     }
+    #[derive(Debug)]
     pub struct VaryMaster {
         vary_headers: Vec<&'static str>,
         data: Mutex<Vec<(Vec<http::HeaderValue>, Arc<ByteResponse>)>>,
     }
 
     /// A enum to contain data about the cached data. Can either be `Data`, when no `Vary` header is present, or `Vary` if it must contain several values.
+    #[derive(Debug)]
     pub enum CacheType {
         Data(Arc<ByteResponse>),
         Vary(VaryMaster),
@@ -1526,7 +1534,6 @@ pub mod cache {
         max_items: usize,
         size_limit: usize,
     }
-    #[allow(dead_code)]
     impl<K: Eq + Hash + Clone, V: Size> Cache<K, V> {
         #[inline]
         pub fn cache(&mut self, key: K, value: Arc<V>) -> Result<(), Arc<V>> {
@@ -1596,6 +1603,19 @@ pub mod cache {
             self.map.clear()
         }
     }
+    impl<K: fmt::Debug, V> fmt::Debug for Cache<K, V> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "Cache {{ map: ")?;
+            f.debug_map()
+                .entries(self.map.iter().map(|(key, _)| (key, "bytes")))
+                .finish()?;
+            write!(
+                f,
+                ", max_items: {}, size_limit: {} }}",
+                self.max_items, self.size_limit
+            )
+        }
+    }
 }
 
 pub mod connection {
@@ -1627,7 +1647,7 @@ pub mod connection {
             }
         }
     }
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug)]
     pub struct MioEvent {
         writable: bool,
         readable: bool,
@@ -1654,6 +1674,7 @@ pub mod connection {
             self.token
         }
     }
+    #[derive(Debug)]
     pub struct BufferedLayer {
         buffer: Vec<u8>,
     }
@@ -1680,10 +1701,12 @@ pub mod connection {
             self.buffer.is_empty()
         }
     }
+    #[derive(Debug)]
     pub enum InformationLayer {
         Buffered(BufferedLayer),
         TLS(ServerSession),
     }
+    #[derive(Debug)]
     pub enum PullError {
         IO(io::Error),
         CloseRequest,
@@ -1826,6 +1849,21 @@ pub mod connection {
         HTTP2,
         HTTP3,
     }
+    impl<'a> fmt::Debug for EncryptionType<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "{}",
+                match self {
+                    EncryptionType::NonSecure => "NonSecure",
+                    EncryptionType::Secure(_) =>
+                        "Secure(&Arc { data: internal rustls::ServerConfig })",
+                    EncryptionType::HTTP2 => "HTTP2",
+                    EncryptionType::HTTP3 => "HTTP3",
+                }
+            )
+        }
+    }
     pub struct ConnectionSecurity {
         scheme: ConnectionScheme,
         tls_config: Option<Arc<ServerConfig>>,
@@ -1865,7 +1903,21 @@ pub mod connection {
             }
         }
     }
+    impl fmt::Debug for ConnectionSecurity {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "ConnectionSecurity {{ scheme: {:?}, tls_config: {} }}",
+                self.scheme,
+                match self.tls_config {
+                    Some(_) => "Some(rustls::ServerConfig)",
+                    None => "None",
+                }
+            )
+        }
+    }
 
+    #[derive(Debug)]
     pub struct Connection {
         socket: TcpStream,
         adress: net::SocketAddr,
@@ -2081,9 +2133,10 @@ pub mod connection {
 }
 
 pub mod bindings {
-    use super::{mime_guess, Cached, Cow, FsCache, HashMap, Mime};
+    use super::*;
     use http::Request;
 
+    #[derive(Debug)]
     pub enum ContentType {
         FromMime(Mime),
         Html,
@@ -2229,6 +2282,27 @@ pub mod bindings {
                 }
                 None
             })
+        }
+    }
+    impl fmt::Debug for FunctionBindings {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "FunctionBindings {{ page_map: ")?;
+            f.debug_map()
+                .entries(
+                    self.page_map
+                        .iter()
+                        .map(|(key, _)| (key, "boxed internal function")),
+                )
+                .finish()?;
+            write!(f, ", dir_map: ")?;
+            f.debug_map()
+                .entries(
+                    self.dir_map
+                        .iter()
+                        .map(|(key, _)| (key, "boxed internal function")),
+                )
+                .finish()?;
+            write!(f, " }}")
         }
     }
 }

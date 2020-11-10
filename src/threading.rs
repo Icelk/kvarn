@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct Worker {
     handle: thread::JoinHandle<()>,
     id: usize,
@@ -58,7 +58,7 @@ type BoxedJob = Box<Job>;
 
 pub struct ThreadPool {
     workers: Vec<(Worker, mpsc::Sender<BoxedJob>)>,
-    last_send: usize,
+    last_thread: usize,
 }
 impl ThreadPool {
     pub fn new(
@@ -100,17 +100,17 @@ impl ThreadPool {
         ));
         Self {
             workers,
-            last_send: 0,
+            last_thread: 0,
         }
     }
     /// Guarantees a valid id, within range of the worker vector
     fn next_send(&mut self) -> usize {
-        if self.last_send + 1 >= self.workers.len() {
-            self.last_send = 0;
+        if self.last_thread + 1 >= self.workers.len() {
+            self.last_thread = 0;
             0
         } else {
-            self.last_send += 1;
-            self.last_send
+            self.last_thread += 1;
+            self.last_thread
         }
     }
     pub fn execute<F>(&mut self, f: F) -> usize
@@ -153,7 +153,17 @@ impl ThreadPool {
         }
     }
 }
+impl fmt::Debug for ThreadPool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ThreadPool {{ workers: ")?;
+        f.debug_list()
+            .entries(self.workers.iter().map(|(worker, _)| worker))
+            .finish()?;
+        write!(f, ", last_thread: {} }}", self.last_thread)
+    }
+}
 
+#[derive(Debug)]
 pub struct HandlerPool {
     pool: ThreadPool,
     connections: Arc<Mutex<HashMap<usize, usize>>>,

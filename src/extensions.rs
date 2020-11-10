@@ -155,8 +155,8 @@ impl ExtensionPointer {
         }
     }
 }
-impl std::fmt::Debug for ExtensionPointer {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+impl fmt::Debug for ExtensionPointer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ExtensionPointer(")?;
         match self {
             ExtensionPointer::Data(..) => write!(f, "internal data)"),
@@ -175,6 +175,7 @@ impl Clone for ExtensionPointer {
         }
     }
 }
+#[derive(Debug)]
 pub struct Extensions {
     vec: Vec<BoundExtension>,
 }
@@ -185,7 +186,7 @@ impl Extensions {
         }
     }
     pub fn extend<
-        T,
+        T: fmt::Debug,
         N: Fn() -> T + 'static + Send + Sync,
         R: Fn(&mut T, RequestData) -> () + 'static + Send + Sync,
     >(
@@ -265,7 +266,7 @@ impl Clone for Extensions {
         }
     }
 }
-
+#[derive(Debug)]
 pub struct BoundExtension {
     pub ext: Box<dyn Ext + Send>,
     pub extension_aliases: &'static [&'static str],
@@ -285,7 +286,7 @@ impl Clone for BoundExtension {
         }
     }
 }
-
+#[derive(Debug)]
 pub struct RequestData<'a> {
     pub adress: &'a net::SocketAddr,
     pub response: &'a mut ByteResponse,
@@ -299,7 +300,7 @@ pub struct RequestData<'a> {
     pub content_type: &'a mut ContentType,
 }
 
-pub trait Ext {
+pub trait Ext: fmt::Debug {
     /// # Safety
     /// `init` must be called before this function, else the `fn` will get an unititalized value.
     ///
@@ -345,7 +346,7 @@ pub trait Ext {
     unsafe fn uninit(self: Box<Self>);
     fn clone_to_uninit(&self) -> Box<dyn Ext + Send>;
 }
-impl<T: Send> Ext for Extension<T> {
+impl<T: Send + fmt::Debug> Ext for Extension<T> {
     unsafe fn run(&mut self, data: RequestData) {
         (self.run_fn)(self.data.as_mut_ptr().as_mut().unwrap(), data);
     }
@@ -364,7 +365,7 @@ pub struct Extension<T: 'static> {
     new_fn: &'static (dyn Fn() -> T + 'static + Send + Sync),
     run_fn: &'static (dyn Fn(&mut T, RequestData) -> () + 'static + Send + Sync),
 }
-impl<T> Extension<T> {
+impl<T: fmt::Debug> Extension<T> {
     pub fn new<
         N: Fn() -> T + 'static + Send + Sync,
         R: Fn(&mut T, RequestData) -> () + 'static + Send + Sync,
@@ -377,8 +378,8 @@ impl<T> Extension<T> {
     {
         Box::new(Self {
             data: std::mem::MaybeUninit::uninit(),
-            new_fn: new_fn,
-            run_fn: run_fn,
+            new_fn,
+            run_fn,
         })
     }
 }
@@ -389,5 +390,14 @@ impl<T: Send> Clone for Extension<T> {
             new_fn: self.new_fn,
             run_fn: self.run_fn,
         }
+    }
+}
+impl<T: fmt::Debug> fmt::Debug for Extension<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Extension<T> {{ data: {:?}, new_fn: &dyn Fn() -> T, run_fn: &dyn Fn(&mut T, RequestData) -> () }}",
+            self.data
+        )
     }
 }
