@@ -7,8 +7,6 @@ pub use templates::templates;
 pub mod cgi {
     use super::*;
     use fastcgi_client::{Client, Params};
-    use std::borrow::Cow;
-    use std::io;
     use std::net::{IpAddr, SocketAddr};
 
     pub enum FCGIError {
@@ -26,7 +24,7 @@ pub mod cgi {
         body: &[u8],
     ) -> Result<Vec<u8>, FCGIError> {
         // Create connection to FastCGI server
-        let stream = match std::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)) {
+        let stream = match net::TcpStream::connect((net::Ipv4Addr::LOCALHOST, port)) {
             Ok(stream) => stream,
             Err(err) => return Err(FCGIError::FailedToConnect(err)),
         };
@@ -109,14 +107,15 @@ pub mod cgi {
         }
     }
 }
+// Ok, since it is used, just not by every extension, and CFG would be too fragile for this.
 #[allow(dead_code)]
 pub mod parse {
-    use std::path::{Path, PathBuf};
+    use super::*;
 
     pub fn format_file_name<P: AsRef<Path>>(path: &P) -> Option<&str> {
         path.as_ref().file_name().and_then(|os_str| os_str.to_str())
     }
-    pub fn format_file_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf, std::io::Error> {
+    pub fn format_file_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf, io::Error> {
         let mut file_path = std::env::current_dir()?;
         file_path.push(path);
         Ok(file_path)
@@ -150,9 +149,6 @@ pub fn php() -> BoundExtension {
 #[cfg(feature = "templates")]
 pub mod templates {
     use super::*;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::{collections::HashMap, str};
 
     pub fn templates() -> BoundExtension {
         BoundExtension {

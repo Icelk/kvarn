@@ -8,7 +8,6 @@ pub enum Compressors {
     #[cfg(feature = "gzip")]
     Gzip(flate2::write::GzEncoder<Vec<u8>>),
 }
-#[allow(dead_code)]
 impl Compressors {
     #[inline]
     pub fn new(vec: Vec<u8>, compressor: &CompressionAlgorithm) -> Self {
