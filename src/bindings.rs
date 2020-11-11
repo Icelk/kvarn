@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::prelude::{internals::*, *};
 use http::Request;
 
 type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (utility::ContentType, Cached)

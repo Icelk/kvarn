@@ -11,7 +11,7 @@ pub mod prelude;
 mod threading;
 pub mod utility;
 
-use prelude::*;
+use prelude::{internals::*, networking::*, threading::*, *};
 
 // When user only imports crate::* and not crate::prelude::*
 pub use utility::{read_file, write_error, write_generic_error};
@@ -706,7 +706,7 @@ pub(crate) fn process_request<W: io::Write>(
 
 pub mod tls_server_config {
     use super::*;
-    use crate::prelude::fs::*;
+    use fs::*;
     use rustls::{internal::pemfile, NoClientAuth, ServerConfig};
 
     #[derive(Debug)]
@@ -766,7 +766,7 @@ pub mod tls_server_config {
 
 #[allow(dead_code)]
 mod stack_buffered_write {
-    use crate::prelude::fs::*;
+    use crate::fs::*;
 
     const BUFFER_SIZE: usize = 8192;
     // const BUFFER_SIZE: usize = 8;

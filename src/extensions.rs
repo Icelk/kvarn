@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::prelude::{internals::*, *};
 
 pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE];
 pub const EXTENSION_AND: &[u8] = &[AMPERSAND, PIPE];

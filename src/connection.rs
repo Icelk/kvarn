@@ -1,6 +1,4 @@
-use crate::prelude::fs::*;
-use crate::prelude::*;
-use rustls::{ServerConfig, ServerSession, Session};
+use crate::prelude::{fs::*, networking::*, rustls_prelude::*, *};
 
 #[derive(PartialEq, Debug)]
 pub enum ConnectionHeader {
@@ -332,7 +330,7 @@ impl Connection {
         registry: &mio::Registry,
         event: &MioEvent,
         storage: &mut Storage,
-        extensions: &mut ExtensionMap,
+        extensions: &mut extensions::ExtensionMap,
     ) {
         // If socket is readable, read from socket to session
         if event.readable() {
