@@ -200,3 +200,70 @@ pub fn into_two<T>(mut vec: Vec<T>, split_at: usize) -> (Vec<T>, Vec<T>) {
         (first_vec, last_vec)
     }
 }
+
+#[inline]
+pub fn read_to_end(
+    bytes: &mut [u8],
+    reader: &mut dyn io::Read,
+    emit_close: bool,
+) -> Result<usize, io::Error> {
+    let mut read = 0;
+    loop {
+        match reader.read(&mut bytes[read..]) {
+            Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
+            Err(err) => {
+                return Err(err);
+            }
+            Ok(0) => match emit_close {
+                true => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::ConnectionReset,
+                        "unexpectedly read zero bytes from source",
+                    ))
+                }
+                false => break,
+            },
+            Ok(rd) => read += rd,
+        }
+    }
+    Ok(read)
+}
+
+#[derive(Debug)]
+pub enum ContentType {
+    FromMime(Mime),
+    Html,
+    PlainText,
+    Download,
+    AutoOrDownload,
+    AutoOrPlain,
+    AutoOrHTML,
+}
+impl ContentType {
+    pub fn as_str<P: AsRef<Path>>(&self, path: P) -> Cow<'static, str> {
+        match self {
+            ContentType::FromMime(mime) => Cow::Owned(format!("{}", mime)),
+            ContentType::Html => Cow::Borrowed("text/html"),
+            ContentType::PlainText => Cow::Borrowed("text/plain"),
+            ContentType::Download => Cow::Borrowed("application/octet-stream"),
+            ContentType::AutoOrDownload => Cow::Owned(format!(
+                "{}",
+                mime_guess::from_path(&path).first_or_octet_stream()
+            )),
+            ContentType::AutoOrPlain => Cow::Owned(format!(
+                "{}",
+                mime_guess::from_path(&path).first_or_text_plain()
+            )),
+            ContentType::AutoOrHTML => Cow::Owned(format!(
+                "{}",
+                mime_guess::from_path(&path).first_or(mime::TEXT_HTML)
+            )),
+        }
+    }
+}
+impl Default for ContentType {
+    fn default() -> Self {
+        Self::AutoOrDownload
+    }
+}

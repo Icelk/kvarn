@@ -87,7 +87,6 @@ pub enum InformationLayer {
 #[derive(Debug)]
 pub enum PullError {
     IO(io::Error),
-    CloseRequest,
     TLSError(rustls::TLSError),
 }
 impl Into<PullError> for io::Error {
@@ -103,32 +102,6 @@ impl Into<PullError> for rustls::TLSError {
 
 impl InformationLayer {
     #[inline]
-    fn read(
-        bytes: &mut [u8],
-        reader: &mut dyn io::Read,
-        close_on_0: bool,
-    ) -> Result<usize, PullError> {
-        let mut read = 0;
-        loop {
-            match reader.read(&mut bytes[read..]) {
-                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => {
-                    return Err(err.into());
-                }
-                Ok(0) => {
-                    if close_on_0 {
-                        return Err(PullError::CloseRequest);
-                    } else {
-                        break;
-                    }
-                }
-                Ok(rd) => read += rd,
-            }
-        }
-        Ok(read)
-    }
-    #[inline]
     pub fn pull(
         &mut self,
         reader: &mut dyn io::Read,
@@ -137,7 +110,7 @@ impl InformationLayer {
         match self {
             InformationLayer::Buffered(_) => {
                 // buffered.push(reader).or(Err(()))
-                InformationLayer::read(&mut buffer, reader, true)
+                utility::read_to_end(&mut buffer, reader, true).map_err(|err| err.into())
             }
             InformationLayer::TLS(session) => {
                 // Loop on read_tls
@@ -147,7 +120,11 @@ impl InformationLayer {
                         return Err(err.into());
                     }
                     Ok(0) => {
-                        return Err(PullError::CloseRequest);
+                        return Err(io::Error::new(
+                            io::ErrorKind::ConnectionReset,
+                            "TLS read zero bytes",
+                        )
+                        .into());
                     }
                     _ => {
                         if let Err(err) = session.process_new_packets() {
@@ -155,7 +132,7 @@ impl InformationLayer {
                         };
                     }
                 };
-                InformationLayer::read(&mut buffer, session, false)
+                utility::read_to_end(&mut buffer, session, false).map_err(|err| err.into())
             }
         }
     }
@@ -365,7 +342,7 @@ impl Connection {
                 let len = match self.layer.pull(&mut self.socket, &mut buffer) {
                     Ok(len) => len,
                     Err(err) => match err {
-                        PullError::CloseRequest => {
+                        PullError::IO(err) if err.kind() == io::ErrorKind::ConnectionReset => {
                             self.close();
                             0
                         }
@@ -407,7 +384,7 @@ impl Connection {
 
                             match parsed.version() {
                                 http::Version::HTTP_11 => {
-                                    if let Err(err) = process_request(
+                                    if let Err(err) = crate::process_request(
                                         &mut self.layer,
                                         &self.adress,
                                         parsed,

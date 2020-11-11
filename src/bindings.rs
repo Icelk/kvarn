@@ -1,46 +1,9 @@
 use crate::prelude::*;
 use http::Request;
 
-#[derive(Debug)]
-pub enum ContentType {
-    FromMime(Mime),
-    Html,
-    PlainText,
-    Download,
-    AutoOrDownload,
-    AutoOrPlain,
-    AutoOrHTML,
-}
-impl ContentType {
-    pub fn as_str<P: AsRef<Path>>(&self, path: P) -> Cow<'static, str> {
-        match self {
-            ContentType::FromMime(mime) => Cow::Owned(format!("{}", mime)),
-            ContentType::Html => Cow::Borrowed("text/html"),
-            ContentType::PlainText => Cow::Borrowed("text/plain"),
-            ContentType::Download => Cow::Borrowed("application/octet-stream"),
-            ContentType::AutoOrDownload => Cow::Owned(format!(
-                "{}",
-                mime_guess::from_path(&path).first_or_octet_stream()
-            )),
-            ContentType::AutoOrPlain => Cow::Owned(format!(
-                "{}",
-                mime_guess::from_path(&path).first_or_text_plain()
-            )),
-            ContentType::AutoOrHTML => Cow::Owned(format!(
-                "{}",
-                mime_guess::from_path(&path).first_or(mime::TEXT_HTML)
-            )),
-        }
-    }
-}
-impl Default for ContentType {
-    fn default() -> Self {
-        Self::AutoOrDownload
-    }
-}
-
-type Binding =
-    dyn Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (ContentType, Cached) + Send + Sync;
+type Binding = dyn Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (utility::ContentType, Cached)
+    + Send
+    + Sync;
 
 /// Function bindings to have fast dynamic pages.
 ///
@@ -85,7 +48,7 @@ impl FunctionBindings {
     #[inline]
     pub fn bind_page<F>(&mut self, path: &str, callback: F)
     where
-        F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (ContentType, Cached)
+        F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (utility::ContentType, Cached)
             + 'static
             + Send
             + Sync,
@@ -121,7 +84,7 @@ impl FunctionBindings {
     #[inline]
     pub fn bind_dir<F>(&mut self, path: &str, callback: F)
     where
-        F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (ContentType, Cached)
+        F: Fn(&mut Vec<u8>, &Request<&[u8]>, &mut FsCache) -> (utility::ContentType, Cached)
             + 'static
             + Send
             + Sync,

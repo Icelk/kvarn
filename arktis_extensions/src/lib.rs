@@ -130,7 +130,7 @@ pub fn php() -> BoundExtension {
         ext: Extension::new(&|| {}, &|_, data| {
             // Content type will be HTML!
             // Will be overriden by headers from PHP.
-            *data.content_type = ContentType::Html;
+            *data.content_type = Html;
             // So it won't remove the query before caching!
             *data.cached = Cached::PerQuery;
 
@@ -357,7 +357,7 @@ pub fn download() -> BoundExtension {
         file_extension_aliases: &[],
         ext: Extension::new(&|| {}, &|_, data| {
             println!("Downloading to {}", data.adress.to_string());
-            *data.content_type = ContentType::Download;
+            *data.content_type = Download;
         }),
     }
 }

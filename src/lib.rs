@@ -347,7 +347,7 @@ impl Clone for Storage {
 /// Then matches content type to get a `str`.
 ///
 /// Checks extension in body of `ByteResponse`.
-fn process_request<W: io::Write>(
+pub(crate) fn process_request<W: io::Write>(
     socket: &mut W,
     adress: &net::SocketAddr,
     request: http::Request<&[u8]>,
@@ -411,7 +411,7 @@ fn process_request<W: io::Write>(
                     None => utility::default_error(404, close, Some(storage.get_fs())),
                 };
                 // Content mime type
-                (body, ContentType::AutoOrDownload, Cached::Static)
+                (body, AutoOrDownload, Cached::Static)
             }
         };
 

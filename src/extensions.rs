@@ -292,7 +292,7 @@ pub struct RequestData<'a> {
     pub request: &'a http::Request<&'a [u8]>,
     pub raw_request: &'a [u8],
     pub path: &'a PathBuf,
-    pub content_type: &'a mut ContentType,
+    pub content_type: &'a mut utility::ContentType,
 }
 
 pub trait Ext: fmt::Debug {
