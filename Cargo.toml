@@ -24,10 +24,10 @@ brotli = { version = "3.3.0", optional = true }
 flate2 = { version = "1.0.18", optional = true }
 
 [features]
-default = ["templates", "compression"]
+default = ["compression", "fs"]
 
-# Enables the template extention
-templates = []
+# Enables the server to serve from the file system
+fs = []
 
 # Disables the cache
 no-fs-cache = []

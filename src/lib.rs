@@ -358,7 +358,7 @@ pub(crate) fn process_request<W: io::Write>(
     let path = match parse::convert_uri(request.uri()) {
         Ok(path) => path,
         Err(()) => {
-            &utility::default_error(403, close, Some(storage.get_fs())).write_all(socket)?;
+            &default_error(403, close, Some(storage.get_fs())).write_all(socket)?;
             return Ok(());
         }
     };
@@ -382,16 +382,23 @@ pub(crate) fn process_request<W: io::Write>(
                     (ByteResponse::without_header(response), content_type, cache)
                 }
             }
+            #[cfg(feature = "fs")]
             // No function, try read from FS cache.
             None => {
                 // Body
                 let body = match read_file(&path, storage.get_fs()) {
                     Some(response) => ByteResponse::without_header_shared(response),
-                    None => utility::default_error(404, close, Some(storage.get_fs())),
+                    None => default_error(404, close, Some(storage.get_fs())),
                 };
                 // Content mime type
                 (body, AutoOrDownload, Cached::Static)
             }
+            #[cfg(not(feature = "fs"))]
+            None => (
+                default_error(404, close, Some(storage.get_fs())),
+                Html,
+                Cached::Static,
+            ),
         };
 
     // Apply extensions
@@ -450,7 +457,7 @@ pub(crate) fn process_request<W: io::Write>(
                     // Do nothing
                     None if allowed_method => {}
                     _ => {
-                        byte_response = utility::default_error(405, close, Some(storage.get_fs()));
+                        byte_response = default_error(405, close, Some(storage.get_fs()));
                     }
                 }
             }
@@ -491,7 +498,7 @@ pub(crate) fn process_request<W: io::Write>(
                 || content_str.starts_with("video")
             {
                 if identity_forbidden {
-                    byte_response = utility::default_error(406, &close, Some(&mut storage.fs));
+                    byte_response = default_error(406, &close, Some(&mut storage.fs));
                     algorithm
                 } else {
                     compression::CompressionAlgorithm::Identity
