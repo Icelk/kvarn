@@ -1,4 +1,28 @@
+//! # Arktis Extensions
+//! A *supporter-lib* for Arktis to supply extensions to the web server.
+//!
+//! Use [`mount_all`] to get started quickly.
+//!
+//! ## An introduction to the Arktis extension system
+//! Arktis extensions can bind to *extension declarations* and to *file extensions*.
+//! For example, if you mount the extensions [`download`], it binds the *extension declaration* `download`.
+//! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it!
+
 use arktis::prelude::{internals::*, *};
+
+/// Mounts all extensions specified in Cargo.toml dependency declaration.
+///
+/// The current defaults are [`download`], [`cache`], [`php`], and [`templates`]
+///
+/// They will *always* get included in your server after calling this function.
+pub fn mount_all(server: &mut Config) {
+    server.mount_extension(download);
+    server.mount_extension(cache);
+    #[cfg(feature = "php")]
+    server.mount_extension(php);
+    #[cfg(feature = "templates")]
+    server.mount_extension(templates);
+}
 
 #[cfg(feature = "templates")]
 pub use templates::templates;
@@ -351,6 +375,7 @@ pub mod templates {
     }
 }
 
+/// Makes the client download the file.
 pub fn download() -> BoundExtension {
     BoundExtension {
         extension_aliases: &["download"],
