@@ -1,5 +1,96 @@
 use crate::prelude::{fs::*, internals::*, *};
 
+pub mod chars {
+    /// Line feed
+    pub const LF: u8 = 10;
+    /// Carrage return
+    pub const CR: u8 = 13;
+    /// ` `
+    pub const SPACE: u8 = 32;
+    /// `!`
+    pub const BANG: u8 = 33;
+    /// `&`
+    pub const AMPERSAND: u8 = 38;
+    /// `>`
+    pub const PIPE: u8 = 62;
+    /// `[`
+    pub const L_SQ_BRACKET: u8 = 91;
+    /// `\`
+    pub const ESCAPE: u8 = 92;
+    /// `]`
+    pub const R_SQ_BRACKET: u8 = 93;
+}
+
+pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
+    match cache.try_lock() {
+        Ok(lock) => {
+            if let Some(cached) = lock.get(path) {
+                return Some(cached);
+            }
+        }
+        Err(ref err) => match err {
+            sync::TryLockError::Poisoned(..) => {
+                panic!("File System cache is poisoned!");
+            }
+            sync::TryLockError::WouldBlock => {}
+        },
+    }
+
+    match File::open(path) {
+        Ok(mut file) => {
+            let mut buffer = Vec::with_capacity(4096);
+            match file.read_to_end(&mut buffer) {
+                Ok(..) => {
+                    let buffer = Arc::new(buffer);
+                    match cache.try_lock() {
+                        Ok(mut lock) => match lock.cache(path.clone(), buffer) {
+                            Err(failed) => Some(failed),
+                            Ok(()) => Some(lock.get(path).unwrap()),
+                        },
+                        Err(ref err) => match err {
+                            sync::TryLockError::Poisoned(..) => {
+                                panic!("File System cache is poisoned!");
+                            }
+                            sync::TryLockError::WouldBlock => Some(buffer),
+                        },
+                    }
+                }
+                Err(..) => None,
+            }
+        }
+        Err(..) => None,
+    }
+}
+
+#[inline]
+pub fn read_to_end(
+    bytes: &mut [u8],
+    reader: &mut dyn io::Read,
+    emit_close: bool,
+) -> Result<usize, io::Error> {
+    let mut read = 0;
+    loop {
+        match reader.read(&mut bytes[read..]) {
+            Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
+            Err(err) => {
+                return Err(err);
+            }
+            Ok(0) => match emit_close {
+                true => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::ConnectionReset,
+                        "unexpectedly read zero bytes from source",
+                    ))
+                }
+                false => break,
+            },
+            Ok(rd) => read += rd,
+        }
+    }
+    Ok(read)
+}
+
 pub fn default_error(
     code: u16,
     close: &connection::ConnectionHeader,
@@ -122,47 +213,6 @@ pub fn write_error(buffer: &mut Vec<u8>, code: u16, cache: &mut FsCache) -> (Con
     (ContentType::Html, Cached::Dynamic)
 }
 
-pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
-    match cache.try_lock() {
-        Ok(lock) => {
-            if let Some(cached) = lock.get(path) {
-                return Some(cached);
-            }
-        }
-        Err(ref err) => match err {
-            sync::TryLockError::Poisoned(..) => {
-                panic!("File System cache is poisoned!");
-            }
-            sync::TryLockError::WouldBlock => {}
-        },
-    }
-
-    match File::open(path) {
-        Ok(mut file) => {
-            let mut buffer = Vec::with_capacity(4096);
-            match file.read_to_end(&mut buffer) {
-                Ok(..) => {
-                    let buffer = Arc::new(buffer);
-                    match cache.try_lock() {
-                        Ok(mut lock) => match lock.cache(path.clone(), buffer) {
-                            Err(failed) => Some(failed),
-                            Ok(()) => Some(lock.get(path).unwrap()),
-                        },
-                        Err(ref err) => match err {
-                            sync::TryLockError::Poisoned(..) => {
-                                panic!("File System cache is poisoned!");
-                            }
-                            sync::TryLockError::WouldBlock => Some(buffer),
-                        },
-                    }
-                }
-                Err(..) => None,
-            }
-        }
-        Err(..) => None,
-    }
-}
-
 /// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
 ///
 /// # Panics
@@ -198,35 +248,6 @@ pub fn into_two<T>(mut vec: Vec<T>, split_at: usize) -> (Vec<T>, Vec<T>) {
             Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at);
         (first_vec, last_vec)
     }
-}
-
-#[inline]
-pub fn read_to_end(
-    bytes: &mut [u8],
-    reader: &mut dyn io::Read,
-    emit_close: bool,
-) -> Result<usize, io::Error> {
-    let mut read = 0;
-    loop {
-        match reader.read(&mut bytes[read..]) {
-            Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
-            Err(err) => {
-                return Err(err);
-            }
-            Ok(0) => match emit_close {
-                true => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::ConnectionReset,
-                        "unexpectedly read zero bytes from source",
-                    ))
-                }
-                false => break,
-            },
-            Ok(rd) => read += rd,
-        }
-    }
-    Ok(read)
 }
 
 #[derive(Debug)]

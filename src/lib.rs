@@ -28,27 +28,6 @@ pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Arktis";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
-pub mod chars {
-    /// Line feed
-    pub const LF: u8 = 10;
-    /// Carrage return
-    pub const CR: u8 = 13;
-    /// ` `
-    pub const SPACE: u8 = 32;
-    /// `!`
-    pub const BANG: u8 = 33;
-    /// `&`
-    pub const AMPERSAND: u8 = 38;
-    /// `>`
-    pub const PIPE: u8 = 62;
-    /// `[`
-    pub const L_SQ_BRACKET: u8 = 91;
-    /// `\`
-    pub const ESCAPE: u8 = 92;
-    /// `]`
-    pub const R_SQ_BRACKET: u8 = 93;
-}
-
 #[derive(Debug)]
 pub struct Config {
     sockets: HashMap<mio::Token, (u16, ConnectionSecurity)>,

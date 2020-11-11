@@ -35,12 +35,12 @@ pub use crate::parse;
 pub use crate::utility;
 
 // Crate types
-pub use crate::chars::*;
 pub use crate::tls_server_config::{get_server_config, optional_server_config};
 pub use crate::{Config, Storage};
 pub use bindings::FunctionBindings;
 pub use cache::{Cached, Cached::*};
 pub use connection::ConnectionSecurity;
+pub use utility::chars::*;
 pub use utility::{read_file, write_error, write_generic_error, ContentType::*};
 
 /// ## **The Arktis *File System* Prelude**
