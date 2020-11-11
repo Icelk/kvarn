@@ -180,7 +180,7 @@ impl HandlerPool {
     pub fn accept(
         &mut self,
         socket: TcpStream,
-        addr: net::SocketAddr,
+        addr: SocketAddr,
         token: mio::Token,
         connection: ConnectionSecurity,
     ) {

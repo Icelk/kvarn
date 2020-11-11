@@ -272,7 +272,7 @@ impl fmt::Debug for ConnectionSecurity {
 #[derive(Debug)]
 pub struct Connection {
     socket: TcpStream,
-    adress: net::SocketAddr,
+    adress: SocketAddr,
     token: mio::Token,
     layer: InformationLayer,
     closing: bool,
@@ -281,7 +281,7 @@ pub struct Connection {
 impl Connection {
     fn _new(
         socket: TcpStream,
-        adress: net::SocketAddr,
+        adress: SocketAddr,
         token: mio::Token,
         layer: InformationLayer,
         scheme: ConnectionScheme,
@@ -297,7 +297,7 @@ impl Connection {
     }
     pub fn new(
         socket: TcpStream,
-        adress: net::SocketAddr,
+        adress: SocketAddr,
         token: mio::Token,
         connection: ConnectionSecurity,
     ) -> Option<Self> {
@@ -318,7 +318,7 @@ impl Connection {
             )),
             _ => {
                 // Shut down socket if not supported!
-                let _ = socket.shutdown(net::Shutdown::Both);
+                let _ = socket.shutdown(Shutdown::Both);
                 drop(socket);
                 return None;
             }
@@ -436,7 +436,7 @@ impl Connection {
 
         if self.closing {
             println!("Closing connection!");
-            let _ = self.socket.shutdown(net::Shutdown::Both);
+            let _ = self.socket.shutdown(Shutdown::Both);
             self.deregister(registry);
         } else {
             self.reregister(registry);

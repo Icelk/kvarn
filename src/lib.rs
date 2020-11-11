@@ -126,8 +126,8 @@ impl Config {
             .sockets
             .iter()
             .map(|(token, (port, connection))| {
-                let mut socket = TcpListener::bind(net::SocketAddr::new(
-                    net::IpAddr::V4(net::Ipv4Addr::new(0, 0, 0, 0)),
+                let mut socket = TcpListener::bind(SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                     *port,
                 ))
                 .expect("Failed to bind port");

@@ -30,8 +30,8 @@ pub use templates::templates;
 #[cfg(feature = "fastcgi-client")]
 pub mod cgi {
     use super::*;
+    use arktis::prelude::networking::*;
     use fastcgi_client::{Client, Params};
-    use std::net::{IpAddr, SocketAddr};
 
     pub enum FCGIError {
         FailedToConnect(io::Error),
@@ -48,7 +48,7 @@ pub mod cgi {
         body: &[u8],
     ) -> Result<Vec<u8>, FCGIError> {
         // Create connection to FastCGI server
-        let stream = match net::TcpStream::connect((net::Ipv4Addr::LOCALHOST, port)) {
+        let stream = match std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
             Ok(stream) => stream,
             Err(err) => return Err(FCGIError::FailedToConnect(err)),
         };

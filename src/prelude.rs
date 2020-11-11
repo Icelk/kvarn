@@ -60,6 +60,7 @@ pub mod fs {
 /// The purpose of this module is to expose MetalIO network types used in Arktis.
 pub mod networking {
     pub use mio::net::{TcpListener, TcpStream};
+    pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
 }
 
 /// ## **The Arktis *Internal* Prelude**
