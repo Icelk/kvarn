@@ -1,4 +1,9 @@
-#![warn(missing_debug_implementations)]
+#![warn(
+    // missing_docs,
+    missing_debug_implementations,
+    // unreachable_pub,
+    // rust_2018_idioms
+)]
 
 // Module declaration
 pub mod bindings;
@@ -6,6 +11,8 @@ pub mod cache;
 pub mod compression;
 pub mod connection;
 pub mod extensions;
+#[cfg(feature = "limiting")]
+pub mod limiting;
 pub mod parse;
 pub mod prelude;
 mod threading;
@@ -173,9 +180,9 @@ impl Config {
         self.con_id
     }
 
-    pub fn accept(
+    fn accept(
         handler: &mut threading::HandlerPool,
-        connection: ConnectionSecurity,
+        connection_type: ConnectionSecurity,
         socket: &mut TcpListener,
         id: usize,
     ) -> Result<(), io::Error> {
@@ -183,7 +190,7 @@ impl Config {
             match socket.accept() {
                 Ok((socket, addr)) => {
                     let token = mio::Token(id);
-                    handler.accept(socket, addr, token, connection.clone());
+                    handler.accept(socket, addr, token, connection_type.clone());
                 }
                 Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {
@@ -201,6 +208,8 @@ pub struct Storage {
     response: ResponseCache,
     template: TemplateCache,
     bindings: Bindings,
+    #[cfg(feature = "limiting")]
+    limits: LimitManager,
 }
 impl Storage {
     pub fn new() -> Self {
@@ -210,6 +219,8 @@ impl Storage {
             response: Arc::new(Mutex::new(Cache::new())),
             template: Arc::new(Mutex::new(Cache::with_max(128))),
             bindings: Arc::new(FunctionBindings::new()),
+            #[cfg(feature = "limiting")]
+            limits: LimitManager::default(),
         }
     }
     pub fn from_caches(fs: FsCache, response: ResponseCache, template: TemplateCache) -> Self {
@@ -218,6 +229,8 @@ impl Storage {
             response,
             template,
             bindings: Arc::new(FunctionBindings::new()),
+            #[cfg(feature = "limiting")]
+            limits: LimitManager::default(),
         }
     }
     pub fn from_bindings(bindings: Bindings) -> Self {
@@ -227,6 +240,8 @@ impl Storage {
             response: Arc::new(Mutex::new(Cache::new())),
             template: Arc::new(Mutex::new(Cache::with_max(128))),
             bindings,
+            #[cfg(feature = "limiting")]
+            limits: LimitManager::default(),
         }
     }
 
@@ -304,6 +319,12 @@ impl Storage {
     pub fn get_bindings(&self) -> &Bindings {
         &self.bindings
     }
+
+    #[cfg(feature = "limiting")]
+    #[inline]
+    pub fn register(&mut self, addr: SocketAddr) -> bool {
+        self.limits.register(addr)
+    }
 }
 impl Clone for Storage {
     fn clone(&self) -> Self {
@@ -312,6 +333,8 @@ impl Clone for Storage {
             response: Arc::clone(&self.response),
             template: Arc::clone(&self.template),
             bindings: Arc::clone(&self.bindings),
+            #[cfg(feature = "limiting")]
+            limits: LimitManager::clone(&self.limits),
         }
     }
 }

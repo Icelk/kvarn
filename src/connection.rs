@@ -444,6 +444,17 @@ impl Connection {
     }
 
     #[inline]
+    pub fn get_addr(&self) -> &SocketAddr {
+        &self.adress
+    }
+    #[cfg(feature = "limiting")]
+    #[inline]
+    pub fn too_many_requests(&mut self) -> io::Result<()> {
+        self.socket.write(limiting::TOO_MANY_REQUESTS).and(Ok(()))?;
+        self.socket.flush()
+    }
+
+    #[inline]
     pub fn register(&mut self, registry: &mio::Registry) {
         let es = self.event_set();
         registry

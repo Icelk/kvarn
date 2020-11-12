@@ -24,6 +24,7 @@ pub use std::net;
 pub use std::path::{Path, PathBuf};
 pub use std::str;
 pub use std::sync::{self, Arc};
+pub use std::time;
 
 // Modules
 pub use crate::bindings;
@@ -31,6 +32,8 @@ pub use crate::cache;
 pub use crate::compression;
 pub use crate::connection;
 pub use crate::extensions;
+#[cfg(feature = "limiting")]
+pub use crate::limiting;
 pub use crate::parse;
 pub use crate::utility;
 
@@ -59,7 +62,11 @@ pub mod fs {
 ///
 /// The purpose of this module is to expose MetalIO network types used in Arktis.
 pub mod networking {
+    use super::*;
+
+    pub use connection::ConnectionHeader;
     pub use mio::net::{TcpListener, TcpStream};
+    pub use std::io::{Read, Write};
     pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
 }
 
@@ -73,6 +80,8 @@ pub mod internals {
     pub use cache::types::*;
     pub use cache::ByteResponse;
     pub use extensions::{BoundExtension, Extension, ExtensionMap, Extensions};
+    #[cfg(feature = "limiting")]
+    pub use limiting::LimitManager;
     pub use utility::default_error;
 }
 
@@ -80,7 +89,7 @@ pub mod internals {
 ///
 /// The purpose of this module is to expose common threading types.
 pub mod threading {
-    pub use std::sync::Mutex;
+    pub use std::sync::{self, atomic, Mutex, TryLockError};
     pub use std::thread;
 }
 

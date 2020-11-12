@@ -184,20 +184,30 @@ impl HandlerPool {
         token: mio::Token,
         connection: ConnectionSecurity,
     ) {
-        let thread_id = self.pool.execute(move |_, _, connections, registry, _| {
-            println!("Accepting new connection from: {:?}", addr);
+        let thread_id = self
+            .pool
+            .execute(move |_storage, _, connections, registry, _| {
+                println!("Accepting new connection from: {:?}", addr);
 
-            let mut connection = match Connection::new(socket, addr, token, connection) {
-                Some(connection) => connection,
-                None => {
-                    eprintln!("Unimplemented, shutting down socket!");
+                // If registered address does not pass the test, return from function
+                #[cfg(feature = "limiting")]
+                if !_storage.register(addr) {
+                    let _ = socket.shutdown(Shutdown::Both);
+                    drop(socket);
                     return;
                 }
-            };
 
-            connection.register(registry);
-            connections.insert(token, connection);
-        });
+                let mut connection = match Connection::new(socket, addr, token, connection) {
+                    Some(connection) => connection,
+                    None => {
+                        eprintln!("Unimplemented, shutting down socket!");
+                        return;
+                    }
+                };
+
+                connection.register(registry);
+                connections.insert(token, connection);
+            });
         // Getting the lock on global connections! Have to release it quick!
         {
             let mut connections = self.connections.lock().unwrap();
@@ -225,11 +235,16 @@ impl HandlerPool {
         self.pool
             .execute_on(
                 thread_id,
-                move |cache, extensions, connections, registry, global_connections| {
-                    // println!("Thread-local connections: {}", connections.len());
+                move |storage, extensions, connections, registry, global_connections| {
                     if let Some(connection) = connections.get_mut(&event.token()) {
+                        // If registered address does not pass the test, return from function
+                        #[cfg(feature = "limiting")]
+                        if event.writable() && !storage.register(*connection.get_addr()) {
+                                let _ = connection.too_many_requests();
+                            return;
+                        }
                         let pre_processing = std::time::Instant::now();
-                        connection.ready(registry, &event, cache, extensions);
+                        connection.ready(registry, &event, storage, extensions);
                         let post_processing = pre_processing.elapsed();
                         if connection.is_closed() {
                             connections.remove(&event.token());
@@ -240,11 +255,11 @@ impl HandlerPool {
                             }
                         }
                         println!(
-              "Request took: {} μs. Processing took: {} μs. Processing and global cons: {} μs.",
-              _time.elapsed().as_micros(),
-              post_processing.as_micros(),
-              pre_processing.elapsed().as_micros(),
-            );
+                            "Request took: {} μs. Processing took: {} μs. Processing and global cons: {} μs.",
+                            _time.elapsed().as_micros(),
+                            post_processing.as_micros(),
+                            pre_processing.elapsed().as_micros(),
+                        );
                     } else {
                         eprintln!("Connection not found in thread-local connection registry!");
                     }
