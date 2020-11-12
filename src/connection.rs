@@ -272,7 +272,7 @@ impl fmt::Debug for ConnectionSecurity {
 #[derive(Debug)]
 pub struct Connection {
     socket: TcpStream,
-    adress: SocketAddr,
+    address: SocketAddr,
     token: mio::Token,
     layer: InformationLayer,
     closing: bool,
@@ -281,14 +281,14 @@ pub struct Connection {
 impl Connection {
     fn _new(
         socket: TcpStream,
-        adress: SocketAddr,
+        address: SocketAddr,
         token: mio::Token,
         layer: InformationLayer,
         scheme: ConnectionScheme,
     ) -> Self {
         Self {
             socket,
-            adress,
+            address: address,
             token,
             layer,
             closing: false,
@@ -297,21 +297,21 @@ impl Connection {
     }
     pub fn new(
         socket: TcpStream,
-        adress: SocketAddr,
+        address: SocketAddr,
         token: mio::Token,
         connection: ConnectionSecurity,
     ) -> Option<Self> {
         match connection.get_config() {
             EncryptionType::NonSecure => Some(Self::_new(
                 socket,
-                adress,
+                address,
                 token,
                 InformationLayer::Buffered(BufferedLayer::new()),
                 *connection.get_scheme(),
             )),
             EncryptionType::Secure(config) => Some(Self::_new(
                 socket,
-                adress,
+                address,
                 token,
                 InformationLayer::TLS(ServerSession::new(config)),
                 *connection.get_scheme(),
@@ -384,7 +384,7 @@ impl Connection {
                                 http::Version::HTTP_11 => {
                                     if let Err(err) = crate::process_request(
                                         &mut self.layer,
-                                        &self.adress,
+                                        &self.address,
                                         parsed,
                                         &request[..],
                                         &close,
@@ -445,7 +445,7 @@ impl Connection {
 
     #[inline]
     pub fn get_addr(&self) -> &SocketAddr {
-        &self.adress
+        &self.address
     }
     #[cfg(feature = "limiting")]
     #[inline]

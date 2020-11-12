@@ -351,7 +351,7 @@ impl Clone for Storage {
 /// Checks extension in body of `ByteResponse`.
 pub(crate) fn process_request<W: io::Write>(
     socket: &mut W,
-    adress: &net::SocketAddr,
+    address: &net::SocketAddr,
     request: http::Request<&[u8]>,
     raw_request: &[u8],
     close: &connection::ConnectionHeader,
@@ -439,7 +439,7 @@ pub(crate) fn process_request<W: io::Write>(
                     match extensions.get_name(extension_name) {
                         Some(extension) => unsafe {
                             extension.run(extensions::RequestData {
-                                adress,
+                                address,
                                 response: &mut byte_response,
                                 content_start,
                                 cached: &mut cached,
@@ -465,7 +465,7 @@ pub(crate) fn process_request<W: io::Write>(
                 match extensions.get_file_extension(file_extension) {
                     Some(extension) => unsafe {
                         extension.run(extensions::RequestData {
-                            adress,
+                            address,
                             response: &mut byte_response,
                             content_start,
                             cached: &mut cached,

@@ -44,7 +44,7 @@ pub mod cgi {
         file_name: &str,
         file_path: &str,
         uri: &str,
-        adress: &SocketAddr,
+        address: &SocketAddr,
         body: &[u8],
     ) -> Result<Vec<u8>, FCGIError> {
         // Create connection to FastCGI server
@@ -55,11 +55,11 @@ pub mod cgi {
         let mut client = Client::new(stream, false);
 
         let len = body.len().to_string();
-        let remote_addr = match adress.ip() {
+        let remote_addr = match address.ip() {
             IpAddr::V4(addr) => addr.to_string(),
             IpAddr::V6(addr) => addr.to_string(),
         };
-        let remote_port = adress.port().to_string();
+        let remote_port = address.port().to_string();
 
         let params = Params::with_predefine()
             .set_request_method(method)
@@ -113,7 +113,7 @@ pub mod cgi {
             file_name,
             file_path,
             data.request.uri().path_and_query().unwrap().as_str(),
-            data.adress,
+            data.address,
             data.request.body(),
         ) {
             Ok(vec) => Ok(vec),
@@ -381,7 +381,7 @@ pub fn download() -> BoundExtension {
         extension_aliases: &["download"],
         file_extension_aliases: &[],
         ext: Extension::new(&|| {}, &|_, data| {
-            println!("Downloading to {}", data.adress.to_string());
+            println!("Downloading to {}", data.address.to_string());
             *data.content_type = Download;
         }),
     }
@@ -393,7 +393,7 @@ pub fn cache() -> BoundExtension {
         file_extension_aliases: &[],
         ext: Extension::new(&|| {}, &|_, data| {
             if let Some(cache) = data.args.get(1).and_then(|arg| arg.parse().ok()) {
-                println!("Downloading to {}", data.adress.to_string());
+                println!("Downloading to {}", data.address.to_string());
                 *data.cached = cache;
             }
         }),

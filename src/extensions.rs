@@ -283,7 +283,7 @@ impl Clone for BoundExtension {
 }
 #[derive(Debug)]
 pub struct RequestData<'a> {
-    pub adress: &'a net::SocketAddr,
+    pub address: &'a net::SocketAddr,
     pub response: &'a mut ByteResponse,
     pub content_start: usize,
     pub cached: &'a mut Cached,
@@ -320,7 +320,7 @@ pub trait Ext: fmt::Debug {
     unsafe fn run(&mut self, data: RequestData);
     fn init(&mut self);
     /// # Safety
-    /// Must be initialized (by calling `init`) before calling this function. Else, it will perform the `drop` on a random memory adress.
+    /// Must be initialized (by calling `init`) before calling this function. Else, it will perform the `drop` on a random memory address.
     ///
     /// # Examples
     /// Correct usage:
