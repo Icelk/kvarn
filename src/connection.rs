@@ -159,6 +159,15 @@ impl InformationLayer {
             InformationLayer::TLS(session) => session.send_close_notify(),
         }
     }
+    #[inline]
+    pub fn clear(&mut self) {
+        match self {
+            InformationLayer::Buffered(buffered) => buffered.clear(),
+            InformationLayer::TLS(session) => {
+                let _ = session.write_tls(&mut io::sink());
+            }
+        }
+    }
 
     #[inline]
     pub fn wants_read(&self) -> bool {
@@ -450,8 +459,11 @@ impl Connection {
     #[cfg(feature = "limiting")]
     #[inline]
     pub fn too_many_requests(&mut self) -> io::Result<()> {
-        self.socket.write(limiting::TOO_MANY_REQUESTS).and(Ok(()))?;
-        self.socket.flush()
+        // Have to clear, since old data will maybe be laying around, since not all MIO events are write, and a write could be interrupted.
+        self.layer.clear();
+        self.layer.write(limiting::TOO_MANY_REQUESTS)?;
+        let _ = self.layer.push(&mut self.socket);
+        Ok(())
     }
 
     #[inline]
