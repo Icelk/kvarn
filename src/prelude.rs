@@ -65,6 +65,8 @@ pub mod networking {
     use super::*;
 
     pub use connection::ConnectionHeader;
+    #[cfg(feature = "limiting")]
+    pub use limiting::LimitStrength;
     pub use mio::net::{TcpListener, TcpStream};
     pub use std::io::{Read, Write};
     pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};

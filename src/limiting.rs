@@ -22,6 +22,13 @@ Content-Length: 342\r\n\
 </html>\
 ";
 
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub enum LimitStrength {
+    Passed,
+    Send,
+    Drop,
+}
+
 #[derive(Debug, Clone)]
 pub struct LimitManager {
     connection_map_and_time: Arc<Mutex<(HashMap<IpAddr, usize>, time::Instant)>>,
@@ -42,15 +49,15 @@ impl LimitManager {
             iteration: Arc::new(atomic::AtomicUsize::new(0)),
         }
     }
-    pub fn register(&mut self, addr: SocketAddr) -> bool {
+    pub fn register(&mut self, addr: SocketAddr) -> LimitStrength {
         if self.iteration.fetch_add(1, atomic::Ordering::AcqRel) + 1 < self.check_every {
-            true
+            LimitStrength::Passed
         } else {
             self.iteration.store(0, atomic::Ordering::Release);
             match self.connection_map_and_time.try_lock() {
                 Err(err) => match err {
                     // Do nothing! You are allowed inside
-                    TryLockError::WouldBlock => true,
+                    TryLockError::WouldBlock => LimitStrength::Passed,
                     TryLockError::Poisoned(_) => panic!("Connection Map lock poisoned!"),
                 },
                 Ok(mut lock) => {
@@ -58,16 +65,20 @@ impl LimitManager {
                     if time.elapsed().as_secs() >= self.reset_seconds {
                         *time = time::Instant::now();
                         map.clear();
-                        true
+                        LimitStrength::Passed
                     } else {
                         let requests = *map
                             .entry(addr.ip())
                             .and_modify(|count| *count += 1)
                             .or_insert(1);
                         if requests <= self.max_requests {
-                            true
+                            LimitStrength::Passed
                         } else {
-                            false
+                            if requests <= self.max_requests * 10 {
+                                LimitStrength::Send
+                            } else {
+                                LimitStrength::Drop
+                            }
                         }
                     }
                 }

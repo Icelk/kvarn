@@ -191,10 +191,13 @@ impl HandlerPool {
 
                 // If registered address does not pass the test, return from function
                 #[cfg(feature = "limiting")]
-                if !_storage.register(addr) {
-                    let _ = socket.shutdown(Shutdown::Both);
-                    drop(socket);
-                    return;
+                match _storage.register(addr) {
+                    LimitStrength::Send | LimitStrength::Drop => {
+                        let _ = socket.shutdown(Shutdown::Both);
+                        drop(socket);
+                        return;
+                    }
+                    LimitStrength::Passed => {}
                 }
 
                 let mut connection = match Connection::new(socket, addr, token, connection) {
@@ -239,9 +242,17 @@ impl HandlerPool {
                     if let Some(connection) = connections.get_mut(&event.token()) {
                         // If registered address does not pass the test, return from function
                         #[cfg(feature = "limiting")]
-                        if event.writable() && !storage.register(*connection.get_addr()) {
-                                let _ = connection.too_many_requests();
-                            return;
+                        if event.writable() {
+                            match storage.register(*connection.get_addr()) {
+                                LimitStrength::Send => {
+                                    let _ = connection.too_many_requests();
+                                    return;
+                                },
+                                LimitStrength::Drop => {
+                                    return;
+                                },
+                                LimitStrength::Passed => {}
+                            }
                         }
                         let pre_processing = std::time::Instant::now();
                         connection.ready(registry, &event, storage, extensions);

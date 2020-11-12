@@ -322,7 +322,7 @@ impl Storage {
 
     #[cfg(feature = "limiting")]
     #[inline]
-    pub fn register(&mut self, addr: SocketAddr) -> bool {
+    pub fn register(&mut self, addr: SocketAddr) -> LimitStrength {
         self.limits.register(addr)
     }
 }
