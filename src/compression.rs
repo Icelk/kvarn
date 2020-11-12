@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use crate::prelude::{fs::*, *};
 
 pub enum Compressors {
@@ -42,6 +43,7 @@ impl Compressors {
     pub fn compress(bytes: &[u8], compressor: &CompressionAlgorithm) -> Vec<u8> {
         match compressor {
             CompressionAlgorithm::Identity => bytes.to_vec(),
+            #[cfg(feature = "br")]
             CompressionAlgorithm::Brotli => {
                 let buffer = Vec::with_capacity(bytes.len() / 3 + 128);
                 let mut c = brotli::CompressorWriter::new(buffer, 4096, 8, 21);
@@ -51,6 +53,7 @@ impl Compressors {
                 buffer.shrink_to_fit();
                 buffer
             }
+            #[cfg(feature = "gzip")]
             CompressionAlgorithm::Gzip => {
                 let buffer = Vec::with_capacity(bytes.len() / 3 + 128);
                 let mut c = flate2::write::GzEncoder::new(buffer, flate2::Compression::fast());
