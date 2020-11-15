@@ -449,6 +449,7 @@ pub(crate) fn process_request<W: io::Write>(
                                 raw_request,
                                 path: &path,
                                 content_type: &mut content_type,
+                                close,
                             });
                         },
                         // Do nothing
@@ -475,6 +476,7 @@ pub(crate) fn process_request<W: io::Write>(
                             raw_request,
                             path: &path,
                             content_type: &mut content_type,
+                            close,
                         });
                     },
                     // Do nothing
