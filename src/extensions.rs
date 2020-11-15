@@ -302,7 +302,7 @@ pub trait Ext: fmt::Debug {
     /// # Examples
     /// Correct usage:
     /// ```no_run
-    /// use arktis::extension_helper::{Extension, Ext};
+    /// use kvarn::extension_helper::{Extension, Ext};
     ///
     /// let mut ext = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
     /// ext.init();
@@ -311,7 +311,7 @@ pub trait Ext: fmt::Debug {
     /// ```
     /// *Incorrect* usage:
     /// ```no_run
-    /// use arktis::extension_helper::{Extension, Ext};
+    /// use kvarn::extension_helper::{Extension, Ext};
     ///
     /// let mut ext = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
     /// # let request_data = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
@@ -325,7 +325,7 @@ pub trait Ext: fmt::Debug {
     /// # Examples
     /// Correct usage:
     /// ```
-    /// use arktis::extension_helper::{Extension, Ext};
+    /// use kvarn::extension_helper::{Extension, Ext};
     ///
     /// let mut ext = Extension::new(&|| 9, &|value, _| println!("Value: {}", value));
     /// ext.init();
@@ -333,7 +333,7 @@ pub trait Ext: fmt::Debug {
     /// ```
     /// *Incorrect* usage:
     /// ```no_run
-    /// use arktis::extension_helper::{Extension, Ext};
+    /// use kvarn::extension_helper::{Extension, Ext};
     ///
     /// let mut ext = Extension::new(&|| "A str!", &|value, _| println!("Value: {}", value));
     /// unsafe { ext.uninit() };

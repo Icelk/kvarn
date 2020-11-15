@@ -1,6 +1,6 @@
-//! ## **The Arktis Prelude**
+//! ## **The Kvarn Prelude**
 //!
-//! The purpose of this module is to *simplify*, *make modules dependencies obvious*, and *keep consistency* in the development of the Arktis web server.
+//! The purpose of this module is to *simplify*, *make modules dependencies obvious*, and *keep consistency* in the development of the *Kvarn web server*.
 //!
 //! Other niche preludes can be found as submodules, including
 //! * a FS prelude
@@ -46,7 +46,7 @@ pub use connection::ConnectionSecurity;
 pub use utility::chars::*;
 pub use utility::{read_file, write_error, write_generic_error, ContentType::*};
 
-/// ## **The Arktis *File System* Prelude**
+/// ## **The Kvarn *File System* Prelude**
 ///
 /// The purpose of this module is to expose common file system operations.
 pub mod fs {
@@ -58,9 +58,9 @@ pub mod fs {
     pub use utility::read_file;
 }
 
-/// ## **The Arktis *Networking* Prelude**
+/// ## **The Kvarn *Networking* Prelude**
 ///
-/// The purpose of this module is to expose MetalIO network types used in Arktis.
+/// The purpose of this module is to expose MetalIO network types used in Kvarn.
 pub mod networking {
     use super::*;
 
@@ -72,9 +72,9 @@ pub mod networking {
     pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
 }
 
-/// ## **The Arktis *Internal* Prelude**
+/// ## **The Kvarn *Internal* Prelude**
 ///
-/// The purpose of this module is to expose the commonly used internals of Arktis.
+/// The purpose of this module is to expose the commonly used internals of Kvarn.
 ///
 /// **This is not intended to be user-facing and may change rapidly**
 pub mod internals {
@@ -87,7 +87,7 @@ pub mod internals {
     pub use utility::default_error;
 }
 
-/// ## **The Arktis *Threading* Prelude**
+/// ## **The Kvarn *Threading* Prelude**
 ///
 /// The purpose of this module is to expose common threading types.
 pub mod threading {
@@ -95,7 +95,7 @@ pub mod threading {
     pub use std::thread;
 }
 
-/// ## **The Arktis *Connection* Prelude**
+/// ## **The Kvarn *Connection* Prelude**
 ///
 /// The purpose of this module is to expose the internal connections types and operations.
 pub mod con {
@@ -103,7 +103,7 @@ pub mod con {
     pub use connection::{Connection, ConnectionSecurity};
 }
 
-/// ## **The Arktis *Rustless* Prelude**
+/// ## **The Kvarn *Rustless* Prelude**
 ///
 /// The purpose of this module is to expose the used Rustls structs and traits.
 pub mod rustls_prelude {

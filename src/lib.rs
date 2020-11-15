@@ -25,14 +25,14 @@ pub use utility::{read_file, write_error, write_generic_error};
 
 const RESERVED_TOKENS: usize = 1024;
 #[cfg(target_os = "windows")]
-pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Windows)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Windows)\r\n";
 #[cfg(target_os = "macos")]
-pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (MacOS)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (MacOS)\r\n";
 #[cfg(target_os = "linux")]
-pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (Linux)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Linux)\r\n";
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-pub const SERVER_HEADER: &[u8] = b"Server: Arktis/0.1.0 (unknown OS)\r\n";
-pub const SERVER_NAME: &str = "Arktis";
+pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
+pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
 #[derive(Debug)]
@@ -89,7 +89,7 @@ impl Config {
     ///
     /// # Examples
     /// ```no_run
-    /// use arktis::*;
+    /// use kvarn::prelude::*;
     /// use std::io::{stdin, BufRead};
     /// use std::thread;
     ///

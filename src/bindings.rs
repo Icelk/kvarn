@@ -29,7 +29,7 @@ impl FunctionBindings {
     /// Fn needs to return a tuple with the content type (e.g. `text/html`), and whether the return value should be cached or not.
     /// # Examples
     /// ```
-    /// use arktis::{FunctionBindings, ContentType, write_error, Cached};
+    /// use kvarn::{FunctionBindings, ContentType, write_error, Cached};
     ///
     /// let mut bindings = FunctionBindings::new();
     ///
@@ -69,7 +69,7 @@ impl FunctionBindings {
     /// Fn needs to return a tuple with the content type (e.g. `text/html`), and whether the return value should be cached or not.
     /// # Examples
     /// ```
-    /// use arktis::{FunctionBindings, ContentType, Cached};
+    /// use kvarn::{FunctionBindings, ContentType, Cached};
     /// use http::Method;
     ///
     /// let mut bindings = FunctionBindings::new();

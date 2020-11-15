@@ -176,7 +176,7 @@ pub fn default_error(
 ///
 /// # Examples
 /// ```
-/// use arktis::{FunctionBindings, write_generic_error};
+/// use kvarn::{FunctionBindings, write_generic_error};
 ///
 /// let mut bindings = FunctionBindings::new();
 ///
@@ -198,7 +198,7 @@ pub fn write_generic_error(buffer: &mut Vec<u8>, code: u16) -> (ContentType, Cac
 ///
 /// # Examples
 /// ```
-/// use arktis::{FunctionBindings, write_error};
+/// use kvarn::{FunctionBindings, write_error};
 ///
 /// let mut bindings = FunctionBindings::new();
 ///

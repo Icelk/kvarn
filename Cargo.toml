@@ -1,16 +1,17 @@
 [package]
-name = "arktis"
+name = "kvarn"
 version = "0.1.0"
-authors = ["Icelk"]
+authors = ["Icelk <main@icelk.dev>"]
 edition = "2018"
-homepage = "https://icelk.dev/arktis/"
+homepage = "https://icelk.dev/kvarn/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace]
 members = [
   "./",
-  "arktis_extensions",
+  "kvarn_extensions",
+  "kvarn_chute",
 ]
 
 [dependencies]

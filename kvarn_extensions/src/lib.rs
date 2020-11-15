@@ -1,14 +1,14 @@
-//! # Arktis Extensions
-//! A *supporter-lib* for Arktis to supply extensions to the web server.
+//! # Kvarn extensions
+//! A *supporter-lib* for Kvarn to supply extensions to the web server.
 //!
 //! Use [`mount_all`] to get started quickly.
 //!
-//! ## An introduction to the Arktis extension system
-//! Arktis extensions can bind to *extension declarations* and to *file extensions*.
+//! ## An introduction to the *Kvarn extension system*
+//! Kvarn extensions can bind to *extension declarations* and to *file extensions*.
 //! For example, if you mount the extensions [`download`], it binds the *extension declaration* `download`.
 //! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it!
 
-use arktis::prelude::{internals::*, *};
+use kvarn::prelude::{internals::*, *};
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
@@ -30,7 +30,7 @@ pub use templates::templates;
 #[cfg(feature = "fastcgi-client")]
 pub mod cgi {
     use super::*;
-    use arktis::prelude::networking::*;
+    use kvarn::prelude::networking::*;
     use fastcgi_client::{Client, Params};
 
     pub enum FCGIError {
@@ -71,7 +71,7 @@ pub mod cgi {
             .set_remote_port(&remote_port)
             .set_server_addr("0.0.0.0")
             .set_server_port("")
-            .set_server_name(arktis::SERVER_NAME)
+            .set_server_name(kvarn::SERVER_NAME)
             .set_content_type("")
             .set_content_length(&len);
 
