@@ -18,6 +18,7 @@ use kvarn::prelude::{internals::*, *};
 pub fn mount_all(server: &mut Config) {
     server.mount_extension(download);
     server.mount_extension(cache);
+    server.mount_extension(hide);
     #[cfg(feature = "php")]
     server.mount_extension(php);
     #[cfg(feature = "templates")]
@@ -30,8 +31,8 @@ pub use templates::templates;
 #[cfg(feature = "fastcgi-client")]
 pub mod cgi {
     use super::*;
-    use kvarn::prelude::networking::*;
     use fastcgi_client::{Client, Params};
+    use kvarn::prelude::networking::*;
 
     pub enum FCGIError {
         FailedToConnect(io::Error),
@@ -381,7 +382,6 @@ pub fn download() -> BoundExtension {
         extension_aliases: &["download"],
         file_extension_aliases: &[],
         ext: Extension::new(&|| {}, &|_, data| {
-            println!("Downloading to {}", data.address.to_string());
             *data.content_type = Download;
         }),
     }
@@ -393,9 +393,19 @@ pub fn cache() -> BoundExtension {
         file_extension_aliases: &[],
         ext: Extension::new(&|| {}, &|_, data| {
             if let Some(cache) = data.args.get(1).and_then(|arg| arg.parse().ok()) {
-                println!("Downloading to {}", data.address.to_string());
                 *data.cached = cache;
             }
+        }),
+    }
+}
+
+pub fn hide() -> BoundExtension {
+    BoundExtension {
+        extension_aliases: &["hide"],
+        file_extension_aliases: &["private"],
+        ext: Extension::new(&|| {}, &|_, data| {
+            *data.response = default_error(404, data.close, Some(data.storage.get_fs()));
+            *data.content_type = Html;
         }),
     }
 }
