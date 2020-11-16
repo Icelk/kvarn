@@ -18,6 +18,5 @@ fn main() {
         lib::exit_with_message("Failed to write to output file.");
     }
     println!("Press enter to close...");
-    let mut buffer = [0; 0];
-    let _ = io::stdin().read(&mut buffer);
+    let _ = io::stdin().read(&mut [0; 0]);
 }
