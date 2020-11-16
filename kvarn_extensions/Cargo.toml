@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 kvarn = { path = "../", default-features = false }
-fastcgi-client = { version = "0.5.0", default-features = false, optional = true }
+fastcgi-client = { version = "0.5", default-features = false, optional = true }
 
 [features]
 default = ["php", "templates"]
