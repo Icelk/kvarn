@@ -159,9 +159,12 @@ impl Config {
             for event in events.iter() {
                 match listeners.get_mut(&event.token()) {
                     Some((listener, scheme)) => {
-                        let id = self.next_id();
-                        Self::accept(&mut thread_handler, scheme.clone(), listener, id)
-                            .expect("Failed to accept message!");
+                        self.accept(
+                            &mut thread_handler,
+                            ConnectionSecurity::clone(scheme),
+                            listener,
+                        )
+                        .expect("Failed to accept message!");
                     }
                     _ => {
                         let time = std::time::Instant::now();
@@ -181,16 +184,20 @@ impl Config {
     }
 
     fn accept(
+        &mut self,
         handler: &mut threading::HandlerPool,
         connection_type: ConnectionSecurity,
         socket: &mut TcpListener,
-        id: usize,
     ) -> Result<(), io::Error> {
         loop {
             match socket.accept() {
                 Ok((socket, addr)) => {
-                    let token = mio::Token(id);
-                    handler.accept(socket, addr, token, connection_type.clone());
+                    handler.accept(
+                        socket,
+                        addr,
+                        mio::Token(self.next_id()),
+                        connection_type.clone(),
+                    );
                 }
                 Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {
