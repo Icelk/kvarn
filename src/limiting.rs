@@ -3,7 +3,7 @@ use crate::prelude::{networking::*, threading::*, *};
 pub const TOO_MANY_REQUESTS: &'static [u8] = b"\
 HTTP/1.1 429 Too Many Requests\r\n\
 Content-Type: text/html\r\n\
-Connection: KeepAlive\r\n\
+Connection: keep-alive\r\n\
 Content-Encoding: identity\r\n\
 Content-Length: 342\r\n\
 \r\n\
