@@ -167,8 +167,7 @@ impl Config {
                         .expect("Failed to accept message!");
                     }
                     _ => {
-                        let time = std::time::Instant::now();
-                        thread_handler.handle(connection::MioEvent::from_event(event), time);
+                        thread_handler.handle(connection::MioEvent::from_event(event));
                     }
                 }
             }
@@ -679,7 +678,7 @@ pub(crate) fn process_request<W: io::Write>(
             } else {
                 uri
             };
-            #[cfg(feature = "log")]
+            #[cfg(feature = "info-log")]
             println!("Caching uri {}", &uri);
             match vary.is_empty() {
                 false => {

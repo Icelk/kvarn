@@ -187,7 +187,7 @@ impl HandlerPool {
         let thread_id = self
             .pool
             .execute(move |_storage, _, connections, registry, _| {
-                #[cfg(feature = "log")]
+                #[cfg(feature = "info-log")]
                 println!("Accepting new connection from: {:?}", addr);
 
                 // If registered address does not pass the test, return from function
@@ -219,7 +219,10 @@ impl HandlerPool {
         }
     }
 
-    pub fn handle(&mut self, event: crate::connection::MioEvent, _time: std::time::Instant) {
+    pub fn handle(&mut self, event: crate::connection::MioEvent) {
+        #[cfg(feature = "performance-monitoring")]
+        let time = std::time::Instant::now();
+
         let token = event.raw_token();
 
         // This takes an unnoticeable fraction of a second
@@ -230,7 +233,7 @@ impl HandlerPool {
             match connections.get(&token) {
                 Some(thread) => *thread,
                 None => {
-                    #[cfg(feature = "log")]
+                    #[cfg(feature = "error-log")]
                     eprintln!("Connection not found in thread registry! {:?}", token);
                     return;
                 }
@@ -254,9 +257,11 @@ impl HandlerPool {
                                 LimitStrength::Passed => {}
                             }
                         }
-                        let _pre_processing = std::time::Instant::now();
+                        #[cfg(feature = "performance-monitoring")]
+                        let pre_processing = std::time::Instant::now();
                         connection.ready(registry, &event, storage, extensions);
-                        let _post_processing = _pre_processing.elapsed();
+                        #[cfg(feature = "performance-monitoring")]
+                        let post_processing = pre_processing.elapsed();
                         if connection.is_closed() {
                             connections.remove(&event.token());
                             // Getting the lock on global connections! Have to release it quick!
@@ -265,16 +270,16 @@ impl HandlerPool {
                                 global_connections.remove(&event.raw_token());
                             }
                         }
-                        #[cfg(feature = "log")]
+                        #[cfg(feature = "performance-monitoring")]
                         println!(
                             "Request took: {} μs. Processing took: {} μs. Processing and global cons: {} μs.",
-                            _time.elapsed().as_micros(),
-                            _post_processing.as_micros(),
-                            _pre_processing.elapsed().as_micros()
+                            time.elapsed().as_micros(),
+                            post_processing.as_micros(),
+                            pre_processing.elapsed().as_micros()
 
                         );
                     } else {
-                        #[cfg(feature = "log")]
+                        #[cfg(feature = "error-log")]
                         eprintln!("Connection not found in thread-local connection registry!");
                     }
                 },

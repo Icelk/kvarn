@@ -25,10 +25,14 @@ brotli = { version = "3.3", optional = true }
 flate2 = { version = "1", optional = true }
 
 [features]
-default = ["compression", "fs", "limiting"]
+default = ["compression", "fs", "limiting", "log"]
 
 # Enable logging
-log = []
+log = ["info-log", "error-log"]
+error-log = []
+info-log = []
+# Enables performance monitoring
+performance-monitoring = []
 
 # Enables the server to serve from the file system
 fs = []
