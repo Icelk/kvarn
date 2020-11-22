@@ -508,7 +508,7 @@ impl Connection {
         self.closing
     }
     #[inline]
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         self.closing = true;
     }
 }

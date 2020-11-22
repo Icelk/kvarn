@@ -228,7 +228,7 @@ impl HandlerPool {
             let connections = self.connections.lock().unwrap();
             // println!("Global connections: {}", connections.len());
             match connections.get(&token) {
-                Some(id) => *id,
+                Some(thread) => *thread,
                 None => {
                     #[cfg(feature = "log")]
                     eprintln!("Connection not found in thread registry! {:?}", token);
@@ -250,9 +250,7 @@ impl HandlerPool {
                                     let _ = connection.too_many_requests();
                                     return;
                                 },
-                                LimitStrength::Drop => {
-                                    return;
-                                },
+                                LimitStrength::Drop => connection.close(),
                                 LimitStrength::Passed => {}
                             }
                         }
