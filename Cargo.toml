@@ -27,6 +27,9 @@ flate2 = { version = "1", optional = true }
 [features]
 default = ["compression", "fs", "limiting"]
 
+# Enable logging
+log = []
+
 # Enables the server to serve from the file system
 fs = []
 # Enables limits on the server, to avoid abusive usage by counting IP requests

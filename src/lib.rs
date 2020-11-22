@@ -672,6 +672,7 @@ pub(crate) fn process_request<W: io::Write>(
             } else {
                 uri
             };
+            #[cfg(feature = "log")]
             println!("Caching uri {}", &uri);
             match vary.is_empty() {
                 false => {

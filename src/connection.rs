@@ -353,13 +353,15 @@ impl Connection {
                             self.close();
                             0
                         }
-                        PullError::IO(err) => {
-                            eprintln!("Failed with IO: {}", err);
+                        PullError::IO(_err) => {
+                            #[cfg(feature = "log")]
+                            eprintln!("Failed with IO: {}", _err);
                             self.close();
                             0
                         }
-                        PullError::TLSError(err) => {
-                            eprintln!("Failed to process packets {}", err);
+                        PullError::TLSError(_err) => {
+                            #[cfg(feature = "log")]
+                            eprintln!("Failed to process packets {}", _err);
                             self.close();
                             0
                         }
@@ -444,6 +446,7 @@ impl Connection {
         }
 
         if self.closing {
+            #[cfg(feature = "log")]
             println!("Closing connection!");
             let _ = self.socket.shutdown(Shutdown::Both);
             self.deregister(registry);

@@ -13,9 +13,4 @@
 			"path": ".\\"
 		},
 	],
-	"settings": {
-		"auto-start-terminal.commands": [
-			"cd ./production_server/"
-		]
-	},
 }

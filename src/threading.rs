@@ -187,6 +187,7 @@ impl HandlerPool {
         let thread_id = self
             .pool
             .execute(move |_storage, _, connections, registry, _| {
+                #[cfg(feature = "log")]
                 println!("Accepting new connection from: {:?}", addr);
 
                 // If registered address does not pass the test, return from function
@@ -229,6 +230,7 @@ impl HandlerPool {
             match connections.get(&token) {
                 Some(id) => *id,
                 None => {
+                    #[cfg(feature = "log")]
                     eprintln!("Connection not found in thread registry! {:?}", token);
                     return;
                 }
@@ -254,9 +256,9 @@ impl HandlerPool {
                                 LimitStrength::Passed => {}
                             }
                         }
-                        let pre_processing = std::time::Instant::now();
+                        let _pre_processing = std::time::Instant::now();
                         connection.ready(registry, &event, storage, extensions);
-                        let post_processing = pre_processing.elapsed();
+                        let _post_processing = _pre_processing.elapsed();
                         if connection.is_closed() {
                             connections.remove(&event.token());
                             // Getting the lock on global connections! Have to release it quick!
@@ -265,13 +267,16 @@ impl HandlerPool {
                                 global_connections.remove(&event.raw_token());
                             }
                         }
+                        #[cfg(feature = "log")]
                         println!(
                             "Request took: {} μs. Processing took: {} μs. Processing and global cons: {} μs.",
                             _time.elapsed().as_micros(),
-                            post_processing.as_micros(),
-                            pre_processing.elapsed().as_micros(),
+                            _post_processing.as_micros(),
+                            _pre_processing.elapsed().as_micros()
+
                         );
                     } else {
+                        #[cfg(feature = "log")]
                         eprintln!("Connection not found in thread-local connection registry!");
                     }
                 },

@@ -132,7 +132,7 @@ pub mod cgi {
         }
     }
 }
-// Ok, since it is used, just not by every extension, and CFG would be too fragile for this.
+// Ok, since it is used, just not by every extension, and #[CFG] would be too fragile for this.
 #[allow(dead_code)]
 pub mod parse {
     use super::*;
