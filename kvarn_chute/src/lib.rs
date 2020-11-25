@@ -103,7 +103,7 @@ pub(crate) mod parse {
     }
 }
 
-pub fn exit_with_message(message: &'static str) -> ! {
+pub fn exit_with_message(message: &str) -> ! {
     eprintln!("{}", message);
     wait_for("Press enter to close...");
     std::process::exit(1)
@@ -136,12 +136,9 @@ pub(crate) mod filesystem {
                 Err(err) => match err.kind() {
                     ErrorKind::AlreadyExists => {
                         match read_continue("The existing .html file will be overriden.", true) {
-                            Err(_) => exit_with_message(
-                                "Failed to read stdin for confirmation on continuation.",
-                            ),
-                            Ok(false) => exit_with_message("Aborted conversion."),
+                            false => exit_with_message("Aborted conversion."),
                             // Continue as normal
-                            Ok(true) => {}
+                            true => {}
                         };
                         open(
                             OpenOptions::new().write(true).create(true).truncate(true),
@@ -171,17 +168,23 @@ pub(crate) mod filesystem {
 }
 
 #[must_use = "you have promted the user for input, so use it"]
-/// The message is in the beginning of the println! so it should be capitalized and contain a stop (e.g. `.?!`).
+/// The message is in the beginning of the println! so it should be capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
 /// The message should not contain the word continue, since it is used extensively in this fn.
-pub fn read_continue(message: &str, default: bool) -> io::Result<bool> {
+pub fn read_continue(message: &str, default: bool) -> bool {
     println!(
         "{} Do you want to continue (y or n)? Press enter to continue with '{}'.",
         message,
         if default == true { "yes" } else { "no" }
     );
-    Ok(loop {
+    loop {
         let mut buffer = [0; 64];
-        let read = io::stdin().lock().read(&mut buffer)?;
+        let read = match io::stdin().lock().read(&mut buffer) {
+            Ok(read) => read,
+            Err(_) => {
+                eprintln!("Failed to read stdin for confirmation.");
+                return false;
+            }
+        };
         let read = match buffer.get(read - 2) {
             Some(byte) if *byte == parse::CR => read - 2,
             Some(_) if buffer.get(read - 1) == Some(&parse::LF) => read - 1,
@@ -204,7 +207,7 @@ pub fn read_continue(message: &str, default: bool) -> io::Result<bool> {
                 message
             ),
         }
-    })
+    }
 }
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
