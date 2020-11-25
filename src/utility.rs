@@ -21,6 +21,7 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
+#[cfg(not(feature = "no-fs-cache"))]
 pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
     match cache.try_lock() {
         Ok(lock) => {
@@ -54,6 +55,21 @@ pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
                             sync::TryLockError::WouldBlock => Some(buffer),
                         },
                     }
+                }
+                Err(..) => None,
+            }
+        }
+        Err(..) => None,
+    }
+}
+#[cfg(feature = "no-fs-cache")]
+pub fn read_file(path: &PathBuf, _: &mut FsCache) -> Option<Arc<Vec<u8>>> {
+    match File::open(path) {
+        Ok(mut file) => {
+            let mut buffer = Vec::with_capacity(4096);
+            match file.read_to_end(&mut buffer) {
+                Ok(..) => {
+                    return Some(Arc::new(buffer));
                 }
                 Err(..) => None,
             }
