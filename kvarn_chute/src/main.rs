@@ -1,4 +1,4 @@
-use std::{env, io, io::Read};
+use std::env;
 pub mod lib;
 
 fn main() {
@@ -17,6 +17,5 @@ fn main() {
     ){
         lib::exit_with_message("Failed to write to output file.");
     }
-    println!("Press enter to close...");
-    let _ = io::stdin().read(&mut [0; 0]);
+    lib::wait_for("Press enter to close...");
 }

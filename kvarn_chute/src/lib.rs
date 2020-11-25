@@ -105,8 +105,7 @@ pub(crate) mod parse {
 
 pub fn exit_with_message(message: &'static str) -> ! {
     eprintln!("{}", message);
-    println!("Press enter to close...");
-    let _ = io::stdin().read(&mut [0; 0]);
+    wait_for("Press enter to close...");
     std::process::exit(1)
 }
 
@@ -330,4 +329,11 @@ pub fn process_document<P: AsRef<Path>>(
     println!("Done converting CommonMark to HTML.");
 
     Ok(())
+}
+
+/// Blocks while waiting for the user to press enter, displaying the message specified.
+#[inline]
+pub fn wait_for(message: &str) {
+    println!("{}", message);
+    let _ = io::stdin().read(&mut [0; 0]);
 }
