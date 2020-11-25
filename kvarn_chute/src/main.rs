@@ -11,8 +11,8 @@ fn main() {
     };
     if let Err(_) = lib::process_document(
         file,
-        b"!> tmpl standard markdown\n[head]\n[dependencies]\n[close-head]\n[navbar]\n<main style=\"text-align: center;\">",
-        b"</main>[footer]\n",
+        b"!> tmpl standard markdown\n[head][md-title][dependencies][md-imports][close-head][navbar]\n<main style=\"text-align: center;\">",
+        b"</main>\n[footer]\n",
         &["hide"]
     ){
         lib::exit_with_message("Failed to write to output file.");
