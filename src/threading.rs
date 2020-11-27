@@ -24,7 +24,11 @@ impl Worker {
                 let mut extensions = extensions.get_maps();
 
                 loop {
-                    let job = receiver.recv().unwrap();
+                    let job = match receiver.recv() {
+                        Ok(job) => job,
+                        // If it failed to receive, terminate loop to gracefullt shut down.
+                        Err(_) => break,
+                    };
                     job(
                         &mut storage,
                         &mut extensions,
