@@ -200,6 +200,7 @@ impl Config {
                 }
                 Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {
+                    #[cfg(feature = "error-log")]
                     eprintln!("Encountered error while accepting connection. {:?}", err);
                     return Err(err);
                 }
@@ -710,7 +711,11 @@ pub(crate) fn process_request<W: io::Write>(
                         Some(headers) => {
                             let _ = lock.add_variant(uri, response, headers, &vary[..]);
                         }
-                        None => eprintln!("Vary header not present in response!"),
+                        None =>
+                        {
+                            #[cfg(feature = "info-log")]
+                            eprintln!("Vary header not present in response! Will not cache.")
+                        }
                     }
                 }
                 true => {

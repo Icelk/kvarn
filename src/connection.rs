@@ -374,6 +374,7 @@ impl Connection {
             if request_len > 0 {
                 let mut close = ConnectionHeader::KeepAlive;
                 if request_len == request.len() {
+                    #[cfg(feature = "error-log")]
                     eprintln!("Request too large!");
                     let _ = utility::default_error(413, &close, Some(storage.get_fs()))
                         .write_all(&mut self.layer);
@@ -402,7 +403,8 @@ impl Connection {
                                         storage,
                                         extensions,
                                     ) {
-                                        eprintln!("Failed to write to session! {:?}", err);
+                                        #[cfg(feature = "error-log")]
+                                        eprintln!("Failed to write output to layer! {:?}", err);
                                     };
                                     // Flush all contents, important for compression
                                     let _ = self.layer.flush();
@@ -416,6 +418,7 @@ impl Connection {
                             }
                         }
                         Err(err) => {
+                            #[cfg(feature = "error-log")]
                             eprintln!(
                                 "Failed to parse request, write something as a response? Err: {:?}",
                                 err,
@@ -437,6 +440,7 @@ impl Connection {
                     // If the whole message couldn't be transmitted in one round, do nothing to allow reregistration
                 }
                 Err(err) => {
+                    #[cfg(feature = "error-log")]
                     eprintln!("Error writing to socket! {:?}", err);
                     self.close();
                 }

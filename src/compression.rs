@@ -74,12 +74,14 @@ impl Compressors {
             #[cfg(feature = "br")]
             Self::Brotli(compressor) => {
                 if let Err(err) = compressor.write_all(bytes) {
+                    #[cfg(feature = "error-log")]
                     eprintln!("Error compressing: {}", err);
                 };
             }
             #[cfg(feature = "gzip")]
             Self::Gzip(compressor) => {
                 if let Err(err) = compressor.write_all(bytes) {
+                    #[cfg(feature = "error-log")]
                     eprintln!("Error compressing: {}", err);
                 };
             }
