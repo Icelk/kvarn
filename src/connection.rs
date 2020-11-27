@@ -134,29 +134,21 @@ impl InformationLayer {
                 utility::read_to_end(&mut buffer, reader, true).map_err(|err| err.into())
             }
             InformationLayer::TLS(session) => {
-                // Loop on read_tls
-                loop {
-                    match session.read_tls(reader) {
-                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                        Err(err) => {
-                            return Err(err.into());
-                        }
-                        Ok(0) => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::ConnectionReset,
-                                "TLS read zero bytes",
-                            )
-                            .into())
-                        }
-                        _ => {
-                            match session.process_new_packets() {
-                                Err(err) => return Err(err.into()),
-                                Ok(()) => break,
-                            };
-                        }
-                    };
+                match session.read_tls(reader) {
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => Ok(0),
+                    Err(err) => Err(err.into()),
+                    Ok(0) => Err(io::Error::new(
+                        io::ErrorKind::ConnectionReset,
+                        "TLS read zero bytes",
+                    )
+                    .into()),
+                    _ => match session.process_new_packets() {
+                        Err(err) => Err(err.into()),
+                        // Everything succeeded
+                        Ok(()) => utility::read_to_end(&mut buffer, session, false)
+                            .map_err(|err| err.into()),
+                    },
                 }
-                utility::read_to_end(&mut buffer, session, false).map_err(|err| err.into())
             }
         }
     }
