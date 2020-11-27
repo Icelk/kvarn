@@ -252,7 +252,12 @@ pub fn process_document<P: AsRef<Path>>(
     ignored_extensions: &[&str],
 ) -> io::Result<()> {
     let path = path.as_ref();
-    if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+    if path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s == "md")
+        == Some(false)
+    {
         println!("Specified file is not of type '.md' This conversion be a mistake and make a unexpected result.");
     }
     let (mut file, metadata) = filesystem::open_file_with_metadata(&path);
