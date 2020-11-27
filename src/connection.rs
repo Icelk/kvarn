@@ -27,6 +27,8 @@ impl ConnectionHeader {
 pub struct MioEvent {
     writable: bool,
     readable: bool,
+    read_closed: bool,
+    write_closed: bool,
     token: usize,
 }
 impl MioEvent {
@@ -34,18 +36,40 @@ impl MioEvent {
         Self {
             writable: event.is_writable(),
             readable: event.is_readable(),
+            read_closed: event.is_read_closed(),
+            write_closed: event.is_write_closed(),
             token: event.token().0,
         }
     }
+    #[inline]
     pub fn writable(&self) -> bool {
         self.writable
     }
+    #[inline]
     pub fn readable(&self) -> bool {
         self.readable
     }
+    #[inline]
+    pub fn hint_write_closed(&self) -> bool {
+        self.write_closed
+    }
+    #[inline]
+    pub fn hint_read_closed(&self) -> bool {
+        self.read_closed
+    }
+    #[inline]
+    pub fn hint_either_closed(&self) -> bool {
+        self.read_closed || self.write_closed
+    }
+    #[inline]
+    pub fn hint_both_closed(&self) -> bool {
+        self.read_closed && self.write_closed
+    }
+    #[inline]
     pub fn token(&self) -> mio::Token {
         mio::Token(self.token)
     }
+    #[inline]
     pub fn raw_token(&self) -> usize {
         self.token
     }
@@ -342,7 +366,7 @@ impl Connection {
         extensions: &mut extensions::ExtensionMap,
     ) {
         // If socket is readable, read from socket to session
-        if event.readable() {
+        if event.readable() && !event.hint_read_closed() {
             // Read request from session to buffer
             let (request, request_len) = {
                 let mut buffer = [0; 16_384_usize];
@@ -434,7 +458,7 @@ impl Connection {
                 };
             }
         }
-        if event.writable() {
+        if event.writable() && !event.hint_write_closed() {
             match self.layer.push(&mut self.socket) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                     // If the whole message couldn't be transmitted in one round, do nothing to allow reregistration
@@ -449,7 +473,7 @@ impl Connection {
             };
         }
 
-        if self.closing {
+        if self.closing || event.hint_both_closed() {
             #[cfg(feature = "info-log")]
             println!("Closing connection!");
             let _ = self.socket.shutdown(Shutdown::Both);
