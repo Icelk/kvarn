@@ -508,9 +508,12 @@ pub(crate) fn process_request<W: io::Write>(
         }
     }
 
-    let content_str = content_type.as_str(path);
+    // Check takes about 1 micro second for a 4MB image.
+    let valid_utf8 = std::str::from_utf8(byte_response.get_body()).is_ok();
+    let content_str = content_type.as_str_utf8(path, valid_utf8);
+
     // The response MUST contain all vary headers, else it won't be cached!
-    let vary: Vec<&str> = vec![/* "Content-Type", */ "Accept-Encoding"];
+    let vary: Vec<&str> = vec!["Accept-Encoding"];
 
     let compression = match request
         .headers()

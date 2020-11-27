@@ -300,6 +300,39 @@ impl ContentType {
             )),
         }
     }
+    pub fn as_str_utf8<P: AsRef<Path>>(&self, path: P, is_valid_utf8: bool) -> Cow<'static, str> {
+        if is_valid_utf8 {
+            match self {
+                ContentType::FromMime(mime) => Cow::Owned(format!("{}; charset=utf-8", mime)),
+                ContentType::Html => Cow::Borrowed("text/html; charset=utf-8"),
+                ContentType::PlainText => Cow::Borrowed("text/plain; charset=utf-8"),
+                ContentType::Download => Cow::Borrowed("application/octet-stream"),
+                ContentType::AutoOrDownload => {
+                    let mime = mime_guess::from_path(&path).first_or_octet_stream();
+                    match mime.type_().as_str() {
+                        "text" => Cow::Owned(format!("{}; charset=utf-8", mime)),
+                        _ => Cow::Owned(format!("{}", mime)),
+                    }
+                }
+                ContentType::AutoOrPlain => {
+                    let mime = mime_guess::from_path(&path).first_or_text_plain();
+                    match mime.type_().as_str() {
+                        "text" => Cow::Owned(format!("{}; charset=utf-8", mime)),
+                        _ => Cow::Owned(format!("{}", mime)),
+                    }
+                }
+                ContentType::AutoOrHTML => {
+                    let mime = mime_guess::from_path(&path).first_or(mime::TEXT_HTML);
+                    match mime.type_().as_str() {
+                        "text" => Cow::Owned(format!("{}; charset=utf-8", mime)),
+                        _ => Cow::Owned(format!("{}", mime)),
+                    }
+                }
+            }
+        } else {
+            self.as_str(path)
+        }
+    }
 }
 impl Default for ContentType {
     fn default() -> Self {
