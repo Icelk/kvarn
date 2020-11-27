@@ -87,7 +87,10 @@ pub fn read_to_end(
     let mut read = 0;
     loop {
         match reader.read(&mut bytes[read..]) {
-            Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
+            Err(ref err) if err.kind() == io::ErrorKind::Interrupted => {
+                std::thread::yield_now();
+                continue;
+            }
             Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
             Err(err) => {
                 return Err(err);
