@@ -19,6 +19,7 @@ pub fn mount_all(server: &mut Config) {
     server.mount_extension(download);
     server.mount_extension(cache);
     server.mount_extension(hide);
+    server.mount_extension(ip_allow);
     #[cfg(feature = "php")]
     server.mount_extension(php);
     #[cfg(feature = "templates")]
@@ -406,6 +407,33 @@ pub fn hide() -> BoundExtension {
         ext: Extension::new(&|| {}, &|_, data| {
             *data.response = default_error(404, data.close, Some(data.storage.get_fs()));
             *data.content_type = Html;
+        }),
+    }
+}
+
+pub fn ip_allow() -> BoundExtension {
+    BoundExtension {
+        extension_aliases: &["allow-ips"],
+        file_extension_aliases: &[],
+        ext: Extension::new(&|| {}, &|_, data| {
+            let mut matched = false;
+            // Loop over denied ip in args
+            for denied in data.args {
+                // If parsed
+                if let Ok(ip) = denied.parse::<std::net::IpAddr>() {
+                    // check it against the requests IP.
+                    if data.address.ip() == ip {
+                        matched = true;
+                        // Then break out of loop
+                        break;
+                    }
+                }
+            }
+            if !matched {
+                // If it does not match, set the response to 404
+                *data.response = default_error(404, data.close, Some(data.storage.get_fs()));
+            }
+            *data.cached = Cached::Changing;
         }),
     }
 }
