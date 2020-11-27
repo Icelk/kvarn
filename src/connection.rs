@@ -360,7 +360,7 @@ impl Connection {
         extensions: &mut extensions::ExtensionMap,
     ) {
         // If socket is readable, read from socket to session
-        if event.readable() && !event.hint_read_closed() {
+        if event.readable() {
             // Read request from session to buffer
             let (request, request_len) = {
                 let mut buffer = [0; 16_384_usize];
@@ -452,7 +452,7 @@ impl Connection {
                 };
             }
         }
-        if event.writable() && !event.hint_write_closed() {
+        if event.writable() {
             match self.layer.push(&mut self.socket) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                     // If the whole message couldn't be transmitted in one round, do nothing to allow connection to reregister
@@ -467,10 +467,13 @@ impl Connection {
             };
         }
 
-        if self.closing || event.hint_both_closed() {
+        // Hint both closed is sketchy, and might cause future pain!
+        if self.is_closed() || event.hint_both_closed() {
             #[cfg(feature = "info-log")]
             println!("Closing connection!");
             let _ = self.socket.shutdown(Shutdown::Both);
+            // If both read and write closed, signal upper fn that we have closed
+            self.close();
             self.deregister(registry);
         } else {
             self.reregister(registry);
@@ -491,25 +494,22 @@ impl Connection {
         Ok(())
     }
 
-    #[inline]
     pub fn register(&mut self, registry: &mio::Registry) {
         let es = self.event_set();
         registry
             .register(&mut self.socket, self.token, es)
             .expect("Failed to register connection!");
     }
-    #[inline]
     pub fn reregister(&mut self, registry: &mio::Registry) {
         let es = self.event_set();
         registry
             .reregister(&mut self.socket, self.token, es)
-            .expect("Failed to register connection!");
+            .expect("Failed to reregister connection!");
     }
-    #[inline]
     pub fn deregister(&mut self, registry: &mio::Registry) {
         registry
             .deregister(&mut self.socket)
-            .expect("Failed to register connection!");
+            .expect("Failed to deregister connection!");
     }
 
     fn event_set(&self) -> mio::Interest {
