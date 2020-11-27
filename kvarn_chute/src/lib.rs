@@ -115,34 +115,36 @@ pub(crate) mod filesystem {
         fs::{File, Metadata, OpenOptions},
         io::ErrorKind,
     };
-    pub fn open_file_with_metadata<P: AsRef<Path>>(path: P) -> (File, Metadata) {
+    pub fn open_file_with_metadata<P: AsRef<Path>>(path: P) -> io::Result<(File, Metadata)> {
         match File::open(path).and_then(|file| file.metadata().map(|metadata| (file, metadata))) {
-            Ok(file) => file,
+            Ok(file) => Ok(file),
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
                     exit_with_message("File not found, please check the entered path.")
                 }
-                ErrorKind::PermissionDenied => {
-                    exit_with_message("You do not have permission to read the file specified.")
-                }
+                ErrorKind::PermissionDenied => return Err(err),
                 _ => exit_with_message("Encountered an unknown error reading the file specified."),
             },
         }
     }
-    pub fn create_file<P: AsRef<Path>>(path: P) -> File {
-        fn open<P: AsRef<Path>>(options: &OpenOptions, path: P) -> File {
+    pub fn create_file<P: AsRef<Path>>(path: P, quiet: bool) -> File {
+        fn open<P: AsRef<Path>>(options: &OpenOptions, path: P, quiet: bool) -> File {
             match options.open(&path) {
                 Ok(file) => file,
                 Err(err) => match err.kind() {
                     ErrorKind::AlreadyExists => {
-                        match read_continue("The existing .html file will be overriden.", true) {
-                            false => exit_with_message("Aborted conversion."),
-                            // Continue as normal
-                            true => {}
-                        };
+                        if !quiet {
+                            match read_continue("The existing .html file will be overriden.", true)
+                            {
+                                false => exit_with_message("Aborted conversion."),
+                                // Continue as normal
+                                true => {}
+                            };
+                        }
                         open(
                             OpenOptions::new().write(true).create(true).truncate(true),
                             path,
+                            quiet,
                         )
                     }
                     ErrorKind::NotFound => {
@@ -163,6 +165,7 @@ pub(crate) mod filesystem {
                 .create_new(true)
                 .truncate(true),
             path,
+            quiet,
         )
     }
 }
@@ -238,10 +241,10 @@ impl FileEnding {
 
 /// Will process the document at the given path.
 ///
-/// If an Kvarn extension resides in the beginning of the header, make sure it has a newline in the end if only extension declaration; else parsing will fail.
+/// If a Kvarn extension resides in the beginning of the header, make sure it has a newline in the end if only extension declaration; else parsing will fail.
 ///
 /// # Errors
-/// Will only throw a error if writing to the output file failed. Else, it terminates the application.
+/// Will throw a error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder). Else, it terminates the application.
 ///
 /// # Panics
 /// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
@@ -250,6 +253,7 @@ pub fn process_document<P: AsRef<Path>>(
     header: &[u8],
     footer: &[u8],
     ignored_extensions: &[&str],
+    quiet: bool,
 ) -> io::Result<()> {
     let path = path.as_ref();
     if path
@@ -260,13 +264,13 @@ pub fn process_document<P: AsRef<Path>>(
     {
         println!("Specified file is not of type '.md' This conversion be a mistake and make a unexpected result.");
     }
-    let (mut file, metadata) = filesystem::open_file_with_metadata(&path);
+    let (mut file, metadata) = filesystem::open_file_with_metadata(&path)?;
     let new_path = {
         let mut path = path.to_owned();
         path.set_extension("html");
         path
     };
-    let mut write_file = io::BufWriter::new(filesystem::create_file(&new_path));
+    let mut write_file = io::BufWriter::new(filesystem::create_file(&new_path, quiet));
 
     let mut buffer = Vec::with_capacity(metadata.len() as usize); // ToDo: Remove `as usize`
     if file.read_to_end(&mut buffer).is_err() {
@@ -334,9 +338,65 @@ pub fn process_document<P: AsRef<Path>>(
     // Flushes the buffered writer
     write_file.flush()?;
 
-    println!("Done converting CommonMark to HTML.");
+    if !quiet {
+        println!("Done converting CommonMark to HTML.");
+    }
 
     Ok(())
+}
+
+/// Will watch the given directory.
+///
+/// If a Kvarn extension resides in the beginning of the header, make sure it has a newline in the end if only extension declaration; else parsing will fail.
+///
+/// # Errors
+/// Will throw a error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder). Else, it terminates the application.
+///
+/// # Panics
+/// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
+pub fn watch<P: AsRef<Path>>(
+    path: P,
+    header: &[u8],
+    footer: &[u8],
+    ignored_extensions: &[&str],
+) -> io::Result<()> {
+    use notify::{watcher, DebouncedEvent::*, RecursiveMode, Watcher};
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+    // Create a channel to receive the events.
+    let (tx, rx) = channel();
+
+    // Create a watcher object, delivering debounced events.
+    // The notification back-end is selected based on the platform.
+    let mut watcher = watcher(tx, Duration::from_millis(100)).unwrap();
+
+    // Add a path to be watched. All files and directories at that path and
+    // below will be monitored for changes.
+    watcher
+        .watch(path.as_ref(), RecursiveMode::Recursive)
+        .unwrap();
+
+    loop {
+        match rx.recv() {
+            Ok(event) => match event {
+                Write(path) | Create(path) | Rename(_, path) => {
+                    if path.extension().and_then(|os_str| os_str.to_str()) == Some("md") {
+                        process_document(&path, header, footer, ignored_extensions, true)?;
+                        let local_path = if let Ok(wd) = std::env::current_dir() {
+                            path.strip_prefix(wd).unwrap_or(&path)
+                        } else {
+                            &path
+                        };
+                        if let Some(path) = local_path.to_str() {
+                            println!("Converted {} to html!", path);
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Err(_) => exit_with_message("Got an error watching the specified directory."),
+        }
+    }
 }
 
 /// Blocks while waiting for the user to press enter, displaying the message specified.
