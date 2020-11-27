@@ -197,6 +197,7 @@ impl Config {
                         mio::Token(self.next_id()),
                         connection_type.clone(),
                     );
+                    continue;
                 }
                 Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {

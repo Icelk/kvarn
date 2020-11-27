@@ -131,29 +131,31 @@ impl InformationLayer {
     ) -> Result<usize, PullError> {
         match self {
             InformationLayer::Buffered(_) => {
-                // buffered.push(reader).or(Err(()))
                 utility::read_to_end(&mut buffer, reader, true).map_err(|err| err.into())
             }
             InformationLayer::TLS(session) => {
                 // Loop on read_tls
-                match session.read_tls(reader) {
-                    Err(err) => {
-                        if let io::ErrorKind::WouldBlock = err.kind() {}
-                        return Err(err.into());
-                    }
-                    Ok(0) => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::ConnectionReset,
-                            "TLS read zero bytes",
-                        )
-                        .into());
-                    }
-                    _ => {
-                        if let Err(err) = session.process_new_packets() {
+                loop {
+                    match session.read_tls(reader) {
+                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(err) => {
                             return Err(err.into());
-                        };
-                    }
-                };
+                        }
+                        Ok(0) => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::ConnectionReset,
+                                "TLS read zero bytes",
+                            )
+                            .into())
+                        }
+                        _ => {
+                            match session.process_new_packets() {
+                                Err(err) => return Err(err.into()),
+                                Ok(()) => break,
+                            };
+                        }
+                    };
+                }
                 utility::read_to_end(&mut buffer, session, false).map_err(|err| err.into())
             }
         }
@@ -461,7 +463,7 @@ impl Connection {
         if event.writable() && !event.hint_write_closed() {
             match self.layer.push(&mut self.socket) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                    // If the whole message couldn't be transmitted in one round, do nothing to allow reregistration
+                    // If the whole message couldn't be transmitted in one round, do nothing to allow connection to reregister
                 }
                 Err(err) => {
                     #[cfg(feature = "error-log")]

@@ -234,7 +234,7 @@ pub struct VaryMaster {
     data: Mutex<Vec<(Vec<http::HeaderValue>, Arc<ByteResponse>)>>,
 }
 
-/// A enum to contain data about the cached data. Can either be `Data`, when no `Vary` header is present, or `Vary` if it must contain several values.
+/// A enum to contain data about the cached data. Can either be `Data`, when no `Vary:` header is present, or `Vary` if it must contain several values.
 #[derive(Debug)]
 pub enum CacheType {
     Data(Arc<ByteResponse>),
