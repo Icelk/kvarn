@@ -82,11 +82,11 @@ pub fn read_file_cached(path: &PathBuf, _: &mut FsCache) -> Option<Arc<Vec<u8>>>
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 /// Shared Reference or Owned defines either a Arc<T> or T.
-pub enum SRO<T> {
-    Shared(Arc<T>),
+pub enum SRO<T, B: std::ops::Deref<Target = T>> {
+    Shared(B),
     Owned(T),
 }
-impl<T> SRO<T> {
+impl<T, B: std::ops::Deref<Target = T>> SRO<T, B> {
     pub fn into_owned(self) -> T
     where
         T: Clone,
@@ -97,7 +97,7 @@ impl<T> SRO<T> {
         }
     }
 }
-impl<T> std::ops::Deref for SRO<T> {
+impl<T, B: std::ops::Deref<Target = T>> std::ops::Deref for SRO<T, B> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -111,7 +111,7 @@ impl<T> std::ops::Deref for SRO<T> {
 ///
 /// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(not(feature = "no-fs-cache"))]
-pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SRO<Vec<u8>>> {
+pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
     match cache.try_lock() {
         Ok(lock) => {
             if let Some(cached) = lock.get(path) {
@@ -141,7 +141,7 @@ pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SRO<Vec<u8>>> {
 ///
 /// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(feature = "no-fs-cache")]
-pub fn read_file(path: &PathBuf, _: &mut FsCache) -> Option<SRO<Vec<u8>>> {
+pub fn read_file(path: &PathBuf, _: &mut FsCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
     match File::open(path) {
         Ok(mut file) => {
             let mut buffer = Vec::with_capacity(4096);
