@@ -417,7 +417,8 @@ pub(crate) fn process_request<W: io::Write>(
             // No function, try read from FS cache.
             None => {
                 // Body
-                let body = match read_file(&path, storage.get_fs()) {
+                // The requested file will be used only once, here.
+                let body = match read_file_cached(&path, storage.get_fs()) {
                     Some(response) => ByteResponse::without_header_shared(response),
                     None => default_error(404, close, Some(storage.get_fs())),
                 };
@@ -438,34 +439,60 @@ pub(crate) fn process_request<W: io::Write>(
             // Search through extension map!
             let (extension_args, content_start) =
                 extensions::parse::extension_args(byte_response.get_body());
-            // Extension line is removed from body before it is handed to extensions, saving them the confusion.
-            let vec = byte_response.get_first_vec();
-            *vec = vec[content_start..].to_vec();
+
+            // Get head and body reference.
+            let (mut head, mut body) = match &byte_response {
+                ByteResponse::Merged(vec, start, _) => {
+                    (Some(&vec[content_start..*start]), &vec[*start..])
+                }
+                ByteResponse::Both(head, body, _) => (Some(&head[content_start..]), &body[..]),
+                ByteResponse::Body(body) => (None, &body[content_start..]),
+                ByteResponse::BorrowedBody(borrow) => (None, &borrow[content_start..]),
+            };
+            // Declare temp response variable for extensions to assign to.
+            let mut response = None;
 
             for segment in extension_args {
                 if let Some(extension_name) = segment.get(0).map(|string| string.as_str()) {
                     match extensions.get_name(extension_name) {
                         Some(extension) => unsafe {
-                            extension.run(extensions::RequestData {
+                            let mut data = extensions::RequestData::new(
                                 address,
-                                response: &mut byte_response,
+                                head,
+                                body,
                                 content_start,
-                                cached: &mut cached,
-                                args: segment,
+                                &mut cached,
+                                segment,
                                 storage,
-                                request: &request,
+                                &request,
                                 raw_request,
-                                path: &path,
-                                content_type: &mut content_type,
+                                &path,
+                                &mut content_type,
                                 close,
-                            });
+                            );
+                            extension.run(&mut data);
+                            match data.into_response() {
+                                // If got response, replace `response` with new one and calculate head and body.
+                                Some(new_response) => {
+                                    response = Some(new_response);
+                                    let (new_head, new_body) = match response.as_ref().unwrap() {
+                                        ByteResponse::Merged(vec, start, _) => {
+                                            (Some(&vec[..*start]), &vec[*start..])
+                                        }
+                                        ByteResponse::Both(head, body, _) => {
+                                            (Some(&head[..]), &body[..])
+                                        }
+                                        ByteResponse::Body(body) => (None, &body[..]),
+                                        ByteResponse::BorrowedBody(borrow) => (None, &borrow[..]),
+                                    };
+                                    head = new_head;
+                                    body = new_body;
+                                }
+                                None => {}
+                            }
                         },
-                        // Do nothing
-                        None if allowed_method => {}
-                        _ => {
-                            byte_response =
-                                utility::default_error(405, close, Some(storage.get_fs()));
-                        }
+                        // }
+                        None => {}
                     }
                 }
             }
@@ -473,25 +500,37 @@ pub(crate) fn process_request<W: io::Write>(
             if let Some(file_extension) = path.extension().and_then(|path| path.to_str()) {
                 match extensions.get_file_extension(file_extension) {
                     Some(extension) => unsafe {
-                        extension.run(extensions::RequestData {
+                        let mut data = extensions::RequestData::new(
                             address,
-                            response: &mut byte_response,
+                            head,
+                            body,
                             content_start,
-                            cached: &mut cached,
-                            args: Vec::new(),
+                            &mut cached,
+                            Vec::new(),
                             storage,
-                            request: &request,
+                            &request,
                             raw_request,
-                            path: &path,
-                            content_type: &mut content_type,
+                            &path,
+                            &mut content_type,
                             close,
-                        });
+                        );
+                        extension.run(&mut data);
+                        match data.into_response() {
+                            Some(new_response) => response = Some(new_response),
+                            None => {}
+                        }
                     },
-                    // Do nothing
-                    None if allowed_method => {}
-                    _ => {
-                        byte_response = default_error(405, close, Some(storage.get_fs()));
-                    }
+                    None => {}
+                }
+            }
+            if !allowed_method {
+                byte_response = default_error(405, close, Some(storage.get_fs()));
+            }
+            match response {
+                Some(response) => byte_response = response,
+                None => {
+                    let first_vec = byte_response.get_first_vec();
+                    *first_vec = first_vec[content_start..].to_vec();
                 }
             }
         }

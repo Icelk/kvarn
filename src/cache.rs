@@ -31,6 +31,14 @@ impl ByteResponse {
         Self::BorrowedBody(shared_body)
     }
 
+    #[inline]
+    pub fn from_sro(sro: SRO<Vec<u8>, Arc<Vec<u8>>>) -> Self {
+        match sro {
+            SRO::Shared(arc) => Self::BorrowedBody(arc),
+            SRO::Owned(vec) => Self::Body(vec),
+        }
+    }
+
     fn get_start(bytes: &[u8]) -> usize {
         let mut newlines_in_row = 0;
         for (position, byte) in bytes.iter().enumerate() {

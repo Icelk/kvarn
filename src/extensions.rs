@@ -183,7 +183,7 @@ impl Extensions {
     pub fn extend<
         T: fmt::Debug,
         N: Fn() -> T + 'static + Send + Sync,
-        R: Fn(&mut T, RequestData) -> () + 'static + Send + Sync,
+        R: Fn(&mut T, &mut RequestData) -> () + 'static + Send + Sync,
     >(
         &mut self,
         name_aliases: &'static [&'static str],
@@ -284,7 +284,8 @@ impl Clone for BoundExtension {
 #[derive(Debug)]
 pub struct RequestData<'a> {
     pub address: &'a net::SocketAddr,
-    pub response: &'a mut ByteResponse,
+    pub head: Option<&'a [u8]>,
+    pub body: &'a [u8],
     pub content_start: usize,
     pub cached: &'a mut Cached,
     pub args: Vec<String>,
@@ -294,6 +295,45 @@ pub struct RequestData<'a> {
     pub path: &'a PathBuf,
     pub content_type: &'a mut utility::ContentType,
     pub close: &'a connection::ConnectionHeader,
+    response: Option<ByteResponse>,
+}
+impl<'a> RequestData<'a> {
+    pub fn new(
+        address: &'a net::SocketAddr,
+        head: Option<&'a [u8]>,
+        body: &'a [u8],
+        content_start: usize,
+        cached: &'a mut Cached,
+        args: Vec<String>,
+        storage: &'a mut Storage,
+        request: &'a http::Request<&'a [u8]>,
+        raw_request: &'a [u8],
+        path: &'a PathBuf,
+        content_type: &'a mut utility::ContentType,
+        close: &'a connection::ConnectionHeader,
+    ) -> Self {
+        Self {
+            address,
+            head,
+            body,
+            content_start,
+            cached,
+            args,
+            storage,
+            request,
+            raw_request,
+            path,
+            content_type,
+            close,
+            response: None,
+        }
+    }
+    pub fn set_response(&mut self, response: ByteResponse) {
+        self.response = Some(response);
+    }
+    pub fn into_response(self) -> Option<ByteResponse> {
+        self.response
+    }
 }
 
 pub trait Ext: fmt::Debug {
@@ -318,7 +358,7 @@ pub trait Ext: fmt::Debug {
     /// # let request_data = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
     /// unsafe { ext.run(request_data) };
     /// ```
-    unsafe fn run(&mut self, data: RequestData);
+    unsafe fn run(&mut self, data: &mut RequestData);
     fn init(&mut self);
     /// # Safety
     /// Must be initialized (by calling `init`) before calling this function. Else, it will perform the `drop` on a random memory address.
@@ -343,7 +383,7 @@ pub trait Ext: fmt::Debug {
     fn clone_to_uninit(&self) -> Box<dyn Ext + Send>;
 }
 impl<T: Send + fmt::Debug> Ext for Extension<T> {
-    unsafe fn run(&mut self, data: RequestData) {
+    unsafe fn run(&mut self, data: &mut RequestData) {
         (self.run_fn)(self.data.as_mut_ptr().as_mut().unwrap(), data);
     }
     fn init(&mut self) {
@@ -359,12 +399,12 @@ impl<T: Send + fmt::Debug> Ext for Extension<T> {
 pub struct Extension<T: 'static> {
     data: MaybeUninit<T>,
     new_fn: &'static (dyn Fn() -> T + 'static + Send + Sync),
-    run_fn: &'static (dyn Fn(&mut T, RequestData) -> () + 'static + Send + Sync),
+    run_fn: &'static (dyn Fn(&mut T, &mut RequestData) -> () + 'static + Send + Sync),
 }
 impl<T: fmt::Debug> Extension<T> {
     pub fn new<
         N: Fn() -> T + 'static + Send + Sync,
-        R: Fn(&mut T, RequestData) -> () + 'static + Send + Sync,
+        R: Fn(&mut T, &mut RequestData) -> () + 'static + Send + Sync,
     >(
         new_fn: &'static N,
         run_fn: &'static R,

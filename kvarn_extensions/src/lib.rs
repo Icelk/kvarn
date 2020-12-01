@@ -167,7 +167,7 @@ pub fn php() -> BoundExtension {
                     return;
                 }
             };
-            *data.response = ByteResponse::with_partial_header(output);
+            data.set_response(ByteResponse::with_partial_header(output));
         }),
     }
 }
@@ -181,15 +181,17 @@ pub mod templates {
             extension_aliases: &["tmpl"],
             file_extension_aliases: &[],
             ext: Extension::new(&|| {}, &|_, data| {
-                *data.response = ByteResponse::without_header(handle_template(
+                let response = ByteResponse::without_header(handle_template(
                     &data
                         .args
                         .iter()
                         .map(|string| string.as_str())
                         .collect::<Vec<&str>>(),
-                    data.response.get_body(),
+                    data.body,
                     data.storage,
                 ));
+
+                data.set_response(response);
             }),
         }
     }
@@ -289,7 +291,8 @@ pub mod templates {
         let mut template_dir = PathBuf::from("templates");
         template_dir.push(template_set);
 
-        match read_file(&template_dir, storage.get_fs()) {
+        // The template file will be access several times.
+        match read_file_cached(&template_dir, storage.get_fs()) {
             Some(file) => {
                 let templates = Arc::new(extract_templates(&file[..]));
                 match storage.try_template() {
@@ -405,7 +408,8 @@ pub fn hide() -> BoundExtension {
         extension_aliases: &["hide"],
         file_extension_aliases: &["private"],
         ext: Extension::new(&|| {}, &|_, data| {
-            *data.response = default_error(404, data.close, Some(data.storage.get_fs()));
+            let error = default_error(404, data.close, Some(data.storage.get_fs()));
+            data.set_response(error);
             *data.content_type = Html;
         }),
     }
@@ -418,7 +422,7 @@ pub fn ip_allow() -> BoundExtension {
         ext: Extension::new(&|| {}, &|_, data| {
             let mut matched = false;
             // Loop over denied ip in args
-            for denied in data.args {
+            for denied in data.args.iter() {
                 // If parsed
                 if let Ok(ip) = denied.parse::<std::net::IpAddr>() {
                     // check it against the requests IP.
@@ -431,7 +435,8 @@ pub fn ip_allow() -> BoundExtension {
             }
             if !matched {
                 // If it does not match, set the response to 404
-                *data.response = default_error(404, data.close, Some(data.storage.get_fs()));
+                let error = default_error(404, data.close, Some(data.storage.get_fs()));
+                data.set_response(error);
             }
             *data.cached = Cached::Changing;
         }),

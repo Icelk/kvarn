@@ -44,7 +44,9 @@ pub use bindings::FunctionBindings;
 pub use cache::{Cached, Cached::*};
 pub use connection::ConnectionSecurity;
 pub use utility::chars::*;
-pub use utility::{read_file, write_error, write_generic_error, ContentType::*};
+pub use utility::{
+    read_file, read_file_cached, write_error, write_generic_error, ContentType::*, SRO,
+};
 
 /// ## **The Kvarn *File System* Prelude**
 ///
@@ -55,7 +57,7 @@ pub mod fs {
         fs::File,
         io::{self, prelude::*},
     };
-    pub use utility::read_file;
+    pub use utility::{read_file, read_file_cached};
 }
 
 /// ## **The Kvarn *Networking* Prelude**
