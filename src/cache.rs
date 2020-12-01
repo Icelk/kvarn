@@ -126,7 +126,7 @@ impl ByteResponse {
     #[inline]
     pub fn into_body(self) -> Vec<u8> {
         match self {
-            Self::Merged(vec, start, _) => utility::into_last(vec, start),
+            Self::Merged(vec, start, _) => vec[start..].to_vec(),
             Self::Both(_, body, _) => body,
             Self::Body(body) => body,
             Self::BorrowedBody(borrowed) => (*borrowed).clone(),
@@ -147,6 +147,22 @@ impl ByteResponse {
             }
         }
     }
+    // #[inline]
+    // pub fn remove_first(self, first: usize) -> Self {
+    //     match self {
+    //         Self::Merged(vec, starts, partial) => {
+    //             Self::Merged(utility::into_last(vec, first), starts, partial)
+    //         }
+    //         Self::Both(head, body, partial) => {
+    //             Self::Both(utility::into_last(head, first), body, partial)
+    //         }
+    //         Self::Body(body) => Self::Body(utility::into_last(body, first)),
+    //         Self::BorrowedBody(borrowed) => {
+    //             Self::Body(utility::into_last((*borrowed).clone(), first))
+    //         }
+    //     }
+    // }
+
     #[inline]
     pub fn body_from(&self, from: usize) -> &[u8] {
         &self.get_body()[from..]

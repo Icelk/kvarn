@@ -311,42 +311,62 @@ pub fn write_error(buffer: &mut Vec<u8>, code: u16, cache: &mut FsCache) -> (Con
     (ContentType::Html, Cached::Dynamic)
 }
 
-/// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
-///
-/// # Panics
-/// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
-pub fn into_last<T>(mut vec: Vec<T>, split_at: usize) -> Vec<T> {
-    let p = vec.as_mut_ptr();
-    let len = vec.len();
-    let cap = vec.capacity();
+/// ---------- All these functions cause heap corruption, and are excluded. They should theoretically be working ----------
 
-    assert!(split_at < len);
+// /// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
+// ///
+// /// # Panics
+// /// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
+// pub fn into_last<T>(mut vec: Vec<T>, split_at: usize) -> Vec<T> {
+//     let p = vec.as_mut_ptr();
+//     let len = vec.len();
+//     let cap = vec.capacity();
 
-    unsafe {
-        use std::ptr;
-        // Drop slice
-        ptr::drop_in_place(ptr::slice_from_raw_parts_mut(p, split_at));
-        Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at)
-    }
-}
-/// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
-///
-/// # Panics
-/// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
-pub fn into_two<T>(mut vec: Vec<T>, split_at: usize) -> (Vec<T>, Vec<T>) {
-    let p = vec.as_mut_ptr();
-    let len = vec.len();
-    let cap = vec.capacity();
+//     assert!(split_at < len);
 
-    assert!(split_at < len);
+//     unsafe {
+//         use std::ptr;
+//         // Drop slice
+//         ptr::drop_in_place(ptr::slice_from_raw_parts_mut(p, split_at));
+//         Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at)
+//     }
+// }
+// /// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
+// ///
+// /// # Panics
+// /// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
+// pub fn into_two<T>(mut vec: Vec<T>, split_at: usize) -> (Vec<T>, Vec<T>) {
+//     let p = vec.as_mut_ptr();
+//     let len = vec.len();
+//     let cap = vec.capacity();
 
-    unsafe {
-        let first_vec = Vec::from_raw_parts(p, split_at, split_at);
-        let last_vec =
-            Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at);
-        (first_vec, last_vec)
-    }
-}
+//     assert!(split_at < len);
+
+//     unsafe {
+//         let first_vec = Vec::from_raw_parts(p, split_at, split_at);
+//         let last_vec =
+//             Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at);
+//         (first_vec, last_vec)
+//     }
+// }
+// pub fn split_at_borrowed<T>(vec: &mut Vec<T>, split_at: usize) {
+//     unimplemented!("Throws STATUS_HEAP_CORRUPTION in windows.");
+//     let mut vec = std::mem::ManuallyDrop::new(vec);
+//     let p = vec.as_mut_ptr();
+//     let len = vec.len();
+//     let cap = vec.capacity();
+
+//     assert!(split_at < len);
+
+//     unsafe {
+//         use std::ptr;
+//         ptr::drop_in_place(ptr::slice_from_raw_parts_mut(p, split_at));
+//         let last_vec =
+//             Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at);
+//         let vec_ptr: *mut Vec<T> = &mut **vec;
+//         vec_ptr.write(last_vec);
+//     }
+// }
 
 #[derive(Debug)]
 pub enum ContentType {
