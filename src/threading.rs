@@ -236,11 +236,7 @@ impl HandlerPool {
             // println!("Global connections: {}", connections.len());
             match connections.get(&token) {
                 Some(thread) => *thread,
-                None => {
-                    #[cfg(feature = "error-log")]
-                    eprintln!("Connection not found in thread registry! {:?}", token);
-                    return;
-                }
+                None => return,
             }
         };
 
@@ -282,9 +278,6 @@ impl HandlerPool {
                             pre_processing.elapsed().as_micros()
 
                         );
-                    } else {
-                        #[cfg(feature = "error-log")]
-                        eprintln!("Connection not found in thread-local connection registry!");
                     }
                 },
             )
