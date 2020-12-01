@@ -536,8 +536,8 @@ pub(crate) fn process_request<W: io::Write>(
         }
     }
 
-    if cached.cached_without_query() {
-        let bytes = request.uri().path().as_bytes().to_vec(); // ToDo: Remove cloning of slice!
+    if !cached.query_matters() {
+        let bytes = request.uri().path().as_bytes().to_vec(); // ToDo: Remove cloning of slice! Perhaps by Vec::from_raw?
         if let Ok(uri) = http::Uri::from_maybe_shared(bytes) {
             if let Some(lock) = storage.response_blocking() {
                 if let Some(response) = lock.resolve(&uri, request.headers()) {

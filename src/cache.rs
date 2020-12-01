@@ -210,12 +210,6 @@ impl Cached {
             Self::Static | Self::Changing => false,
         }
     }
-    pub fn cached_without_query(&self) -> bool {
-        match self {
-            Self::Dynamic | Self::PerQuery | Self::Changing => false,
-            Self::Static => true,
-        }
-    }
 }
 impl str::FromStr for Cached {
     type Err = ParseCachedErr;
