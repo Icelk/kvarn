@@ -21,8 +21,9 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
+/// Should be used when a file is typically access several times or from several requests.
 #[cfg(not(feature = "no-fs-cache"))]
-pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
+pub fn read_file_cached(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
     match cache.try_lock() {
         Ok(lock) => {
             if let Some(cached) = lock.get(path) {
@@ -63,13 +64,90 @@ pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
     }
 }
 #[cfg(feature = "no-fs-cache")]
-pub fn read_file(path: &PathBuf, _: &mut FsCache) -> Option<Arc<Vec<u8>>> {
+/// Should be used when a file is typically access several times or from several requests.
+pub fn read_file_cached(path: &PathBuf, _: &mut FsCache) -> Option<Arc<Vec<u8>>> {
     match File::open(path) {
         Ok(mut file) => {
             let mut buffer = Vec::with_capacity(4096);
             match file.read_to_end(&mut buffer) {
                 Ok(..) => {
                     return Some(Arc::new(buffer));
+                }
+                Err(..) => None,
+            }
+        }
+        Err(..) => None,
+    }
+}
+
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+/// Shared Reference or Owned defines either a Arc<T> or T.
+pub enum SRO<T> {
+    Shared(Arc<T>),
+    Owned(T),
+}
+impl<T> SRO<T> {
+    pub fn into_owned(self) -> T
+    where
+        T: Clone,
+    {
+        match self {
+            SRO::Shared(arc) => (*arc).clone(),
+            SRO::Owned(value) => value,
+        }
+    }
+}
+impl<T> std::ops::Deref for SRO<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            SRO::Shared(arc) => &**arc,
+            SRO::Owned(value) => value,
+        }
+    }
+}
+/// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
+///
+/// It can prevent one `clone` if only used once, else results in several system calls.
+#[cfg(not(feature = "no-fs-cache"))]
+pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SRO<Vec<u8>>> {
+    match cache.try_lock() {
+        Ok(lock) => {
+            if let Some(cached) = lock.get(path) {
+                return Some(SRO::Shared(cached));
+            }
+        }
+        Err(ref err) => match err {
+            sync::TryLockError::Poisoned(..) => {
+                panic!("File System cache is poisoned!");
+            }
+            sync::TryLockError::WouldBlock => {}
+        },
+    }
+
+    match File::open(path) {
+        Ok(mut file) => {
+            let mut buffer = Vec::with_capacity(4096);
+            match file.read_to_end(&mut buffer) {
+                Ok(..) => Some(SRO::Owned(buffer)),
+                Err(..) => None,
+            }
+        }
+        Err(..) => None,
+    }
+}
+/// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
+///
+/// It can prevent one `clone` if only used once, else results in several system calls.
+#[cfg(feature = "no-fs-cache")]
+pub fn read_file(path: &PathBuf, _: &mut FsCache) -> Option<SRO<Vec<u8>>> {
+    match File::open(path) {
+        Ok(mut file) => {
+            let mut buffer = Vec::with_capacity(4096);
+            match file.read_to_end(&mut buffer) {
+                Ok(..) => {
+                    return Some(SRO::Owned(buffer));
                 }
                 Err(..) => None,
             }
@@ -135,8 +213,9 @@ pub fn default_error(
     }
     buffer.extend(b"Content-Encoding: identity\r\n");
 
+    // Error files will be used several times.
     let body = match cache
-        .and_then(|cache| read_file(&PathBuf::from(format!("{}.html", code)), cache))
+        .and_then(|cache| read_file_cached(&PathBuf::from(format!("{}.html", code)), cache))
     {
         Some(file) => {
             buffer.extend(b"Content-Length: ");
