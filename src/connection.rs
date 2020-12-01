@@ -364,22 +364,33 @@ impl Connection {
             // Read request from session to buffer
             let (request, request_len) = {
                 let mut buffer = [0; 16_384_usize];
+                use rustls::TLSError;
                 let len = match self.layer.pull(&mut self.socket, &mut buffer) {
                     Ok(len) => len,
                     Err(err) => match err {
-                        PullError::IO(err) if err.kind() == io::ErrorKind::ConnectionReset => {
+                        PullError::IO(err) => {
+                            // todo!("CloseNotify alert received?");
+                            match err.kind() {
+                                io::ErrorKind::ConnectionReset => {}
+                                io::ErrorKind::ConnectionAborted => {}
+                                _ => {
+                                    #[cfg(feature = "error-log")]
+                                    eprintln!("Failed with IO: {:?}", err);
+                                }
+                            }
                             self.close();
                             0
                         }
-                        PullError::IO(_err) => {
-                            #[cfg(feature = "error-log")]
-                            eprintln!("Failed with IO: {}", _err);
-                            self.close();
-                            0
-                        }
-                        PullError::TLSError(_err) => {
-                            #[cfg(feature = "error-log")]
-                            eprintln!("Failed to process packets {}", _err);
+                        PullError::TLSError(err) => {
+                            match err {
+                                // Received a corrupt message, close connection.
+                                TLSError::CorruptMessage => {}
+                                rustls::TLSError::DecryptError => {}
+                                _ => {
+                                    #[cfg(feature = "error-log")]
+                                    eprintln!("Failed to process packets {}", err);
+                                }
+                            }
                             self.close();
                             0
                         }
