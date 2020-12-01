@@ -528,10 +528,7 @@ pub(crate) fn process_request<W: io::Write>(
             }
             match response {
                 Some(response) => byte_response = response,
-                None => {
-                    let first_vec = byte_response.get_first_vec();
-                    *first_vec = first_vec[content_start..].to_vec();
-                }
+                None => byte_response.remove_first(content_start),
             }
         }
     }
@@ -713,7 +710,7 @@ pub(crate) fn process_request<W: io::Write>(
         if let Some(mut lock) = storage.response_blocking() {
             let uri = request.into_parts().0.uri;
             let uri = if !cached.query_matters() {
-                let bytes = uri.path().as_bytes().to_vec(); // ToDo: Remove cloning of slice!
+                let bytes = uri.path().as_bytes().to_vec(); // ToDo: Remove cloning of slice! Perhaps by Vec::from_raw?
                 if let Ok(uri) = http::Uri::from_maybe_shared(bytes) {
                     uri
                 } else {
@@ -737,7 +734,7 @@ pub(crate) fn process_request<W: io::Write>(
                             };
                             match headers.get(header) {
                                 Some(header) => {
-                                    buffer.push(header.clone()) // ToDo: Remove in future!
+                                    buffer.push(header.clone()) // ToDo: Remove in future by iterating over and adding matching items.
                                 }
                                 None => {
                                     is_ok = false;

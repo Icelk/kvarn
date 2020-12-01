@@ -133,35 +133,24 @@ impl ByteResponse {
         }
     }
     #[inline]
-    pub fn get_first_vec(&mut self) -> &mut Vec<u8> {
+    pub fn remove_first(&mut self, split_at: usize) {
         match self {
-            Self::Merged(vec, _, _) => vec,
-            Self::Both(head, _, _) => head,
-            Self::Body(body) => body,
-            Self::BorrowedBody(borrowed) => {
-                *self = Self::Body((**borrowed).clone());
-                match self {
-                    Self::Body(vec) => vec,
-                    _ => unreachable!(),
-                }
+            Self::Merged(vec, starts_at, _) => {
+                *vec = vec[split_at..].to_vec();
+                *starts_at -= split_at;
             }
-        }
+            Self::Both(head, _, _) => {
+                *head = head[split_at..].to_vec();
+            }
+            Self::Body(body) => {
+                *body = body[split_at..].to_vec();
+            }
+            Self::BorrowedBody(borrowed) => {
+                // Does drop the old Arc, so no memory leak today!
+                *self = Self::Body(borrowed[split_at..].to_vec());
+            }
+        };
     }
-    // #[inline]
-    // pub fn remove_first(self, first: usize) -> Self {
-    //     match self {
-    //         Self::Merged(vec, starts, partial) => {
-    //             Self::Merged(utility::into_last(vec, first), starts, partial)
-    //         }
-    //         Self::Both(head, body, partial) => {
-    //             Self::Both(utility::into_last(head, first), body, partial)
-    //         }
-    //         Self::Body(body) => Self::Body(utility::into_last(body, first)),
-    //         Self::BorrowedBody(borrowed) => {
-    //             Self::Body(utility::into_last((*borrowed).clone(), first))
-    //         }
-    //     }
-    // }
 
     #[inline]
     pub fn body_from(&self, from: usize) -> &[u8] {
