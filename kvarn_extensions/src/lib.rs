@@ -189,6 +189,7 @@ pub mod templates {
                         .collect::<Vec<&str>>(),
                     data.body,
                     data.storage,
+                    data.host,
                 ));
 
                 data.set_response(response);
@@ -196,9 +197,14 @@ pub mod templates {
         }
     }
 
-    pub fn handle_template(arguments: &[&str], file: &[u8], storage: &mut Storage) -> Vec<u8> {
+    pub fn handle_template(
+        arguments: &[&str],
+        file: &[u8],
+        storage: &mut Storage,
+        host: &Host,
+    ) -> Vec<u8> {
         // Get templates, from cache or file
-        let templates = read_templates(arguments.iter().skip(1).copied(), storage);
+        let templates = read_templates(arguments.iter().skip(1).copied(), storage, host);
 
         #[derive(Eq, PartialEq)]
         enum Stage {
@@ -266,13 +272,14 @@ pub mod templates {
     fn read_templates<'a, I: DoubleEndedIterator<Item = &'a str>>(
         files: I,
         storage: &mut Storage,
-    ) -> HashMap<Arc<String>, Arc<Vec<u8>>> {
+        host: &Host,
+    ) -> HashMap<String, Vec<u8>> {
         let mut templates = HashMap::with_capacity(32);
 
         for template in files.rev() {
-            if let Some(map) = read_templates_from_file(template, storage) {
-                for (key, value) in map.iter() {
-                    templates.insert(Arc::clone(key), Arc::clone(value));
+            if let Some(map) = read_templates_from_file(template, storage, host) {
+                for (key, value) in map.into_iter() {
+                    templates.insert(key, value);
                 }
             }
         }
@@ -282,31 +289,21 @@ pub mod templates {
     fn read_templates_from_file(
         template_set: &str,
         storage: &mut Storage,
-    ) -> Option<Arc<HashMap<Arc<String>, Arc<Vec<u8>>>>> {
-        if let Some(lock) = storage.try_template() {
-            if let Some(template) = lock.get(template_set) {
-                return Some(template);
-            }
-        }
-        let mut template_dir = PathBuf::from("templates");
+        host: &Host,
+    ) -> Option<HashMap<String, Vec<u8>>> {
+        let mut template_dir = host.path.join("templates");
         template_dir.push(template_set);
 
         // The template file will be access several times.
         match read_file_cached(&template_dir, storage.get_fs()) {
             Some(file) => {
-                let templates = Arc::new(extract_templates(&file[..]));
-                match storage.try_template() {
-                    Some(mut cache) => match cache.cache(template_set.to_owned(), templates) {
-                        Err(failed) => Some(failed),
-                        Ok(()) => Some(cache.get(template_set).unwrap()),
-                    },
-                    None => Some(templates),
-                }
+                let templates = extract_templates(&file[..]);
+                return Some(templates);
             }
             None => None,
         }
     }
-    fn extract_templates(file: &[u8]) -> HashMap<Arc<String>, Arc<Vec<u8>>> {
+    fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
         let mut templates = HashMap::with_capacity(16);
 
         let mut last_was_lf = true;
@@ -340,10 +337,8 @@ pub mod templates {
                         // Then insert template; name we got from previous step, then bytes from where the previous template definition ended, then our current position, just before the start of the next template
                         // Returns a byte-slice of the file
                         templates.insert(
-                            Arc::new(name.to_owned()),
-                            Arc::new(
-                                file[name_end + add_after_name..position - newline_size].to_vec(),
-                            ),
+                            name.to_owned(),
+                            file[name_end + add_after_name..position - newline_size].to_vec(),
                         );
                     }
                 }
@@ -371,8 +366,8 @@ pub mod templates {
                     }
                 };
                 templates.insert(
-                    Arc::new(name.to_owned()),
-                    Arc::new(file[name_end + add_after_name..file.len() - newline_size].to_vec()),
+                    name.to_owned(),
+                    file[name_end + add_after_name..file.len() - newline_size].to_vec(),
                 );
             }
         }
