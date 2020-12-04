@@ -10,6 +10,7 @@ pub mod bindings;
 pub mod cache;
 pub mod compression;
 pub mod connection;
+pub mod cryptography;
 pub mod extensions;
 #[cfg(feature = "limiting")]
 pub mod limiting;
@@ -37,13 +38,13 @@ pub const LINE_ENDING: &[u8] = b"\r\n";
 
 #[derive(Debug)]
 pub struct Config {
-    sockets: HashMap<mio::Token, (u16, ConnectionSecurity)>,
+    sockets: HashMap<mio::Token, (u16, ConnectionSecurity, Arc<HostData>)>,
     con_id: usize,
     storage: Storage,
     extensions: Extensions,
 }
 impl Config {
-    pub fn on_ports(ports: &[(u16, ConnectionSecurity)]) -> Self {
+    pub fn on_ports(ports: Vec<(u16, ConnectionSecurity, Arc<HostData>)>) -> Self {
         Config {
             sockets: Self::make_portmap(ports),
             con_id: RESERVED_TOKENS,
@@ -51,21 +52,21 @@ impl Config {
             extensions: Extensions::new(),
         }
     }
-    pub fn new(bindings: FunctionBindings, ports: &[(u16, ConnectionSecurity)]) -> Self {
+    pub fn new(ports: Vec<(u16, ConnectionSecurity, Arc<HostData>)>) -> Self {
         Config {
             sockets: Self::make_portmap(ports),
             con_id: RESERVED_TOKENS,
-            storage: Storage::from_bindings(Arc::new(bindings)),
+            storage: Storage::new(),
             extensions: Extensions::new(),
         }
     }
 
     fn make_portmap(
-        ports: &[(u16, ConnectionSecurity)],
-    ) -> HashMap<mio::Token, (u16, ConnectionSecurity)> {
+        ports: Vec<(u16, ConnectionSecurity, Arc<HostData>)>,
+    ) -> HashMap<mio::Token, (u16, ConnectionSecurity, Arc<HostData>)> {
         let mut map = HashMap::new();
-        for (position, port) in ports.iter().enumerate() {
-            map.insert(mio::Token(position), port.clone());
+        for (position, (port, security, data)) in ports.into_iter().enumerate() {
+            map.insert(mio::Token(position), (port, security, data));
         }
         map
     }
@@ -132,7 +133,7 @@ impl Config {
         let mut listeners: HashMap<_, _> = self
             .sockets
             .iter()
-            .map(|(token, (port, connection))| {
+            .map(|(token, (port, connection, host_data))| {
                 let mut socket = TcpListener::bind(SocketAddr::new(
                     IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                     *port,
@@ -143,7 +144,14 @@ impl Config {
                     .register(&mut socket, *token, mio::Interest::READABLE)
                     .expect("Failed to register HTTPS server");
 
-                (*token, (socket, ConnectionSecurity::clone(&connection)))
+                (
+                    *token,
+                    (
+                        socket,
+                        ConnectionSecurity::clone(&connection),
+                        Arc::clone(host_data),
+                    ),
+                )
             })
             .collect();
 
@@ -158,11 +166,12 @@ impl Config {
 
             for event in events.iter() {
                 match listeners.get_mut(&event.token()) {
-                    Some((listener, scheme)) => {
+                    Some((listener, scheme, host_data)) => {
                         self.accept(
                             &mut thread_handler,
                             ConnectionSecurity::clone(scheme),
                             listener,
+                            host_data,
                         )
                         .expect("Failed to accept message!");
                     }
@@ -187,6 +196,7 @@ impl Config {
         handler: &mut threading::HandlerPool,
         connection_type: ConnectionSecurity,
         socket: &mut TcpListener,
+        host_data: &Arc<HostData>,
     ) -> Result<(), io::Error> {
         loop {
             match socket.accept() {
@@ -196,6 +206,7 @@ impl Config {
                         addr,
                         mio::Token(self.next_id()),
                         connection_type.clone(),
+                        Arc::clone(host_data),
                     );
                     continue;
                 }
@@ -213,41 +224,20 @@ impl Config {
 #[derive(Debug)]
 pub struct Storage {
     fs: FsCache,
-    response: ResponseCache,
-    template: TemplateCache,
-    bindings: Bindings,
     #[cfg(feature = "limiting")]
     limits: LimitManager,
 }
 impl Storage {
     pub fn new() -> Self {
-        use cache::Cache;
         Storage {
-            fs: Arc::new(Mutex::new(Cache::with_max_size(65536))),
-            response: Arc::new(Mutex::new(Cache::new())),
-            template: Arc::new(Mutex::new(Cache::with_max(128))),
-            bindings: Arc::new(FunctionBindings::new()),
+            fs: Arc::new(Mutex::new(cache::Cache::with_max_size(65536))),
             #[cfg(feature = "limiting")]
             limits: LimitManager::default(),
         }
     }
-    pub fn from_caches(fs: FsCache, response: ResponseCache, template: TemplateCache) -> Self {
+    pub fn from_cache(fs: FsCache) -> Self {
         Storage {
             fs,
-            response,
-            template,
-            bindings: Arc::new(FunctionBindings::new()),
-            #[cfg(feature = "limiting")]
-            limits: LimitManager::default(),
-        }
-    }
-    pub fn from_bindings(bindings: Bindings) -> Self {
-        use cache::Cache;
-        Storage {
-            fs: Arc::new(Mutex::new(Cache::with_max_size(65536))),
-            response: Arc::new(Mutex::new(Cache::new())),
-            template: Arc::new(Mutex::new(Cache::with_max(128))),
-            bindings,
             #[cfg(feature = "limiting")]
             limits: LimitManager::default(),
         }
@@ -256,8 +246,6 @@ impl Storage {
     #[inline]
     pub fn clear(&mut self) {
         self.fs.lock().unwrap().clear();
-        self.response.lock().unwrap().clear();
-        self.template.lock().unwrap().clear();
     }
 
     /// Tries to get the lock of file cache.
@@ -280,53 +268,6 @@ impl Storage {
     pub fn get_fs(&mut self) -> &mut FsCache {
         &mut self.fs
     }
-    /// Tries to get the lock of response cache.
-    ///
-    /// Always remember to handle the case if the lock isn't acquired; just don't return None!
-    #[inline]
-    pub fn try_response(&mut self) -> Option<sync::MutexGuard<'_, ResponseCacheInner>> {
-        #[cfg(feature = "no-response-cache")]
-        return None;
-        #[cfg(not(feature = "no-response-cache"))]
-        match self.response.try_lock() {
-            Ok(lock) => Some(lock),
-            Err(ref err) => match err {
-                sync::TryLockError::WouldBlock => None,
-                sync::TryLockError::Poisoned(..) => panic!("Lock is poisoned!"),
-            },
-        }
-    }
-    /// Gets the lock of response cache.
-    #[inline]
-    pub fn response_blocking(&mut self) -> Option<sync::MutexGuard<'_, ResponseCacheInner>> {
-        #[cfg(feature = "no-response-cache")]
-        return None;
-        #[cfg(not(feature = "no-response-cache"))]
-        match self.response.lock() {
-            Ok(lock) => Some(lock),
-            Err(..) => panic!("Lock is poisoned!"),
-        }
-    }
-    /// Tries to get the lock of template cache.
-    ///
-    /// Always remember to handle the case if the lock isn't acquired; just don't return None!
-    #[inline]
-    pub fn try_template(&mut self) -> Option<sync::MutexGuard<'_, TemplateCacheInner>> {
-        #[cfg(feature = "no-template-cache")]
-        return None;
-        #[cfg(not(feature = "no-template-cache"))]
-        match self.template.try_lock() {
-            Ok(lock) => Some(lock),
-            Err(ref err) => match err {
-                sync::TryLockError::WouldBlock => None,
-                sync::TryLockError::Poisoned(..) => panic!("Lock is poisoned!"),
-            },
-        }
-    }
-    #[inline]
-    pub fn get_bindings(&self) -> &Bindings {
-        &self.bindings
-    }
 
     #[cfg(feature = "limiting")]
     #[inline]
@@ -338,9 +279,6 @@ impl Clone for Storage {
     fn clone(&self) -> Self {
         Storage {
             fs: Arc::clone(&self.fs),
-            response: Arc::clone(&self.response),
-            template: Arc::clone(&self.template),
-            bindings: Arc::clone(&self.bindings),
             #[cfg(feature = "limiting")]
             limits: LimitManager::clone(&self.limits),
         }
@@ -365,6 +303,7 @@ pub(crate) fn process_request<W: io::Write>(
     close: &connection::ConnectionHeader,
     storage: &mut Storage,
     extensions: &mut ExtensionMap,
+    host: &Host,
 ) -> Result<(), io::Error> {
     let is_get = match request.method() {
         &http::Method::GET | &http::Method::HEAD => true,
@@ -375,7 +314,7 @@ pub(crate) fn process_request<W: io::Write>(
     if is_get {
         // Load from cache
         // Try get response cache lock
-        if let Some(lock) = storage.response_blocking() {
+        if let Some(lock) = host.get_cache() {
             // If response is in cache
             if let Some(response) = lock.resolve(request.uri(), request.headers()) {
                 // println!("Got cache! {}", request.uri());
@@ -386,7 +325,7 @@ pub(crate) fn process_request<W: io::Write>(
     let mut allowed_method = is_get;
 
     // Get from function or cache, to enable processing (extensions) from functions!
-    let path = match parse::convert_uri(request.uri()) {
+    let path = match parse::convert_uri(request.uri(), host.path.as_path()) {
         Ok(path) => path,
         Err(()) => {
             &default_error(403, close, Some(storage.get_fs())).write_all(socket)?;
@@ -398,7 +337,7 @@ pub(crate) fn process_request<W: io::Write>(
     // Used to bypass immutable/mutable rule. It is safe because the binding reference isn't affected by changing the cache.
     let cache: *mut Storage = storage;
     let (mut byte_response, mut content_type, mut cached) =
-        match storage.get_bindings().get_binding(request.uri().path()) {
+        match host.get_bindings().get_binding(request.uri().path()) {
             // We've got an function, call it and return body and result!
             Some(callback) => {
                 let mut response = Vec::with_capacity(2048);
@@ -469,6 +408,7 @@ pub(crate) fn process_request<W: io::Write>(
                                 &path,
                                 &mut content_type,
                                 close,
+                                host,
                             );
                             extension.run(&mut data);
                             match data.into_response() {
@@ -513,6 +453,7 @@ pub(crate) fn process_request<W: io::Write>(
                             &path,
                             &mut content_type,
                             close,
+                            host,
                         );
                         extension.run(&mut data);
                         match data.into_response() {
@@ -536,7 +477,7 @@ pub(crate) fn process_request<W: io::Write>(
     if !cached.query_matters() {
         let bytes = request.uri().path().as_bytes().to_vec(); // ToDo: Remove cloning of slice! Perhaps by Vec::from_raw?
         if let Ok(uri) = http::Uri::from_maybe_shared(bytes) {
-            if let Some(lock) = storage.response_blocking() {
+            if let Some(lock) = host.get_cache() {
                 if let Some(response) = lock.resolve(&uri, request.headers()) {
                     return response.write_as_method(socket, request.method());
                 };
@@ -707,8 +648,15 @@ pub(crate) fn process_request<W: io::Write>(
     response.write_as_method(socket, request.method())?;
 
     if is_get && cached.do_internal_cache() {
-        if let Some(mut lock) = storage.response_blocking() {
+        if let Some(mut lock) = host.get_cache() {
+            #[cfg(feature = "info-log")]
+            println!(
+                "Caching uri {} on host {:?}",
+                request.uri(),
+                request.headers().get("host")
+            );
             let uri = request.into_parts().0.uri;
+
             let uri = if !cached.query_matters() {
                 let bytes = uri.path().as_bytes().to_vec(); // ToDo: Remove cloning of slice! Perhaps by Vec::from_raw?
                 if let Ok(uri) = http::Uri::from_maybe_shared(bytes) {
@@ -719,8 +667,6 @@ pub(crate) fn process_request<W: io::Write>(
             } else {
                 uri
             };
-            #[cfg(feature = "info-log")]
-            println!("Caching uri {}", &uri);
             match vary.is_empty() {
                 false => {
                     let headers = {
@@ -765,66 +711,6 @@ pub(crate) fn process_request<W: io::Write>(
         }
     }
     Ok(())
-}
-
-pub mod tls_server_config {
-    use super::*;
-    use fs::*;
-    use rustls::{internal::pemfile, NoClientAuth, ServerConfig};
-
-    #[derive(Debug)]
-    pub enum ServerConfigError {
-        IO(io::Error),
-        ImproperPrivateKeyFormat,
-        ImproperCertificateFormat,
-        NoKey,
-        InvalidPrivateKey,
-    }
-    impl From<io::Error> for ServerConfigError {
-        fn from(error: io::Error) -> Self {
-            Self::IO(error)
-        }
-    }
-    pub fn get_server_config<P: AsRef<Path>>(
-        cert_path: P,
-        private_key_path: P,
-    ) -> Result<ServerConfig, ServerConfigError> {
-        let mut chain = io::BufReader::new(File::open(&cert_path)?);
-        let mut private_key = io::BufReader::new(File::open(&private_key_path)?);
-
-        let mut server_config = ServerConfig::new(NoClientAuth::new());
-        let mut private_keys = Vec::with_capacity(4);
-        private_keys.extend(match pemfile::pkcs8_private_keys(&mut private_key) {
-            Ok(key) => key,
-            Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
-        });
-        private_keys.extend(match pemfile::rsa_private_keys(&mut private_key) {
-            Ok(key) => key,
-            Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
-        });
-        if let Err(..) = server_config.set_single_cert(
-            match pemfile::certs(&mut chain) {
-                Ok(cert) => cert,
-                Err(()) => return Err(ServerConfigError::ImproperCertificateFormat),
-            },
-            match private_keys.into_iter().next() {
-                Some(key) => key,
-                None => return Err(ServerConfigError::NoKey),
-            },
-        ) {
-            Err(ServerConfigError::InvalidPrivateKey)
-        } else {
-            Ok(server_config)
-        }
-    }
-    pub fn optional_server_config<P: AsRef<Path>>(
-        cert_path: P,
-        private_key_path: P,
-    ) -> Option<Arc<ServerConfig>> {
-        get_server_config(cert_path, private_key_path)
-            .ok()
-            .map(|config| Arc::new(config))
-    }
 }
 
 #[allow(dead_code)]

@@ -14,11 +14,10 @@ impl Worker {
         mut storage: Storage,
         mut extensions: Extensions,
     ) -> Self {
-        let mut connections = HashMap::new();
-
         let handle = thread::Builder::new()
             .name(format!("Worker: {}", id))
             .spawn(move || {
+                let mut connections = HashMap::new();
                 // Init all map's values
                 extensions.init_all();
                 let mut extensions = extensions.get_maps();
@@ -187,6 +186,7 @@ impl HandlerPool {
         addr: SocketAddr,
         token: mio::Token,
         connection: ConnectionSecurity,
+        host_data: Arc<HostData>,
     ) {
         let thread_id = self
             .pool
@@ -205,13 +205,14 @@ impl HandlerPool {
                     LimitStrength::Passed => {}
                 }
 
-                let mut connection = match Connection::new(socket, addr, token, connection) {
-                    Some(connection) => connection,
-                    None => {
-                        eprintln!("Unimplemented, shutting down socket!");
-                        return;
-                    }
-                };
+                let mut connection =
+                    match Connection::new(socket, addr, token, connection, host_data) {
+                        Some(connection) => connection,
+                        None => {
+                            eprintln!("Unimplemented, shutting down socket!");
+                            return;
+                        }
+                    };
 
                 connection.register(registry);
                 connections.insert(token, connection);

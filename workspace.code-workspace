@@ -1,8 +1,12 @@
 {
 	"folders": [
 		{
-			"name": "Public Server Data",
-			"path": ".\\production_server\\public"
+			"name": "icelk.dev",
+			"path": ".\\production_server\\icelk.dev"
+		},
+		{
+			"name": "kvarn.org",
+			"path": ".\\production_server\\kvarn.org"
 		},
 		{
 			"name": "Server Binary",

@@ -296,6 +296,7 @@ pub struct RequestData<'a> {
     pub content_type: &'a mut utility::ContentType,
     pub close: &'a connection::ConnectionHeader,
     response: Option<ByteResponse>,
+    pub host: &'a Host,
 }
 impl<'a> RequestData<'a> {
     pub fn new(
@@ -311,6 +312,7 @@ impl<'a> RequestData<'a> {
         path: &'a PathBuf,
         content_type: &'a mut utility::ContentType,
         close: &'a connection::ConnectionHeader,
+        host: &'a Host,
     ) -> Self {
         Self {
             address,
@@ -326,6 +328,7 @@ impl<'a> RequestData<'a> {
             content_type,
             close,
             response: None,
+            host,
         }
     }
     pub fn set_response(&mut self, response: ByteResponse) {

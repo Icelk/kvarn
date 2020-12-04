@@ -1,4 +1,4 @@
-use crate::prelude::{fs::*, networking::*, rustls_prelude::*, *};
+use crate::prelude::{crypto::*, fs::*, networking::*, rustls_prelude::*, *};
 
 #[derive(PartialEq, Debug)]
 pub enum ConnectionHeader {
@@ -304,6 +304,7 @@ pub struct Connection {
     layer: InformationLayer,
     closing: bool,
     _scheme: ConnectionScheme,
+    host: HostBinding,
 }
 impl Connection {
     fn _new(
@@ -312,6 +313,7 @@ impl Connection {
         token: mio::Token,
         layer: InformationLayer,
         scheme: ConnectionScheme,
+        host_data: Arc<HostData>,
     ) -> Self {
         Self {
             socket,
@@ -320,6 +322,7 @@ impl Connection {
             layer,
             closing: false,
             _scheme: scheme,
+            host: HostBinding::new(host_data),
         }
     }
     pub fn new(
@@ -327,6 +330,7 @@ impl Connection {
         address: SocketAddr,
         token: mio::Token,
         connection: ConnectionSecurity,
+        host_data: Arc<HostData>,
     ) -> Option<Self> {
         match connection.get_config() {
             EncryptionType::NonSecure => Some(Self::_new(
@@ -335,6 +339,7 @@ impl Connection {
                 token,
                 InformationLayer::Buffered(BufferedLayer::new()),
                 *connection.get_scheme(),
+                host_data,
             )),
             EncryptionType::Secure(config) => Some(Self::_new(
                 socket,
@@ -342,6 +347,7 @@ impl Connection {
                 token,
                 InformationLayer::TLS(ServerSession::new(config)),
                 *connection.get_scheme(),
+                host_data,
             )),
             _ => {
                 // Shut down socket if not supported!
@@ -421,27 +427,55 @@ impl Connection {
                                 }
                             });
 
-                            match parsed.version() {
-                                http::Version::HTTP_11 => {
-                                    if let Err(err) = crate::process_request(
-                                        &mut self.layer,
-                                        &self.address,
-                                        parsed,
-                                        &request[..],
-                                        &close,
-                                        storage,
-                                        extensions,
-                                    ) {
-                                        #[cfg(feature = "error-log")]
-                                        eprintln!("Failed to write output to layer! {:?}", err);
+                            match parsed.headers().contains_key("host") {
+                                true => {
+                                    let host = match self.host.get_host() {
+                                        Some(host) => host,
+                                        None => match parsed
+                                            .headers()
+                                            .get("host")
+                                            .and_then(|host| host.to_str().ok())
+                                        {
+                                            Some(host) => self.host.get_or_set_host(host),
+                                            None => self.host.get_default(),
+                                        },
                                     };
-                                    // Flush all contents, important for compression
-                                    let _ = self.layer.flush();
+
+                                    match parsed.version() {
+                                        http::Version::HTTP_11 => {
+                                            if let Err(err) = crate::process_request(
+                                                &mut self.layer,
+                                                &self.address,
+                                                parsed,
+                                                &request[..],
+                                                &close,
+                                                storage,
+                                                extensions,
+                                                host,
+                                            ) {
+                                                #[cfg(feature = "error-log")]
+                                                eprintln!(
+                                                    "Failed to write output to layer! {:?}",
+                                                    err
+                                                );
+                                            };
+                                            // Flush all contents, important for compression
+                                            let _ = self.layer.flush();
+                                        }
+                                        _ => {
+                                            // Unsupported HTTP version!
+                                            let _ = utility::default_error(
+                                                505,
+                                                &close,
+                                                Some(storage.get_fs()),
+                                            )
+                                            .write_all(&mut self.layer);
+                                        }
+                                    }
                                 }
-                                _ => {
-                                    // Unsupported HTTP version!
+                                false => {
                                     let _ =
-                                        utility::default_error(505, &close, Some(storage.get_fs()))
+                                        utility::default_error(400, &close, Some(storage.get_fs()))
                                             .write_all(&mut self.layer);
                                 }
                             }

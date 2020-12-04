@@ -1,4 +1,4 @@
-use crate::prelude::{str, Cow, HashMap, PathBuf};
+use crate::prelude::{str, Cow, HashMap, Path, PathBuf};
 use http::{header::*, Method, Request, Uri, Version};
 
 enum DecodeStage {
@@ -375,7 +375,7 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
     map
 }
 
-pub fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
+pub fn convert_uri(uri: &Uri, base_path: &Path) -> Result<PathBuf, ()> {
     let mut path = uri.path();
     if path.contains("./") {
         return Err(());
@@ -384,7 +384,7 @@ pub fn convert_uri(uri: &Uri) -> Result<PathBuf, ()> {
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
-    let mut buf = PathBuf::from("public");
+    let mut buf = base_path.join("public");
     buf.push(path);
     if is_dir {
         buf.push("index.html");

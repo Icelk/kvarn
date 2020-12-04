@@ -17,7 +17,7 @@ pub use mime_guess;
 pub use num_cpus;
 pub use std::borrow::Cow;
 pub use std::collections::HashMap;
-pub use std::fmt;
+pub use std::fmt::{self, Debug, Display};
 pub use std::io;
 pub use std::mem::MaybeUninit;
 pub use std::net;
@@ -31,6 +31,7 @@ pub use crate::bindings;
 pub use crate::cache;
 pub use crate::compression;
 pub use crate::connection;
+pub use crate::cryptography;
 pub use crate::extensions;
 #[cfg(feature = "limiting")]
 pub use crate::limiting;
@@ -38,11 +39,12 @@ pub use crate::parse;
 pub use crate::utility;
 
 // Crate types
-pub use crate::tls_server_config::{get_server_config, optional_server_config};
+pub use crate::cryptography::{get_server_config, optional_server_config};
 pub use crate::{Config, Storage};
 pub use bindings::FunctionBindings;
 pub use cache::{Cached, Cached::*};
 pub use connection::ConnectionSecurity;
+pub use cryptography::{Host, HostData};
 pub use utility::chars::*;
 pub use utility::{
     read_file, read_file_cached, write_error, write_generic_error, ContentType::*, SRO,
@@ -72,6 +74,15 @@ pub mod networking {
     pub use mio::net::{TcpListener, TcpStream};
     pub use std::io::{Read, Write};
     pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
+}
+
+/// ## **The Kvarn *Cryptography* Prelude**
+///
+/// The purpose of this module is to help development of cryptographic functionality.
+pub mod crypto {
+    use super::*;
+
+    pub use cryptography::{get_certified_key, Host, HostBinding, HostData};
 }
 
 /// ## **The Kvarn *Internal* Prelude**
@@ -109,5 +120,6 @@ pub mod con {
 ///
 /// The purpose of this module is to expose the used Rustls structs and traits.
 pub mod rustls_prelude {
+    pub use crate::cryptography::ResolvesUsingDefaultAndSNI;
     pub use rustls::{ServerConfig, ServerSession, Session};
 }
