@@ -224,7 +224,7 @@ impl ResolvesServerCert for HostData {
                 .certificate
                 .clone()
         } else {
-            // This kind of resolver does not require SNI
+            // Else, get default certificate
             self.default.certificate.clone()
         }
     }
@@ -287,48 +287,8 @@ impl From<io::Error> for ServerConfigError {
         Self::IO(error)
     }
 }
-pub fn get_server_config<P: AsRef<Path>>(
-    cert_path: P,
-    private_key_path: P,
-) -> Result<ServerConfig, ServerConfigError> {
-    let mut chain = io::BufReader::new(File::open(&cert_path)?);
-    let mut private_key = io::BufReader::new(File::open(&private_key_path)?);
 
-    let mut server_config = ServerConfig::new(NoClientAuth::new());
-    let mut private_keys = Vec::with_capacity(4);
-    private_keys.extend(match pemfile::pkcs8_private_keys(&mut private_key) {
-        Ok(key) => key,
-        Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
-    });
-    private_keys.extend(match pemfile::rsa_private_keys(&mut private_key) {
-        Ok(key) => key,
-        Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
-    });
-    if let Err(..) = server_config.set_single_cert(
-        match pemfile::certs(&mut chain) {
-            Ok(cert) => cert,
-            Err(()) => return Err(ServerConfigError::ImproperCertificateFormat),
-        },
-        match private_keys.into_iter().next() {
-            Some(key) => key,
-            None => return Err(ServerConfigError::NoKey),
-        },
-    ) {
-        Err(ServerConfigError::InvalidPrivateKey)
-    } else {
-        Ok(server_config)
-    }
-}
-pub fn optional_server_config<P: AsRef<Path>>(
-    cert_path: P,
-    private_key_path: P,
-) -> Option<Arc<ServerConfig>> {
-    get_server_config(cert_path, private_key_path)
-        .ok()
-        .map(|config| Arc::new(config))
-}
-
-/// Get a certified key to use with `ResolvesUsingDefaultAndSNI.add_raw()` when adding domain certificates to the server
+/// Get a certified key to use (maybe) when adding domain certificates to the server
 pub fn get_certified_key<P: AsRef<Path>>(
     cert_path: P,
     private_key_path: P,

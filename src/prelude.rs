@@ -39,7 +39,6 @@ pub use crate::parse;
 pub use crate::utility;
 
 // Crate types
-pub use crate::cryptography::{get_server_config, optional_server_config};
 pub use crate::{Config, Storage};
 pub use bindings::FunctionBindings;
 pub use cache::{Cached, Cached::*};
