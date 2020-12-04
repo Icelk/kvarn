@@ -150,7 +150,7 @@ impl ThreadPool {
         }
     }
 }
-impl fmt::Debug for ThreadPool {
+impl Debug for ThreadPool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ThreadPool {{ workers: ")?;
         f.debug_list()

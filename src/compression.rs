@@ -98,7 +98,7 @@ impl Compressors {
         }
     }
 }
-impl fmt::Debug for Compressors {
+impl Debug for Compressors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,

@@ -112,8 +112,8 @@ impl FunctionBindings {
         })
     }
 }
-impl fmt::Debug for FunctionBindings {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Debug for FunctionBindings {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "FunctionBindings {{ page_map: ")?;
         f.debug_map()
             .entries(

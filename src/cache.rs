@@ -161,8 +161,8 @@ impl ByteResponse {
         &self.get_body()[..to]
     }
 }
-impl fmt::Debug for ByteResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Debug for ByteResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Merged(_, starts_at, _) => {
                 write!(f, "ByteResponse::Merged, starts at {}", starts_at)
@@ -535,8 +535,8 @@ impl<K: Eq + Hash + Clone, V> Cache<K, V> {
         self.map.clear()
     }
 }
-impl<K: fmt::Debug, V> fmt::Debug for Cache<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl<K: Debug, V> Debug for Cache<K, V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Cache {{ map: ")?;
         f.debug_map()
             .entries(self.map.iter().map(|(key, _)| (key, "bytes")))

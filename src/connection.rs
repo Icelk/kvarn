@@ -229,7 +229,7 @@ pub enum EncryptionType<'a> {
     HTTP2,
     HTTP3,
 }
-impl<'a> fmt::Debug for EncryptionType<'a> {
+impl<'a> Debug for EncryptionType<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -282,7 +282,7 @@ impl Clone for ConnectionSecurity {
         }
     }
 }
-impl fmt::Debug for ConnectionSecurity {
+impl Debug for ConnectionSecurity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,

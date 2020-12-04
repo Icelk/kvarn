@@ -17,7 +17,7 @@ pub use mime_guess;
 pub use num_cpus;
 pub use std::borrow::Cow;
 pub use std::collections::HashMap;
-pub use std::fmt::{self, Debug, Display};
+pub use std::fmt::{self, Debug, Display, Formatter};
 pub use std::io;
 pub use std::mem::MaybeUninit;
 pub use std::net;
