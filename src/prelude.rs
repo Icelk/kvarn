@@ -120,6 +120,5 @@ pub mod con {
 ///
 /// The purpose of this module is to expose the used Rustls structs and traits.
 pub mod rustls_prelude {
-    pub use crate::cryptography::ResolvesUsingDefaultAndSNI;
     pub use rustls::{ServerConfig, ServerSession, Session};
 }
