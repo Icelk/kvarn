@@ -7,7 +7,4 @@
     "reregister",
     "rustls"
   ],
-  "files.exclude": {
-    "production_server": true,
-  },
 }
