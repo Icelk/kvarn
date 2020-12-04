@@ -443,7 +443,7 @@ impl Connection {
 
                                     match parsed.version() {
                                         http::Version::HTTP_11 => {
-                                            if let Err(err) = crate::process_request(
+                                            if let Err(_err) = crate::process_request(
                                                 &mut self.layer,
                                                 &self.address,
                                                 parsed,
@@ -456,7 +456,7 @@ impl Connection {
                                                 #[cfg(feature = "error-log")]
                                                 eprintln!(
                                                     "Failed to write output to layer! {:?}",
-                                                    err
+                                                    _err
                                                 );
                                             };
                                             // Flush all contents, important for compression
@@ -480,11 +480,11 @@ impl Connection {
                                 }
                             }
                         }
-                        Err(err) => {
+                        Err(_err) => {
                             #[cfg(feature = "error-log")]
                             eprintln!(
                                 "Failed to parse request, write something as a response? Err: {:?}",
-                                err,
+                                _err,
                             );
                             let _ = utility::default_error(400, &close, Some(storage.get_fs()))
                                 .write_all(&mut self.layer);
@@ -502,9 +502,9 @@ impl Connection {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                     // If the whole message couldn't be transmitted in one round, do nothing to allow connection to reregister
                 }
-                Err(err) => {
+                Err(_err) => {
                     #[cfg(feature = "error-log")]
-                    eprintln!("Error writing to socket! {:?}", err);
+                    eprintln!("Error writing to socket! {:?}", _err);
                     self.close();
                 }
                 // Do nothing!
