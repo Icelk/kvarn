@@ -304,6 +304,7 @@ pub(crate) fn process_request<W: io::Write>(
     storage: &mut Storage,
     extensions: &mut ExtensionMap,
     host: &Host,
+    scheme: ConnectionScheme,
 ) -> Result<(), io::Error> {
     let is_get = match request.method() {
         &http::Method::GET | &http::Method::HEAD => true,
@@ -336,41 +337,55 @@ pub(crate) fn process_request<W: io::Write>(
     // Extensions need body and cache setting to be mutable; to replace it.
     // Used to bypass immutable/mutable rule. It is safe because the binding reference isn't affected by changing the cache.
     let cache: *mut Storage = storage;
-    let (mut byte_response, mut content_type, mut cached) =
-        match host.get_bindings().get_binding(request.uri().path()) {
-            // We've got an function, call it and return body and result!
-            Some(callback) => {
-                let mut response = Vec::with_capacity(2048);
-                let (content_type, cache) =
-                    callback(&mut response, &request, unsafe { (*cache).get_fs() });
+    let (mut byte_response, mut content_type, mut cached) = {
+        let binding = match scheme {
+            ConnectionScheme::HTTP1 | ConnectionScheme::WS => host
+                .get_binding_overrides()
+                .and_then(|bindings| bindings.get_binding(request.uri().path())),
+            _ => None,
+        };
+        if let Some(binding) = binding {
+            let mut response = Vec::with_capacity(2048);
+            let (content_type, cache) =
+                binding(&mut response, &request, unsafe { (*cache).get_fs() });
 
-                allowed_method = true;
-                // Check if callback contains headers. Change to response struct in future!
-                if &response[..5] == b"HTTP/" {
-                    (ByteResponse::with_header(response), content_type, cache)
-                } else {
-                    (ByteResponse::without_header(response), content_type, cache)
-                }
+            allowed_method = true;
+            // Check if callback contains headers. Change to response struct in future!
+            if &response[..5] == b"HTTP/" {
+                (ByteResponse::with_header(response), content_type, cache)
+            } else {
+                (ByteResponse::without_header(response), content_type, cache)
             }
-            #[cfg(feature = "fs")]
-            // No function, try read from FS cache.
-            None => {
-                // Body
-                // The requested file will be used only once, here.
-                let body = match read_file_cached(&path, storage.get_fs()) {
-                    Some(response) => ByteResponse::without_header_shared(response),
-                    None => default_error(404, close, Some(storage.get_fs())),
-                };
-                // Content mime type
-                (body, AutoOrDownload, Cached::Static)
+        } else if let Some(binding) = host.get_bindings().get_binding(request.uri().path()) {
+            let mut response = Vec::with_capacity(2048);
+            let (content_type, cache) =
+                binding(&mut response, &request, unsafe { (*cache).get_fs() });
+
+            allowed_method = true;
+            // Check if callback contains headers. Change to response struct in future!
+            if &response[..5] == b"HTTP/" {
+                (
+                    ByteResponse::with_partial_header(response),
+                    content_type,
+                    cache,
+                )
+            } else {
+                (ByteResponse::without_header(response), content_type, cache)
             }
-            #[cfg(not(feature = "fs"))]
-            None => (
+        } else if let Some(file) = read_file_cached(&path, storage.get_fs()) {
+            (
+                ByteResponse::without_header_shared(file),
+                AutoOrDownload,
+                Static,
+            )
+        } else {
+            (
                 default_error(404, close, Some(storage.get_fs())),
                 Html,
                 Cached::Static,
-            ),
-        };
+            )
+        }
+    };
 
     // Apply extensions
     {

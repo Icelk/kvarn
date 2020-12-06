@@ -7,16 +7,39 @@ use rustls::{
 struct HostStorage {
     pub cache: sync::Mutex<cache::types::ResponseCacheInner>,
     pub bindings: FunctionBindings,
+    pub bindings_http_override: Option<FunctionBindings>,
 }
 impl HostStorage {
     pub fn new(bindings: FunctionBindings, max_cache_entities: usize) -> Self {
         Self {
             cache: sync::Mutex::new(cache::Cache::with_max(max_cache_entities)),
             bindings,
+            bindings_http_override: None,
         }
     }
 }
 
+pub const HTTP_REDIRECT_NO_HOST: &[u8] = b"\
+HTTP/1.1 505 HTTP Version Not Supported\r\n\
+Content-Type: text/html\r\n\
+Connection: keep-alive\r\n\
+Content-Encoding: identity\r\n\
+Content-Length: 514\r\n\
+\r\n\
+<html>\
+    <head>\
+        <title>Failed to redirect</title>\
+    </head>\
+    <body>\
+        <center>\
+            <h1>Failed to redirect you to security</h1>\
+            <hr>\
+            <p>You have accessed this site using the HTTP1.1 protocol. It is not secure. Your agent (e.g. browser) is not sending an <code>Host</code> header, so we weren't aviable to redirect you automatically.</p>\
+            <p>Please try to access this website with <code>https://</code> before the URL, not <code>http://</code>. If this error persists, please contact the website administrator.</p>\
+        </center>\
+    </body>\
+</html>\
+";
 pub(crate) const HOST_RESPONSE_MAX_ENTITIES: usize = 512;
 pub struct Host {
     pub certificate: Option<sign::CertifiedKey>,
@@ -66,6 +89,27 @@ impl Host {
         }
     }
 
+    pub fn with_http_redirect<P: AsRef<Path>>(
+        cert_path: P,
+        private_key_path: P,
+        path: P,
+        bindings: Option<FunctionBindings>,
+    ) -> Self {
+        match Host::new(cert_path, private_key_path, path, bindings) {
+            Ok(mut host) => {
+                host.set_http_redirect_to_https();
+                host
+            }
+            Err((err, host_without_cert)) => {
+                eprintln!(
+                    "Failed to get certificate! Not running host on HTTPS. {:?}",
+                    err
+                );
+                host_without_cert
+            }
+        }
+    }
+
     /// Gets the lock of response cache.
     #[inline]
     pub fn get_cache(&self) -> Option<sync::MutexGuard<'_, cache::types::ResponseCacheInner>> {
@@ -79,6 +123,38 @@ impl Host {
     }
     pub fn get_bindings(&self) -> &FunctionBindings {
         &self.storage.bindings
+    }
+    pub fn get_binding_overrides(&self) -> Option<&FunctionBindings> {
+        self.storage.bindings_http_override.as_ref()
+    }
+    pub fn set_binding_overrides(&mut self, bindings: Option<FunctionBindings>) {
+        self.storage.bindings_http_override = bindings;
+    }
+
+    pub fn set_http_redirect_to_https(&mut self) {
+        let mut bindings = FunctionBindings::new();
+
+        bindings.bind_dir("/", |buffer, request, _| {
+            match request
+                .headers()
+                .get("host")
+                .and_then(|header| header.to_str().ok())
+            {
+                Some(host) => {
+                    buffer.extend_from_slice(
+                        b"HTTP/1.1 308 Permanent Redirect\r\nlocation: https://",
+                    );
+                    buffer.extend_from_slice(host.as_bytes());
+                    buffer.extend_from_slice(b"/\r\ncontent-length: 0\r\n\r\n");
+                }
+                None => {
+                    buffer.extend_from_slice(HTTP_REDIRECT_NO_HOST);
+                }
+            };
+            (Html, StaticClient)
+        });
+
+        self.storage.bindings_http_override = Some(bindings);
     }
 
     pub fn is_secure(&self) -> bool {
