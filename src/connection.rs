@@ -303,7 +303,7 @@ pub struct Connection {
     token: mio::Token,
     layer: InformationLayer,
     closing: bool,
-    _scheme: ConnectionScheme,
+    scheme: ConnectionScheme,
     host: HostBinding,
 }
 impl Connection {
@@ -317,11 +317,11 @@ impl Connection {
     ) -> Self {
         Self {
             socket,
-            address: address,
+            address,
             token,
             layer,
             closing: false,
-            _scheme: scheme,
+            scheme,
             host: HostBinding::new(host_data),
         }
     }
@@ -375,7 +375,6 @@ impl Connection {
                     Ok(len) => len,
                     Err(err) => match err {
                         PullError::IO(err) => {
-                            // todo!("CloseNotify alert received?");
                             match err.kind() {
                                 io::ErrorKind::ConnectionReset => {}
                                 io::ErrorKind::ConnectionAborted => {}
@@ -389,15 +388,19 @@ impl Connection {
                         }
                         PullError::TLSError(err) => {
                             match err {
-                                // Received a corrupt message, close connection.
-                                TLSError::CorruptMessage => {}
-                                rustls::TLSError::DecryptError => {}
+                                TLSError::CorruptMessage
+                                | TLSError::DecryptError
+                                | TLSError::CorruptMessagePayload(_) => {
+                                    // Received a corrupt message, close connection.
+                                    self.close();
+                                }
                                 _ => {
                                     #[cfg(feature = "error-log")]
-                                    eprintln!("Failed to process packets {}", err);
+                                    eprintln!("Failed to process packets {:?}", err);
+                                    // Received a corrupt message, close connection.
+                                    self.close();
                                 }
                             }
-                            self.close();
                             0
                         }
                     },
@@ -427,55 +430,41 @@ impl Connection {
                                 }
                             });
 
-                            match parsed.headers().contains_key("host") {
-                                true => {
-                                    let host = match self.host.get_host() {
-                                        Some(host) => host,
-                                        None => match parsed
-                                            .headers()
-                                            .get("host")
-                                            .and_then(|host| host.to_str().ok())
-                                        {
-                                            Some(host) => self.host.get_or_set_host(host),
-                                            None => self.host.get_default(),
-                                        },
-                                    };
+                            let host = match self.host.get_host() {
+                                Some(host) => host,
+                                None => match parsed
+                                    .headers()
+                                    .get("host")
+                                    .and_then(|host| host.to_str().ok())
+                                {
+                                    Some(host) => self.host.get_or_set_host(host),
+                                    None => self.host.get_default(),
+                                },
+                            };
 
-                                    match parsed.version() {
-                                        http::Version::HTTP_11 => {
-                                            if let Err(_err) = crate::process_request(
-                                                &mut self.layer,
-                                                &self.address,
-                                                parsed,
-                                                &request[..],
-                                                &close,
-                                                storage,
-                                                extensions,
-                                                host,
-                                            ) {
-                                                #[cfg(feature = "error-log")]
-                                                eprintln!(
-                                                    "Failed to write output to layer! {:?}",
-                                                    _err
-                                                );
-                                            };
-                                            // Flush all contents, important for compression
-                                            let _ = self.layer.flush();
-                                        }
-                                        _ => {
-                                            // Unsupported HTTP version!
-                                            let _ = utility::default_error(
-                                                505,
-                                                &close,
-                                                Some(storage.get_fs()),
-                                            )
-                                            .write_all(&mut self.layer);
-                                        }
-                                    }
+                            match parsed.version() {
+                                http::Version::HTTP_11 => {
+                                    if let Err(_err) = crate::process_request(
+                                        &mut self.layer,
+                                        &self.address,
+                                        parsed,
+                                        &request[..],
+                                        &close,
+                                        storage,
+                                        extensions,
+                                        host,
+                                        self.scheme,
+                                    ) {
+                                        #[cfg(feature = "error-log")]
+                                        eprintln!("Failed to write output to layer! {:?}", _err);
+                                    };
+                                    // Flush all contents, important for compression
+                                    let _ = self.layer.flush();
                                 }
-                                false => {
+                                _ => {
+                                    // Unsupported HTTP version!
                                     let _ =
-                                        utility::default_error(400, &close, Some(storage.get_fs()))
+                                        utility::default_error(505, &close, Some(storage.get_fs()))
                                             .write_all(&mut self.layer);
                                 }
                             }
