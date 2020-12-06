@@ -187,6 +187,8 @@ pub enum Cached {
     Changing,
     PerQuery,
     Static,
+    /// Will be heavily cached on the client, but not at all on the server.
+    StaticClient,
 }
 impl Cached {
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -197,7 +199,7 @@ impl Cached {
         match self {
             Cached::Dynamic => b"Cache-Control: no-store\r\n",
             Cached::Changing => b"Cache-Control: max-age=120\r\n",
-            Cached::Static | Cached::PerQuery => {
+            Cached::Static | Cached::PerQuery | Cached::StaticClient => {
                 b"Cache-Control: public, max-age=604800, immutable\r\n"
             }
         }
@@ -205,14 +207,14 @@ impl Cached {
 
     pub fn do_internal_cache(&self) -> bool {
         match self {
-            Self::Dynamic | Self::Changing => false,
+            Self::Dynamic | Self::Changing | Self::StaticClient => false,
             Self::Static | Self::PerQuery => true,
         }
     }
     pub fn query_matters(&self) -> bool {
         match self {
             Self::Dynamic | Self::PerQuery => true,
-            Self::Static | Self::Changing => false,
+            Self::Static | Self::Changing | Self::StaticClient => false,
         }
     }
 }

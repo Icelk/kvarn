@@ -42,7 +42,7 @@ pub use crate::utility;
 pub use crate::{Config, Storage};
 pub use bindings::FunctionBindings;
 pub use cache::{Cached, Cached::*};
-pub use connection::ConnectionSecurity;
+pub use connection::{ConnectionScheme, ConnectionSecurity};
 pub use cryptography::{Host, HostData};
 pub use utility::chars::*;
 pub use utility::{
@@ -112,7 +112,7 @@ pub mod threading {
 /// The purpose of this module is to expose the internal connections types and operations.
 pub mod con {
     use super::*;
-    pub use connection::{Connection, ConnectionSecurity};
+    pub use connection::{Connection, ConnectionScheme, ConnectionSecurity};
 }
 
 /// ## **The Kvarn *Rustless* Prelude**

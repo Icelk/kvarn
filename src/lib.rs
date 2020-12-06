@@ -300,7 +300,7 @@ pub(crate) fn process_request<W: io::Write>(
     address: &net::SocketAddr,
     request: http::Request<&[u8]>,
     raw_request: &[u8],
-    close: &connection::ConnectionHeader,
+    close: &ConnectionHeader,
     storage: &mut Storage,
     extensions: &mut ExtensionMap,
     host: &Host,

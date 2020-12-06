@@ -433,7 +433,7 @@ pub fn ip_allow() -> BoundExtension {
                 let error = default_error(404, data.close, Some(data.storage.get_fs()));
                 data.set_response(error);
             }
-            *data.cached = Cached::Changing;
+            *data.cached = Cached::StaticClient;
         }),
     }
 }
