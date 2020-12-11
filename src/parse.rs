@@ -375,10 +375,10 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
     map
 }
 
-pub fn convert_uri(uri: &Uri, base_path: &Path) -> Result<PathBuf, ()> {
+pub fn convert_uri(uri: &Uri, base_path: &Path) -> Option<PathBuf> {
     let mut path = uri.path();
     if path.contains("./") {
-        return Err(());
+        return None;
     }
     let is_dir = path.ends_with("/");
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
@@ -389,5 +389,5 @@ pub fn convert_uri(uri: &Uri, base_path: &Path) -> Result<PathBuf, ()> {
     if is_dir {
         buf.push("index.html");
     };
-    Ok(buf)
+    Some(buf)
 }
