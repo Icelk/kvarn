@@ -375,8 +375,13 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
     map
 }
 
-pub fn convert_uri(uri: &Uri, base_path: &Path) -> Option<PathBuf> {
-    let mut path = uri.path();
+/// Will convert an `&str` path to
+pub fn convert_uri(
+    mut path: &str,
+    base_path: &Path,
+    folder_default: &str,
+    extension_default: &str,
+) -> Option<PathBuf> {
     if path.contains("./") {
         return None;
     }
@@ -386,9 +391,9 @@ pub fn convert_uri(uri: &Uri, base_path: &Path) -> Option<PathBuf> {
     let mut buf = base_path.join("public");
     buf.push(path);
     if path.ends_with("/") {
-        buf.push("index.html");
+        buf.push(folder_default);
     } else if path.ends_with(".") {
-        buf.set_extension("html");
+        buf.set_extension(extension_default);
     };
     Some(buf)
 }

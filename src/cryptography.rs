@@ -45,6 +45,17 @@ pub struct Host {
     pub certificate: Option<sign::CertifiedKey>,
     pub path: PathBuf,
     storage: HostStorage,
+
+    /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
+    /// E.g. `/posts/` -> `/posts/index.html`
+    ///
+    /// If no value is passed, `index.html` is assumed.
+    pub folder_default: Option<String>,
+    /// Will be the default for unspecified file extensions; `/foobar.` will resolve to `/foobar.<extension_default>`.
+    /// E.g. `/index.` -> `/index.html`
+    ///
+    /// If no value is passed, `html` is assumed.
+    pub extension_default: Option<String>,
 }
 impl Host {
     pub fn new<P: AsRef<Path>>(
@@ -62,6 +73,8 @@ impl Host {
                     Some(bindings) => HostStorage::new(bindings, HOST_RESPONSE_MAX_ENTITIES),
                     None => HostStorage::new(FunctionBindings::new(), HOST_RESPONSE_MAX_ENTITIES),
                 },
+                folder_default: None,
+                extension_default: None,
             }),
             Err(err) => Err((
                 err,
@@ -74,6 +87,8 @@ impl Host {
                             HostStorage::new(FunctionBindings::new(), HOST_RESPONSE_MAX_ENTITIES)
                         }
                     },
+                    folder_default: None,
+                    extension_default: None,
                 },
             )),
         }
@@ -86,6 +101,8 @@ impl Host {
                 Some(bindings) => HostStorage::new(bindings, HOST_RESPONSE_MAX_ENTITIES),
                 None => HostStorage::new(FunctionBindings::new(), HOST_RESPONSE_MAX_ENTITIES),
             },
+            folder_default: None,
+            extension_default: None,
         }
     }
 
@@ -129,6 +146,25 @@ impl Host {
     }
     pub fn set_binding_overrides(&mut self, bindings: Option<FunctionBindings>) {
         self.storage.bindings_http_override = bindings;
+    }
+
+    pub fn get_folder_default_or<'a>(&'a self, default: &'a str) -> &'a str {
+        self.folder_default
+            .as_ref()
+            .map(String::as_str)
+            .unwrap_or(default)
+    }
+    pub fn get_extension_default_or<'a>(&'a self, default: &'a str) -> &'a str {
+        self.extension_default
+            .as_ref()
+            .map(String::as_str)
+            .unwrap_or(default)
+    }
+    pub fn set_folder_default(&mut self, default: String) {
+        self.folder_default = Some(default);
+    }
+    pub fn set_extension_default(&mut self, default: String) {
+        self.extension_default = Some(default);
     }
 
     pub fn set_http_redirect_to_https(&mut self) {

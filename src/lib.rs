@@ -326,7 +326,12 @@ pub(crate) fn process_request<W: io::Write>(
     let mut allowed_method = is_get;
 
     // Get from function or cache, to enable processing (extensions) from functions!
-    let path = match parse::convert_uri(request.uri(), host.path.as_path()) {
+    let path = match parse::convert_uri(
+        request.uri().path(),
+        host.path.as_path(),
+        host.get_folder_default_or("index.html"),
+        host.get_extension_default_or("html"),
+    ) {
         Some(path) => path,
         None => {
             &default_error(400, close, Some(storage.get_fs())).write_all(socket)?;
