@@ -380,14 +380,15 @@ pub fn convert_uri(uri: &Uri, base_path: &Path) -> Option<PathBuf> {
     if path.contains("./") {
         return None;
     }
-    let is_dir = path.ends_with("/");
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
     let mut buf = base_path.join("public");
     buf.push(path);
-    if is_dir {
+    if path.ends_with("/") {
         buf.push("index.html");
+    } else if path.ends_with(".") {
+        buf.set_extension("html");
     };
     Some(buf)
 }
