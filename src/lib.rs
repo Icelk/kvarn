@@ -412,7 +412,7 @@ pub(crate) fn process_request<W: io::Write>(
             let mut response = None;
 
             for segment in extension_args {
-                if let Some(extension_name) = segment.get(0).map(|string| string.as_str()) {
+                if let Some(extension_name) = segment.get(0).map(String::as_str) {
                     match extensions.get_name(extension_name) {
                         Some(extension) => unsafe {
                             let mut data = extensions::RequestData::new(
@@ -457,7 +457,7 @@ pub(crate) fn process_request<W: io::Write>(
                 }
             }
 
-            if let Some(file_extension) = path.extension().and_then(|path| path.to_str()) {
+            if let Some(file_extension) = path.extension().and_then(OsStr::to_str) {
                 match extensions.get_file_extension(file_extension) {
                     Some(extension) => unsafe {
                         let mut data = extensions::RequestData::new(
@@ -515,7 +515,7 @@ pub(crate) fn process_request<W: io::Write>(
     let compression = match request
         .headers()
         .get("Accept-Encoding")
-        .and_then(|header| header.to_str().ok())
+        .and_then(to_option_str)
     {
         Some(header) => {
             let (algorithm, identity_forbidden) = compression::compression_from_header(header);

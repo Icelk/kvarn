@@ -1,4 +1,4 @@
-use crate::prelude::{str, Cow, HashMap, Path, PathBuf};
+use crate::prelude::{str, to_option_str, Cow, HashMap, Path, PathBuf};
 use http::{header::*, Method, Request, Uri, Version};
 
 enum DecodeStage {
@@ -168,9 +168,9 @@ impl HeaderInfo<'_> {
     pub fn entire_known_url(&self) -> String {
         // Create with appropriate capacity
         let mut string = String::with_capacity(
-            self.url.host().map(|host| host.len()).unwrap_or(0)
+            self.url.host().map_or(0, str::len)
                 + self.url.path().len()
-                + self.url.query().map(|query| query.len()).unwrap_or(0),
+                + self.url.query().map_or(0, str::len),
         );
         if let Some(host) = self.url.host() {
             string.push_str(host);
@@ -224,7 +224,7 @@ pub fn format_headers<T>(request: &Request<T>) -> HeaderInfo {
     let headers = request.headers();
     let uri = request.uri();
     let url = {
-        match headers.get("host").and_then(|host| host.to_str().ok()) {
+        match headers.get("host").and_then(to_option_str) {
             Some(host) => {
                 let mut url = Uri::builder().authority(host).scheme("https");
                 url = match uri.path_and_query() {
@@ -241,21 +241,18 @@ pub fn format_headers<T>(request: &Request<T>) -> HeaderInfo {
     };
     HeaderInfo {
         url,
-        queries: uri
-            .query()
-            .map(|q| format_query(q))
-            .unwrap_or(HashMap::new()),
+        queries: uri.query().map(format_query).unwrap_or(HashMap::new()),
         accept: request
             .headers()
             .get("accept")
-            .and_then(|accept| accept.to_str().ok())
-            .map(|accept| format_list_header(accept))
+            .and_then(to_option_str)
+            .map(format_list_header)
             .unwrap_or(Vec::new()),
         accept_lang: request
             .headers()
             .get("accept-language")
-            .and_then(|accept| accept.to_str().ok())
-            .map(|accept| format_list_header(accept))
+            .and_then(to_option_str)
+            .map(format_list_header)
             .unwrap_or(Vec::new()),
     }
 }

@@ -171,11 +171,7 @@ impl Host {
         let mut bindings = FunctionBindings::new();
 
         bindings.bind_dir("/", |buffer, request, _| {
-            match request
-                .headers()
-                .get("host")
-                .and_then(|header| header.to_str().ok())
-            {
+            match request.headers().get("host").and_then(to_option_str) {
                 Some(host) => {
                     buffer.extend_from_slice(
                         b"HTTP/1.1 308 Permanent Redirect\r\nlocation: https://",

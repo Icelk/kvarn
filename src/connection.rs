@@ -275,10 +275,7 @@ impl Clone for ConnectionSecurity {
     fn clone(&self) -> Self {
         Self {
             scheme: self.scheme,
-            tls_config: self
-                .tls_config
-                .as_ref()
-                .map(|to_clone| Arc::clone(&to_clone)),
+            tls_config: self.tls_config.as_ref().map(Arc::clone),
         }
     }
 }
@@ -432,14 +429,12 @@ impl Connection {
 
                             let host = match self.host.get_host() {
                                 Some(host) => host,
-                                None => match parsed
-                                    .headers()
-                                    .get("host")
-                                    .and_then(|host| host.to_str().ok())
-                                {
-                                    Some(host) => self.host.get_or_set_host(host),
-                                    None => self.host.get_default(),
-                                },
+                                None => {
+                                    match parsed.headers().get("host").and_then(to_option_str) {
+                                        Some(host) => self.host.get_or_set_host(host),
+                                        None => self.host.get_default(),
+                                    }
+                                }
                             };
 
                             match parsed.version() {

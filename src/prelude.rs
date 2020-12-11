@@ -17,6 +17,7 @@ pub use mime_guess;
 pub use num_cpus;
 pub use std::borrow::Cow;
 pub use std::collections::HashMap;
+pub use std::ffi::{self, OsStr, OsString};
 pub use std::fmt::{self, Debug, Display, Formatter};
 pub use std::io;
 pub use std::mem::MaybeUninit;
@@ -46,7 +47,8 @@ pub use connection::{ConnectionScheme, ConnectionSecurity};
 pub use cryptography::{Host, HostData};
 pub use utility::chars::*;
 pub use utility::{
-    read_file, read_file_cached, write_error, write_generic_error, ContentType::*, SRO,
+    read_file, read_file_cached, to_option_str, write_error, write_generic_error, ContentType::*,
+    SRO,
 };
 
 /// ## **The Kvarn *File System* Prelude**

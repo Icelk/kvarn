@@ -95,13 +95,13 @@ impl ExtensionMap {
         match self.name.get(name) {
             Some(pointer) => match pointer {
                 ExtensionPointer::Data(..) => {
-                    self.name.get_mut(name).map(|data| data.assume_data())
+                    self.name.get_mut(name).map(ExtensionPointer::assume_data)
                 }
                 ExtensionPointer::ReferenceToName(pointer) => {
                     let pointer = *pointer;
                     self.name
                         .get_mut(pointer)
-                        .map(|pointer| pointer.assume_data())
+                        .map(ExtensionPointer::assume_data)
                 }
                 ExtensionPointer::ReferenceToFE(..) => {
                     unreachable!("No references to file extensions should be made from name map")
@@ -119,18 +119,18 @@ impl ExtensionMap {
                 ExtensionPointer::Data(..) => self
                     .extensions
                     .get_mut(file_extension)
-                    .map(|data| data.assume_data()),
+                    .map(ExtensionPointer::assume_data),
                 ExtensionPointer::ReferenceToName(pointer) => {
                     let pointer = *pointer;
                     self.name
                         .get_mut(pointer)
-                        .map(|pointer| pointer.assume_data())
+                        .map(ExtensionPointer::assume_data)
                 }
                 ExtensionPointer::ReferenceToFE(pointer) => {
                     let pointer = *pointer;
                     self.extensions
                         .get_mut(pointer)
-                        .map(|pointer| pointer.assume_data())
+                        .map(ExtensionPointer::assume_data)
                 }
             },
             None => None,
@@ -257,7 +257,7 @@ impl Extensions {
 impl Clone for Extensions {
     fn clone(&self) -> Self {
         Self {
-            vec: self.vec.iter().map(|old| old.clone()).collect(),
+            vec: self.vec.iter().map(BoundExtension::clone).collect(),
         }
     }
 }

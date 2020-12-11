@@ -1,4 +1,5 @@
 use pulldown_cmark::{html, Options, Parser};
+use std::ffi::OsStr;
 use std::io::{self, prelude::*};
 use std::path::Path;
 
@@ -256,12 +257,7 @@ pub fn process_document<P: AsRef<Path>>(
     quiet: bool,
 ) -> io::Result<()> {
     let path = path.as_ref();
-    if path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|s| s == "md")
-        == Some(false)
-    {
+    if path.extension().and_then(OsStr::to_str).map(|s| s == "md") == Some(false) {
         println!("Specified file is not of type '.md' This conversion be a mistake and make a unexpected result.");
     }
     let (mut file, metadata) = filesystem::open_file_with_metadata(&path)?;
@@ -380,7 +376,7 @@ pub fn watch<P: AsRef<Path>>(
         match rx.recv() {
             Ok(event) => match event {
                 Write(path) | Create(path) | Rename(_, path) => {
-                    if path.extension().and_then(|os_str| os_str.to_str()) == Some("md") {
+                    if path.extension().and_then(OsStr::to_str) == Some("md") {
                         process_document(&path, header, footer, ignored_extensions, true)?;
                         let local_path = if let Ok(wd) = std::env::current_dir() {
                             path.strip_prefix(wd).unwrap_or(&path)

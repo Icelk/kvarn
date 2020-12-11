@@ -438,3 +438,7 @@ impl Default for ContentType {
         Self::AutoOrDownload
     }
 }
+
+pub fn to_option_str(header: &http::HeaderValue) -> Option<&str> {
+    header.to_str().ok()
+}

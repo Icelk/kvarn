@@ -139,7 +139,7 @@ pub mod parse {
     use super::*;
 
     pub fn format_file_name<P: AsRef<Path>>(path: &P) -> Option<&str> {
-        path.as_ref().file_name().and_then(|os_str| os_str.to_str())
+        path.as_ref().file_name().and_then(OsStr::to_str)
     }
     pub fn format_file_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf, io::Error> {
         let mut file_path = std::env::current_dir()?;
@@ -182,11 +182,7 @@ pub mod templates {
             file_extension_aliases: &[],
             ext: Extension::new(&|| {}, &|_, data| {
                 let response = ByteResponse::without_header(handle_template(
-                    &data
-                        .args
-                        .iter()
-                        .map(|string| string.as_str())
-                        .collect::<Vec<&str>>(),
+                    &data.args.iter().map(String::as_str).collect::<Vec<_>>(),
                     data.body,
                     data.storage,
                     data.host,

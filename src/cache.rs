@@ -284,8 +284,8 @@ impl CacheType {
                     let required_data = {
                         let mut data = headers
                             .get(*name)
-                            .and_then(|header| header.to_str().ok())
-                            .map(|header| parse::format_list_header(header))
+                            .and_then(to_option_str)
+                            .map(parse::format_list_header)
                             .unwrap_or(Vec::new());
 
                         // Push additional option to data if they should be available!
@@ -522,7 +522,7 @@ impl<K: Eq + Hash + Clone, V> Cache<K, V> {
     where
         K: Borrow<Q>,
     {
-        self.map.get(key).map(|value| Arc::clone(value))
+        self.map.get(key).map(Arc::clone)
     }
     #[inline]
     pub fn cached(&self, key: &K) -> bool {
