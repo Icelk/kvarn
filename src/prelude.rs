@@ -16,6 +16,7 @@ pub use mime::Mime;
 pub use mime_guess;
 pub use num_cpus;
 pub use std::borrow::Cow;
+pub use std::cmp;
 pub use std::collections::HashMap;
 pub use std::ffi::{self, OsStr, OsString};
 pub use std::fmt::{self, Debug, Display, Formatter};

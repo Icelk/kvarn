@@ -1,4 +1,4 @@
-use crate::prelude::{str, to_option_str, Cow, HashMap, Path, PathBuf};
+use crate::prelude::*;
 use http::{header::*, Method, Request, Uri, Version};
 
 enum DecodeStage {
@@ -19,11 +19,10 @@ impl DecodeStage {
         }
     }
 }
-const LF: u8 = 10;
-const CR: u8 = 13;
-const SPACE: u8 = 32;
-const COLON: u8 = 58;
-pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, http::Error> {
+
+/// # Errors
+/// Will return error if building the `http::Response` internally failed, or if path is empty.
+pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, ()> {
     let mut parse_stage = DecodeStage::Method;
     // Method is max 7 bytes long
     let mut method = [0; 7];
@@ -100,6 +99,9 @@ pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, http::Error> {
             }
         };
     }
+    if path.is_empty() {
+        return Err(());
+    }
     parsed
         .method(Method::from_bytes(&method[..method_index]).unwrap_or(Method::GET))
         .uri(Uri::from_maybe_shared(path).unwrap_or(Uri::from_static("/")))
@@ -114,6 +116,7 @@ pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, http::Error> {
             _ => Version::default(),
         })
         .body(&buffer[last_header_byte..])
+        .map_err(|_| ())
 }
 pub fn parse_only_headers(buffer: &[u8]) -> http::HeaderMap {
     let mut stage = DecodeStage::Method;
@@ -372,9 +375,18 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
     map
 }
 
-/// Will convert an `&str` path to
+/// Will convert an `&str` path to a `PathBuf` using other paramaters.
+///
+/// `base_path` corresponds to the the first segment(s) of the path.
+/// `folder_default` sets the file if pointed to a folder
+/// `extension_default` sets the file extension if pointed to a file with no extension (e.g. `index.`)
+///
+/// The returned path will be formatted as follows `<base_path>/public/<path>[.<extension_default>][/<folder_default>]`
+///
+/// # Panics
+/// Will panic if `path.is_empty()`, since it checks the last byte
 pub fn convert_uri(
-    mut path: &str,
+    path: &str,
     base_path: &Path,
     folder_default: &str,
     extension_default: &str,
@@ -383,13 +395,21 @@ pub fn convert_uri(
         return None;
     }
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
-    path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
+    let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
-    let mut buf = base_path.join("public");
-    buf.push(path);
-    if path.ends_with("/") {
+    let mut buf = PathBuf::with_capacity(
+        base_path.as_os_str().len() + 6 /* "public".len() */ + path.len() + cmp::max(folder_default.len(), extension_default.len()),
+    );
+    buf.push(base_path);
+    buf.push("public");
+    buf.push(stripped_path);
+
+    // The path is guaranteed to be at least one byte long
+    let last_byte = path.as_bytes()[path.len() - 1];
+
+    if last_byte == FORWARD_SLASH {
         buf.push(folder_default);
-    } else if path.ends_with(".") {
+    } else if last_byte == PERIOD {
         buf.set_extension(extension_default);
     };
     Some(buf)

@@ -11,6 +11,12 @@ pub mod chars {
     pub const BANG: u8 = 33;
     /// `&`
     pub const AMPERSAND: u8 = 38;
+    /// `.`
+    pub const PERIOD: u8 = 46;
+    /// `/`
+    pub const FORWARD_SLASH: u8 = 47;
+    /// `:`
+    pub const COLON: u8 = 58;
     /// `>`
     pub const PIPE: u8 = 62;
     /// `[`
