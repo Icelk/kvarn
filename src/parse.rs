@@ -384,14 +384,15 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
 /// The returned path will be formatted as follows `<base_path>/public/<path>[.<extension_default>][/<folder_default>]`
 ///
 /// # Panics
-/// Will panic if `path.is_empty()`, since it checks the last byte
+/// // Will panic if `path.is_empty()`, since it checks the last byte
+/// This is checked before trying to access bytes, and returns `None` if the assert fails.
 pub fn convert_uri(
     path: &str,
     base_path: &Path,
     folder_default: &str,
     extension_default: &str,
 ) -> Option<PathBuf> {
-    if path.contains("./") {
+    if path.contains("./") || path.is_empty() {
         return None;
     }
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
