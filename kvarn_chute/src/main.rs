@@ -16,19 +16,17 @@ fn main() {
     const FOOTER: &[u8] = b"</md></main>\n[footer]\n";
     const IGNORED_EXTENSIONS: &[&str] = &["hide"];
 
-    match lib::process_document(&path, HEADER, FOOTER, IGNORED_EXTENSIONS, false) {
-        Ok(()) => lib::wait_for("Press enter to close..."),
-        Err(err) if err.kind() == io::ErrorKind::PermissionDenied => {
-            // Check if dir!
-            let metadata = path.metadata();
-            if metadata.is_ok() && metadata.as_ref().unwrap().is_dir() {
-                // let metadata = metadata.unwrap();
-                println!("Watching directory and overriding files.");
-                lib::watch(&path, HEADER, FOOTER, IGNORED_EXTENSIONS).unwrap();
-            } else {
+    match path.is_dir() {
+        true => {
+            println!("Watching directory and overriding files.");
+            lib::watch(&path, HEADER, FOOTER, IGNORED_EXTENSIONS).unwrap();
+        }
+        false => match lib::process_document(&path, HEADER, FOOTER, IGNORED_EXTENSIONS, false) {
+            Ok(()) => lib::wait_for("Press enter to close..."),
+            Err(ref err) if err.kind() == io::ErrorKind::PermissionDenied => {
                 lib::exit_with_message("You do not have permission to read the file specified.");
             }
-        }
-        Err(_) => lib::exit_with_message("Failed to write to output file."),
+            Err(_) => lib::exit_with_message("Failed to write to output file."),
+        },
     }
 }
