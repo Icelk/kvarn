@@ -717,8 +717,7 @@ pub(crate) fn process_request<W: io::Write>(
                         Some(headers) => {
                             let _ = lock.add_variant(uri, response, headers, &vary[..]);
                         }
-                        None =>
-                        {
+                        None => {
                             #[cfg(feature = "info-log")]
                             eprintln!("Vary header not present in response! Will not cache.")
                         }

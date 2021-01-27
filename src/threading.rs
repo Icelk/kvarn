@@ -14,6 +14,9 @@ impl Worker {
         mut storage: Storage,
         mut extensions: Extensions,
     ) -> Self {
+        let ready = Arc::new(atomic::AtomicBool::new(false));
+
+        let ready_clone = Arc::clone(&ready);
         let handle = thread::Builder::new()
             .name(format!("Worker: {}", id))
             .spawn(move || {
@@ -21,6 +24,8 @@ impl Worker {
                 // Init all map's values
                 extensions.init_all();
                 let mut extensions = extensions.get_maps();
+
+                ready_clone.store(true, atomic::Ordering::SeqCst);
 
                 loop {
                     let job = match receiver.recv() {
@@ -38,6 +43,13 @@ impl Worker {
                 }
             })
             .expect("Failed to create thread!");
+
+        loop {
+            if ready.load(atomic::Ordering::SeqCst) {
+                break;
+            }
+            thread::yield_now();
+        }
 
         Self { id, handle }
     }
@@ -168,14 +180,12 @@ pub struct HandlerPool {
 impl HandlerPool {
     pub fn new(storage: Storage, extensions: Extensions, registry: &mio::Registry) -> Self {
         let global_connections = Arc::new(Mutex::new(HashMap::new()));
+        let cpus = match num_cpus::get() {
+            0 => 4,
+            cpus => cpus,
+        };
         Self {
-            pool: ThreadPool::new(
-                num_cpus::get() as usize - 1,
-                registry,
-                &global_connections,
-                storage,
-                extensions,
-            ),
+            pool: ThreadPool::new(cpus, registry, &global_connections, storage, extensions),
             connections: global_connections,
         }
     }
