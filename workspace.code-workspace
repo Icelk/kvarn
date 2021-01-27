@@ -2,19 +2,19 @@
 	"folders": [
 		{
 			"name": "icelk.dev",
-			"path": ".\\production_server\\icelk.dev"
+			"path": "./production_server/icelk.dev"
 		},
 		{
 			"name": "kvarn.org",
-			"path": ".\\production_server\\kvarn.org"
+			"path": "./production_server/kvarn.org"
 		},
 		{
 			"name": "Server Binary",
-			"path": ".\\production_server"
+			"path": "./production_server"
 		},
 		{
 			"name": "Main Server Lib",
-			"path": ".\\"
+			"path": "./"
 		},
 	],
 }
