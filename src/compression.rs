@@ -150,15 +150,13 @@ pub fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
         false
     };
 
-    // println!("Options: {:?}", options);
-
-    // If Brotli enabled, prioritize it if quality == 1
+    // If Gzip enabled, prioritize it if quality == 1
     #[cfg(feature = "br")]
     if options.is_empty()
         || options.iter().any(|option| {
             option
                 == &parse::ValueQualitySet {
-                    value: "br",
+                    value: "gzip",
                     quality: 1.0,
                 }
         })
