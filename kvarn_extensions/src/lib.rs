@@ -309,7 +309,7 @@ pub mod templates {
         let mut newline_size = 1;
         for (position, byte) in file.iter().enumerate() {
             // Ignore all CR characters
-            if *byte == CR {
+            if *byte == CR || *byte == SPACE || *byte == TAB {
                 newline_size = 2;
                 continue;
             }

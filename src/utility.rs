@@ -1,6 +1,8 @@
 use crate::prelude::{fs::*, internals::*, *};
 
 pub mod chars {
+    /// Tab
+    pub const TAB: u8 = 9;
     /// Line feed
     pub const LF: u8 = 10;
     /// Carrage return
