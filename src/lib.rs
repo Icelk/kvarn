@@ -529,6 +529,7 @@ pub(crate) fn process_request<W: io::Write>(
                 || content_str.starts_with("image")
                 || content_str.starts_with("audio")
                 || content_str.starts_with("video")
+                || content_str.starts_with("font")
             {
                 if identity_forbidden {
                     byte_response = default_error(406, &close, Some(&mut storage.fs));
