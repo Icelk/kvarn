@@ -177,6 +177,13 @@ impl Host {
                         b"HTTP/1.1 308 Permanent Redirect\r\nlocation: https://",
                     );
                     buffer.extend_from_slice(host.as_bytes());
+                    buffer.extend_from_slice(
+                        request
+                            .uri()
+                            .path_and_query()
+                            .map(|p| p.as_str().as_bytes())
+                            .unwrap_or(b"/"),
+                    );
                     buffer.extend_from_slice(b"/\r\ncontent-length: 0\r\n\r\n");
                 }
                 None => {
