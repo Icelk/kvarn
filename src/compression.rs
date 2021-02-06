@@ -161,7 +161,7 @@ pub fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
                 }
         })
     {
-        return (CompressionAlgorithm::Brotli, identity_forbidden);
+        return (CompressionAlgorithm::Gzip, identity_forbidden);
     }
     match options[0].value {
         #[cfg(feature = "gzip")]
