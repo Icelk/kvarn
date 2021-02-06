@@ -12,7 +12,7 @@ fn main() {
         ),
     };
 
-    const HEADER: &[u8] = b"!> tmpl standard markdown\n[head][md-title][dependencies][md-imports][close-head][navbar]\n<main><md style=\"text-align: center;\">";
+    const HEADER: &[u8] = b"!> tmpl standard.html markdown.html\n[head][md-title][dependencies][md-imports][close-head][navbar]\n<main><md style=\"text-align: center;\">";
     const FOOTER: &[u8] = b"</md></main>\n[footer]\n";
     const IGNORED_EXTENSIONS: &[&str] = &["hide"];
 
