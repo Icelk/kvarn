@@ -184,7 +184,7 @@ impl Host {
                             .map(|p| p.as_str().as_bytes())
                             .unwrap_or(b"/"),
                     );
-                    buffer.extend_from_slice(b"/\r\ncontent-length: 0\r\n\r\n");
+                    buffer.extend_from_slice(b"\r\ncontent-length: 0\r\n\r\n");
                 }
                 None => {
                     buffer.extend_from_slice(HTTP_REDIRECT_NO_HOST);
