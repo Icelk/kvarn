@@ -251,7 +251,8 @@ impl FileEnding {
 /// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
 pub fn process_document<P: AsRef<Path>>(
     path: P,
-    header: &[u8],
+    header_pre_meta: &[u8],
+    header_post_meta: &[u8],
     footer: &[u8],
     ignored_extensions: &[&str],
     quiet: bool,
@@ -272,7 +273,7 @@ pub fn process_document<P: AsRef<Path>>(
     if file.read_to_end(&mut buffer).is_err() {
         exit_with_message("Encountered an error reading the contents of the file specified.")
     }
-    let (mut extensions, header_content_starts) = parse::extension_args(header);
+    let (mut extensions, header_content_starts) = parse::extension_args(header_pre_meta);
 
     let (file_extensions, file_content_start) = parse::extension_args(&buffer[..]);
     'extension_loop: for extension in file_extensions.into_iter() {
@@ -319,8 +320,31 @@ pub fn process_document<P: AsRef<Path>>(
         FileEnding::LF.as_bytes(),
     )?;
 
-    // Write rest of header
-    write_file.write_all(&header[header_content_starts..])?;
+    // Write rest of header before meta
+    write_file.write_all(&header_pre_meta[header_content_starts..])?;
+
+    let file_content_start = if buffer[file_content_start..].starts_with(b"<head>") {
+        let buffer = &buffer[file_content_start..];
+        let end = {
+            let mut end = None;
+            for byte in 6..buffer.len() {
+                if buffer.get(byte..byte + 7) == Some(b"</head>") {
+                    end = Some(byte);
+                    break;
+                }
+            }
+            end.unwrap_or(buffer.len())
+        };
+
+        write_file.write_all(&buffer[6..end])?;
+
+        end + 7
+    } else {
+        file_content_start
+    };
+
+    // Write header after meta
+    write_file.write_all(header_post_meta)?;
 
     // Parse CMark
     let input = unsafe { std::str::from_utf8_unchecked(&buffer[file_content_start..]) };
@@ -352,7 +376,8 @@ pub fn process_document<P: AsRef<Path>>(
 /// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
 pub fn watch<P: AsRef<Path>>(
     path: P,
-    header: &[u8],
+    header_pre_meta: &[u8],
+    header_post_meta: &[u8],
     footer: &[u8],
     ignored_extensions: &[&str],
 ) -> io::Result<()> {
@@ -377,7 +402,14 @@ pub fn watch<P: AsRef<Path>>(
             Ok(event) => match event {
                 Write(path) | Create(path) | Rename(_, path) => {
                     if path.extension().and_then(OsStr::to_str) == Some("md") {
-                        process_document(&path, header, footer, ignored_extensions, true)?;
+                        process_document(
+                            &path,
+                            header_pre_meta,
+                            header_post_meta,
+                            footer,
+                            ignored_extensions,
+                            true,
+                        )?;
                         let local_path = if let Ok(wd) = std::env::current_dir() {
                             path.strip_prefix(wd).unwrap_or(&path)
                         } else {

@@ -12,16 +12,31 @@ fn main() {
         ),
     };
 
-    const HEADER: &[u8] = b"!> tmpl standard.html markdown.html\n[head][md-title][dependencies][md-imports][close-head][navbar]\n<main><md style=\"text-align: center;\">";
+    const HEADER_PRE_META: &[u8] = b"!> tmpl standard.html markdown.html\n[head]";
+    const HEADER_POST_META: &[u8] = b"[dependencies][md-imports][close-head][navigation]\n<main><md style=\"text-align: center;\">";
     const FOOTER: &[u8] = b"</md></main>\n[footer]\n";
     const IGNORED_EXTENSIONS: &[&str] = &["hide"];
 
     match path.is_dir() {
         true => {
             println!("Watching directory and overriding files.");
-            lib::watch(&path, HEADER, FOOTER, IGNORED_EXTENSIONS).unwrap();
+            lib::watch(
+                &path,
+                HEADER_PRE_META,
+                HEADER_POST_META,
+                FOOTER,
+                IGNORED_EXTENSIONS,
+            )
+            .unwrap();
         }
-        false => match lib::process_document(&path, HEADER, FOOTER, IGNORED_EXTENSIONS, false) {
+        false => match lib::process_document(
+            &path,
+            HEADER_PRE_META,
+            HEADER_POST_META,
+            FOOTER,
+            IGNORED_EXTENSIONS,
+            false,
+        ) {
             Ok(()) => lib::wait_for("Press enter to close..."),
             Err(ref err) if err.kind() == io::ErrorKind::PermissionDenied => {
                 lib::exit_with_message("You do not have permission to read the file specified.");
