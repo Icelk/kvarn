@@ -8,7 +8,7 @@ This is where you can add cache redirects. If you for example want to load the l
 and from there decide to intercept the request.
 
 # Pre
-This is tied to Layer 6. See routing.md for more information
+This is tied to Layer 6. See [routing](routing.md) for more information
 
 # Prepare
 Called with URI to capture to a function. Will still get all other extensions applied.

@@ -36,17 +36,20 @@ Caching has two options:
 - Client cache; configurations of the `Content-Encoding` header
 - Server cache, `never`, `match query` (requested path has to match query) or `yes` (query of path is ignored, to prevent DDOS attacks circumventing the cache)
 
-# Layer 6 / Pathing
+# Layer 6.1 / Pathing
 This is where the data of `::http::Request` is interpreted to either read a file, run a binding, call PHP and most other important things take place.
 
 Here, two of the four types of extensions are located. Both *Prepare* and *Present* are called inside of this function.
 
-# Layer 6 / Extension: Pre
+## Layer 7 / Lib API
+Only meant to be accessible from Layer 6.1, but can be used to translate any `::http::Request`.
+
+This translates header values to more helpful structs, such as `Accept*` and `Authentication`
+Can be found using Kvarns public API, through the module `helper`
+
+
+# Layer 6.2/ Extension: Pre
 This whole layer can be customised, to for example implement a proxy. You have complete control over the outgoing data,
 but must return a `::http::Response`, cache method, and suggested compression.
 
 You can inject a function to be run, and if you choose, intercept the request.
-
-# Layer 7 / Lib API
-This translates header values to more helpful structs, such as `Accept*` and `Authentication`
-Can be found using Kvarns public API, through the module `helper`
