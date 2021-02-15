@@ -14,12 +14,14 @@ pub mod prelude;
 mod threading;
 pub mod utility;
 
+use net::SocketAddrV4;
 use prelude::{internals::*, networking::*, threading::*, *};
 
+use rustls::ServerConfig;
+use tokio::net::TcpListener;
 // When user only imports crate::* and not crate::prelude::*
 pub use utility::{read_file, write_error, write_generic_error};
 
-const RESERVED_TOKENS: usize = 1024;
 #[cfg(target_os = "windows")]
 pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Windows)\r\n";
 #[cfg(target_os = "macos")]
@@ -32,42 +34,44 @@ pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
 #[derive(Debug)]
+pub struct HostDescriptor {
+    port: u16,
+    r#type: ConnectionSecurity,
+    host_data: Arc<HostData>,
+}
+impl HostDescriptor {
+    pub fn http_1(host: Arc<HostData>) -> Self {
+        Self {
+            port: 80,
+            r#type: ConnectionSecurity::http1(),
+            host_data: host,
+        }
+    }
+    pub fn https_1(host: Arc<HostData>, security: Arc<ServerConfig>) -> Self {
+        Self {
+            port: 443,
+            r#type: ConnectionSecurity::http1s(security),
+            host_data: host,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Config {
-    sockets: HashMap<mio::Token, (u16, ConnectionSecurity, Arc<HostData>)>,
-    con_id: usize,
+    sockets: Vec<HostDescriptor>,
     storage: Storage,
     extensions: Extensions,
 }
 impl Config {
-    pub fn on_ports(ports: Vec<(u16, ConnectionSecurity, Arc<HostData>)>) -> Self {
+    pub fn new(descriptors: Vec<HostDescriptor>) -> Self {
         Config {
-            sockets: Self::make_portmap(ports),
-            con_id: RESERVED_TOKENS,
+            sockets: descriptors,
             storage: Storage::new(),
             extensions: Extensions::new(),
         }
-    }
-    pub fn new(ports: Vec<(u16, ConnectionSecurity, Arc<HostData>)>) -> Self {
-        Config {
-            sockets: Self::make_portmap(ports),
-            con_id: RESERVED_TOKENS,
-            storage: Storage::new(),
-            extensions: Extensions::new(),
-        }
-    }
-
-    fn make_portmap(
-        ports: Vec<(u16, ConnectionSecurity, Arc<HostData>)>,
-    ) -> HashMap<mio::Token, (u16, ConnectionSecurity, Arc<HostData>)> {
-        let mut map = HashMap::new();
-        for (position, (port, security, data)) in ports.into_iter().enumerate() {
-            map.insert(mio::Token(position), (port, security, data));
-        }
-        map
     }
 
     /// Clones the Storage of this config, returning an owned reference-counted struct containing all caches and bindings
-    #[inline]
     pub fn clone_storage(&self) -> Storage {
         Storage::clone(&self.storage)
     }
@@ -122,93 +126,40 @@ impl Config {
     /// };
     ///
     /// ```
-    pub fn run(mut self) {
-        let mut poll = mio::Poll::new().expect("Failed to create a poll instance");
-        let mut events = mio::Events::with_capacity(1024);
-        let mut listeners: HashMap<_, _> = self
-            .sockets
-            .iter()
-            .map(|(token, (port, connection, host_data))| {
-                let mut socket = TcpListener::bind(SocketAddr::new(
-                    IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                    *port,
-                ))
-                .expect("Failed to bind port");
+    pub async fn run(self) {
+        trace!("Running from config");
 
-                poll.registry()
-                    .register(&mut socket, *token, mio::Interest::READABLE)
-                    .expect("Failed to register HTTPS server");
+        for descriptor in self.sockets {
+            let listener =
+                TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, descriptor.port))
+                    .await
+                    .expect("Failed to bind to port");
 
-                (
-                    *token,
-                    (
-                        socket,
-                        ConnectionSecurity::clone(&connection),
-                        Arc::clone(host_data),
-                    ),
-                )
-            })
-            .collect();
-
-        let mut thread_handler = threading::HandlerPool::new(
-            self.clone_storage(),
-            Extensions::clone(&self.extensions),
-            poll.registry(),
-        );
-
-        loop {
-            poll.poll(&mut events, None).expect("Failed to poll!");
-
-            for event in events.iter() {
-                match listeners.get_mut(&event.token()) {
-                    Some((listener, scheme, host_data)) => {
-                        self.accept(
-                            &mut thread_handler,
-                            ConnectionSecurity::clone(scheme),
-                            listener,
-                            host_data,
-                        )
-                        .expect("Failed to accept message!");
-                    }
-                    _ => {
-                        thread_handler.handle(connection::MioEvent::from_event(event));
-                    }
-                }
-            }
+            Self::accept(listener, Storage::clone(&self.storage))
+                .await
+                .expect("Failed to accept message!")
         }
     }
-    #[inline]
-    fn next_id(&mut self) -> usize {
-        self.con_id = match self.con_id.checked_add(1) {
-            Some(id) => id,
-            None => RESERVED_TOKENS,
-        };
-        self.con_id
-    }
 
-    fn accept(
-        &mut self,
-        handler: &mut threading::HandlerPool,
-        connection_type: ConnectionSecurity,
-        socket: &mut TcpListener,
-        host_data: &Arc<HostData>,
-    ) -> Result<(), io::Error> {
+    async fn accept(listener: TcpListener, mut storage: Storage) -> Result<(), io::Error> {
+        trace!("Started listening on {:?}", listener.local_addr());
         loop {
-            match socket.accept() {
+            match listener.accept().await {
                 Ok((socket, addr)) => {
-                    handler.accept(
-                        socket,
-                        addr,
-                        mio::Token(self.next_id()),
-                        connection_type.clone(),
-                        Arc::clone(host_data),
-                    );
+                    #[cfg(feature = "limiting")]
+                    match storage.register(addr) {
+                        LimitStrength::Send | LimitStrength::Drop => {
+                            drop(socket);
+                            return Ok(());
+                        }
+                        LimitStrength::Passed => {}
+                    }
                     continue;
                 }
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => return Ok(()),
                 Err(err) => {
-                    #[cfg(feature = "error-log")]
-                    eprintln!("Encountered error while accepting connection. {:?}", err);
+                    // An error occurred
+                    error!("Failed to accept() on listener");
+
                     return Err(err);
                 }
             }
