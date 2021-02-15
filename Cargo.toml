@@ -16,14 +16,14 @@ members = [
 
 [dependencies]
 rustls = "0.19"
+tokio = { version = "1.2.0", features = ["rt-multi-thread", "net", "fs", "sync", "parking_lot"] }
+webpki = "0.21"
 http = "0.2"
-mime_guess = "2"
-mio = { version = "0.7", features = ["os-poll", "tcp"] }
-num_cpus = "1.13"
 mime = "0.3"
+mime_guess = "2"
+num_cpus = "1.13"
 brotli = { version = "3.3", optional = true }
 flate2 = { version = "1", optional = true }
-webpki = "0.21"
 
 [features]
 default = ["compression", "fs", "limiting", "error-log"]
