@@ -24,16 +24,10 @@ mime_guess = "2"
 num_cpus = "1.13"
 brotli = { version = "3.3", optional = true }
 flate2 = { version = "1", optional = true }
+log = "0.4.14"
 
 [features]
-default = ["compression", "fs", "limiting", "error-log"]
-
-# Enable logging
-log = ["info-log", "error-log"]
-error-log = []
-info-log = []
-# Enables performance monitoring
-performance-monitoring = []
+default = ["compression", "fs", "limiting"]
 
 # Enables the server to serve from the file system
 fs = []
