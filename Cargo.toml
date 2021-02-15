@@ -18,13 +18,12 @@ members = [
 rustls = "0.19"
 tokio = { version = "1.2.0", features = ["rt-multi-thread", "net", "fs", "sync", "parking_lot"] }
 webpki = "0.21"
+log = "0.4.14"
 http = "0.2"
 mime = "0.3"
 mime_guess = "2"
-num_cpus = "1.13"
 brotli = { version = "3.3", optional = true }
 flate2 = { version = "1", optional = true }
-log = "0.4.14"
 
 [features]
 default = ["compression", "fs", "limiting"]
