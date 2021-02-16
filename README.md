@@ -6,6 +6,7 @@ Kvarn is a modular web server, designed from the ground up without exercise depe
 It supports several types of [extensions](extensions.md) to make it your own.
 The path of requests are documented in the [routing](routing.md) document which should make integration easier.
 
+
 # Current state
 
 > Kvarn is under rapid development, so breaking changes will happen (often as a product of redesigning parts of the architecture).
@@ -18,7 +19,9 @@ v0.2.0 will have two major dependencies; Rustls and Tokio.
 I use Rustls to handle encryption; the community can manage security better than one person.
 The second, Tokio, is to provide a blazing fast asynchronous runtime, which will make authoring extensions a lot easier.
 
+
 # Contributing
 
 This library, and all other sub-projects are distributed under the Apache License 2.0
+
 Images and logos are under my copyright unless otherwise explicitly stated.
