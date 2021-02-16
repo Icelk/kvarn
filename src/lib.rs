@@ -25,7 +25,7 @@ pub use utility::{read_file, write_error, write_generic_error};
 #[cfg(target_os = "windows")]
 pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Windows)\r\n";
 #[cfg(target_os = "macos")]
-pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (MacOS)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (macOS)\r\n";
 #[cfg(target_os = "linux")]
 pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Linux)\r\n";
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
