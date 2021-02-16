@@ -1,4 +1,4 @@
-#![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
+// #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
 
 // Module declaration
 pub mod bindings;
@@ -11,14 +11,13 @@ pub mod extensions;
 pub mod limiting;
 pub mod parse;
 pub mod prelude;
-mod threading;
 pub mod utility;
 
 use net::SocketAddrV4;
 use prelude::{internals::*, networking::*, threading::*, *};
 
 use rustls::ServerConfig;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 // When user only imports crate::* and not crate::prelude::*
 pub use utility::{read_file, write_error, write_generic_error};
 
@@ -32,6 +31,25 @@ pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Linux)\r\n";
 pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
+
+async fn main(mut stream: TcpStream) -> io::Result<()> {
+    use tokio::io::*;
+    let mut buffer = Vec::with_capacity(1024 * 16);
+    unsafe { buffer.set_len(buffer.capacity()) };
+    loop {
+        let s = match stream.read(&mut buffer).await {
+            Ok(0) => break,
+            Ok(s) => s,
+            Err(e) => {
+                error!("failed to read: {:?}", e);
+                return Err(e);
+            }
+        };
+        debug!("Read: '{:?}'", std::str::from_utf8(&buffer[..s]));
+    }
+    debug!("Done reading!");
+    Ok(())
+}
 
 #[derive(Debug)]
 pub struct HostDescriptor {
@@ -51,6 +69,13 @@ impl HostDescriptor {
         Self {
             port: 443,
             r#type: ConnectionSecurity::http1s(security),
+            host_data: host,
+        }
+    }
+    pub fn new(port: u16, host: Arc<HostData>, security: ConnectionSecurity) -> Self {
+        Self {
+            port,
+            r#type: security,
             host_data: host,
         }
     }
@@ -126,19 +151,26 @@ impl Config {
     /// };
     ///
     /// ```
-    pub async fn run(self) {
+    pub async fn run(self) -> Vec<tokio::task::JoinHandle<()>> {
         trace!("Running from config");
+
+        let mut tasks = Vec::new();
 
         for descriptor in self.sockets {
             let listener =
-                TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, descriptor.port))
+                TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, descriptor.port))
                     .await
                     .expect("Failed to bind to port");
 
-            Self::accept(listener, Storage::clone(&self.storage))
-                .await
-                .expect("Failed to accept message!")
+            let storage = Storage::clone(&self.storage);
+
+            tasks.push(tokio::spawn(async move {
+                Self::accept(listener, storage)
+                    .await
+                    .expect("Failed to accept message!")
+            }));
         }
+        tasks
     }
 
     async fn accept(listener: TcpListener, mut storage: Storage) -> Result<(), io::Error> {
@@ -154,6 +186,7 @@ impl Config {
                         }
                         LimitStrength::Passed => {}
                     }
+                    main(socket).await.expect("Failed with main fn");
                     continue;
                 }
                 Err(err) => {

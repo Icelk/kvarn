@@ -16,7 +16,6 @@ pub use log::*;
 pub use http;
 pub use mime::Mime;
 pub use mime_guess;
-pub use num_cpus;
 pub use std::borrow::Cow;
 pub use std::cmp;
 pub use std::collections::HashMap;
@@ -75,7 +74,6 @@ pub mod networking {
     pub use connection::ConnectionHeader;
     #[cfg(feature = "limiting")]
     pub use limiting::LimitStrength;
-    pub use mio::net::{TcpListener, TcpStream};
     pub use std::io::{Read, Write};
     pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
 }
@@ -117,7 +115,7 @@ pub mod threading {
 /// The purpose of this module is to expose the internal connections types and operations.
 pub mod con {
     use super::*;
-    pub use connection::{Connection, ConnectionScheme, ConnectionSecurity};
+    pub use connection::{ConnectionScheme, ConnectionSecurity};
 }
 
 /// ## **The Kvarn *Rustless* Prelude**
