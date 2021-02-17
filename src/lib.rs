@@ -40,11 +40,9 @@ pub const LINE_ENDING: &[u8] = b"\r\n";
 async fn main<S: AsyncRead + AsyncWrite + Unpin>(
     mut stream: S,
     address: &net::SocketAddr,
-    transport: transport::Proto,
     host: Arc<HostDescriptor>,
 ) -> io::Result<()> {
-    let buffer = transport.to_buffer(&mut stream).await?;
-    let buffer = encryption::decrypt(buffer, &host.r#type).unwrap();
+    let buffer = encryption::decrypt(stream, &host.r#type).await.unwrap();
 
     debug!("Done reading! Got {:?}", std::str::from_utf8(&buffer));
     Ok(())
@@ -192,7 +190,7 @@ impl Config {
                     }
                     let host = Arc::clone(&host);
                     tokio::spawn(async move {
-                        main(socket, &addr, transport::Proto::TCP, host)
+                        main(socket, &addr, host)
                             .await
                             .expect("Failed with main fn");
                     });
