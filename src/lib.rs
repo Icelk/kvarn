@@ -6,6 +6,7 @@ pub mod cache;
 pub mod compression;
 pub mod connection;
 pub mod cryptography;
+pub mod encryption;
 pub mod extensions;
 #[cfg(feature = "limiting")]
 pub mod limiting;
@@ -40,9 +41,10 @@ async fn main<S: AsyncRead + AsyncWrite + Unpin>(
     mut stream: S,
     address: &net::SocketAddr,
     transport: transport::Proto,
-    hosts: Arc<Vec<HostDescriptor>>,
+    host: Arc<HostDescriptor>,
 ) -> io::Result<()> {
     let buffer = transport.to_buffer(&mut stream).await?;
+    let buffer = encryption::decrypt(buffer, &host.r#type).unwrap();
 
     debug!("Done reading! Got {:?}", std::str::from_utf8(&buffer));
     Ok(())
@@ -153,9 +155,7 @@ impl Config {
 
         let mut tasks = Vec::new();
 
-        let host_descriptors = Arc::new(self.sockets);
-
-        for descriptor in host_descriptors.as_ref() {
+        for descriptor in self.sockets {
             let listener =
                 TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, descriptor.port))
                     .await
@@ -163,10 +163,8 @@ impl Config {
 
             let storage = Storage::clone(&self.storage);
 
-            let hosts = Arc::clone(&host_descriptors);
-
             tasks.push(tokio::spawn(async move {
-                Self::accept(listener, hosts, storage)
+                Self::accept(listener, descriptor, storage)
                     .await
                     .expect("Failed to accept message!")
             }));
@@ -176,10 +174,11 @@ impl Config {
 
     async fn accept(
         listener: TcpListener,
-        hosts: Arc<Vec<HostDescriptor>>,
+        host: HostDescriptor,
         mut storage: Storage,
     ) -> Result<(), io::Error> {
         trace!("Started listening on {:?}", listener.local_addr());
+        let host = Arc::new(host);
         loop {
             match listener.accept().await {
                 Ok((socket, addr)) => {
@@ -191,9 +190,9 @@ impl Config {
                         }
                         LimitStrength::Passed => {}
                     }
-                    let hosts = Arc::clone(&hosts);
+                    let host = Arc::clone(&host);
                     tokio::spawn(async move {
-                        main(socket, &addr, transport::Proto::TCP, hosts)
+                        main(socket, &addr, transport::Proto::TCP, host)
                             .await
                             .expect("Failed with main fn");
                     });
