@@ -11,13 +11,17 @@ pub mod extensions;
 pub mod limiting;
 pub mod parse;
 pub mod prelude;
+pub mod transport;
 pub mod utility;
 
 use net::SocketAddrV4;
 use prelude::{internals::*, networking::*, threading::*, *};
 
 use rustls::ServerConfig;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpListener,
+};
 // When user only imports crate::* and not crate::prelude::*
 pub use utility::{read_file, write_error, write_generic_error};
 
@@ -32,22 +36,15 @@ pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
-async fn main(mut stream: TcpStream) -> io::Result<()> {
-    use tokio::io::*;
-    let mut buffer = Vec::with_capacity(1024 * 16);
-    unsafe { buffer.set_len(buffer.capacity()) };
-    loop {
-        let s = match stream.read(&mut buffer).await {
-            Ok(0) => break,
-            Ok(s) => s,
-            Err(e) => {
-                error!("failed to read: {:?}", e);
-                return Err(e);
-            }
-        };
-        debug!("Read: '{:?}'", std::str::from_utf8(&buffer[..s]));
-    }
-    debug!("Done reading!");
+async fn main<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    address: &net::SocketAddr,
+    transport: transport::Proto,
+    hosts: Arc<Vec<HostDescriptor>>,
+) -> io::Result<()> {
+    let buffer = transport.to_buffer(&mut stream).await?;
+
+    debug!("Done reading! Got {:?}", std::str::from_utf8(&buffer));
     Ok(())
 }
 
@@ -156,7 +153,9 @@ impl Config {
 
         let mut tasks = Vec::new();
 
-        for descriptor in self.sockets {
+        let host_descriptors = Arc::new(self.sockets);
+
+        for descriptor in host_descriptors.as_ref() {
             let listener =
                 TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, descriptor.port))
                     .await
@@ -164,8 +163,10 @@ impl Config {
 
             let storage = Storage::clone(&self.storage);
 
+            let hosts = Arc::clone(&host_descriptors);
+
             tasks.push(tokio::spawn(async move {
-                Self::accept(listener, storage)
+                Self::accept(listener, hosts, storage)
                     .await
                     .expect("Failed to accept message!")
             }));
@@ -173,7 +174,11 @@ impl Config {
         tasks
     }
 
-    async fn accept(listener: TcpListener, mut storage: Storage) -> Result<(), io::Error> {
+    async fn accept(
+        listener: TcpListener,
+        hosts: Arc<Vec<HostDescriptor>>,
+        mut storage: Storage,
+    ) -> Result<(), io::Error> {
         trace!("Started listening on {:?}", listener.local_addr());
         loop {
             match listener.accept().await {
@@ -186,7 +191,12 @@ impl Config {
                         }
                         LimitStrength::Passed => {}
                     }
-                    main(socket).await.expect("Failed with main fn");
+                    let hosts = Arc::clone(&hosts);
+                    tokio::spawn(async move {
+                        main(socket, &addr, transport::Proto::TCP, hosts)
+                            .await
+                            .expect("Failed with main fn");
+                    });
                     continue;
                 }
                 Err(err) => {
