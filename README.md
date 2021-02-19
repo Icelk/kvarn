@@ -2,7 +2,7 @@
 
 > An extensible and efficient forwards thinking web server
 
-Kvarn is a modular web server, designed from the ground up without exercise dependencies.
+Kvarn is a modular web server, designed from the ground up without excessive dependencies.
 It supports several types of [extensions](extensions.md) to make it your own.
 The path of requests are documented in the [routing](routing.md) document which should make integration easier.
 
