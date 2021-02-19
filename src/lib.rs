@@ -20,7 +20,7 @@ use prelude::{internals::*, networking::*, threading::*, *};
 
 use rustls::ServerConfig;
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
 };
 // When user only imports crate::* and not crate::prelude::*
@@ -42,7 +42,20 @@ async fn main<S: AsyncRead + AsyncWrite + Unpin>(
     _address: &net::SocketAddr,
     host: Arc<HostDescriptor>,
 ) -> io::Result<()> {
-    let _buffer = encryption::decrypt(stream, &host.r#type).await.unwrap();
+    let mut encrypted = encryption::Encryption::new_from_connection_security(stream, &host.r#type)
+        .await
+        .unwrap();
+
+    encrypted
+        .write_all(
+            b"HTTP/1.0 200 ok\r\n\
+                    Connection: close\r\n\
+                    Content-length: 12\r\n\
+                    \r\n\
+                    Hello world!",
+        )
+        .await
+        .expect("Something went wrong!");
 
     Ok(())
 }

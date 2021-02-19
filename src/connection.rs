@@ -226,8 +226,6 @@ pub enum ConnectionScheme {
 pub enum EncryptionType<'a> {
     NonSecure,
     Secure(&'a Arc<ServerConfig>),
-    HTTP2,
-    HTTP3,
 }
 impl<'a> Debug for EncryptionType<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -237,8 +235,6 @@ impl<'a> Debug for EncryptionType<'a> {
             match self {
                 EncryptionType::NonSecure => "NonSecure",
                 EncryptionType::Secure(_) => "Secure(&Arc { data: internal rustls::ServerConfig })",
-                EncryptionType::HTTP2 => "HTTP2",
-                EncryptionType::HTTP3 => "HTTP3",
             }
         )
     }

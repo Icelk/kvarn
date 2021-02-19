@@ -1,40 +1,86 @@
 use crate::prelude::*;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use connection::EncryptionType;
+use std::{
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio_tls::*;
 
-pub async fn decrypt<S: AsyncRead + AsyncWrite + Unpin>(
-    stream: S,
-    security: &ConnectionSecurity,
-) -> Result<Vec<u8>, tokio_tls::TlsIoError> {
-    use connection::EncryptionType;
-    use tokio_tls::*;
+pub enum Encryption<S: AsyncRead + AsyncWrite + Unpin> {
+    Tls(TlsStream<S>),
+    None(S),
+}
+impl<S: AsyncRead + AsyncWrite + Unpin> Encryption<S> {
+    pub async fn new_from_connection_security(
+        stream: S,
+        security: &ConnectionSecurity,
+    ) -> io::Result<Self> {
+        match security.get_config() {
+            EncryptionType::NonSecure => Ok(Self::None(stream)),
+            EncryptionType::Secure(config) => {
+                let session = rustls::ServerSession::new(config);
+                let stream = TlsStream {
+                    io: stream,
+                    session: session,
+                    state: TlsState::Stream,
+                };
+                let acceptor = MidHandshake::Handshaking(stream);
+                let connect = acceptor.await.map_err(|(err, _)| err)?;
 
-    match security.get_config() {
-        EncryptionType::NonSecure => read_to_vec(stream).await.map_err(TlsIoError::from),
-        EncryptionType::Secure(config) => {
-            let session = rustls::ServerSession::new(config);
-            let stream = TlsStream {
-                io: stream,
-                session: session,
-                state: TlsState::Stream,
-            };
-            let acceptor = MidHandshake::Handshaking(stream);
-            let mut connect = acceptor.await.map_err(|(err, _)| TlsIoError::from(err))?;
-
-            connect
-                .write_all(
-                    b"HTTP/1.0 200 ok\r\n\
-                    Connection: close\r\n\
-                    Content-length: 12\r\n\
-                    \r\n\
-                    Hello world!",
-                )
-                .await?;
-
-            read_to_vec(&mut connect).await.map_err(TlsIoError::from)
+                Ok(Self::Tls(connect))
+            }
         }
-        _ => unimplemented!(),
     }
 }
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for Encryption<S> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_read(cx, buf) },
+            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_read(cx, buf) },
+        }
+    }
+}
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for Encryption<S> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match self.get_mut() {
+            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_write(cx, buf) },
+            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_write(cx, buf) },
+        }
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match self.get_mut() {
+            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_flush(cx) },
+            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_flush(cx) },
+        }
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match self.get_mut() {
+            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_shutdown(cx) },
+            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_shutdown(cx) },
+        }
+    }
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<Result<usize, io::Error>> {
+        match self.get_mut() {
+            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_write_vectored(cx, bufs) },
+            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_write_vectored(cx, bufs) },
+        }
+    }
+}
+// unsafe impl<S: AsyncRead + AsyncWrite + Unpin> Unpin for Encryption<S> {}
 
 async fn read_to_vec<R: AsyncRead + Unpin>(mut reader: R) -> io::Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
@@ -49,9 +95,25 @@ async fn read_to_vec<R: AsyncRead + Unpin>(mut reader: R) -> io::Result<Vec<u8>>
     unsafe { buffer.set_len(r) };
     Ok(buffer)
 }
+#[derive(Debug)]
+pub enum TlsIoError {
+    Io(io::Error),
+    Tls(rustls::TLSError),
+}
+impl From<io::Error> for TlsIoError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+impl From<rustls::TLSError> for TlsIoError {
+    fn from(err: rustls::TLSError) -> Self {
+        Self::Tls(err)
+    }
+}
 
+/// Tokio Rustls glue code
 mod tokio_tls {
-
+    use super::TlsIoError;
     use futures_util::ready;
     use rustls::{ServerSession, Session};
     use std::future::Future;
@@ -62,25 +124,7 @@ mod tokio_tls {
     use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
     #[derive(Debug)]
-    pub enum TlsIoError {
-        Io(io::Error),
-        Tls(rustls::TLSError),
-    }
-    impl From<io::Error> for TlsIoError {
-        fn from(err: io::Error) -> Self {
-            Self::Io(err)
-        }
-    }
-    impl From<rustls::TLSError> for TlsIoError {
-        fn from(err: rustls::TLSError) -> Self {
-            Self::Tls(err)
-        }
-    }
-
-    #[derive(Debug)]
     pub enum TlsState {
-        #[cfg(feature = "early-data")]
-        EarlyData(usize, Vec<u8>),
         Stream,
         ReadShutdown,
         WriteShutdown,
@@ -182,8 +226,6 @@ mod tokio_tls {
                     }
                 }
                 TlsState::ReadShutdown | TlsState::FullyShutdown => Poll::Ready(Ok(())),
-                #[cfg(feature = "early-data")]
-                s => unreachable!("server TLS can not hit this state: {:?}", s),
             }
         }
     }
