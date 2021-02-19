@@ -10,10 +10,14 @@ This is needed for HTTP/3 with its QUIC protocol. I'll probably use either quinn
 
 TCP will not get effected.
 
+Converted to stream
+
 # Layer 2 / Encryption
 This is where encryption takes place, or not. TLS will be processed here.
 
 HTTP will not get effected.
+
+Streams
 
 # Layer 3 / HTTP
 This is where all HTTP versions (1.1, 2 and 3) are managed to give a common API.
@@ -22,8 +26,12 @@ Here, the compressed headers of HTTP/2 and HTTP/3 are resolved.
 
 HTTP/1.1 will not get effected.
 
+Still stream
+
 # Layer 4 / Parsing
 Here, the request is parsed to the `::http::Request` struct.
+
+Also, the streams are read to buffers here.
 
 # Layer 5 / Caching and compression
 All outgoing data from this layer is cached based on the output of Layer 6.

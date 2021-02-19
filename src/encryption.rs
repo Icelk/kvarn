@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::prelude::*;
 pub async fn decrypt<S: AsyncRead + AsyncWrite + Unpin>(
@@ -7,41 +7,31 @@ pub async fn decrypt<S: AsyncRead + AsyncWrite + Unpin>(
     security: &ConnectionSecurity,
 ) -> Result<Vec<u8>, tokio_tls::TlsIoError> {
     use connection::EncryptionType;
-    use rustls::Session;
+    use tokio_tls::*;
 
     match security.get_config() {
-        EncryptionType::NonSecure => read_to_vec(stream).await.map_err(|e| e.into()),
+        EncryptionType::NonSecure => read_to_vec(stream).await.map_err(TlsIoError::from),
         EncryptionType::Secure(config) => {
             let session = rustls::ServerSession::new(config);
-            let stream = tokio_tls::TlsStream {
+            let stream = TlsStream {
                 io: stream,
                 session: session,
-                state: tokio_tls::TlsState::Stream,
+                state: TlsState::Stream,
             };
-            let acceptor = tokio_tls::MidHandshake::Handshaking(stream);
-            let mut connect = acceptor
-                .await
-                .map_err(|(err, _)| tokio_tls::TlsIoError::from(err))?;
+            let acceptor = MidHandshake::Handshaking(stream);
+            let mut connect = acceptor.await.map_err(|(err, _)| TlsIoError::from(err))?;
 
-            // loop {
-            //     let read = match session.read_tls(&mut stream) {
-            //         Err(err) => return Err(err.into()),
-            //         Ok(0) => {
-            //             return Err(io::Error::new(
-            //                 io::ErrorKind::ConnectionReset,
-            //                 "TLS read zero bytes",
-            //             )
-            //             .into())
-            //         }
-            //         _ => match session.process_new_packets() {
-            //             Err(err) => return Err(err.into()),
-            //             // Everything succeeded
-            //             Ok(()) => utility::read_to_end(&mut buffer, &mut session, false)
-            //                 .map_err(|err| err.into())?,
-            //         },
-            //     };
-            // }
-            read_to_vec(&mut connect).await.map_err(|e| e.into())
+            connect
+                .write_all(
+                    b"HTTP/1.0 200 ok\r\n\
+                    Connection: close\r\n\
+                    Content-length: 12\r\n\
+                    \r\n\
+                    Hello world!",
+                )
+                .await?;
+
+            read_to_vec(&mut connect).await.map_err(TlsIoError::from)
         }
         _ => unimplemented!(),
     }
@@ -54,7 +44,6 @@ async fn read_to_vec<R: AsyncRead + Unpin>(mut reader: R) -> io::Result<Vec<u8>>
     let r = match reader.read(&mut buffer[..]).await {
         Ok(s) => s,
         Err(e) => {
-            error!("failed to read: {:?}", e);
             return Err(e);
         }
     };
@@ -306,15 +295,12 @@ mod tokio_tls {
                 Err(err) => return Poll::Ready(Err(err.into())),
             };
 
-            log::error!("Read {} bytes", n);
-
             self.session.process_new_packets().map_err(|err| {
                 // In case we have an alert to send describing this error,
                 // try a last-gasp write -- but don't predate the primary
                 // error.
                 let _ = self.write_io(cx);
 
-                log::error!("{:?}", &err);
                 TlsIoError::from(err)
             })?;
 

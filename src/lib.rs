@@ -44,7 +44,6 @@ async fn main<S: AsyncRead + AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     let buffer = encryption::decrypt(stream, &host.r#type).await.unwrap();
 
-    debug!("Done reading! Got {:?}", std::str::from_utf8(&buffer));
     Ok(())
 }
 
