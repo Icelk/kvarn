@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use connection::EncryptionType;
 use std::{
-    io,
+    error, fmt, io,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -110,6 +110,23 @@ impl From<rustls::TLSError> for TlsIoError {
         Self::Tls(err)
     }
 }
+
+impl Display for TlsIoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(e) => {
+                f.write_str("std::Io: ")?;
+                Display::fmt(e, f)
+            }
+            Self::Tls(e) => {
+                f.write_str("rustls::TLSError: ")?;
+                Display::fmt(e, f)
+            }
+        }
+    }
+}
+
+impl error::Error for TlsIoError {}
 
 /// Tokio Rustls glue code
 mod tokio_tls {
@@ -573,7 +590,12 @@ mod tokio_tls {
                 while tls_stream.session.is_handshaking() {
                     match tls_stream.handshake(cx) {
                         Poll::Ready(Ok(_)) => (),
-                        Poll::Ready(Err(_)) => break,
+                        Poll::Ready(Err(err)) => {
+                            return Poll::Ready(Err((
+                                io::Error::new(io::ErrorKind::InvalidData, err),
+                                stream.into_io(),
+                            )))
+                        }
                         Poll::Pending => {
                             *this = MidHandshake::Handshaking(stream);
                             return Poll::Pending;
