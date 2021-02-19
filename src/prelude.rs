@@ -11,9 +11,8 @@
 //! * and a Rustls prelude
 
 // External commonly used dependencies
-#[macro_use]
-pub use log::*;
 pub use http;
+pub use log::*;
 pub use mime::Mime;
 pub use mime_guess;
 pub use std::borrow::Cow;

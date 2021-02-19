@@ -1,9 +1,8 @@
 use crate::prelude::*;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-use crate::prelude::*;
 pub async fn decrypt<S: AsyncRead + AsyncWrite + Unpin>(
-    mut stream: S,
+    stream: S,
     security: &ConnectionSecurity,
 ) -> Result<Vec<u8>, tokio_tls::TlsIoError> {
     use connection::EncryptionType;
@@ -125,23 +124,6 @@ mod tokio_tls {
         pub(crate) io: IO,
         pub(crate) session: ServerSession,
         pub(crate) state: TlsState,
-    }
-
-    impl<IO> TlsStream<IO> {
-        #[inline]
-        pub fn get_ref(&self) -> (&IO, &ServerSession) {
-            (&self.io, &self.session)
-        }
-
-        #[inline]
-        pub fn get_mut(&mut self) -> (&mut IO, &mut ServerSession) {
-            (&mut self.io, &mut self.session)
-        }
-
-        #[inline]
-        pub fn into_inner(self) -> (IO, ServerSession) {
-            (self.io, self.session)
-        }
     }
 
     impl<IO> IoSession for TlsStream<IO> {

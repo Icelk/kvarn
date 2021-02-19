@@ -38,11 +38,11 @@ pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
 async fn main<S: AsyncRead + AsyncWrite + Unpin>(
-    mut stream: S,
-    address: &net::SocketAddr,
+    stream: S,
+    _address: &net::SocketAddr,
     host: Arc<HostDescriptor>,
 ) -> io::Result<()> {
-    let buffer = encryption::decrypt(stream, &host.r#type).await.unwrap();
+    let _buffer = encryption::decrypt(stream, &host.r#type).await.unwrap();
 
     Ok(())
 }
