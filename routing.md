@@ -26,7 +26,7 @@ Here, the compressed headers of HTTP/2 and HTTP/3 are resolved.
 
 HTTP/1.1 will not get effected.
 
-Still stream
+Body still stream, but headers are parsed
 
 # Layer 4 / Parsing
 Here, the request is parsed to the `::http::Request` struct.

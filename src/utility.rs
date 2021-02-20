@@ -1,5 +1,7 @@
 use crate::prelude::{fs::*, internals::*, *};
 
+pub const BUFFER_SIZE: usize = 1024 * 8;
+
 pub mod chars {
     /// Tab
     pub const TAB: u8 = 9;

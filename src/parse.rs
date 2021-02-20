@@ -1,123 +1,13 @@
 use crate::prelude::*;
-use http::{header::*, Method, Request, Uri, Version};
+use http::{Request, Uri};
 
-enum DecodeStage {
-    Method,
-    Path,
-    Version,
-    HeaderName(i32),
-    HeaderValue(i32),
-}
-impl DecodeStage {
-    fn next(&mut self) {
-        *self = match self {
-            DecodeStage::Method => DecodeStage::Path,
-            DecodeStage::Path => DecodeStage::Version,
-            DecodeStage::Version => DecodeStage::HeaderName(0),
-            DecodeStage::HeaderName(n) => DecodeStage::HeaderValue(*n),
-            DecodeStage::HeaderValue(n) => DecodeStage::HeaderName(*n + 1),
-        }
-    }
+#[derive(Debug)]
+pub enum ParseError {
+    NoPath,
+    HTTP(http::Error),
+    Io(io::Error),
 }
 
-/// # Errors
-/// Will return error if building the `http::Response` internally failed, or if path is empty.
-pub fn parse_request(buffer: &[u8]) -> Result<Request<&[u8]>, ()> {
-    let mut parse_stage = DecodeStage::Method;
-    // Method is max 7 bytes long
-    let mut method = [0; 7];
-    let mut method_index = 0;
-    let mut path = Vec::with_capacity(32);
-    // Version is 8 bytes long
-    let mut version = [0; 8];
-    let mut version_index = 0;
-    let mut parsed = Request::builder();
-    let mut current_header_name = Vec::with_capacity(32);
-    let mut current_header_value = Vec::with_capacity(128);
-    let mut lf_in_row = 0;
-    let mut last_header_byte = 0;
-    for byte in buffer {
-        last_header_byte += 1;
-        if *byte == CR {
-            continue;
-        }
-        if *byte == LF {
-            lf_in_row += 1;
-            if lf_in_row == 2 {
-                break;
-            }
-        } else {
-            lf_in_row = 0;
-        }
-        match parse_stage {
-            DecodeStage::Method => {
-                if *byte == SPACE || method_index == method.len() {
-                    parse_stage.next();
-                    continue;
-                }
-                method[method_index] = *byte;
-                method_index += 1;
-            }
-            DecodeStage::Path => {
-                if *byte == SPACE {
-                    parse_stage.next();
-                    continue;
-                }
-                path.push(*byte);
-            }
-            DecodeStage::Version => {
-                if *byte == LF || version_index == version.len() {
-                    parse_stage.next();
-                    continue;
-                }
-                version[version_index] = *byte;
-                version_index += 1;
-            }
-            DecodeStage::HeaderName(..) => {
-                if *byte == COLON {
-                    continue;
-                }
-                if *byte == SPACE {
-                    parse_stage.next();
-                    continue;
-                }
-                current_header_name.push(*byte);
-            }
-            DecodeStage::HeaderValue(..) => {
-                if *byte == LF {
-                    let name = HeaderName::from_bytes(&current_header_name[..]);
-                    let value = HeaderValue::from_bytes(&current_header_value[..]);
-                    if name.is_ok() && value.is_ok() {
-                        parsed = parsed.header(name.unwrap(), value.unwrap());
-                    }
-                    current_header_name.clear();
-                    current_header_value.clear();
-                    parse_stage.next();
-                    continue;
-                }
-                current_header_value.push(*byte);
-            }
-        };
-    }
-    if path.is_empty() {
-        return Err(());
-    }
-    parsed
-        .method(Method::from_bytes(&method[..method_index]).unwrap_or(Method::GET))
-        .uri(Uri::from_maybe_shared(path).unwrap_or(Uri::from_static("/")))
-        .version(match &version[..] {
-            b"HTTP/0.9" => Version::HTTP_09,
-            b"HTTP/1.0" => Version::HTTP_10,
-            b"HTTP/1.1" => Version::HTTP_11,
-            b"HTTP/2" => Version::HTTP_2,
-            b"HTTP/2.0" => Version::HTTP_2,
-            b"HTTP/3" => Version::HTTP_3,
-            b"HTTP/3.0" => Version::HTTP_3,
-            _ => Version::default(),
-        })
-        .body(&buffer[last_header_byte..])
-        .map_err(|_| ())
-}
 pub fn parse_only_headers(buffer: &[u8]) -> http::HeaderMap {
     let mut stage = DecodeStage::Method;
     let mut map = http::HeaderMap::new();
@@ -158,6 +48,12 @@ pub fn parse_only_headers(buffer: &[u8]) -> http::HeaderMap {
     }
 
     map
+}
+
+enum DecodeStage {
+    Method,
+    HeaderName(i32),
+    HeaderValue(i32),
 }
 
 #[derive(Debug)]
