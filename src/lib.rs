@@ -21,7 +21,7 @@ use prelude::{internals::*, networking::*, threading::*, *};
 
 use rustls::ServerConfig;
 use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
+    io::{AsyncRead, AsyncWrite},
     net::TcpListener,
 };
 // When user only imports crate::* and not crate::prelude::*
@@ -38,25 +38,40 @@ pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
-async fn main<S: AsyncRead + AsyncWrite + Unpin>(
+async fn main<S: AsyncRead + AsyncWrite + Unpin + Debug>(
     stream: S,
     _address: &net::SocketAddr,
     host: Arc<HostDescriptor>,
 ) -> io::Result<()> {
-    let mut encrypted = encryption::Encryption::new_from_connection_security(stream, &host.r#type)
+    let mut encrypted =
+        encryption::Encryption::new_from_connection_security(stream, &host.r#type).await?;
+
+    let version = match encrypted.get_alpn_protocol() {
+        Some(b"h2") => http::Version::HTTP_2,
+        None | Some(b"http/1.1") => http::Version::HTTP_11,
+        Some(b"http/1.0") => http::Version::HTTP_10,
+        Some(b"http/0.9") => http::Version::HTTP_09,
+        _ => unimplemented!(),
+    };
+    println!("ALPN: {:?}", encrypted.get_alpn_protocol());
+    let mut http = application::HttpConnection::new(&mut encrypted, version)
         .await
         .unwrap();
 
-    encrypted
-        .write_all(
-            b"HTTP/1.0 200 ok\r\n\
-                    Connection: close\r\n\
-                    Content-length: 12\r\n\
-                    \r\n\
-                    Hello world!",
-        )
-        .await
-        .expect("Something went wrong!");
+    while let Ok((request, response)) = http.accept().await {
+        println!("Request: {:?}", request);
+    }
+
+    // encrypted
+    //     .write_all(
+    //         b"HTTP/1.0 200 ok\r\n\
+    //                 Connection: close\r\n\
+    //                 Content-length: 12\r\n\
+    //                 \r\n\
+    //                 Hello world!",
+    //     )
+    //     .await
+    //     .expect("Something went wrong!");
 
     Ok(())
 }

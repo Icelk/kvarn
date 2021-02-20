@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use connection::EncryptionType;
+use rustls::Session;
 use std::{
     error, fmt, io,
     pin::Pin,
@@ -8,9 +9,17 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tls::*;
 
-pub enum Encryption<S: AsyncRead + AsyncWrite + Unpin> {
+pub enum Encryption<S> {
     Tls(TlsStream<S>),
     None(S),
+}
+impl<S: Debug> Debug for Encryption<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tls(tls) => write!(f, "Encryption::Tls(TlsStream({:?}))", tls),
+            Self::None(s) => write!(f, "Encryption::None({:?})", s),
+        }
+    }
 }
 impl<S: AsyncRead + AsyncWrite + Unpin> Encryption<S> {
     pub async fn new_from_connection_security(
@@ -31,6 +40,32 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Encryption<S> {
 
                 Ok(Self::Tls(connect))
             }
+        }
+    }
+}
+impl<S> Encryption<S> {
+    pub fn get_peer_certificates(&self) -> Option<Vec<rustls::Certificate>> {
+        match self {
+            Self::Tls(s) => s.session.get_peer_certificates(),
+            Self::None(_) => None,
+        }
+    }
+    pub fn get_alpn_protocol(&self) -> Option<&[u8]> {
+        match self {
+            Self::Tls(s) => s.session.get_alpn_protocol(),
+            Self::None(_) => None,
+        }
+    }
+    pub fn get_protocol_version(&self) -> Option<rustls::ProtocolVersion> {
+        match self {
+            Self::Tls(s) => s.session.get_protocol_version(),
+            Self::None(_) => None,
+        }
+    }
+    pub fn get_sni_hostname(&self) -> Option<&str> {
+        match self {
+            Self::Tls(s) => s.session.get_sni_hostname(),
+            Self::None(_) => None,
         }
     }
 }
@@ -81,6 +116,21 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for Encryption<S> {
     }
 }
 // unsafe impl<S: AsyncRead + AsyncWrite + Unpin> Unpin for Encryption<S> {}
+
+// impl<S: AsyncSeek + Unpin> AsyncSeek for Encryption<S> {
+//     fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
+//         match self.get_mut() {
+//             Self::None(s) => unsafe { Pin::new_unchecked(s).poll_complete(cx) },
+//             Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_complete(cx) },
+//         }
+//     }
+//     fn start_seek(self: Pin<&mut Self>, position: io::SeekFrom) -> io::Result<()> {
+//         match self.get_mut() {
+//             Self::None(s) => unsafe { Pin::new_unchecked(s).start_seek(position) },
+//             Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).start_seek(position) },
+//         }
+//     }
+// }
 
 async fn read_to_vec<R: AsyncRead + Unpin>(mut reader: R) -> io::Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
