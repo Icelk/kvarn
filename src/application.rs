@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufWriter, ReadBuf};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -34,14 +34,14 @@ impl From<h2::Error> for Error {
 }
 
 pub enum HttpConnection<S> {
-    Http1(Arc<Mutex<S>>),
+    Http1(Arc<Mutex<BufWriter<S>>>),
     Http2(h2::server::Connection<S, bytes::Bytes>),
 }
 
 /// ToDo: trailers
 #[derive(Debug)]
-pub enum Body<S: AsyncRead + Unpin> {
-    Http1(response::PreBufferedReader<S>),
+pub enum Body<S: AsyncRead + AsyncWrite + Unpin> {
+    Http1(response::PreBufferedReader<BufWriter<S>>),
     Http2(h2::RecvStream),
 }
 
@@ -58,7 +58,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
     pub async fn new(stream: S, version: http::Version) -> Result<Self, Error> {
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
-                Ok(Self::Http1(Arc::new(Mutex::new(stream))))
+                Ok(Self::Http1(Arc::new(Mutex::new(BufWriter::new(stream)))))
             }
             Version::HTTP_2 => match h2::server::handshake(stream).await {
                 Ok(connection) => Ok(HttpConnection::Http2(connection)),
@@ -69,7 +69,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
         }
     }
 
-    pub async fn accept(&mut self) -> Result<(http::Request<Body<S>>, ResponsePipe<S>), Error> {
+    pub async fn accept(
+        &mut self,
+    ) -> Result<(http::Request<Body<S>>, ResponsePipe<BufWriter<S>>), Error> {
         match self {
             Self::Http1(stream) => {
                 let response = ResponsePipe::Http1(Arc::clone(stream));
@@ -95,7 +97,7 @@ mod request {
     use super::*;
 
     pub async fn parse_http_1<S: AsyncRead + AsyncWrite + Unpin>(
-        stream: Arc<Mutex<S>>,
+        stream: Arc<Mutex<BufWriter<S>>>,
     ) -> Result<http::Request<Body<S>>, Error> {
         let (head, start, vec) = parse_request(&stream).await?;
         Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, vec, start))))
@@ -239,7 +241,7 @@ mod request {
         }
     }
 
-    impl<R: AsyncRead + Unpin> AsyncRead for Body<R> {
+    impl<R: AsyncRead + AsyncWrite + Unpin> AsyncRead for Body<R> {
         fn poll_read(
             self: Pin<&mut Self>,
             cx: &mut Context<'_>,
@@ -270,6 +272,8 @@ mod request {
 }
 
 mod response {
+    use tokio::io::AsyncWriteExt;
+
     use super::*;
 
     // #[derive(Debug)]
@@ -317,5 +321,122 @@ mod response {
         }
     }
 
-    
+    impl<W: AsyncWrite + Unpin> ResponsePipe<W> {
+        pub async fn send_response(
+            &mut self,
+            mut response: http::Response<()>,
+            end_of_stream: bool,
+        ) -> Result<ResponseBodyPipe<W>, Error> {
+            match self {
+                Self::Http1(s) => {
+                    let mut writer = s.lock().await;
+                    match response.version() {
+                        Version::HTTP_2 | Version::HTTP_3 => {
+                            *response.version_mut() = Version::HTTP_11
+                        }
+                        _ => {}
+                    }
+                    write_http_1_response(&mut *writer, response)
+                        .await
+                        .map_err(Error::Io)?;
+                    Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
+                }
+                Self::Http2(s) => {
+                    *response.version_mut() = Version::HTTP_2;
+
+                    match s.send_response(response, end_of_stream) {
+                        Err(err) => Err(Error::H2(err)),
+                        Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Writer **must** be buffered!
+    pub async fn write_http_1_response<W: AsyncWrite + Unpin>(
+        mut writer: W,
+        response: http::Response<()>,
+    ) -> io::Result<()> {
+        let version = match response.version() {
+            Version::HTTP_09 => &b"HTTP/0.9"[..],
+            Version::HTTP_10 => &b"HTTP/1.0"[..],
+            Version::HTTP_2 => &b"HTTP/2"[..],
+            Version::HTTP_3 => &b"HTTP/3"[..],
+            _ => &b"HTTP/1.1"[..],
+        };
+        let status = response
+            .status()
+            .canonical_reason()
+            .unwrap_or("")
+            .as_bytes();
+
+        writer.write_all(version).await?;
+        writer.write_all(b" ").await?;
+        writer
+            .write_all(response.status().as_str().as_bytes())
+            .await?;
+        writer.write_all(status).await?;
+        writer.write_all(b"\r\n").await?;
+
+        for (name, value) in response.headers() {
+            writer.write_all(name.as_str().as_bytes()).await?;
+            writer.write_all(b": ").await?;
+            writer.write_all(value.as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
+        }
+        writer.write_all(b"\r\n").await
+    }
+    impl<W: AsyncWrite + Unpin> AsyncWrite for ResponseBodyPipe<W> {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<Result<usize, io::Error>> {
+            match self.get_mut() {
+                Self::Http1(s) => match s.try_lock() {
+                    Ok(mut l) => unsafe { Pin::new_unchecked(&mut *l).poll_write(cx, buf) },
+                    Err(_) => Poll::Pending,
+                },
+                Self::Http2(s) => Poll::Ready(
+                    s.send_data(bytes::Bytes::copy_from_slice(buf), false)
+                        .map(|()| buf.len())
+                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
+                ),
+            }
+        }
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+            match self.get_mut() {
+                Self::Http1(s) => match s.try_lock() {
+                    Ok(mut l) => unsafe { Pin::new_unchecked(&mut *l).poll_flush(cx) },
+                    Err(_) => Poll::Pending,
+                },
+                Self::Http2(s) => Poll::Ready(
+                    s.send_data(bytes::Bytes::new(), true)
+                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
+                ),
+            }
+        }
+        fn poll_shutdown(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Result<(), io::Error>> {
+            match self.get_mut() {
+                Self::Http1(s) => match s.try_lock() {
+                    Ok(mut l) => unsafe { Pin::new_unchecked(&mut *l).poll_shutdown(cx) },
+                    Err(_) => Poll::Pending,
+                },
+                Self::Http2(s) => match s.poll_reset(cx) {
+                    Poll::Ready(result) => Poll::Ready(match result {
+                        Ok(_) => Ok(()),
+                        Err(err) => Err(io::Error::new(io::ErrorKind::InvalidData, err)),
+                    }),
+                    Poll::Pending => {
+                        s.send_reset(h2::Reason::NO_ERROR);
+                        Poll::Pending
+                    }
+                },
+            }
+        }
+    }
 }

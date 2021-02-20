@@ -21,7 +21,7 @@ use prelude::{internals::*, networking::*, threading::*, *};
 
 use rustls::ServerConfig;
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
 };
 // When user only imports crate::* and not crate::prelude::*
@@ -58,20 +58,21 @@ async fn main<S: AsyncRead + AsyncWrite + Unpin + Debug>(
         .await
         .unwrap();
 
-    while let Ok((request, response)) = http.accept().await {
+    while let Ok((request, mut response)) = http.accept().await {
         println!("Request: {:?}", request);
-    }
 
-    // encrypted
-    //     .write_all(
-    //         b"HTTP/1.0 200 ok\r\n\
-    //                 Connection: close\r\n\
-    //                 Content-length: 12\r\n\
-    //                 \r\n\
-    //                 Hello world!",
-    //     )
-    //     .await
-    //     .expect("Something went wrong!");
+        let content = b"<h1>Hello!</h1>What can I do for you?";
+
+        let resp = http::Response::builder()
+            .status(http::StatusCode::OK)
+            .header("content-length", format!("{}", content.len()))
+            .header("content-type", "text/html")
+            .body(())
+            .unwrap();
+        let mut pipe = response.send_response(resp, false).await.unwrap();
+        pipe.write_all(content).await.unwrap();
+        pipe.flush().await.unwrap();
+    }
 
     Ok(())
 }
