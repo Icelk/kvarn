@@ -176,12 +176,11 @@ impl Config {
     /// };
     ///
     /// ```
-    pub async fn run(self) -> Vec<tokio::task::JoinHandle<()>> {
+    pub async fn run(self) {
         trace!("Running from config");
 
-        let mut tasks = Vec::new();
-
-        for descriptor in self.sockets {
+        let len = self.sockets.len();
+        for (pos, descriptor) in self.sockets.into_iter().enumerate() {
             let listener =
                 TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, descriptor.port))
                     .await
@@ -189,13 +188,18 @@ impl Config {
 
             let storage = Storage::clone(&self.storage);
 
-            tasks.push(tokio::spawn(async move {
+            let future = async move {
                 Self::accept(listener, descriptor, storage)
                     .await
                     .expect("Failed to accept message!")
-            }));
+            };
+
+            if pos + 1 == len {
+                future.await;
+            } else {
+                tokio::spawn(future);
+            }
         }
-        tasks
     }
 
     async fn accept(
@@ -218,9 +222,12 @@ impl Config {
                     }
                     let host = Arc::clone(&host);
                     tokio::spawn(async move {
-                        main(socket, &addr, host)
-                            .await
-                            .expect("Failed with main fn");
+                        if let Err(err) = main(socket, &addr, host).await {
+                            warn!(
+                                "An error occurred in the main processing function {:?}",
+                                err
+                            );
+                        }
                     });
                     continue;
                 }
