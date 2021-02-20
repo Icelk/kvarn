@@ -333,7 +333,8 @@ pub(crate) fn process_request<W: io::Write>(
     ) {
         Some(path) => path,
         None => {
-            &default_error(400, close, Some(storage.get_fs())).write_all(socket)?;
+            &default_error(http::StatusCode::BAD_REQUEST, close, Some(storage.get_fs()))
+                .write_all(socket)?;
             return Ok(());
         }
     };
@@ -384,7 +385,7 @@ pub(crate) fn process_request<W: io::Write>(
             )
         } else {
             (
-                default_error(404, close, Some(storage.get_fs())),
+                default_error(http::StatusCode::NOT_FOUND, close, Some(storage.get_fs())),
                 Html,
                 Cached::Static,
             )
@@ -484,7 +485,11 @@ pub(crate) fn process_request<W: io::Write>(
                 }
             }
             if !allowed_method {
-                byte_response = default_error(405, close, Some(storage.get_fs()));
+                byte_response = default_error(
+                    http::StatusCode::METHOD_NOT_ALLOWED,
+                    close,
+                    Some(storage.get_fs()),
+                );
             }
             match response {
                 Some(response) => byte_response = response,
@@ -531,7 +536,11 @@ pub(crate) fn process_request<W: io::Write>(
                 || content_str.starts_with("font")
             {
                 if identity_forbidden {
-                    byte_response = default_error(406, &close, Some(&mut storage.fs));
+                    byte_response = default_error(
+                        http::StatusCode::NOT_ACCEPTABLE,
+                        &close,
+                        Some(&mut storage.fs),
+                    );
                     algorithm
                 } else {
                     compression::CompressionAlgorithm::Identity

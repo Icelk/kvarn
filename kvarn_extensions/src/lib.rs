@@ -403,7 +403,11 @@ pub fn hide() -> BoundExtension {
         extension_aliases: &["hide"],
         file_extension_aliases: &["private"],
         ext: Extension::new(&|| {}, &|_, data| {
-            let error = default_error(404, data.close, Some(data.storage.get_fs()));
+            let error = default_error(
+                http::StatusCode::NOT_FOUND,
+                data.close,
+                Some(data.storage.get_fs()),
+            );
             data.set_response(error);
             *data.content_type = Html;
         }),
@@ -430,7 +434,11 @@ pub fn ip_allow() -> BoundExtension {
             }
             if !matched {
                 // If it does not match, set the response to 404
-                let error = default_error(404, data.close, Some(data.storage.get_fs()));
+                let error = default_error(
+                    http::StatusCode::NOT_FOUND,
+                    data.close,
+                    Some(data.storage.get_fs()),
+                );
                 data.set_response(error);
             }
             *data.cached = Cached::StaticClient;

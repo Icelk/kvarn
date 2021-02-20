@@ -199,19 +199,13 @@ pub fn read_to_end(
 }
 
 pub fn default_error(
-    code: u16,
+    code: http::StatusCode,
     close: &connection::ConnectionHeader,
     cache: Option<&mut FsCache>,
 ) -> ByteResponse {
     let mut buffer = Vec::with_capacity(512);
     buffer.extend(b"HTTP/1.1 ");
-    buffer.extend(
-        format!(
-            "{}\r\n",
-            http::StatusCode::from_u16(code).unwrap_or(http::StatusCode::from_u16(500).unwrap())
-        )
-        .as_bytes(),
-    );
+    buffer.extend(format!("{}\r\n", code).as_bytes());
     buffer.extend(
         &b"Content-Type: text/html\r\n\
         Connection: "[..],
@@ -224,9 +218,9 @@ pub fn default_error(
     buffer.extend(b"Content-Encoding: identity\r\n");
 
     // Error files will be used several times.
-    let body = match cache
-        .and_then(|cache| read_file_cached(&PathBuf::from(format!("{}.html", code)), cache))
-    {
+    let body = match cache.and_then(|cache| {
+        read_file_cached(&PathBuf::from(format!("{}.html", code.as_str())), cache)
+    }) {
         Some(file) => {
             buffer.extend(b"Content-Length: ");
             buffer.extend(format!("{}\r\n\r\n", file.len()).as_bytes());
@@ -235,21 +229,14 @@ pub fn default_error(
         }
         None => {
             let mut body = Vec::with_capacity(1024);
-            // let error = get_default(code);
             match code {
                 _ => {
                     // Get code and reason!
-                    let status = http::StatusCode::from_u16(code).ok();
-                    let write_code = |body: &mut Vec<_>| match status {
-                        #[inline]
-                        Some(status) => body.extend(status.as_str().as_bytes()),
-                        None => body.extend(code.to_string().as_bytes()),
-                    };
-                    let reason = status.and_then(|status| status.canonical_reason());
+                    let reason = code.canonical_reason();
 
                     body.extend(b"<html><head><title>");
                     // Code and reason
-                    write_code(&mut body);
+                    body.extend(code.as_str().as_bytes());
                     body.extend(b" ");
                     if let Some(reason) = reason {
                         body.extend(reason.as_bytes());
@@ -257,7 +244,7 @@ pub fn default_error(
 
                     body.extend(&b"</title></head><body><center><h1>"[..]);
                     // Code and reason
-                    write_code(&mut body);
+                    body.extend(code.as_str().as_bytes());
                     body.extend(b" ");
                     if let Some(reason) = reason {
                         body.extend(reason.as_bytes());
@@ -292,7 +279,7 @@ pub fn default_error(
 ///   write_generic_error(&mut buffer, 500)
 /// });
 /// ```
-pub fn write_generic_error(buffer: &mut Vec<u8>, code: u16) -> (ContentType, Cached) {
+pub fn write_generic_error(buffer: &mut Vec<u8>, code: http::StatusCode) -> (ContentType, Cached) {
     default_error(code, &connection::ConnectionHeader::KeepAlive, None)
         .write_all(buffer)
         .expect("Failed to write to vec!");
@@ -314,7 +301,11 @@ pub fn write_generic_error(buffer: &mut Vec<u8>, code: u16) -> (ContentType, Cac
 ///   write_error(&mut buffer, 500, storage)
 /// });
 /// ```
-pub fn write_error(buffer: &mut Vec<u8>, code: u16, cache: &mut FsCache) -> (ContentType, Cached) {
+pub fn write_error(
+    buffer: &mut Vec<u8>,
+    code: http::StatusCode,
+    cache: &mut FsCache,
+) -> (ContentType, Cached) {
     default_error(code, &connection::ConnectionHeader::KeepAlive, Some(cache))
         .write_all(buffer)
         .expect("Failed to write to vec!");

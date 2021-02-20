@@ -200,6 +200,7 @@ mod request {
                             let name = HeaderName::from_bytes(&current_header_name[..]);
                             let value = HeaderValue::from_bytes(&current_header_value[..]);
                             if name.is_ok() && value.is_ok() {
+                                // Ok, because of ↑
                                 parsed = parsed.header(name.unwrap(), value.unwrap());
                             }
                             current_header_name.clear();
