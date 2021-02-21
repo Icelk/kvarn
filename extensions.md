@@ -9,7 +9,7 @@ you can test the `Authentication` HTTP header
 and from there decide to intercept the request.
 
 # Pre
-This is tied to Layer 6. See [routing](routing.md) for more information
+This is tied to Layer 5. See [routing](routing.md) for more information
 
 # Prepare
 Called with URI to capture to a function. Will still get all other extensions applied.

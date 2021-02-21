@@ -27,15 +27,11 @@ Here, the compressed headers of HTTP/2 and HTTP/3 are resolved.
 HTTP/1.1 will not get effected.
 
 Body still stream (at lease kinda, see `application.rs#Body` for more info) but headers are parsed
-# Layer 4 / Parsing
-Here, the request is parsed to the `::http::Request` struct.
 
-Also, the streams are read to buffers here.
+# Layer 4 / Caching and compression
+All outgoing data from this layer is cached based on the output of Layer 5.
 
-# Layer 5 / Caching and compression
-All outgoing data from this layer is cached based on the output of Layer 6.
-
-Rules can be created to get hits from other pages (once again call in to Layer 5) when accessing a page, so server-side redirecting if you will.
+Rules can be created to get hits from other pages (once again call in to Layer 4, using the ) when accessing a page, so server-side redirecting if you will.
 
 Compression can be `never` or `cast` (make compressed version of `identity` copy stored if available).
 
@@ -43,19 +39,19 @@ Caching has two options:
 - Client cache; configurations of the `Content-Encoding` header
 - Server cache, `never`, `match query` (requested path has to match query) or `yes` (query of path is ignored, to prevent DDOS attacks circumventing the cache)
 
-# Layer 6.1 / Pathing
+# Layer 5.1 / Pathing
 This is where the data of `::http::Request` is interpreted to either read a file, run a binding, call PHP and most other important things take place.
 
 Here, two of the four types of extensions are located. Both *Prepare* and *Present* are called inside of this function.
 
-## Layer 7 / Lib API
-Only meant to be accessible from Layer 6.1, but can be used to translate any `::http::Request`.
+## Layer 6 / Lib API
+Only meant to be accessible from Layer 5.1, but can be used to translate any `::http::Request`.
 
 This translates header values to more helpful structs, such as `Accept*` and `Authentication`
 Can be found using Kvarns public API, through the module `helper`
 
 
-# Layer 6.2/ Extension: Pre
+# Layer 5.2/ Extension: Pre
 This whole layer can be customised, to for example implement a proxy. You have complete control over the outgoing data,
 but must return a `::http::Response`, cache method, and suggested compression.
 
