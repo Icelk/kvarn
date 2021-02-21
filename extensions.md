@@ -25,8 +25,8 @@ This type can modify most data in response and will be executed in series.
 *I know the name is a stretch*
 Here, you can define headers to add to the final response.
 
-**ToDo**: Can cookies be handled here?
-Should `Referer` be part of this or `Options` struct?
+**ToDo**: Can cookies be handled here? No, they should be added when making the `::http::Response`
+Default `Referer` header is part of the `Options` struct?
 
 # Post
 These extensions are called after all data are written to the user. This will almost exclusively be used for HTTP/2 push.
