@@ -322,6 +322,7 @@ mod response {
     }
 
     impl<W: AsyncWrite + Unpin> ResponsePipe<W> {
+        /// It is critical to call [`AsyncWriteExt::flush()`] on [`ResponseBodyPipe`], else the message won't be seen as fully transmitted.
         pub async fn send_response(
             &mut self,
             mut response: http::Response<()>,

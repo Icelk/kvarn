@@ -3,7 +3,8 @@
 // Module declaration
 pub mod application;
 pub mod bindings;
-pub mod cache;
+pub mod cache_old;
+pub mod comprash;
 pub mod compression;
 pub mod connection;
 pub mod cryptography;
@@ -252,7 +253,7 @@ pub struct Storage {
 impl Storage {
     pub fn new() -> Self {
         Storage {
-            fs: Arc::new(Mutex::new(cache::Cache::with_max_size(65536))),
+            fs: Arc::new(Mutex::new(cache_old::Cache::with_max_size(65536))),
             #[cfg(feature = "limiting")]
             limits: LimitManager::default(),
         }
@@ -756,7 +757,7 @@ pub(crate) fn process_request<W: io::Write>(
                     }
                 }
                 true => {
-                    let _ = lock.cache(uri, Arc::new(cache::CacheType::with_data(response)));
+                    let _ = lock.cache(uri, Arc::new(cache_old::CacheType::with_data(response)));
                 }
             }
         }

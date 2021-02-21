@@ -5,14 +5,14 @@ use rustls::{
 
 #[derive(Debug)]
 struct HostStorage {
-    pub cache: sync::Mutex<cache::types::ResponseCacheInner>,
+    pub cache: sync::Mutex<cache_old::types::ResponseCacheInner>,
     pub bindings: FunctionBindings,
     pub bindings_http_override: Option<FunctionBindings>,
 }
 impl HostStorage {
     pub fn new(bindings: FunctionBindings, max_cache_entities: usize) -> Self {
         Self {
-            cache: sync::Mutex::new(cache::Cache::with_max(max_cache_entities)),
+            cache: sync::Mutex::new(cache_old::Cache::with_max(max_cache_entities)),
             bindings,
             bindings_http_override: None,
         }
@@ -129,7 +129,7 @@ impl Host {
 
     /// Gets the lock of response cache.
     #[inline]
-    pub fn get_cache(&self) -> Option<sync::MutexGuard<'_, cache::types::ResponseCacheInner>> {
+    pub fn get_cache(&self) -> Option<sync::MutexGuard<'_, cache_old::types::ResponseCacheInner>> {
         #[cfg(feature = "no-response-cache")]
         return None;
         #[cfg(not(feature = "no-response-cache"))]

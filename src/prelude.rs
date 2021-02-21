@@ -30,7 +30,7 @@ pub use std::time;
 
 // Modules
 pub use crate::bindings;
-pub use crate::cache;
+pub use crate::cache_old;
 pub use crate::compression;
 pub use crate::connection;
 pub use crate::cryptography;
@@ -43,7 +43,7 @@ pub use crate::utility;
 // Crate types
 pub use crate::{Config, Storage};
 pub use bindings::FunctionBindings;
-pub use cache::{Cached, Cached::*};
+pub use cache_old::{Cached, Cached::*};
 pub use connection::{ConnectionScheme, ConnectionSecurity};
 pub use cryptography::{Host, HostData};
 pub use utility::chars::*;
@@ -93,8 +93,8 @@ pub mod crypto {
 /// **This is not intended to be user-facing and may change rapidly**
 pub mod internals {
     use super::*;
-    pub use cache::types::*;
-    pub use cache::ByteResponse;
+    pub use cache_old::types::*;
+    pub use cache_old::ByteResponse;
     pub use extensions::{BoundExtension, Extension, ExtensionMap, Extensions};
     #[cfg(feature = "limiting")]
     pub use limiting::LimitManager;
