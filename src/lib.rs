@@ -60,6 +60,20 @@ async fn main<S: AsyncRead + AsyncWrite + Unpin + Debug>(
         .unwrap();
 
     while let Ok((request, mut response)) = http.accept().await {
+        // fn to handle getting from cache, generating response and sending it
+        match comprash::cache_send(cache.lock().await, &request) {
+            Ok((&response, response_pipe)) => {
+                // process response push
+                // Write push to response
+            }
+            Err(Error::NotPresent) => {
+                // make request
+                let response = pathing::process(cache, request);
+                let mut lock = cache.lock().await;
+                let response = cache_send(response);
+                // process response push
+            }
+        }
         println!("Request: {:?}", request);
 
         let content = b"<h1>Hello!</h1>What can I do for you?";

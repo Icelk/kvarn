@@ -16,6 +16,7 @@ pub enum Error {
     H2(h2::Error),
     NoPath,
     Done,
+    VersionNotSupported,
 }
 impl From<http::Error> for Error {
     fn from(err: http::Error) -> Self {
@@ -64,8 +65,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
                 Ok(connection) => Ok(HttpConnection::Http2(connection)),
                 Err(err) => Err(Error::H2(err)),
             },
-            Version::HTTP_3 => unimplemented!(),
-            _ => todo!(),
+            Version::HTTP_3 => Err(Error::VersionNotSupported),
+            _ => Err(Error::VersionNotSupported),
         }
     }
 
@@ -332,10 +333,8 @@ mod response {
                 Self::Http1(s) => {
                     let mut writer = s.lock().await;
                     match response.version() {
-                        Version::HTTP_2 | Version::HTTP_3 => {
-                            *response.version_mut() = Version::HTTP_11
-                        }
-                        _ => {}
+                        Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {}
+                        _ => *response.version_mut() = Version::HTTP_11,
                     }
                     write_http_1_response(&mut *writer, response)
                         .await
