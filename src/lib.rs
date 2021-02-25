@@ -39,10 +39,11 @@ pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
-async fn main<S: AsyncRead + AsyncWrite + Unpin + Debug>(
+pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>(
     stream: S,
-    _address: &net::SocketAddr,
+    address: &net::SocketAddr,
     host: Arc<HostDescriptor>,
+    cache: Arc<tokio::sync::RwLock<comprash::Cache<http::Uri>>>,
 ) -> io::Result<()> {
     let mut encrypted =
         encryption::Encryption::new_from_connection_security(stream, &host.r#type).await?;
@@ -61,35 +62,57 @@ async fn main<S: AsyncRead + AsyncWrite + Unpin + Debug>(
 
     while let Ok((request, mut response)) = http.accept().await {
         // fn to handle getting from cache, generating response and sending it
-        match comprash::cache_send(cache.lock().await, &request) {
-            Ok((&response, response_pipe)) => {
-                // process response push
-                // Write push to response
-            }
-            Err(Error::NotPresent) => {
-                // make request
-                let response = pathing::process(cache, request);
-                let mut lock = cache.lock().await;
-                let response = cache_send(response);
-                // process response push
+        {
+            let lock = cache.read().await;
+            let cached = {
+                use std::ops::Deref;
+                lock.get(request.uri()).or_else(|| {
+                    lock.get(unsafe { utility::uri_strip_query_unchecked(request.uri()).deref() })
+                })
+            };
+            match cached.as_ref() {
+                Some(&response) => {
+                    info!("Found in cache!");
+                    // process response push
+                    // Write push to response
+                    // Call post.rs with response and pipe to get all the h2 pushes!? An extension?
+                }
+                None => {
+                    drop(lock);
+                    // make request
+                    let uri = request.uri().clone();
+                    let resp = handle_request(request, address).await?;
+                    let resp_no_body = utility::empty_clone_response(&resp);
+                    let mut pipe = response.send_response(resp_no_body, false).await.unwrap();
+                    pipe.write_all(resp.body()).await.unwrap();
+                    pipe.flush().await.unwrap();
+                    {
+                        let mut lock = cache.write().await;
+                        // ToDo: does query matter?
+                        info!("Caching uri {:?}!", &uri);
+                        lock.cache(uri, resp);
+                    }
+                    // process response push
+                }
             }
         }
-        println!("Request: {:?}", request);
-
-        let content = b"<h1>Hello!</h1>What can I do for you?";
-
-        let resp = http::Response::builder()
-            .status(http::StatusCode::OK)
-            .header("content-length", format!("{}", content.len()))
-            .header("content-type", "text/html")
-            .body(())
-            .unwrap();
-        let mut pipe = response.send_response(resp, false).await.unwrap();
-        pipe.write_all(content).await.unwrap();
-        pipe.flush().await.unwrap();
     }
 
     Ok(())
+}
+
+pub(crate) async fn handle_request<R: AsyncRead + AsyncWrite + Unpin>(
+    _request: http::Request<application::Body<R>>,
+    _address: &net::SocketAddr,
+) -> io::Result<http::Response<bytes::Bytes>> {
+    let content = b"<h1>Hello!</h1>What can I do for you?";
+
+    Ok(http::Response::builder()
+        .status(http::StatusCode::OK)
+        .header("content-length", format!("{}", content.len()))
+        .header("content-type", "text/html")
+        .body(bytes::Bytes::copy_from_slice(content))
+        .unwrap())
 }
 
 #[derive(Debug)]
@@ -225,6 +248,10 @@ impl Config {
     ) -> Result<(), io::Error> {
         trace!("Started listening on {:?}", listener.local_addr());
         let host = Arc::new(host);
+
+        // ToDo: proper cache!
+        let tmp_cache = Arc::new(tokio::sync::RwLock::new(comprash::Cache::new()));
+
         loop {
             match listener.accept().await {
                 Ok((socket, addr)) => {
@@ -237,8 +264,9 @@ impl Config {
                         LimitStrength::Passed => {}
                     }
                     let host = Arc::clone(&host);
+                    let cache = Arc::clone(&tmp_cache);
                     tokio::spawn(async move {
-                        if let Err(err) = main(socket, &addr, host).await {
+                        if let Err(err) = handle_connection(socket, &addr, host, cache).await {
                             warn!(
                                 "An error occurred in the main processing function {:?}",
                                 err

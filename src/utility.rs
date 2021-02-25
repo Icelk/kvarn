@@ -443,3 +443,28 @@ impl Default for ContentType {
 pub fn to_option_str(header: &http::HeaderValue) -> Option<&str> {
     header.to_str().ok()
 }
+
+/// # Safety
+/// Assumes `uri` outlives the returned `Uri`, else it'll be a dangling pointer.
+/// The returned Uri's destructor must not be run.
+pub unsafe fn uri_strip_query_unchecked(uri: &http::Uri) -> std::mem::ManuallyDrop<http::Uri> {
+    let bytes = uri.path().as_bytes();
+    let vec = Vec::from_raw_parts(bytes.as_ptr() as *mut u8, bytes.len(), bytes.len());
+    std::mem::ManuallyDrop::new(http::Uri::from_maybe_shared(vec).unwrap())
+}
+pub fn uri_strip_query(uri: &http::Uri) -> http::Uri {
+    let bytes = uri.path().as_bytes().to_vec();
+    http::Uri::from_maybe_shared(bytes).unwrap()
+}
+
+pub fn empty_clone_response<T>(response: &http::Response<T>) -> http::Response<()> {
+    let mut builder = http::Response::builder()
+        .version(response.version())
+        .status(response.status());
+    // match builder.headers_mut() {
+    //     Some(headers) => *headers = response.headers().clone(),
+    //     None => {}
+    // };
+    *builder.headers_mut().unwrap() = response.headers().clone();
+    builder.body(()).unwrap()
+}

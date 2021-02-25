@@ -48,6 +48,7 @@ impl CachedCompression {
         &self.identity
     }
 
+    #[allow(dead_code)]
     fn clone_response_set_compression(
         response: &http::Response<Bytes>,
         new_data: Bytes,
@@ -65,7 +66,7 @@ impl CachedCompression {
             }
             http::header::Entry::Occupied(slot) => {
                 slot.remove_entry_mult();
-                slot.insert(compression);
+                map.insert("content-encoding", compression);
             }
         }
 
@@ -127,7 +128,7 @@ impl CachedCompression {
 }
 impl Debug for CachedCompression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn get_status(mutex: &Mutex<Option<Bytes>>) -> &'static str {
+        fn get_status(mutex: &Mutex<Option<http::Response<Bytes>>>) -> &'static str {
             match mutex.try_lock() {
                 Err(_) => "[Busy]",
                 Ok(o) => match o.as_ref() {
