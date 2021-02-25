@@ -30,7 +30,62 @@ impl<T> std::ops::DerefMut for Guard<'_, T> {
     }
 }
 
-// #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+#[derive(Debug, PartialOrd, Ord)]
+pub enum UriKey<'a> {
+    PathBorrow(&'a str),
+    PathOwned(String),
+    PathQueryBorrow((&'a str, Option<&'a str>)),
+    PathQueryOwned((String, Option<String>)),
+}
+impl PartialEq for UriKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        macro_rules! cmp_path {
+            ( $e:expr ) => {
+                match other {
+                    Self::PathBorrow(p2) => $e == p2,
+                    Self::PathOwned(p2) => $e == p2,
+                    _ => false,
+                }
+            };
+        }
+        match self {
+            Self::PathBorrow(p1) => cmp_path!(p1),
+            Self::PathOwned(p1) => cmp_path!(p1),
+            Self::PathQueryBorrow((p1, p2)) => match other {
+                Self::PathQueryBorrow((p3, p4)) => p1 == p3 && p2 == p4,
+                Self::PathQueryOwned((p3, p4)) => {
+                    p1 == p3 && p2 == &p4.as_ref().map(|s| s.as_str())
+                }
+                _ => false,
+            },
+            Self::PathQueryOwned((p1, p2)) => match other {
+                Self::PathQueryBorrow((p3, p4)) => {
+                    p1 == p3 && &p2.as_ref().map(|s| s.as_str()) == p4
+                }
+                Self::PathQueryOwned((p3, p4)) => p1 == p3 && p2 == p4,
+                _ => false,
+            },
+        }
+    }
+}
+impl Eq for UriKey<'_> {}
+impl Hash for UriKey<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::PathBorrow(p1) => p1.hash(state),
+            Self::PathOwned(p1) => p1.as_str().hash(state),
+            Self::PathQueryBorrow((p1, p2)) => {
+                p1.hash(state);
+                p2.map(|p| p.hash(state));
+            }
+            Self::PathQueryOwned((p1, p2)) => {
+                p1.as_str().hash(state);
+                p2.as_ref().map(|p| p.as_str().hash(state));
+            }
+        }
+    }
+}
+
 pub struct CachedCompression {
     identity: http::Response<Bytes>,
     gzip: Mutex<Option<http::Response<Bytes>>>,

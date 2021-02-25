@@ -43,8 +43,11 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
     stream: S,
     address: &net::SocketAddr,
     host: Arc<HostDescriptor>,
-    cache: Arc<tokio::sync::RwLock<comprash::Cache<http::Uri>>>,
+    cache: Arc<tokio::sync::RwLock<comprash::Cache<comprash::UriKey<'_>>>>,
 ) -> io::Result<()> {
+    use comprash::UriKey;
+
+    // LAYER 2
     let mut encrypted =
         encryption::Encryption::new_from_connection_security(stream, &host.r#type).await?;
 
@@ -56,6 +59,7 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
         _ => unimplemented!(),
     };
     println!("ALPN: {:?}", encrypted.get_alpn_protocol());
+    // LAYER 3
     let mut http = application::HttpConnection::new(&mut encrypted, version)
         .await
         .unwrap();
@@ -72,16 +76,36 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
     while let Ok((request, mut response_pipe)) = http.accept().await {
         // fn to handle getting from cache, generating response and sending it
         {
+            /// LAYER 4
             let lock = cache.read().await;
-            let cached = {
-                use std::ops::Deref;
-                lock.get(request.uri()).or_else(|| {
-                    lock.get(unsafe { utility::uri_strip_query_unchecked(request.uri()).deref() })
-                })
+            let path_query = UriKey::PathQueryBorrow((request.uri().path(), request.uri().query()));
+            let path = UriKey::PathBorrow(request.uri().path());
+
+            info!("Looking for {:?} and {:?}", path_query, path);
+
+            let (cached, response_key) = {
+                // ToDo: optimize away .or_else() in comprash::UriKey::eq()
+                match lock.get(&path_query) {
+                    Some(c) => (Some(c), Some(&path_query)),
+                    None => match lock.get(&path) {
+                        Some(c) => (Some(c), Some(&path)),
+                        None => (None, None),
+                    },
+                }
             };
             match cached.as_ref() {
-                Some(&response) => {
+                Some(resp) => {
                     info!("Found in cache!");
+                    // ToDo: compress preference?
+                    let response = utility::empty_clone_response(resp.get_identity());
+                    let response_body = bytes::Bytes::clone(resp.get_identity().body());
+
+                    drop(lock);
+
+                    let mut pipe = response_pipe.send_response(response, false).await.unwrap();
+                    pipe.write_all(&response_body).await?;
+                    pipe.flush().await?;
+
                     // process response push
                     // Write push to response
                     // Call post.rs with response and pipe to get all the h2 pushes!? An extension?
@@ -95,17 +119,23 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
                 None => {
                     drop(lock);
                     // make request
-                    let uri = request.uri().clone();
+                    let path = request.uri().path().to_string();
+                    let query = request.uri().query().map(str::to_string);
+                    /// LAYER 5.1
                     let resp = handle_request(request, address).await?;
                     let resp_no_body = utility::empty_clone_response(&resp);
-                    let mut pipe = response.send_response(resp_no_body, false).await.unwrap();
+                    let mut pipe = response_pipe
+                        .send_response(resp_no_body, false)
+                        .await
+                        .unwrap();
                     pipe.write_all(resp.body()).await.unwrap();
                     pipe.flush().await.unwrap();
                     {
                         let mut lock = cache.write().await;
                         // ToDo: does query matter?
-                        info!("Caching uri {:?}!", &uri);
-                        lock.cache(uri, resp);
+                        let key = UriKey::PathQueryOwned((path, query));
+                        info!("Caching uri {:?}!", &key);
+                        lock.cache(key, resp);
                     }
                     // process response push
                 }
@@ -116,6 +146,7 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
     Ok(())
 }
 
+/// LAYER 5.1
 pub(crate) async fn handle_request<R: AsyncRead + AsyncWrite + Unpin>(
     _request: http::Request<application::Body<R>>,
     _address: &net::SocketAddr,
