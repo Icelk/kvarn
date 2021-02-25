@@ -60,7 +60,16 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
         .await
         .unwrap();
 
-    while let Ok((request, mut response)) = http.accept().await {
+    struct PushPipe {}
+    fn process_extensions(
+        _response_body: &bytes::Bytes,
+        _response_uri: &comprash::UriKey<'_>,
+        _cache: &tokio::sync::RwLock<comprash::Cache<comprash::UriKey<'_>>>,
+        _pipe: &mut PushPipe,
+    ) {
+    }
+
+    while let Ok((request, mut response_pipe)) = http.accept().await {
         // fn to handle getting from cache, generating response and sending it
         {
             let lock = cache.read().await;
@@ -76,6 +85,12 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
                     // process response push
                     // Write push to response
                     // Call post.rs with response and pipe to get all the h2 pushes!? An extension?
+                    process_extensions(
+                        &response_body,
+                        response_key.unwrap(),
+                        &*cache,
+                        &mut PushPipe {},
+                    );
                 }
                 None => {
                     drop(lock);
