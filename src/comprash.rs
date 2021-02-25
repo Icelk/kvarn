@@ -151,6 +151,30 @@ impl Debug for CachedCompression {
     }
 }
 
+pub enum CompressPreference {
+    /// Will not auto-compress response body
+    None,
+    /// Will automatically compress and send compressed versions of the response
+    Full,
+}
+pub enum ServerCachePreference {
+    /// Will not cache response
+    None,
+    /// Will cache response with query
+    QueryMatters,
+    /// Query does not matter and will be discarded
+    Full,
+}
+/// Automatically add `cache-control` header to response
+pub enum ClientCachePreference {
+    /// Will not cache on client
+    None,
+    /// A two-minute cache lifetime
+    Changing,
+    /// Will cache for 1 year
+    Full,
+}
+
 #[derive(Debug)]
 pub struct Cache<K> {
     map: HashMap<K, CachedCompression>,
