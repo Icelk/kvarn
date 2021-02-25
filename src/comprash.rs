@@ -30,29 +30,56 @@ impl<T> std::ops::DerefMut for Guard<'_, T> {
     }
 }
 
+// #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct CachedCompression {
-    identity: Bytes,
-    gzip: Mutex<Option<Bytes>>,
-    br: Mutex<Option<Bytes>>,
+    identity: http::Response<Bytes>,
+    gzip: Mutex<Option<http::Response<Bytes>>>,
+    br: Mutex<Option<http::Response<Bytes>>>,
 }
 impl CachedCompression {
-    pub(crate) fn new(identity: Bytes) -> Self {
+    pub(crate) fn new(identity: http::Response<Bytes>) -> Self {
         Self {
             identity,
             gzip: Mutex::new(None),
             br: Mutex::new(None),
         }
     }
-    pub fn get_identity(&self) -> &Bytes {
+    pub fn get_identity(&self) -> &http::Response<Bytes> {
         &self.identity
     }
+
+    fn clone_response_set_compression(
+        response: &http::Response<Bytes>,
+        new_data: Bytes,
+        compression: http::HeaderValue,
+    ) -> http::Response<Bytes> {
+        let mut builder = http::Response::builder()
+            .version(response.version())
+            .status(response.status());
+        let mut map = response.headers().clone();
+        // http::header::OccupiedEntry::remove_entry_mult(self)
+        // http::header::Entry::
+        match map.entry("content-encoding") {
+            http::header::Entry::Vacant(slot) => {
+                slot.insert(compression);
+            }
+            http::header::Entry::Occupied(slot) => {
+                slot.remove_entry_mult();
+                slot.insert(compression);
+            }
+        }
+
+        *builder.headers_mut().unwrap() = map;
+        builder.body(new_data).unwrap()
+    }
+
     #[cfg(features = "gzip")]
     /// Gets the gzip compressed version of [`CachedCompression::get_identity()`]
-    pub async fn get_gzip(&mut self) -> Guard<'_, Bytes> {
+    pub async fn get_gzip(&mut self) -> Guard<'_, http::Response<Bytes>> {
         let mut lock = self.gzip.lock().await;
         if lock.is_none() {
             use std::io::Write;
-            let bytes = self.identity.as_ref();
+            let bytes = self.identity.body().as_ref();
 
             let mut buffer = bytes::BytesMut::with_capacity(bytes.len() / 2 + 64);
 
@@ -60,17 +87,24 @@ impl CachedCompression {
             c.write(bytes).expect("Failed to compress using gzip!");
             c.finish().expect("Failed to compress using gzip!");
             let buffer = buffer.freeze();
-            *lock = Some(buffer);
+
+            let response = Self::clone_response_set_compression(
+                self.get_identity(),
+                buffer,
+                http::HeaderValue::from_static("gzip"),
+            );
+
+            *lock = Some(response);
         }
         Guard::new(lock)
     }
     #[cfg(features = "br")]
     /// Gets the Brotli compressed version of [`CachedCompression::get_identity()`]
-    pub async fn get_br(&mut self) -> Guard<'_, Bytes> {
+    pub async fn get_br(&mut self) -> Guard<'_, http::Response<Bytes>> {
         let mut lock = self.gzip.lock().await;
         if lock.is_none() {
             use std::io::Write;
-            let bytes = self.identity.as_ref();
+            let bytes = self.identity.body().as_ref();
 
             let mut buffer = bytes::BytesMut::with_capacity(bytes.len() / 2 + 64);
 
@@ -79,7 +113,14 @@ impl CachedCompression {
             c.flush().expect("Failed to compress using Brotli!");
             c.into_inner();
             let buffer = buffer.freeze();
-            *lock = Some(buffer);
+
+            let response = Self::clone_response_set_compression(
+                self.get_identity(),
+                buffer,
+                http::HeaderValue::from_static("gzip"),
+            );
+
+            *lock = Some(response);
         }
         Guard::new(lock)
     }
@@ -124,11 +165,11 @@ impl<K> Cache<K> {
     }
 }
 impl<K: Eq + Hash> Cache<K> {
-    pub fn get<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> Option<&mut CachedCompression>
+    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> Option<&CachedCompression>
     where
         K: Borrow<Q>,
     {
-        self.map.get_mut(key)
+        self.map.get(key)
     }
     pub fn contains<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> bool
     where
@@ -142,8 +183,7 @@ impl<K: Eq + Hash> Cache<K> {
     {
         self.map.remove(key)
     }
-
-    pub fn cache(&mut self, key: K, value: Bytes) -> Option<CachedCompression> {
+    pub fn cache(&mut self, key: K, value: http::Response<Bytes>) -> Option<CachedCompression> {
         self.map.insert(key, CachedCompression::new(value))
     }
 }
