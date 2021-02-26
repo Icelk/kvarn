@@ -22,7 +22,7 @@ use prelude::{internals::*, networking::*, threading::*, *};
 
 use rustls::ServerConfig;
 use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufWriter},
     net::TcpListener,
 };
 // When user only imports crate::* and not crate::prelude::*
@@ -41,12 +41,10 @@ pub const LINE_ENDING: &[u8] = b"\r\n";
 
 pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>(
     stream: S,
-    address: &net::SocketAddr,
+    address: net::SocketAddr,
     host: Arc<HostDescriptor>,
     cache: Arc<tokio::sync::RwLock<comprash::Cache<comprash::UriKey<'_>>>>,
 ) -> io::Result<()> {
-    use comprash::UriKey;
-
     // LAYER 2
     let mut encrypted =
         encryption::Encryption::new_from_connection_security(stream, &host.r#type).await?;
@@ -64,93 +62,142 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
         .await
         .unwrap();
 
-    struct PushPipe {}
-    fn process_extensions(
+    while let Ok((request, response_pipe)) = http.accept().await {
+        // fn to handle getting from cache, generating response and sending it
+        handle_cache(request, address, response_pipe, cache.clone())
+            .await
+            .unwrap();
+    }
+
+    Ok(())
+}
+
+/// LAYER 4
+pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
+    request: http::Request<application::Body<S>>,
+    address: net::SocketAddr,
+    mut response_pipe: application::ResponsePipe<BufWriter<S>>,
+    cache: Arc<tokio::sync::RwLock<comprash::Cache<comprash::UriKey<'_>>>>,
+) -> io::Result<()> {
+    fn process_extensions<F: core::future::Future, C: FnMut(http::Response<bytes::Bytes>) -> F>(
         _response_body: &bytes::Bytes,
-        _response_uri: &comprash::UriKey<'_>,
-        _cache: &tokio::sync::RwLock<comprash::Cache<comprash::UriKey<'_>>>,
-        _pipe: &mut PushPipe,
+        _request: &http::Request<()>,
+        _callback: C,
     ) {
     }
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let path_query =
+        comprash::UriKey::PathQueryBorrow((request.uri().path(), request.uri().query()));
+    let path = comprash::UriKey::PathBorrow(request.uri().path());
 
-    while let Ok((request, mut response_pipe)) = http.accept().await {
-        // fn to handle getting from cache, generating response and sending it
-        {
-            /// LAYER 4
-            let lock = cache.read().await;
-            let path_query = UriKey::PathQueryBorrow((request.uri().path(), request.uri().query()));
-            let path = UriKey::PathBorrow(request.uri().path());
+    let lock = cache.read().await;
+    // let (cached, response_key) = {
+    //     match lock.get(&path_query) {
+    //         Some(c) => (Some(c), Some(&path_query)),
+    //         None => match lock.get(&path) {
+    //             Some(c) => (Some(c), Some(&path)),
+    //             None => (None, None),
+    //         },
+    //     }
+    // };
+    let cached = lock.get(&path_query).or_else(|| lock.get(&path));
+    match cached.as_ref() {
+        Some(resp) => {
+            info!("Found in cache!");
+            // ToDo: compress preference?
+            let response = utility::empty_clone_response(resp.get_identity());
+            let response_body = bytes::Bytes::clone(resp.get_identity().body());
 
-            info!("Looking for {:?} and {:?}", path_query, path);
+            drop(lock);
 
-            let (cached, response_key) = {
-                // ToDo: optimize away .or_else() in comprash::UriKey::eq()
-                match lock.get(&path_query) {
-                    Some(c) => (Some(c), Some(&path_query)),
-                    None => match lock.get(&path) {
-                        Some(c) => (Some(c), Some(&path)),
-                        None => (None, None),
-                    },
-                }
-            };
-            match cached.as_ref() {
-                Some(resp) => {
-                    info!("Found in cache!");
-                    // ToDo: compress preference?
-                    let response = utility::empty_clone_response(resp.get_identity());
-                    let response_body = bytes::Bytes::clone(resp.get_identity().body());
-
-                    drop(lock);
-
-                    let mut pipe = response_pipe.send_response(response, false).await.unwrap();
-                    pipe.write_all(&response_body).await?;
-                    pipe.flush().await?;
-
-                    // process response push
-                    // Write push to response
-                    // Call post.rs with response and pipe to get all the h2 pushes!? An extension?
-                    process_extensions(
-                        &response_body,
-                        response_key.unwrap(),
-                        &*cache,
-                        &mut PushPipe {},
-                    );
-                }
-                None => {
-                    drop(lock);
-                    // make request
-                    let path = request.uri().path().to_string();
-                    let query = request.uri().query().map(str::to_string);
-                    /// LAYER 5.1
-                    let resp = handle_request(request, address).await?;
-                    let resp_no_body = utility::empty_clone_response(&resp);
-                    let mut pipe = response_pipe
-                        .send_response(resp_no_body, false)
-                        .await
+            // process response push
+            // Write push to response
+            // Call post.rs with response and pipe to get all the h2 pushes!? An extension?
+            match &mut response_pipe {
+                application::ResponsePipe::Http2(h2) => {
+                    let example_uri = http::Uri::builder()
+                        .authority("localhost")
+                        .scheme("https")
+                        .path_and_query("/script.js")
+                        .build()
                         .unwrap();
-                    pipe.write_all(resp.body()).await.unwrap();
-                    pipe.flush().await.unwrap();
-                    {
-                        let mut lock = cache.write().await;
-                        // ToDo: does query matter?
-                        let key = UriKey::PathQueryOwned((path, query));
-                        info!("Caching uri {:?}!", &key);
-                        lock.cache(key, resp);
-                    }
-                    // process response push
+                    // let example_request = http::Request::builder()
+                    //     .uri(example_uri)
+                    //     .version(http::Version::HTTP_2)
+                    //     .method(http::Method::GET)
+                    //     .body(application::Body::Empty::<application::Nothing>)
+                    //     .unwrap();
+                    let mut example_request = utility::empty_clone_request(&request);
+                    *example_request.uri_mut() = example_uri;
+                    let example_request =
+                        example_request.map(|()| application::Body::Empty::<application::Nothing>);
+                    info!(
+                        "Sent request {:?}",
+                        utility::empty_clone_request(&example_request)
+                    );
+                    let mut pipe = h2
+                        .push_request(utility::empty_clone_request(&example_request))
+                        .unwrap();
+                    let push_response = handle_request(example_request, address).await?;
+                    let mut bytes = None;
+                    let push_response = push_response.map(|b| {
+                        bytes = Some(b);
+                    });
+                    let mut send = h2.send_response(response, false).unwrap();
+                    send.send_data(response_body.clone(), true).unwrap();
+
+                    let mut pipe = pipe.send_response(push_response, false).unwrap();
+                    pipe.send_data(bytes.unwrap(), true).unwrap();
+                    // info!("Sent push: {:?}", &pipe);
+                    let request = request.map(|_| ());
+                    process_extensions(&response_body, &request, move |_| async move {});
                 }
+                _ => {}
             }
+            // let mut pipe = response_pipe.send_response(response, false).await.unwrap();
+            // match &mut pipe {
+            //     application::ResponseBodyPipe::Http2(p) => {
+            //         p.send_data(response_body.clone(), true).unwrap();
+            //         info!("Sent response: {:?}", &p);
+            //     }
+            //     _ => {}
+            // }
+            // pipe.write_all(&response_body).await?;
+            // pipe.flush().await?;
+        }
+        None => {
+            drop(lock);
+            // make request
+            let path = request.uri().path().to_string();
+            let query = request.uri().query().map(str::to_string);
+            // LAYER 5.1
+            let resp = handle_request(request, address).await?;
+            let resp_no_body = utility::empty_clone_response(&resp);
+            let mut pipe = response_pipe
+                .send_response(resp_no_body, false)
+                .await
+                .unwrap();
+            pipe.write_all(resp.body()).await.unwrap();
+            pipe.flush().await.unwrap();
+            {
+                let mut lock = cache.write().await;
+                // ToDo: does query matter?
+                let key = comprash::UriKey::PathQueryOwned((path, query));
+                info!("Caching uri {:?}!", &key);
+                lock.cache(key, resp);
+            }
+            // process response push
         }
     }
-
     Ok(())
 }
 
 /// LAYER 5.1
 pub(crate) async fn handle_request<R: AsyncRead + AsyncWrite + Unpin>(
     _request: http::Request<application::Body<R>>,
-    _address: &net::SocketAddr,
+    _address: net::SocketAddr,
 ) -> io::Result<http::Response<bytes::Bytes>> {
+    // <script src='/script.js'></script>
     let content = b"<h1>Hello!</h1>What can I do for you?";
 
     Ok(http::Response::builder()
@@ -312,7 +359,7 @@ impl Config {
                     let host = Arc::clone(&host);
                     let cache = Arc::clone(&tmp_cache);
                     tokio::spawn(async move {
-                        if let Err(err) = handle_connection(socket, &addr, host, cache).await {
+                        if let Err(err) = handle_connection(socket, addr, host, cache).await {
                             warn!(
                                 "An error occurred in the main processing function {:?}",
                                 err

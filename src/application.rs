@@ -39,9 +39,36 @@ pub enum HttpConnection<S> {
     Http2(h2::server::Connection<S, bytes::Bytes>),
 }
 
+pub struct Nothing {}
+impl AsyncRead for Nothing {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+impl AsyncWrite for Nothing {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        Poll::Ready(Ok(buf.len()))
+    }
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 /// ToDo: trailers
 #[derive(Debug)]
 pub enum Body<S: AsyncRead + AsyncWrite + Unpin> {
+    Empty,
     Http1(response::PreBufferedReader<BufWriter<S>>),
     Http2(h2::RecvStream),
 }
@@ -267,6 +294,7 @@ mod request {
                     }
                     Poll::Ready(Ok(()))
                 }
+                Self::Empty => Poll::Ready(Ok(())),
             }
         }
     }
