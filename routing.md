@@ -45,7 +45,7 @@ This is where the data of `::http::Request` is interpreted to either read a file
 Here, two of the four types of extensions are located. Both *Prepare* and *Present* are called inside of this function.
 
 ## Layer 6 / Lib API
-Only meant to be accessible from Layer 5.1, but can be used to translate any `::http::Request`.
+Only meant to be used from Layer 5.1.
 
 This translates header values to more helpful structs, such as `Accept*` and `Authentication`
 Can be found using Kvarns public API, through the module `helper`
