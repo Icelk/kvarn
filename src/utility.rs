@@ -463,3 +463,19 @@ pub fn empty_clone_request<T>(request: &http::Request<T>) -> http::Request<()> {
     *builder.headers_mut().unwrap() = request.headers().clone();
     builder.body(()).unwrap()
 }
+
+pub fn replace_header<K: http::header::IntoHeaderName + Copy>(
+    headers: &mut http::HeaderMap,
+    name: K,
+    new: http::HeaderValue,
+) {
+    match headers.entry(name) {
+        http::header::Entry::Vacant(slot) => {
+            slot.insert(new);
+        }
+        http::header::Entry::Occupied(slot) => {
+            slot.remove_entry_mult();
+            headers.insert(name, new);
+        }
+    }
+}
