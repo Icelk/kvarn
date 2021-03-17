@@ -151,7 +151,7 @@ pub fn compression_from_header(header: &str) -> (CompressionAlgorithm, bool) {
     };
 
     // If Gzip enabled, prioritize it if quality == 1
-    #[cfg(feature = "br")]
+    #[cfg(feature = "gzip")]
     if options.is_empty()
         || options.iter().any(|option| {
             option
