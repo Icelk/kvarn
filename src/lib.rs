@@ -116,21 +116,21 @@ pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
             match &mut response_pipe {
                 application::ResponsePipe::Http2(h2) => {
                     let example_uri = http::Uri::builder()
-                        .authority("localhost")
-                        .scheme("https")
-                        .path_and_query("/script.js")
+                        .authority(request.uri().authority().unwrap().clone())
+                        .scheme(request.uri().scheme().unwrap().clone())
+                        .path_and_query("/favicon.ico")
                         .build()
                         .unwrap();
-                    // let example_request = http::Request::builder()
-                    //     .uri(example_uri)
-                    //     .version(http::Version::HTTP_2)
-                    //     .method(http::Method::GET)
-                    //     .body(application::Body::Empty::<application::Nothing>)
-                    //     .unwrap();
-                    let mut example_request = utility::empty_clone_request(&request);
-                    *example_request.uri_mut() = example_uri;
-                    let example_request =
-                        example_request.map(|()| application::Body::Empty::<application::Nothing>);
+                    let example_request = http::Request::builder()
+                        .uri(example_uri)
+                        .version(http::Version::HTTP_2)
+                        .method(http::Method::GET)
+                        .body(application::Body::Empty::<application::Nothing>)
+                        .unwrap();
+                    // let mut example_request = utility::empty_clone_request(&request);
+                    // *example_request.uri_mut() = example_uri;
+                    // let example_request =
+                    //     example_request.map(|()| application::Body::Empty::<application::Nothing>);
                     info!(
                         "Sent request {:?}",
                         utility::empty_clone_request(&example_request)
@@ -197,7 +197,6 @@ pub(crate) async fn handle_request<R: AsyncRead + AsyncWrite + Unpin>(
     _request: http::Request<application::Body<R>>,
     _address: net::SocketAddr,
 ) -> io::Result<http::Response<bytes::Bytes>> {
-    // <script src='/script.js'></script>
     let content = b"<h1>Hello!</h1>What can I do for you?";
 
     Ok(http::Response::builder()
