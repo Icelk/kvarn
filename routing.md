@@ -26,7 +26,7 @@ Here, the compressed headers of HTTP/2 and HTTP/3 are resolved.
 
 HTTP/1.1 will not get effected.
 
-Body still stream (at lease kinda, see `application.rs#Body` for more info) but headers are parsed
+Body still stream (at least kinda, see `application.rs#Body` for more info) but headers are parsed
 
 # Layer 4 / Caching and compression
 All outgoing data from this layer is cached based on the output of Layer 5.
