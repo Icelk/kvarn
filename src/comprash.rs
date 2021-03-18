@@ -183,13 +183,15 @@ impl CachedCompression {
                 buffer,
                 http::HeaderValue::from_static("gzip"),
             );
-            // maybe shooting myself in the foot...
-            // but should be OK, since we only set it once, otherwise it's None.
-            unsafe {
-                (&mut *{ &self.gzip as *const _ as *mut Option<http::Response<Bytes>> }
-                    as &mut Option<http::Response<Bytes>>)
-                    .replace(response)
-            };
+
+            if self.gzip.is_none() {
+                // maybe shooting myself in the foot...
+                // but should be OK, since we only set it once, otherwise it's None.
+                unsafe {
+                    (&mut *{ &self.gzip as *const _ as *mut Option<http::Response<Bytes>> })
+                        .replace(response)
+                };
+            }
         }
         self.gzip.as_ref().unwrap()
     }
@@ -216,13 +218,14 @@ impl CachedCompression {
                 http::HeaderValue::from_static("br"),
             );
 
-            // maybe shooting myself in the foot...
-            // but should be OK, since we only set it once, otherwise it's None.
-            unsafe {
-                (&mut *{ &self.br as *const _ as *mut Option<http::Response<Bytes>> }
-                    as &mut Option<http::Response<Bytes>>)
-                    .replace(response)
-            };
+            if self.br.is_none() {
+                // maybe shooting myself in the foot...
+                // but should be OK, since we only set it once, otherwise it's None.
+                unsafe {
+                    (&mut *{ &self.br as *const _ as *mut Option<http::Response<Bytes>> })
+                        .replace(response)
+                };
+            }
         }
         self.br.as_ref().unwrap()
     }
