@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use bytes::{BufMut, Bytes};
 use http::Response;
-use std::{borrow::Borrow, convert::TryInto, hash::Hash};
+use std::{borrow::Borrow, hash::Hash};
 // use tokio::sync::MutexGuard;
 
 pub type CachedResponse = Arc<Response<CachedCompression>>;

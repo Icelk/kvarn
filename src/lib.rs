@@ -22,7 +22,7 @@ use prelude::{internals::*, networking::*, threading::*, *};
 
 use rustls::ServerConfig;
 use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufWriter},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
 };
 // When user only imports crate::* and not crate::prelude::*
@@ -76,7 +76,7 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
 pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
     request: http::Request<application::Body<S>>,
     address: net::SocketAddr,
-    mut response_pipe: application::ResponsePipe<BufWriter<S>>,
+    mut response_pipe: application::ResponsePipe<S>,
     cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey<'_>>>>,
 ) -> io::Result<()> {
     fn process_extensions<F: core::future::Future, C: FnMut(http::Response<bytes::Bytes>) -> F>(

@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufWriter, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -35,7 +35,7 @@ impl From<h2::Error> for Error {
 }
 
 pub enum HttpConnection<S> {
-    Http1(Arc<Mutex<BufWriter<S>>>),
+    Http1(Arc<Mutex<S>>),
     Http2(h2::server::Connection<S, bytes::Bytes>),
 }
 
@@ -67,9 +67,9 @@ impl AsyncWrite for Nothing {
 
 /// ToDo: trailers
 #[derive(Debug)]
-pub enum Body<S: AsyncRead + AsyncWrite + Unpin> {
+pub enum Body<S: AsyncRead + Unpin> {
     Empty,
-    Http1(response::PreBufferedReader<BufWriter<S>>),
+    Http1(response::PreBufferedReader<S>),
     Http2(h2::RecvStream),
 }
 
@@ -86,7 +86,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
     pub async fn new(stream: S, version: http::Version) -> Result<Self, Error> {
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
-                Ok(Self::Http1(Arc::new(Mutex::new(BufWriter::new(stream)))))
+                Ok(Self::Http1(Arc::new(Mutex::new(stream))))
             }
             Version::HTTP_2 => match h2::server::handshake(stream).await {
                 Ok(connection) => Ok(HttpConnection::Http2(connection)),
@@ -97,9 +97,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
         }
     }
 
-    pub async fn accept(
-        &mut self,
-    ) -> Result<(http::Request<Body<S>>, ResponsePipe<BufWriter<S>>), Error> {
+    pub async fn accept(&mut self) -> Result<(http::Request<Body<S>>, ResponsePipe<S>), Error> {
         match self {
             Self::Http1(stream) => {
                 let response = ResponsePipe::Http1(Arc::clone(stream));
@@ -124,8 +122,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
 mod request {
     use super::*;
 
-    pub async fn parse_http_1<S: AsyncRead + AsyncWrite + Unpin>(
-        stream: Arc<Mutex<BufWriter<S>>>,
+    pub async fn parse_http_1<S: AsyncRead + Unpin>(
+        stream: Arc<Mutex<S>>,
     ) -> Result<http::Request<Body<S>>, Error> {
         let (head, start, vec) = parse_request(&stream).await?;
         Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, vec, start))))
