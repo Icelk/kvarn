@@ -22,6 +22,6 @@ The second, Tokio, is to provide a blazing fast asynchronous runtime, which will
 
 # Contributing
 
-This library, and all other sub-projects are distributed under the Apache License 2.0
+This library, and all other sub-projects, are distributed under the Apache License 2.0
 
 Images and logos are under my copyright unless otherwise explicitly stated.
