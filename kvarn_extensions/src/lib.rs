@@ -86,7 +86,7 @@ pub mod cgi {
         }
     }
     pub fn fcgi_from_data(
-        data: &extensions::RequestData,
+        data: &extensions_old::RequestData,
         port: u16,
     ) -> Result<Vec<u8>, Cow<'static, str>> {
         let file_name = match parse::format_file_name(data.path) {

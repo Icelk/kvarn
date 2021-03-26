@@ -34,7 +34,7 @@ pub use crate::cache_old;
 pub use crate::compression;
 pub use crate::connection;
 pub use crate::cryptography;
-pub use crate::extensions;
+pub use crate::extensions_old;
 #[cfg(feature = "limiting")]
 pub use crate::limiting;
 pub use crate::parse;
@@ -95,7 +95,7 @@ pub mod internals {
     use super::*;
     pub use cache_old::types::*;
     pub use cache_old::ByteResponse;
-    pub use extensions::{BoundExtension, Extension, ExtensionMap, Extensions};
+    pub use extensions_old::{BoundExtension, Extension, ExtensionMap, Extensions};
     #[cfg(feature = "limiting")]
     pub use limiting::LimitManager;
     pub use utility::default_error;

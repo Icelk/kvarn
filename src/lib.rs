@@ -10,6 +10,7 @@ pub mod connection;
 pub mod cryptography;
 pub mod encryption;
 pub mod extensions;
+pub mod extensions_old;
 #[cfg(feature = "limiting")]
 pub mod limiting;
 pub mod parse;
@@ -62,6 +63,8 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
         .await
         .unwrap();
 
+    todo!("make all application:: not generic, but tokio::net::TcpStream? or dyn AsyncWrite + AsyncRead + Unpin");
+
     while let Ok((request, response_pipe)) = http.accept().await {
         // fn to handle getting from cache, generating response and sending it
         handle_cache(request, address, response_pipe, cache.clone())
@@ -74,9 +77,9 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
 
 /// LAYER 4
 pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
-    request: http::Request<application::Body<S>>,
+    request: http::Request<application::Body<&mut S>>,
     address: net::SocketAddr,
-    mut response_pipe: application::ResponsePipe<S>,
+    mut response_pipe: application::ResponsePipe<&mut (dyn AsyncWrite + Unpin)>,
     cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey<'_>>>>,
 ) -> io::Result<()> {
     fn process_extensions<F: core::future::Future, C: FnMut(http::Response<bytes::Bytes>) -> F>(
@@ -85,6 +88,13 @@ pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
         _callback: C,
     ) {
     }
+    let extension: &'static (dyn Fn(&bytes::Bytes, &mut application::ResponsePipe<&mut (dyn AsyncWrite + Unpin)>)
+                  + Sync) = &|response, pipe| match pipe {
+        application::ResponsePipe::Http2(pipe) => {
+            println!("respo: {:?}, pipe {:?}", response, pipe)
+        }
+        _ => println!("unknown"),
+    };
     std::thread::sleep(std::time::Duration::from_millis(250));
     let path_query =
         comprash::UriKey::PathQueryBorrow((request.uri().path(), request.uri().query()));
@@ -143,6 +153,10 @@ pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
                     // info!("Sent push: {:?}", &pipe);
                     let request = request.map(|_| ());
                     process_extensions(&response_body, &request, move |_| async move {});
+                    extension(
+                        &response_body,
+                        &mut response_pipe, // as &mut application::ResponsePipe<&mut (dyn AsyncWrite + Unpin)>,
+                    );
                 }
                 _ => {}
             }
@@ -550,7 +564,7 @@ pub(crate) fn process_request<W: io::Write>(
         {
             // Search through extension map!
             let (extension_args, content_start) =
-                extensions::parse::extension_args(byte_response.get_body());
+                extensions_old::parse::extension_args(byte_response.get_body());
 
             // Get head and body reference.
             let (mut head, mut body) = match &byte_response {
@@ -568,7 +582,7 @@ pub(crate) fn process_request<W: io::Write>(
                 if let Some(extension_name) = segment.get(0).map(String::as_str) {
                     match extensions.get_name(extension_name) {
                         Some(extension) => unsafe {
-                            let mut data = extensions::RequestData::new(
+                            let mut data = extensions_old::RequestData::new(
                                 address,
                                 head,
                                 body,
@@ -613,7 +627,7 @@ pub(crate) fn process_request<W: io::Write>(
             if let Some(file_extension) = path.extension().and_then(OsStr::to_str) {
                 match extensions.get_file_extension(file_extension) {
                     Some(extension) => unsafe {
-                        let mut data = extensions::RequestData::new(
+                        let mut data = extensions_old::RequestData::new(
                             address,
                             head,
                             body,
