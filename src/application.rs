@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{encryption::Encryption, prelude::*};
 use http::{header::HeaderName, HeaderValue, Method, Request, Uri, Version};
 use std::{
     io,
@@ -7,6 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
+use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -34,56 +35,56 @@ impl From<h2::Error> for Error {
     }
 }
 
-pub enum HttpConnection<S> {
-    Http1(Arc<Mutex<S>>),
-    Http2(h2::server::Connection<S, bytes::Bytes>),
+pub enum HttpConnection {
+    Http1(Arc<Mutex<Encryption<TcpStream>>>),
+    Http2(h2::server::Connection<Encryption<TcpStream>, bytes::Bytes>),
 }
 
-pub struct Nothing {}
-impl AsyncRead for Nothing {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        _buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-}
-impl AsyncWrite for Nothing {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
-        Poll::Ready(Ok(buf.len()))
-    }
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Poll::Ready(Ok(()))
-    }
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Poll::Ready(Ok(()))
-    }
-}
+// pub struct Nothing {}
+// impl AsyncRead for Nothing {
+//     fn poll_read(
+//         self: Pin<&mut Self>,
+//         _cx: &mut Context<'_>,
+//         _buf: &mut ReadBuf<'_>,
+//     ) -> Poll<io::Result<()>> {
+//         Poll::Ready(Ok(()))
+//     }
+// }
+// impl AsyncWrite for Nothing {
+//     fn poll_write(
+//         self: Pin<&mut Self>,
+//         _cx: &mut Context<'_>,
+//         buf: &[u8],
+//     ) -> Poll<Result<usize, io::Error>> {
+//         Poll::Ready(Ok(buf.len()))
+//     }
+//     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+//         Poll::Ready(Ok(()))
+//     }
+//     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+//         Poll::Ready(Ok(()))
+//     }
+// }
 
 /// ToDo: trailers
 #[derive(Debug)]
-pub enum Body<S: AsyncRead + Unpin> {
+pub enum Body {
     Empty,
-    Http1(response::PreBufferedReader<S>),
+    Http1(response::PreBufferedReader<Encryption<TcpStream>>),
     Http2(h2::RecvStream),
 }
 
-pub enum ResponsePipe<S: AsyncWrite> {
-    Http1(Arc<Mutex<S>>),
+pub enum ResponsePipe {
+    Http1(Arc<Mutex<Encryption<TcpStream>>>),
     Http2(h2::server::SendResponse<bytes::Bytes>),
 }
-pub enum ResponseBodyPipe<S: AsyncWrite> {
-    Http1(Arc<Mutex<S>>),
+pub enum ResponseBodyPipe {
+    Http1(Arc<Mutex<Encryption<TcpStream>>>),
     Http2(h2::SendStream<bytes::Bytes>),
 }
 
-impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
-    pub async fn new(stream: S, version: http::Version) -> Result<Self, Error> {
+impl HttpConnection {
+    pub async fn new(stream: Encryption<TcpStream>, version: http::Version) -> Result<Self, Error> {
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
                 Ok(Self::Http1(Arc::new(Mutex::new(stream))))
@@ -97,7 +98,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
         }
     }
 
-    pub async fn accept(&mut self) -> Result<(http::Request<Body<S>>, ResponsePipe<S>), Error> {
+    pub async fn accept(&mut self) -> Result<(http::Request<Body>, ResponsePipe), Error> {
         match self {
             Self::Http1(stream) => {
                 let response = ResponsePipe::Http1(Arc::clone(stream));
@@ -122,9 +123,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> HttpConnection<S> {
 mod request {
     use super::*;
 
-    pub async fn parse_http_1<S: AsyncRead + Unpin>(
-        stream: Arc<Mutex<S>>,
-    ) -> Result<http::Request<Body<S>>, Error> {
+    pub async fn parse_http_1(
+        stream: Arc<Mutex<Encryption<TcpStream>>>,
+    ) -> Result<http::Request<Body>, Error> {
         let (head, start, vec) = parse_request(&stream).await?;
         Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, vec, start))))
     }
@@ -267,7 +268,7 @@ mod request {
         }
     }
 
-    impl<R: AsyncRead + AsyncWrite + Unpin> AsyncRead for Body<R> {
+    impl AsyncRead for Body {
         fn poll_read(
             self: Pin<&mut Self>,
             cx: &mut Context<'_>,
@@ -348,13 +349,13 @@ mod response {
         }
     }
 
-    impl<W: AsyncWrite + Unpin> ResponsePipe<W> {
+    impl ResponsePipe {
         /// It is critical to call [`AsyncWriteExt::flush()`] on [`ResponseBodyPipe`], else the message won't be seen as fully transmitted.
         pub async fn send_response(
             &mut self,
             mut response: http::Response<()>,
             end_of_stream: bool,
-        ) -> Result<ResponseBodyPipe<W>, Error> {
+        ) -> Result<ResponseBodyPipe, Error> {
             match self {
                 Self::Http1(s) => {
                     let mut writer = s.lock().await;
@@ -413,7 +414,7 @@ mod response {
         }
         writer.write_all(b"\r\n").await
     }
-    impl<W: AsyncWrite + Unpin> AsyncWrite for ResponseBodyPipe<W> {
+    impl AsyncWrite for ResponseBodyPipe {
         fn poll_write(
             self: Pin<&mut Self>,
             cx: &mut Context<'_>,

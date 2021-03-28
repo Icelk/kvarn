@@ -24,7 +24,7 @@ use prelude::{internals::*, networking::*, threading::*, *};
 use rustls::ServerConfig;
 use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
 };
 // When user only imports crate::* and not crate::prelude::*
 pub use utility::{read_file, write_error, write_generic_error};
@@ -40,8 +40,8 @@ pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Kvarn";
 pub const LINE_ENDING: &[u8] = b"\r\n";
 
-pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>(
-    stream: S,
+pub(crate) async fn handle_connection(
+    stream: TcpStream,
     address: net::SocketAddr,
     host: Arc<HostDescriptor>,
     cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey<'_>>>>,
@@ -59,11 +59,9 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
     };
     println!("ALPN: {:?}", encrypted.get_alpn_protocol());
     // LAYER 3
-    let mut http = application::HttpConnection::new(&mut encrypted, version)
+    let mut http = application::HttpConnection::new(encrypted, version)
         .await
         .unwrap();
-
-    todo!("make all application:: not generic, but tokio::net::TcpStream? or dyn AsyncWrite + AsyncRead + Unpin");
 
     while let Ok((request, response_pipe)) = http.accept().await {
         // fn to handle getting from cache, generating response and sending it
@@ -76,10 +74,10 @@ pub(crate) async fn handle_connection<S: AsyncRead + AsyncWrite + Unpin + Debug>
 }
 
 /// LAYER 4
-pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
-    request: http::Request<application::Body<&mut S>>,
+pub(crate) async fn handle_cache(
+    request: http::Request<application::Body>,
     address: net::SocketAddr,
-    mut response_pipe: application::ResponsePipe<&mut (dyn AsyncWrite + Unpin)>,
+    mut response_pipe: application::ResponsePipe,
     cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey<'_>>>>,
 ) -> io::Result<()> {
     fn process_extensions<F: core::future::Future, C: FnMut(http::Response<bytes::Bytes>) -> F>(
@@ -88,13 +86,13 @@ pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
         _callback: C,
     ) {
     }
-    let extension: &'static (dyn Fn(&bytes::Bytes, &mut application::ResponsePipe<&mut (dyn AsyncWrite + Unpin)>)
-                  + Sync) = &|response, pipe| match pipe {
-        application::ResponsePipe::Http2(pipe) => {
-            println!("respo: {:?}, pipe {:?}", response, pipe)
-        }
-        _ => println!("unknown"),
-    };
+    let extension: &'static (dyn Fn(&bytes::Bytes, &mut application::ResponsePipe) + Sync) =
+        &|response, pipe| match pipe {
+            application::ResponsePipe::Http2(pipe) => {
+                println!("respo: {:?}, pipe {:?}", response, pipe)
+            }
+            _ => println!("unknown"),
+        };
     std::thread::sleep(std::time::Duration::from_millis(250));
     let path_query =
         comprash::UriKey::PathQueryBorrow((request.uri().path(), request.uri().query()));
@@ -127,7 +125,7 @@ pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
                         .uri(example_uri)
                         .version(http::Version::HTTP_2)
                         .method(http::Method::GET)
-                        .body(application::Body::Empty::<application::Nothing>)
+                        .body(application::Body::Empty)
                         .unwrap();
                     // let mut example_request = utility::empty_clone_request(&request);
                     // *example_request.uri_mut() = example_uri;
@@ -192,8 +190,8 @@ pub(crate) async fn handle_cache<S: AsyncRead + AsyncWrite + Unpin>(
 }
 
 /// LAYER 5.1
-pub(crate) async fn handle_request<R: AsyncRead + AsyncWrite + Unpin>(
-    _request: http::Request<application::Body<R>>,
+pub(crate) async fn handle_request(
+    _request: http::Request<application::Body>,
     _address: net::SocketAddr,
 ) -> io::Result<(
     http::Response<bytes::Bytes>,
