@@ -1,12 +1,14 @@
 Kvarn is very extensible. Therefore, several pluggable interfaces (called *extensions*) exist to make integration fast and seamless.
 
 Here are the six **P**s
-chronologically ordered from the request's encounters. 
+chronologically ordered from the request's perspective. 
 
 # Prime
 This is where you can add cache redirects. If you for example want to load the login page on all privileged pages (when the user is not logged in),
 you can test the `Authentication` HTTP header
 and from there decide to intercept the request.
+
+It is also here where all http requests are upgraded to HTTPS.
 
 # Pre
 This is tied to Layer 5. See [routing](routing.md) for more information
@@ -22,7 +24,7 @@ Here, files can opt in to extensions to manipulate data, such as the template sy
 This type can modify most data in response and will be executed in series.
 
 # Package
-*I know the name is a stretch*
+> *I know the name is a stretch*
 Here, you can define headers to add to the final response.
 
 **ToDo**: Can cookies be handled here? No, they should be added when making the `::http::Response`
