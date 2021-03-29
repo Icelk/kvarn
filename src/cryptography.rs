@@ -1,7 +1,10 @@
+use crate::comprash::{Cache, CachedCompression, FileCache, ResponseCache, UriKey};
+use crate::extensions::Extensions;
 use crate::prelude::{fs::*, *};
 use rustls::{
     internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
 };
+use tokio::sync::Mutex;
 
 #[derive(Debug)]
 struct HostStorage {
@@ -44,7 +47,9 @@ pub(crate) const HOST_RESPONSE_MAX_ENTITIES: usize = 512;
 pub struct Host {
     pub certificate: Option<sign::CertifiedKey>,
     pub path: PathBuf,
-    storage: HostStorage,
+    pub extensions: Extensions,
+    pub file_cache: FileCache,
+    pub response_cache: Mutex<Cache<UriKey<'static>, CachedCompression>>,
 
     /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
     /// E.g. `/posts/` -> `/posts/index.html`
@@ -61,58 +66,53 @@ impl Host {
     pub fn new<P: AsRef<Path>>(
         cert_path: P,
         private_key_path: P,
-        path: P,
-        bindings: Option<FunctionBindings>,
+        path: PathBuf,
+        extensions: Extensions,
     ) -> Result<Self, (ServerConfigError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
             Ok(cert) => Ok(Self {
                 certificate: Some(cert),
-                path: path.as_ref().to_owned(),
-                storage: match bindings {
-                    Some(bindings) => HostStorage::new(bindings, HOST_RESPONSE_MAX_ENTITIES),
-                    None => HostStorage::new(FunctionBindings::new(), HOST_RESPONSE_MAX_ENTITIES),
-                },
+                path: path,
+                extensions,
                 folder_default: None,
                 extension_default: None,
+                file_cache: Mutex::new(Cache::new()),
+                response_cache: Mutex::new(Cache::new()),
             }),
             Err(err) => Err((
                 err,
                 Self {
                     certificate: None,
-                    path: path.as_ref().to_owned(),
-                    storage: match bindings {
-                        Some(bindings) => HostStorage::new(bindings, HOST_RESPONSE_MAX_ENTITIES),
-                        None => {
-                            HostStorage::new(FunctionBindings::new(), HOST_RESPONSE_MAX_ENTITIES)
-                        }
-                    },
+                    path: path,
+                    extensions,
                     folder_default: None,
                     extension_default: None,
+                    file_cache: Mutex::new(Cache::new()),
+                    response_cache: Mutex::new(Cache::new()),
                 },
             )),
         }
     }
-    pub fn no_certification<P: AsRef<Path>>(path: P, bindings: Option<FunctionBindings>) -> Self {
+    pub fn no_certification(path: PathBuf, extensions: Extensions) -> Self {
         Self {
             certificate: None,
-            path: path.as_ref().to_owned(),
-            storage: match bindings {
-                Some(bindings) => HostStorage::new(bindings, HOST_RESPONSE_MAX_ENTITIES),
-                None => HostStorage::new(FunctionBindings::new(), HOST_RESPONSE_MAX_ENTITIES),
-            },
+            path,
+            extensions,
             folder_default: None,
             extension_default: None,
+            file_cache: Mutex::new(Cache::new()),
+            response_cache: Mutex::new(Cache::new()),
         }
     }
 
     pub fn with_http_redirect<P: AsRef<Path>>(
         cert_path: P,
         private_key_path: P,
-        path: P,
-        bindings: Option<FunctionBindings>,
+        path: PathBuf,
+        extensions: Extensions,
     ) -> Self {
-        match Host::new(cert_path, private_key_path, path, bindings) {
+        match Host::new(cert_path, private_key_path, path, extensions) {
             Ok(mut host) => {
                 host.set_http_redirect_to_https();
                 host
@@ -125,27 +125,6 @@ impl Host {
                 host_without_cert
             }
         }
-    }
-
-    /// Gets the lock of response cache.
-    #[inline]
-    pub fn get_cache(&self) -> Option<sync::MutexGuard<'_, cache_old::types::ResponseCacheInner>> {
-        #[cfg(feature = "no-response-cache")]
-        return None;
-        #[cfg(not(feature = "no-response-cache"))]
-        match self.storage.cache.lock() {
-            Ok(lock) => Some(lock),
-            Err(..) => panic!("Lock is poisoned!"),
-        }
-    }
-    pub fn get_bindings(&self) -> &FunctionBindings {
-        &self.storage.bindings
-    }
-    pub fn get_binding_overrides(&self) -> Option<&FunctionBindings> {
-        self.storage.bindings_http_override.as_ref()
-    }
-    pub fn set_binding_overrides(&mut self, bindings: Option<FunctionBindings>) {
-        self.storage.bindings_http_override = bindings;
     }
 
     pub fn get_folder_default_or<'a>(&'a self, default: &'a str) -> &'a str {
@@ -168,32 +147,25 @@ impl Host {
     }
 
     pub fn set_http_redirect_to_https(&mut self) {
-        let mut bindings = FunctionBindings::new();
+        self.extensions.add_prime(&|uri| match uri.scheme_str() {
+            Some("http") => {
+                let uri = uri.clone().into_parts();
+                let authority = match uri.authority {
+                    Some(authority) => {
+                        let authority = format!("https{}", &authority.as_str()[4..]);
+                        // it must be a valid URI; unwrap is OK
 
-        bindings.bind_dir("/", |buffer, request, _| {
-            match request.headers().get("host").and_then(to_option_str) {
-                Some(host) => {
-                    buffer.extend_from_slice(
-                        b"HTTP/1.1 308 Permanent Redirect\r\nlocation: https://",
-                    );
-                    buffer.extend_from_slice(host.as_bytes());
-                    buffer.extend_from_slice(
-                        request
-                            .uri()
-                            .path_and_query()
-                            .map(|p| p.as_str().as_bytes())
-                            .unwrap_or(b"/"),
-                    );
-                    buffer.extend_from_slice(b"\r\ncontent-length: 0\r\n\r\n");
-                }
-                None => {
-                    buffer.extend_from_slice(HTTP_REDIRECT_NO_HOST);
-                }
-            };
-            (Html, StaticClient)
-        });
+                        Some(http::uri::Authority::from_maybe_shared(authority.as_bytes()).unwrap())
+                    }
+                    None => None,
+                };
+                uri.authority = authority;
 
-        self.storage.bindings_http_override = Some(bindings);
+                // again, must be valid
+                Some(http::Uri::from_parts(uri).unwrap())
+            }
+            None => None,
+        })
     }
 
     pub fn is_secure(&self) -> bool {
@@ -204,8 +176,8 @@ impl Debug for Host {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Host {{ certificate, path: {:?}, storage: {:?} }}",
-            self.path, self.storage,
+            "Host {{ certificate, path: {:?}, extensions, fs_cache, folder_default: {:?}, extension_default: {:?} }}",
+            self.path, self.folder_default, self.extension_default,
         )
     }
 }
@@ -223,29 +195,32 @@ impl HostDataBuilder {
 }
 #[derive(Debug)]
 pub struct HostData {
-    default: Host,
+    default: (String, Host),
     by_name: HashMap<String, Host>,
     has_secure: bool,
 }
 impl HostData {
-    pub fn builder(default: Host) -> HostDataBuilder {
+    pub fn builder(default_host_name: String, default_host: Host) -> HostDataBuilder {
         HostDataBuilder(Self {
-            has_secure: default.is_secure(),
-            default,
+            has_secure: default_host.is_secure(),
+            default: (default_host_name, default_host),
             by_name: HashMap::new(),
         })
     }
-    pub fn new(default: Host) -> Self {
+    pub fn new(default_host_name: String, default_host: Host) -> Self {
         Self {
-            has_secure: default.is_secure(),
-            default,
+            has_secure: default_host.is_secure(),
+            default: (default_host_name, default_host),
             by_name: HashMap::new(),
         }
     }
-    /// Creates a `Host` without certification, using the directories `/public` and `/templates`.
-    pub fn simple(bindings: Option<FunctionBindings>) -> Self {
+    /// Creates a `Host` without certification, using the directories `./public` and `./templates`.
+    pub fn simple(default_host_name: String, extensions: Extensions) -> Self {
         Self {
-            default: Host::no_certification(".", bindings),
+            default: (
+                default_host_name,
+                Host::no_certification(".".into(), extensions),
+            ),
             by_name: HashMap::new(),
             has_secure: false,
         }
@@ -257,7 +232,7 @@ impl HostData {
         self.by_name.insert(host_name, host_data);
     }
 
-    pub fn get_default(&self) -> &Host {
+    pub fn get_default(&self) -> &(String, Host) {
         &self.default
     }
     pub fn get_host(&self, host: &str) -> Option<&Host> {
@@ -278,54 +253,52 @@ impl HostData {
         config
     }
 
-    pub fn clear_all_caches(&self) -> usize {
-        let mut cleared = 0;
-
+    pub async fn clear_all_caches(&self) -> usize {
         // Handle default host
-        match self.default.get_cache() {
-            Some(mut lock) => {
-                lock.clear();
-                cleared += 1;
-            }
-            None => {}
-        }
+        self.default.1.file_cache.lock().await.clear();
         // All other
         for (_, host) in self.by_name.iter() {
-            match host.get_cache() {
-                Some(mut lock) => {
-                    lock.clear();
-                    cleared += 1;
-                }
-                None => {}
-            }
+            host.file_cache.lock().await.clear();
         }
-        cleared
+        1 + self.by_name.len()
     }
-    pub fn clear_page(&self, host: &str, uri: &http::Uri) -> (usize, bool) {
+    pub async fn clear_page(&self, host: &str, uri: &http::Uri) -> Option<usize> {
         let mut found = false;
         let mut cleared = 0;
         if host == "" || host == "default" {
             found = true;
-            match self.default.get_cache() {
-                Some(mut lock) => {
-                    cleared += if lock.remove(uri).is_some() { 1 } else { 0 };
+            if self
+                .default
+                .1
+                .response_cache
+                .lock()
+                .await
+                .remove(&UriKey::PathBorrow(uri.path()))
+                .is_some()
+            {
+                cleared += 1;
+            }
+        } else {
+            match self.by_name.get(host) {
+                Some(host) => {
+                    if host
+                        .response_cache
+                        .lock()
+                        .await
+                        .remove(&uri.into())
+                        .is_some()
+                    {
+                        cleared += 1;
+                    }
+                    found = true;
                 }
                 None => {}
             }
-        } else {
-            for (name, host_data) in self.by_name.iter() {
-                if host == name {
-                    found = true;
-                    match host_data.get_cache() {
-                        Some(mut lock) => {
-                            cleared += if lock.remove(uri).is_some() { 1 } else { 0 };
-                        }
-                        None => {}
-                    }
-                }
-            }
         }
-        (cleared, found)
+        match found {
+            false => None,
+            true => Some(cleared),
+        }
     }
 }
 impl ResolvesServerCert for HostData {
