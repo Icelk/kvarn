@@ -149,13 +149,14 @@ impl Host {
     pub fn set_http_redirect_to_https(&mut self) {
         self.extensions.add_prime(&|uri| match uri.scheme_str() {
             Some("http") => {
-                let uri = uri.clone().into_parts();
+                let mut uri = uri.clone().into_parts();
                 let authority = match uri.authority {
                     Some(authority) => {
                         let authority = format!("https{}", &authority.as_str()[4..]);
+                        let authority = Vec::from(authority);
                         // it must be a valid URI; unwrap is OK
 
-                        Some(http::uri::Authority::from_maybe_shared(authority.as_bytes()).unwrap())
+                        Some(http::uri::Authority::from_maybe_shared(authority).unwrap())
                     }
                     None => None,
                 };
@@ -164,7 +165,7 @@ impl Host {
                 // again, must be valid
                 Some(http::Uri::from_parts(uri).unwrap())
             }
-            None => None,
+            _ => None,
         })
     }
 
