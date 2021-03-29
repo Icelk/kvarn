@@ -1,36 +1,14 @@
 use crate::prelude::*;
 use bytes::{BufMut, Bytes};
 use http::Response;
-use std::{borrow::Borrow, hash::Hash};
-// use tokio::sync::MutexGuard;
+use std::{borrow::Borrow, hash::Hash, rc::Rc, sync::Arc};
+use tokio::sync::Mutex;
 
 pub type CachedResponse = Arc<Response<CachedCompression>>;
+pub type FileCache = Mutex<Cache<PathBuf, Vec<u8>>>;
+pub type ResponseCache = Mutex<Cache<UriKey<'static>, CachedCompression>>;
 
-// pub struct Guard<'a, T> {
-//     guard: MutexGuard<'a, Option<T>>,
-// }
-// impl<'a, T> Guard<'a, T> {
-//     /// Will panic in runtime if the input `guard`s option is not `Some`
-//     // If no compression features are used.
-//     #[allow(dead_code)]
-//     fn new(guard: MutexGuard<'a, Option<T>>) -> Self {
-//         Self { guard }
-//     }
-// }
-// impl<T> std::ops::Deref for Guard<'_, T> {
-//     type Target = T;
-//     fn deref(&self) -> &Self::Target {
-//         self.guard.as_ref().unwrap()
-//     }
-// }
-
-// impl<T> std::ops::DerefMut for Guard<'_, T> {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         self.guard.as_mut().unwrap()
-//     }
-// }
-
-#[derive(Debug, PartialOrd, Ord)]
+#[derive(Debug, PartialOrd, Ord, Clone)]
 pub enum UriKey<'a> {
     PathBorrow(&'a str),
     PathOwned(String),
@@ -85,7 +63,23 @@ impl Hash for UriKey<'_> {
         }
     }
 }
-
+impl<'a> From<&'a http::Uri> for UriKey<'a> {
+    fn from(uri: &'a http::Uri) -> Self {
+        match uri.query() {
+            Some(query) => Self::PathQueryBorrow((uri.path(), Some(query))),
+            None => Self::PathBorrow(uri.path()),
+        }
+    }
+}
+// impl From<http::Uri> for UriKey<'static> {
+//     fn from(uri: http::Uri) -> Self {
+//         match uri.query() {
+//             Some(query) => Self::PathQueryBorrow((uri.path(), Some(query))),
+//             None => Self::PathBorrow(uri.path()),
+//         }
+//     }
+// }
+// for when no compression is compiled in
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct CachedCompression {
@@ -230,30 +224,6 @@ impl CachedCompression {
         self.br.as_ref().unwrap()
     }
 }
-// impl Debug for CachedCompression {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         fn get_status(mutex: &Mutex<Option<http::Response<Bytes>>>) -> &'static str {
-//             match mutex.try_lock() {
-//                 Err(_) => "[Busy]",
-//                 Ok(o) => match o.as_ref() {
-//                     Some(_) => "Some",
-//                     None => "None",
-//                 },
-//             }
-//         }
-
-//         const RESPONSE: &str = "http::Response<Bytes>";
-//         write!(
-//             f,
-//             "CachedCompression {{ identity: {}, gzip: {}({}), br: {}({})",
-//             RESPONSE,
-//             get_status(&self.gzip),
-//             RESPONSE,
-//             get_status(&self.br),
-//             RESPONSE
-//         )
-//     }
-// }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum CompressPreference {
@@ -296,22 +266,35 @@ pub enum ClientCachePreference {
     Full,
 }
 
-#[derive(Debug)]
-pub struct Cache<K> {
-    map: HashMap<K, CachedCompression>,
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub enum CacheOut<V> {
+    None,
+    Present(V),
+    NotInserted(V),
 }
-impl<K> Cache<K> {
+
+#[derive(Debug)]
+pub struct Cache<K, V> {
+    map: HashMap<K, V>,
+    max_items: usize,
+    size_limit: usize,
+    inserts: usize,
+}
+impl<K, V> Cache<K, V> {
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
+            max_items: 1024,
+            size_limit: 4 * 1024 * 1024, // 4MiB
+            inserts: 0,
         }
     }
     pub fn clear(&mut self) {
         self.map.clear()
     }
 }
-impl<K: Eq + Hash> Cache<K> {
-    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> Option<&CachedCompression>
+impl<K: Eq + Hash, V> Cache<K, V> {
+    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
     {
@@ -323,22 +306,68 @@ impl<K: Eq + Hash> Cache<K> {
     {
         self.map.contains_key(key)
     }
-    pub fn remove<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> Option<CachedCompression>
+    pub fn remove<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<V>
     where
         K: Borrow<Q>,
     {
-        self.map.remove(key)
+        match self.map.remove(key) {
+            Some(item) => CacheOut::Present(item),
+            None => CacheOut::None,
+        }
     }
+}
+impl<K: Eq + Hash + Clone, V> Cache<K, V> {
+    pub fn discard_one(&mut self) {
+        let pseudo_random = {
+            use std::hash::Hasher;
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            hasher.write_usize(self.inserts);
+            hasher.finish()
+        };
+
+        // I don't care about normalized distribution
+        // also, it's safe to cast, modulo logic...
+        let position = (pseudo_random % self.map.len() as u64) as usize;
+        // unwrap ok; position is within bounds, did a modulo
+        let key = self.map.keys().nth(position).unwrap();
+        self.map.remove(key);
+    }
+}
+impl<K: Eq + Hash + Clone> Cache<K, CachedCompression> {
     pub fn cache(
         &mut self,
         key: K,
         identity: http::Response<Bytes>,
         compress: CompressPreference,
         client_cache: ClientCachePreference,
-    ) -> Option<CachedCompression> {
-        self.map.insert(
-            key,
-            CachedCompression::new(identity, compress, client_cache),
-        )
+    ) -> CacheOut<CachedCompression> {
+        let item = CachedCompression::new(identity, compress, client_cache);
+
+        if identity.body().len() >= self.size_limit {
+            return CacheOut::NotInserted(item);
+        }
+        self.inserts += 1;
+        if self.map.len() >= self.max_items {
+            self.discard_one();
+        }
+        match self.map.insert(key, item) {
+            Some(item) => CacheOut::Present(item),
+            None => CacheOut::None,
+        }
+    }
+}
+impl<K: Eq + Hash + Clone> Cache<K, Vec<u8>> {
+    pub fn cache(&mut self, key: K, contents: Vec<u8>) -> CacheOut<Vec<u8>> {
+        if contents.len() >= self.size_limit {
+            return CacheOut::NotInserted(contents);
+        }
+        self.inserts += 1;
+        if self.map.len() >= self.max_items {
+            self.discard_one();
+        }
+        match self.map.insert(key, contents) {
+            Some(item) => CacheOut::Present(item),
+            None => CacheOut::None,
+        }
     }
 }
