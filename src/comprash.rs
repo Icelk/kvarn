@@ -29,8 +29,8 @@ impl UriKey {
                             Self::Path(path) => (Self::PathQuery(path, query), None),
                             Self::PathQuery(_, _) => unreachable!(),
                         },
+                    }
                 }
-        }
             },
         }
     }
@@ -254,6 +254,14 @@ pub enum CacheOut<V> {
     None,
     Present(V),
     NotInserted(V),
+}
+impl<V> CacheOut<V> {
+    pub fn to_option(self) -> Option<V> {
+        match self {
+            Self::None => None,
+            Self::Present(v) | Self::NotInserted(v) => Some(v),
+        }
+    }
 }
 
 #[derive(Debug)]
