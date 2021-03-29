@@ -49,7 +49,7 @@ pub struct Host {
     pub path: PathBuf,
     pub extensions: Extensions,
     pub file_cache: FileCache,
-    pub response_cache: Mutex<Cache<UriKey<'static>, CachedCompression>>,
+    pub response_cache: Mutex<Cache<UriKey, CachedCompression>>,
 
     /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
     /// E.g. `/posts/` -> `/posts/index.html`
@@ -267,13 +267,10 @@ impl HostData {
         let mut cleared = 0;
         if host == "" || host == "default" {
             found = true;
-            if self
-                .default
+            let mut lock = self.default.1.response_cache.lock().await;
+            if UriKey::PathQuery(uri.path().to_string(), uri.query().map(str::to_string))
+                .call_all(|key| lock.remove(key).to_option())
                 .1
-                .response_cache
-                .lock()
-                .await
-                .remove(&UriKey::PathBorrow(uri.path()))
                 .is_some()
             {
                 cleared += 1;
@@ -281,11 +278,10 @@ impl HostData {
         } else {
             match self.by_name.get(host) {
                 Some(host) => {
-                    if host
-                        .response_cache
-                        .lock()
-                        .await
-                        .remove(&uri.into())
+                    let mut lock = host.response_cache.lock().await;
+                    if UriKey::PathQuery(uri.path().to_string(), uri.query().map(str::to_string))
+                        .call_all(|key| lock.remove(key).to_option())
+                        .1
                         .is_some()
                     {
                         cleared += 1;
@@ -308,12 +304,12 @@ impl ResolvesServerCert for HostData {
         if let Some(name) = client_hello.server_name() {
             self.by_name
                 .get(name.into())
-                .unwrap_or(&self.default)
+                .unwrap_or(&self.default.1)
                 .certificate
                 .clone()
         } else {
             // Else, get default certificate
-            self.default.certificate.clone()
+            self.default.1.certificate.clone()
         }
     }
 }
@@ -334,13 +330,13 @@ impl HostBinding {
         unsafe { self.host.map(|ptr| &*ptr) }
     }
     pub fn get_default(&self) -> &Host {
-        &self.host_data.default
+        &self.host_data.default.1
     }
     pub fn get_host_or_default(&self) -> &Host {
         unsafe {
             self.host
                 .map(|ptr| &*ptr)
-                .unwrap_or(&self.host_data.default)
+                .unwrap_or(&self.host_data.default.1)
         }
     }
     pub fn get_or_set_host(&mut self, host: &str) -> &Host {
@@ -351,7 +347,7 @@ impl HostBinding {
                     self.host = Some(host);
                     host
                 }
-                None => &self.host_data.default,
+                None => &self.host_data.default.1,
             },
         }
     }

@@ -6,79 +6,62 @@ use tokio::sync::Mutex;
 
 pub type CachedResponse = Arc<Response<CachedCompression>>;
 pub type FileCache = Mutex<Cache<PathBuf, Vec<u8>>>;
-pub type ResponseCache = Mutex<Cache<UriKey<'static>, CachedCompression>>;
+pub type ResponseCache = Mutex<Cache<UriKey, CachedCompression>>;
 
 #[derive(Debug, PartialOrd, Ord, Clone)]
-pub enum UriKey<'a> {
-    PathBorrow(&'a str),
-    PathOwned(String),
-    PathQueryBorrow((&'a str, Option<&'a str>)),
-    PathQueryOwned((String, Option<String>)),
+pub enum UriKey {
+    Path(String),
+    PathQuery(String, Option<String>),
 }
-impl PartialEq for UriKey<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        macro_rules! cmp_path {
-            ( $e:expr ) => {
-                match other {
-                    Self::PathBorrow(p2) => $e == p2,
-                    Self::PathOwned(p2) => $e == p2,
-                    _ => false,
+impl UriKey {
+    /// Tries to get type `T` from `callback` using current variant and other variants with fewer data.
+    /// Returns `Self` which got a result from `callback`, or if none, the original Self.
+    pub fn call_all<T>(self, mut callback: impl FnMut(&Self) -> Option<T>) -> (Self, Option<T>) {
+        match callback(&self) {
+            Some(t) => (self, Some(t)),
+            None => match self {
+                Self::Path(_) => (self, None),
+                Self::PathQuery(path, query) => {
+                    let new = Self::Path(path);
+                    match callback(&new) {
+                        Some(t) => (new, Some(t)),
+                        None => match new {
+                            Self::Path(path) => (Self::PathQuery(path, query), None),
+                            Self::PathQuery(_, _) => unreachable!(),
+                        },
                 }
-            };
         }
-        match self {
-            Self::PathBorrow(p1) => cmp_path!(p1),
-            Self::PathOwned(p1) => cmp_path!(p1),
-            Self::PathQueryBorrow((p1, p2)) => match other {
-                Self::PathQueryBorrow((p3, p4)) => p1 == p3 && p2 == p4,
-                Self::PathQueryOwned((p3, p4)) => {
-                    p1 == p3 && p2 == &p4.as_ref().map(|s| s.as_str())
-                }
-                _ => false,
-            },
-            Self::PathQueryOwned((p1, p2)) => match other {
-                Self::PathQueryBorrow((p3, p4)) => {
-                    p1 == p3 && &p2.as_ref().map(|s| s.as_str()) == p4
-                }
-                Self::PathQueryOwned((p3, p4)) => p1 == p3 && p2 == p4,
-                _ => false,
             },
         }
     }
 }
-impl Eq for UriKey<'_> {}
-impl Hash for UriKey<'_> {
+impl PartialEq for UriKey {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            UriKey::Path(p1) => match other {
+                UriKey::Path(p2) => p1 == p2,
+                UriKey::PathQuery(_, _) => false,
+            },
+            UriKey::PathQuery(p1, p2) => match other {
+                UriKey::Path(_) => false,
+                UriKey::PathQuery(p3, p4) => p1 == p3 && p2 == p4,
+            },
+        }
+    }
+}
+impl Eq for UriKey {}
+impl Hash for UriKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            Self::PathBorrow(p1) => p1.hash(state),
-            Self::PathOwned(p1) => p1.as_str().hash(state),
-            Self::PathQueryBorrow((p1, p2)) => {
-                p1.hash(state);
-                p2.map(|p| p.hash(state));
-            }
-            Self::PathQueryOwned((p1, p2)) => {
+            Self::Path(p1) => p1.as_str().hash(state),
+            Self::PathQuery(p1, p2) => {
                 p1.as_str().hash(state);
                 p2.as_ref().map(|p| p.as_str().hash(state));
             }
         }
     }
 }
-impl<'a> From<&'a http::Uri> for UriKey<'a> {
-    fn from(uri: &'a http::Uri) -> Self {
-        match uri.query() {
-            Some(query) => Self::PathQueryBorrow((uri.path(), Some(query))),
-            None => Self::PathBorrow(uri.path()),
-        }
-    }
-}
-// impl From<http::Uri> for UriKey<'static> {
-//     fn from(uri: http::Uri) -> Self {
-//         match uri.query() {
-//             Some(query) => Self::PathQueryBorrow((uri.path(), Some(query))),
-//             None => Self::PathBorrow(uri.path()),
-//         }
-//     }
-// }
+
 // for when no compression is compiled in
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -316,7 +299,7 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         }
     }
 }
-impl<K: Eq + Hash + Clone, V> Cache<K, V> {
+impl<K: Eq + Hash, V> Cache<K, V> {
     pub fn discard_one(&mut self) {
         let pseudo_random = {
             use std::hash::Hasher;
@@ -328,12 +311,16 @@ impl<K: Eq + Hash + Clone, V> Cache<K, V> {
         // I don't care about normalized distribution
         // also, it's safe to cast, modulo logic...
         let position = (pseudo_random % self.map.len() as u64) as usize;
-        // unwrap ok; position is within bounds, did a modulo
-        let key = self.map.keys().nth(position).unwrap();
-        self.map.remove(key);
+
+        let mut current_position = 0;
+        self.map.retain(|_, _| {
+            let result = current_position != position;
+            current_position += 1;
+            result
+        });
     }
 }
-impl<K: Eq + Hash + Clone> Cache<K, CachedCompression> {
+impl<K: Eq + Hash> Cache<K, CachedCompression> {
     pub fn cache(
         &mut self,
         key: K,
@@ -341,9 +328,10 @@ impl<K: Eq + Hash + Clone> Cache<K, CachedCompression> {
         compress: CompressPreference,
         client_cache: ClientCachePreference,
     ) -> CacheOut<CachedCompression> {
+        let len = identity.body().len();
         let item = CachedCompression::new(identity, compress, client_cache);
 
-        if identity.body().len() >= self.size_limit {
+        if len >= self.size_limit {
             return CacheOut::NotInserted(item);
         }
         self.inserts += 1;
@@ -356,7 +344,7 @@ impl<K: Eq + Hash + Clone> Cache<K, CachedCompression> {
         }
     }
 }
-impl<K: Eq + Hash + Clone> Cache<K, Vec<u8>> {
+impl<K: Eq + Hash> Cache<K, Vec<u8>> {
     pub fn cache(&mut self, key: K, contents: Vec<u8>) -> CacheOut<Vec<u8>> {
         if contents.len() >= self.size_limit {
             return CacheOut::NotInserted(contents);

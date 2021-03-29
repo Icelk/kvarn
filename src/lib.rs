@@ -44,9 +44,7 @@ pub(crate) async fn handle_connection(
     stream: TcpStream,
     address: net::SocketAddr,
     host: Arc<HostDescriptor>,
-    cache: Arc<
-        tokio::sync::Mutex<comprash::Cache<comprash::UriKey<'_>, comprash::CachedCompression>>,
-    >,
+    cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey, comprash::CachedCompression>>>,
 ) -> io::Result<()> {
     // LAYER 2
     let encrypted =
@@ -82,9 +80,7 @@ pub(crate) async fn handle_cache(
     request: http::Request<application::Body>,
     address: net::SocketAddr,
     mut response_pipe: application::ResponsePipe,
-    cache: Arc<
-        tokio::sync::Mutex<comprash::Cache<comprash::UriKey<'_>, comprash::CachedCompression>>,
-    >,
+    cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey, comprash::CachedCompression>>>,
 ) -> io::Result<()> {
     fn process_extensions<F: core::future::Future, C: FnMut(http::Response<bytes::Bytes>) -> F>(
         _response_body: &bytes::Bytes,
@@ -100,12 +96,13 @@ pub(crate) async fn handle_cache(
             _ => println!("unknown"),
         };
     std::thread::sleep(std::time::Duration::from_millis(250));
-    let path_query =
-        comprash::UriKey::PathQueryBorrow((request.uri().path(), request.uri().query()));
-    let path = comprash::UriKey::PathBorrow(request.uri().path());
+    let path_query = comprash::UriKey::PathQuery(
+        request.uri().path().to_string(),
+        request.uri().query().map(str::to_string),
+    );
 
     let lock = cache.lock().await;
-    let cached = lock.get(&path_query).or_else(|| lock.get(&path));
+    let (key, cached) = path_query.call_all(|path| lock.get(path));
     match cached {
         Some(resp) => {
             info!("Found in cache!");
@@ -183,8 +180,8 @@ pub(crate) async fn handle_cache(
             if server_cache.cache() {
                 let mut lock = cache.lock().await;
                 let key = match server_cache.query_matters() {
-                    true => comprash::UriKey::PathQueryOwned((path, query)),
-                    false => comprash::UriKey::PathOwned(path),
+                    true => comprash::UriKey::PathQuery(path, query),
+                    false => comprash::UriKey::Path(path),
                 };
                 info!("Caching uri {:?}!", &key);
                 lock.cache(key, resp, compress, client_cache);
