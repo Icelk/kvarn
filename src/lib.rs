@@ -96,10 +96,7 @@ pub(crate) async fn handle_cache(
             _ => println!("unknown"),
         };
     std::thread::sleep(std::time::Duration::from_millis(250));
-    let path_query = comprash::UriKey::PathQuery(
-        request.uri().path().to_string(),
-        request.uri().query().map(str::to_string),
-    );
+    let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = cache.lock().await;
     let (key, cached) = path_query.call_all(|path| lock.get(path));
@@ -163,10 +160,9 @@ pub(crate) async fn handle_cache(
             }
         }
         None => {
-            drop(cached);
+            // drop(cached);
             drop(lock);
-            let path = request.uri().path().to_string();
-            let query = request.uri().query().map(str::to_string);
+            let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
             let (resp, compress, client_cache, server_cache) =
                 handle_request(request, address).await?;
@@ -180,8 +176,8 @@ pub(crate) async fn handle_cache(
             if server_cache.cache() {
                 let mut lock = cache.lock().await;
                 let key = match server_cache.query_matters() {
-                    true => comprash::UriKey::PathQuery(path, query),
-                    false => comprash::UriKey::Path(path),
+                    true => comprash::UriKey::PathQuery(path_query),
+                    false => comprash::UriKey::Path(path_query.into_path()),
                 };
                 info!("Caching uri {:?}!", &key);
                 lock.cache(key, resp, compress, client_cache);

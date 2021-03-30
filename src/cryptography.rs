@@ -1,4 +1,4 @@
-use crate::comprash::{Cache, CachedCompression, FileCache, ResponseCache, UriKey};
+use crate::comprash::{Cache, CachedCompression, FileCache, PathQuery, ResponseCache, UriKey};
 use crate::extensions::Extensions;
 use crate::prelude::{fs::*, *};
 use rustls::{
@@ -263,38 +263,36 @@ impl HostData {
         }
         1 + self.by_name.len()
     }
-    pub async fn clear_page(&self, host: &str, uri: &http::Uri) -> Option<usize> {
+    /// Returns `Ok` if it cleared a page.
+    pub async fn clear_page(&self, host: &str, uri: &http::Uri) -> Result<(), ()> {
+        let mut key = UriKey::path_and_query(uri);
+
         let mut found = false;
-        let mut cleared = 0;
         if host == "" || host == "default" {
             found = true;
             let mut lock = self.default.1.response_cache.lock().await;
-            if UriKey::PathQuery(uri.path().to_string(), uri.query().map(str::to_string))
-                .call_all(|key| lock.remove(key).to_option())
-                .1
-                .is_some()
-            {
-                cleared += 1;
+            match key.call_all(|key| lock.remove(key).to_option()) {
+                (k, Some(_)) => {
+                    key = k;
+                }
+                (k, None) => {
+                    key = k;
+                }
             }
         } else {
             match self.by_name.get(host) {
                 Some(host) => {
                     let mut lock = host.response_cache.lock().await;
-                    if UriKey::PathQuery(uri.path().to_string(), uri.query().map(str::to_string))
-                        .call_all(|key| lock.remove(key).to_option())
-                        .1
-                        .is_some()
-                    {
-                        cleared += 1;
+                    if key.call_all(|key| lock.remove(key).to_option()).1.is_some() {
+                        found = true;
                     }
-                    found = true;
                 }
                 None => {}
             }
         }
         match found {
-            false => None,
-            true => Some(cleared),
+            false => Err(()),
+            true => Ok(()),
         }
     }
 }

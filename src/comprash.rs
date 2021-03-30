@@ -8,56 +8,79 @@ pub type CachedResponse = Arc<Response<CachedCompression>>;
 pub type FileCache = Mutex<Cache<PathBuf, Vec<u8>>>;
 pub type ResponseCache = Mutex<Cache<UriKey, CachedCompression>>;
 
-#[derive(Debug, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct PathQuery {
+    string: String,
+    query_start: usize,
+}
+impl PathQuery {
+    pub fn from_uri(uri: &http::Uri) -> Self {
+        match uri.query() {
+            Some(query) => {
+                let mut string = String::with_capacity(uri.path().len() + query.len());
+                string.push_str(uri.path());
+                string.push_str(query);
+                Self {
+                    string,
+                    query_start: uri.path().len(),
+                }
+            }
+            None => Self {
+                string: uri.path().to_string(),
+                query_start: uri.path().len(),
+            },
+        }
+    }
+    pub fn path(&self) -> &str {
+        &self.string[..self.query_start]
+    }
+    pub fn query(&self) -> Option<&str> {
+        if self.query_start == self.string.len() {
+            None
+        } else {
+            Some(&self.string[self.query_start..])
+        }
+    }
+    pub fn into_path(mut self) -> String {
+        self.string.truncate(self.query_start);
+        self.string
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum UriKey {
     Path(String),
-    PathQuery(String, Option<String>),
+    PathQuery(PathQuery),
 }
 impl UriKey {
+    /// Clones path [and query] values from `uri`.
+    /// If `uri` contains a query, the variant `PathQuery` is returned. Else, `Path` is returned.
+    // pub fn from_uri(uri: &http::Uri) -> Self {
+    //     let path_query = PathQuery::from_uri(uri);
+    //     if path_query.query().is_none() {
+    //         Self::Path(path_query.into_path())
+    //     } else {
+    //         Self::PathQuery(path_query)
+    //     }
+    // }
+
+    pub fn path_and_query(uri: &http::Uri) -> Self {
+        Self::PathQuery(PathQuery::from_uri(uri))
+    }
+
     /// Tries to get type `T` from `callback` using current variant and other variants with fewer data.
-    /// Returns `Self` which got a result from `callback`, or if none, the original Self.
+    /// Returns `Self` which got a result from `callback`, or if none, `Self::Path`.
     pub fn call_all<T>(self, mut callback: impl FnMut(&Self) -> Option<T>) -> (Self, Option<T>) {
         match callback(&self) {
             Some(t) => (self, Some(t)),
             None => match self {
                 Self::Path(_) => (self, None),
-                Self::PathQuery(path, query) => {
-                    let new = Self::Path(path);
-                    match callback(&new) {
-                        Some(t) => (new, Some(t)),
-                        None => match new {
-                            Self::Path(path) => (Self::PathQuery(path, query), None),
-                            Self::PathQuery(_, _) => unreachable!(),
-                        },
-                    }
+                Self::PathQuery(path_query) => {
+                    let new = Self::Path(path_query.into_path());
+                    let t = callback(&new);
+                    (new, t)
                 }
             },
-        }
-    }
-}
-impl PartialEq for UriKey {
-    fn eq(&self, other: &Self) -> bool {
-        match self {
-            UriKey::Path(p1) => match other {
-                UriKey::Path(p2) => p1 == p2,
-                UriKey::PathQuery(_, _) => false,
-            },
-            UriKey::PathQuery(p1, p2) => match other {
-                UriKey::Path(_) => false,
-                UriKey::PathQuery(p3, p4) => p1 == p3 && p2 == p4,
-            },
-        }
-    }
-}
-impl Eq for UriKey {}
-impl Hash for UriKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Path(p1) => p1.as_str().hash(state),
-            Self::PathQuery(p1, p2) => {
-                p1.as_str().hash(state);
-                p2.as_ref().map(|p| p.as_str().hash(state));
-            }
         }
     }
 }
