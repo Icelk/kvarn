@@ -337,7 +337,7 @@ impl Config {
         loop {
             match listener.accept().await {
                 Ok((socket, addr)) => {
-                    #[cfg(features = "limiting")]
+                    #[cfg(feature = "limiting")]
                     match limiter.register(addr) {
                         LimitStrength::Send | LimitStrength::Drop => {
                             drop(socket);

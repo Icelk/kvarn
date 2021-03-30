@@ -65,7 +65,7 @@ pub mod networking {
     use super::*;
 
     pub use connection::ConnectionHeader;
-    #[cfg(features = "limiting")]
+    #[cfg(feature = "limiting")]
     pub use limiting::LimitStrength;
     pub use std::io::{Read, Write};
     pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
@@ -87,7 +87,7 @@ pub mod crypto {
 /// **This is not intended to be user-facing and may change rapidly**
 pub mod internals {
     use super::*;
-    #[cfg(features = "limiting")]
+    #[cfg(feature = "limiting")]
     pub use limiting::LimitManager;
     pub use utility::default_error;
 }
