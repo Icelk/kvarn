@@ -295,13 +295,19 @@ pub struct Cache<K, V> {
     inserts: usize,
 }
 impl<K, V> Cache<K, V> {
-    pub fn new() -> Self {
+    fn _new(max_items: usize, size_limit: usize) -> Self {
         Self {
             map: HashMap::new(),
-            max_items: 1024,
-            size_limit: 4 * 1024 * 1024, // 4MiB
+            max_items,
+            size_limit,
             inserts: 0,
         }
+    }
+    pub fn new() -> Self {
+        Self::_new(1024, 4 * 1024 * 1024) // 4MiB
+    }
+    pub fn with_size_limit(size_limit: usize) -> Self {
+        Self::_new(1024, size_limit)
     }
     pub fn clear(&mut self) {
         self.map.clear()

@@ -99,7 +99,7 @@ pub(crate) async fn handle_cache(
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = cache.lock().await;
-    let (key, cached) = path_query.call_all(|path| lock.get(path));
+    let cached = path_query.call_all(|path| lock.get(path)).1;
     match cached {
         Some(resp) => {
             info!("Found in cache!");

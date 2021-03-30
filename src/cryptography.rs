@@ -73,18 +73,18 @@ impl Host {
         match cert {
             Ok(cert) => Ok(Self {
                 certificate: Some(cert),
-                path: path,
+                path,
                 extensions,
                 folder_default: None,
                 extension_default: None,
-                file_cache: Mutex::new(Cache::new()),
+                file_cache: Mutex::new(Cache::with_size_limit(16 * 1024)), // 16KiB
                 response_cache: Mutex::new(Cache::new()),
             }),
             Err(err) => Err((
                 err,
                 Self {
                     certificate: None,
-                    path: path,
+                    path,
                     extensions,
                     folder_default: None,
                     extension_default: None,
@@ -101,7 +101,7 @@ impl Host {
             extensions,
             folder_default: None,
             extension_default: None,
-            file_cache: Mutex::new(Cache::new()),
+            file_cache: Mutex::new(Cache::with_size_limit(16 * 1024)), // 16KiB
             response_cache: Mutex::new(Cache::new()),
         }
     }
