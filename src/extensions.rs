@@ -27,9 +27,11 @@ pub struct PresentData<'a> {
     pub address: net::SocketAddr,
     pub request: &'a http::Request<Body>,
     pub host: &'a Host,
+    pub path: &'a Path,
     // Regarding response
     pub server_cache_preference: ServerCachePreference,
     pub client_cache_preference: ClientCachePreference,
+    pub response: &'a mut http::Response<BytesMut>,
     // Regarding extension
     pub args: Vec<String>,
 }
