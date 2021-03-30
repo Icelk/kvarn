@@ -53,17 +53,6 @@ pub enum UriKey {
     PathQuery(PathQuery),
 }
 impl UriKey {
-    /// Clones path [and query] values from `uri`.
-    /// If `uri` contains a query, the variant `PathQuery` is returned. Else, `Path` is returned.
-    // pub fn from_uri(uri: &http::Uri) -> Self {
-    //     let path_query = PathQuery::from_uri(uri);
-    //     if path_query.query().is_none() {
-    //         Self::Path(path_query.into_path())
-    //     } else {
-    //         Self::PathQuery(path_query)
-    //     }
-    // }
-
     pub fn path_and_query(uri: &http::Uri) -> Self {
         Self::PathQuery(PathQuery::from_uri(uri))
     }
@@ -231,14 +220,14 @@ impl CachedCompression {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum CompressPreference {
     /// Will not auto-compress response body
     None,
     /// Will automatically compress and send compressed versions of the response
     Full,
 }
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum ServerCachePreference {
     /// Will not cache response
     None,
@@ -262,7 +251,7 @@ impl ServerCachePreference {
     }
 }
 /// Automatically add `cache-control` header to response
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum ClientCachePreference {
     /// Will not cache on client
     None,
@@ -270,6 +259,47 @@ pub enum ClientCachePreference {
     Changing,
     /// Will cache for 1 year
     Full,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct CombinedCachePreference(pub ServerCachePreference, pub ClientCachePreference);
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum ParseCachedErr {
+    StringEmpty,
+    UndefinedKeyword,
+    ContainsSpace,
+    FailedToParse,
+}
+impl str::FromStr for CombinedCachePreference {
+    type Err = ParseCachedErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.contains(' ') {
+            Err(Self::Err::ContainsSpace)
+        } else {
+            match s.to_ascii_lowercase().as_str() {
+                "false" | "no-cache" | "dynamic" => Ok(Self(
+                    ServerCachePreference::None,
+                    ClientCachePreference::None,
+                )),
+                "changing" | "may-change" => Ok(Self(
+                    ServerCachePreference::None,
+                    ClientCachePreference::Changing,
+                )),
+                "per-query" | "query" => Ok(Self(
+                    ServerCachePreference::QueryMatters,
+                    ClientCachePreference::Full,
+                )),
+                "true" | "static" | "immutable" => Ok(Self(
+                    ServerCachePreference::Full,
+                    ClientCachePreference::Full,
+                )),
+                "" => Err(Self::Err::StringEmpty),
+                _ => Err(Self::Err::UndefinedKeyword),
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
