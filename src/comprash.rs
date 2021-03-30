@@ -5,7 +5,7 @@ use std::{borrow::Borrow, hash::Hash, rc::Rc, sync::Arc};
 use tokio::sync::Mutex;
 
 pub type CachedResponse = Arc<Response<CachedCompression>>;
-pub type FileCache = Mutex<Cache<PathBuf, Vec<u8>>>;
+pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
 pub type ResponseCache = Mutex<Cache<UriKey, CachedCompression>>;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -381,8 +381,9 @@ impl<K: Eq + Hash> Cache<K, CachedCompression> {
         }
     }
 }
-impl<K: Eq + Hash> Cache<K, Vec<u8>> {
-    pub fn cache(&mut self, key: K, contents: Vec<u8>) -> CacheOut<Vec<u8>> {
+impl<K: Eq + Hash> Cache<K, Arc<Vec<u8>>> {
+    pub fn cache(&mut self, key: K, contents: Vec<u8>) -> CacheOut<Arc<Vec<u8>>> {
+        let contents = Arc::new(contents);
         if contents.len() >= self.size_limit {
             return CacheOut::NotInserted(contents);
         }

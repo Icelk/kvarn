@@ -1,5 +1,6 @@
 use crate::prelude::{networking::*, threading::*, *};
 
+#[cfg(features = "limiting")]
 pub const TOO_MANY_REQUESTS: &'static [u8] = b"\
 HTTP/1.1 429 Too Many Requests\r\n\
 Content-Type: text/html\r\n\
@@ -29,6 +30,7 @@ pub enum LimitStrength {
     Drop,
 }
 
+#[cfg(features = "limiting")]
 #[derive(Debug, Clone)]
 pub struct LimitManager {
     connection_map_and_time: Arc<Mutex<(HashMap<IpAddr, usize>, time::Instant)>>,
@@ -38,6 +40,7 @@ pub struct LimitManager {
 
     iteration: Arc<atomic::AtomicUsize>,
 }
+#[cfg(features = "limiting")]
 impl LimitManager {
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
         Self {
@@ -86,8 +89,45 @@ impl LimitManager {
         }
     }
 }
+#[cfg(features = "limiting")]
 impl Default for LimitManager {
     fn default() -> Self {
         Self::new(10, 10, 10)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LimitWrapper {
+    #[cfg(features = "limiting")]
+    pub limiter: LimitManager,
+}
+impl LimitWrapper {
+    #[cfg(features = "limiting")]
+    pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
+        Self {
+            limiter: LimitManager::new(max_requests, check_every, reset_seconds),
+        }
+    }
+    #[cfg(not(features = "limiting"))]
+    pub fn new() -> Self {
+        Self {}
+    }
+    pub fn register(&mut self, addr: SocketAddr) -> LimitStrength {
+        #[cfg(features = "limiting")]
+        {
+            self.limiter.register(addr)
+        }
+        #[cfg(not(features = "limiting"))]
+        {
+            LimitStrength::Passed
+        }
+    }
+}
+impl Default for LimitWrapper {
+    fn default() -> Self {
+        Self {
+            #[cfg(features = "limiting")]
+            limiter: LimitManager::default(),
+        }
     }
 }

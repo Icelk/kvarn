@@ -6,22 +6,6 @@ use rustls::{
 };
 use tokio::sync::Mutex;
 
-#[derive(Debug)]
-struct HostStorage {
-    pub cache: sync::Mutex<cache_old::types::ResponseCacheInner>,
-    pub bindings: FunctionBindings,
-    pub bindings_http_override: Option<FunctionBindings>,
-}
-impl HostStorage {
-    pub fn new(bindings: FunctionBindings, max_cache_entities: usize) -> Self {
-        Self {
-            cache: sync::Mutex::new(cache_old::Cache::with_max(max_cache_entities)),
-            bindings,
-            bindings_http_override: None,
-        }
-    }
-}
-
 pub const HTTP_REDIRECT_NO_HOST: &[u8] = b"\
 HTTP/1.1 505 HTTP Version Not Supported\r\n\
 Content-Type: text/html\r\n\
@@ -370,8 +354,8 @@ pub fn get_certified_key<P: AsRef<Path>>(
     cert_path: P,
     private_key_path: P,
 ) -> Result<sign::CertifiedKey, ServerConfigError> {
-    let mut chain = io::BufReader::new(File::open(&cert_path)?);
-    let mut private_key = io::BufReader::new(File::open(&private_key_path)?);
+    let mut chain = io::BufReader::new(std::fs::File::open(&cert_path)?);
+    let mut private_key = io::BufReader::new(std::fs::File::open(&private_key_path)?);
 
     let mut private_keys = Vec::with_capacity(4);
     private_keys.extend(match pemfile::pkcs8_private_keys(&mut private_key) {

@@ -1,4 +1,7 @@
-use crate::prelude::{fs::*, internals::*, *};
+use crate::{
+    comprash::FileCache,
+    prelude::{fs::*, internals::*, *},
+};
 
 pub const BUFFER_SIZE: usize = 1024 * 8;
 
@@ -31,9 +34,9 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
-/// Should be used when a file is typically access several times or from several requests.
+/// Should only be used when a file is typically access several times or from several requests.
 #[cfg(not(feature = "no-fs-cache"))]
-pub fn read_file_cached(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u8>>> {
+pub fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Arc<Vec<u8>>> {
     match cache.try_lock() {
         Ok(lock) => {
             if let Some(cached) = lock.get(path) {
@@ -74,20 +77,28 @@ pub fn read_file_cached(path: &PathBuf, cache: &mut FsCache) -> Option<Arc<Vec<u
     }
 }
 #[cfg(feature = "no-fs-cache")]
-/// Should be used when a file is typically access several times or from several requests.
-pub fn read_file_cached(path: &PathBuf, _: &mut FsCache) -> Option<Arc<Vec<u8>>> {
-    match File::open(path) {
-        Ok(mut file) => {
-            let mut buffer = Vec::with_capacity(4096);
-            match file.read_to_end(&mut buffer) {
-                Ok(..) => {
-                    return Some(Arc::new(buffer));
+/// Should only be used when a file is typically access several times or from several requests.
+///
+/// ToDo: optimize!
+pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
+    let mut file = File::open(path).await.ok()?;
+    let mut buffer = BytesMut::with_capacity(4096);
+    unsafe { buffer.set_len(buffer.capacity()) };
+    let mut read = 0;
+    loop {
+        match file.read(&mut buffer[..]).await {
+            Ok(0) => break,
+            Ok(len) => {
+                read += len;
+                if read > buffer.len() - 512 {
+                    buffer.reserve(2048);
                 }
-                Err(..) => None,
             }
+            Err(_) => return None,
         }
-        Err(..) => None,
     }
+    unsafe { buffer.set_len(read) };
+    Some(buffer.freeze())
 }
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -121,25 +132,15 @@ impl<T, B: std::ops::Deref<Target = T>> std::ops::Deref for SRO<T, B> {
 ///
 /// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(not(feature = "no-fs-cache"))]
-pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
-    match cache.try_lock() {
-        Ok(lock) => {
-            if let Some(cached) = lock.get(path) {
-                return Some(SRO::Shared(cached));
-            }
-        }
-        Err(ref err) => match err {
-            sync::TryLockError::Poisoned(..) => {
-                panic!("File System cache is poisoned!");
-            }
-            sync::TryLockError::WouldBlock => {}
-        },
+pub async fn read_file(path: &PathBuf, cache: &FileCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
+    if let Some(cached) = cache.lock().await.get(path) {
+        return Some(SRO::Shared(Arc::clone(cached)));
     }
 
-    match File::open(path) {
+    match File::open(path).await {
         Ok(mut file) => {
             let mut buffer = Vec::with_capacity(4096);
-            match file.read_to_end(&mut buffer) {
+            match file.read_to_end(&mut buffer).await {
                 Ok(..) => Some(SRO::Owned(buffer)),
                 Err(..) => None,
             }
@@ -151,11 +152,11 @@ pub fn read_file(path: &PathBuf, cache: &mut FsCache) -> Option<SRO<Vec<u8>, Arc
 ///
 /// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(feature = "no-fs-cache")]
-pub fn read_file(path: &PathBuf, _: &mut FsCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
-    match File::open(path) {
+pub async fn read_file(path: &PathBuf, _: &mut FileCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
+    match File::open(path).await {
         Ok(mut file) => {
             let mut buffer = Vec::with_capacity(4096);
-            match file.read_to_end(&mut buffer) {
+            match file.read_to_end(&mut buffer).await {
                 Ok(..) => {
                     return Some(SRO::Owned(buffer));
                 }
@@ -166,208 +167,58 @@ pub fn read_file(path: &PathBuf, _: &mut FsCache) -> Option<SRO<Vec<u8>, Arc<Vec
     }
 }
 
-#[inline]
-pub fn read_to_end(
-    bytes: &mut [u8],
-    reader: &mut dyn io::Read,
-    emit_close: bool,
-) -> Result<usize, io::Error> {
-    let mut read = 0;
-    loop {
-        match reader.read(&mut bytes[read..]) {
-            Err(ref err) if err.kind() == io::ErrorKind::Interrupted => {
-                std::thread::yield_now();
-                continue;
+pub fn hardcoded_error_body(code: http::StatusCode) -> Bytes {
+    let mut body = BytesMut::with_capacity(1024);
+    match code {
+        _ => {
+            // Get code and reason!
+            let reason = code.canonical_reason();
+
+            body.extend(b"<html><head><title>");
+            // Code and reason
+            body.extend(code.as_str().as_bytes());
+            body.extend(b" ");
+            if let Some(reason) = reason {
+                body.extend(reason.as_bytes());
             }
-            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
-            Err(err) => {
-                return Err(err);
+
+            body.extend(&b"</title></head><body><center><h1>"[..]);
+            // Code and reason
+            body.extend(code.as_str().as_bytes());
+            body.extend(b" ");
+            if let Some(reason) = reason {
+                body.extend(reason.as_bytes());
             }
-            Ok(0) => match emit_close {
-                true => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::ConnectionReset,
-                        "unexpectedly read zero bytes from source",
-                    ))
-                }
-                false => break,
-            },
-            Ok(rd) => read += rd,
+            body.extend(&b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>"[..]);
         }
     }
-    Ok(read)
+
+    body.freeze()
 }
 
-pub fn default_error(
+pub async fn default_error(
     code: http::StatusCode,
     close: &connection::ConnectionHeader,
-    cache: Option<&mut FsCache>,
-) -> ByteResponse {
-    let mut buffer = Vec::with_capacity(512);
-    buffer.extend(b"HTTP/1.1 ");
-    buffer.extend(format!("{}\r\n", code).as_bytes());
-    buffer.extend(
-        &b"Content-Type: text/html\r\n\
-        Connection: "[..],
-    );
-    if close.close() {
-        buffer.extend(b"Close\r\n");
-    } else {
-        buffer.extend(b"Keep-Alive\r\n");
-    }
-    buffer.extend(b"Content-Encoding: identity\r\n");
-
+    cache: Option<&FileCache>,
+) -> http::Response<Bytes> {
     // Error files will be used several times.
-    let body = match cache.and_then(|cache| {
-        read_file_cached(&PathBuf::from(format!("{}.html", code.as_str())), cache)
-    }) {
-        Some(file) => {
-            buffer.extend(b"Content-Length: ");
-            buffer.extend(format!("{}\r\n\r\n", file.len()).as_bytes());
-            // buffer.extend(file.get_body());
-            (*file).clone()
-        }
-        None => {
-            let mut body = Vec::with_capacity(1024);
-            match code {
-                _ => {
-                    // Get code and reason!
-                    let reason = code.canonical_reason();
-
-                    body.extend(b"<html><head><title>");
-                    // Code and reason
-                    body.extend(code.as_str().as_bytes());
-                    body.extend(b" ");
-                    if let Some(reason) = reason {
-                        body.extend(reason.as_bytes());
-                    }
-
-                    body.extend(&b"</title></head><body><center><h1>"[..]);
-                    // Code and reason
-                    body.extend(code.as_str().as_bytes());
-                    body.extend(b" ");
-                    if let Some(reason) = reason {
-                        body.extend(reason.as_bytes());
-                    }
-                    body.extend(&b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>"[..]);
-                }
+    let body = match cache {
+        Some(cache) => {
+            match read_file_cached(&PathBuf::from(format!("{}.html", code.as_str())), cache).await {
+                Some(file) => file,
+                None => hardcoded_error_body(code),
             }
-
-            buffer.extend(b"Content-Length: ");
-            buffer.extend(format!("{}\r\n\r\n", body.len()).as_bytes());
-            // buffer.append(&mut body);
-            body
         }
+        None => hardcoded_error_body(code),
     };
-
-    ByteResponse::Both(buffer, body, false)
+    http::Response::builder()
+        .status(code)
+        .header("content-type", "text/html; charset=utf-8")
+        .header("connection", close.as_bytes())
+        .header("content-encoding", "identity")
+        .body(body)
+        .unwrap()
 }
-
-/// Writes a generic error to `buffer`.
-/// For the version using the file system to deliver error messages, use `write_error`.
-///
-/// Returns (`text/html`, `Cached::Static`) to feed to binding closure.
-/// If you don't want it to cache, construct a custom return value.
-///
-/// # Examples
-/// ```
-/// use kvarn::{FunctionBindings, write_generic_error};
-///
-/// let mut bindings = FunctionBindings::new();
-///
-/// bindings.bind_page("/throw_500", |mut buffer, _, _| {
-///   write_generic_error(&mut buffer, 500)
-/// });
-/// ```
-pub fn write_generic_error(buffer: &mut Vec<u8>, code: http::StatusCode) -> (ContentType, Cached) {
-    default_error(code, &connection::ConnectionHeader::KeepAlive, None)
-        .write_all(buffer)
-        .expect("Failed to write to vec!");
-    (ContentType::Html, Cached::Dynamic)
-}
-/// Writes a error to `buffer`.
-/// For the version not using the file system, but generic hard-coded errors, use `write_generic_error`.
-///
-/// Returns (`text/html`, `Cached::Static`) to feed to binding closure.
-/// If you don't want it to cache, construct a custom return value.
-///
-/// # Examples
-/// ```
-/// use kvarn::{FunctionBindings, write_error};
-///
-/// let mut bindings = FunctionBindings::new();
-///
-/// bindings.bind_page("/throw_500", |mut buffer, _, storage| {
-///   write_error(&mut buffer, 500, storage)
-/// });
-/// ```
-pub fn write_error(
-    buffer: &mut Vec<u8>,
-    code: http::StatusCode,
-    cache: &mut FsCache,
-) -> (ContentType, Cached) {
-    default_error(code, &connection::ConnectionHeader::KeepAlive, Some(cache))
-        .write_all(buffer)
-        .expect("Failed to write to vec!");
-    (ContentType::Html, Cached::Dynamic)
-}
-
-/// ---------- All these functions cause heap corruption, and are excluded. They should theoretically be working ----------
-
-// /// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
-// ///
-// /// # Panics
-// /// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
-// pub fn into_last<T>(mut vec: Vec<T>, split_at: usize) -> Vec<T> {
-//     let p = vec.as_mut_ptr();
-//     let len = vec.len();
-//     let cap = vec.capacity();
-
-//     assert!(split_at < len);
-
-//     unsafe {
-//         use std::ptr;
-//         // Drop slice
-//         ptr::drop_in_place(ptr::slice_from_raw_parts_mut(p, split_at));
-//         Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at)
-//     }
-// }
-// /// Strips the `vec` from first `split_at` elements, dropping them and returning a `Vec` of the items after `split_at`.
-// ///
-// /// # Panics
-// /// Panics if `split_at` is greater than `len()`, since then it would drop uninitialized memory.
-// pub fn into_two<T>(mut vec: Vec<T>, split_at: usize) -> (Vec<T>, Vec<T>) {
-//     let p = vec.as_mut_ptr();
-//     let len = vec.len();
-//     let cap = vec.capacity();
-
-//     assert!(split_at < len);
-
-//     unsafe {
-//         let first_vec = Vec::from_raw_parts(p, split_at, split_at);
-//         let last_vec =
-//             Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at);
-//         (first_vec, last_vec)
-//     }
-// }
-// pub fn split_at_borrowed<T>(vec: &mut Vec<T>, split_at: usize) {
-//     unimplemented!("Throws STATUS_HEAP_CORRUPTION in windows.");
-//     let mut vec = std::mem::ManuallyDrop::new(vec);
-//     let p = vec.as_mut_ptr();
-//     let len = vec.len();
-//     let cap = vec.capacity();
-
-//     assert!(split_at < len);
-
-//     unsafe {
-//         use std::ptr;
-//         ptr::drop_in_place(ptr::slice_from_raw_parts_mut(p, split_at));
-//         let last_vec =
-//             Vec::from_raw_parts(p.offset(split_at as isize), len - split_at, cap - split_at);
-//         let vec_ptr: *mut Vec<T> = &mut **vec;
-//         vec_ptr.write(last_vec);
-//     }
-// }
 
 #[derive(Debug)]
 pub enum ContentType {
