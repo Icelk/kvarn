@@ -162,8 +162,13 @@ pub(crate) async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let (resp, compress, client_cache, server_cache) =
+            let (mut resp, compress, client_cache, server_cache) =
                 handle_request(request, address).await?;
+
+            todo!("extensions; package!");
+
+            utility::replace_header_static(resp.headers_mut(), "connection", "keep-alive");
+
             let resp_no_body = utility::empty_clone_response(&resp);
             let mut pipe = response_pipe
                 .send_response(resp_no_body, false)

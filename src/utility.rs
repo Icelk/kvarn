@@ -198,7 +198,6 @@ pub fn hardcoded_error_body(code: http::StatusCode) -> Bytes {
 
 pub async fn default_error(
     code: http::StatusCode,
-    close: &connection::ConnectionHeader,
     cache: Option<&FileCache>,
 ) -> http::Response<Bytes> {
     // Error files will be used several times.
@@ -214,7 +213,6 @@ pub async fn default_error(
     http::Response::builder()
         .status(code)
         .header("content-type", "text/html; charset=utf-8")
-        .header("connection", close.as_bytes())
         .header("content-encoding", "identity")
         .body(body)
         .unwrap()
@@ -329,4 +327,11 @@ pub fn replace_header<K: http::header::IntoHeaderName + Copy>(
             headers.insert(name, new);
         }
     }
+}
+pub fn replace_header_static<K: http::header::IntoHeaderName + Copy>(
+    headers: &mut http::HeaderMap,
+    name: K,
+    new: &'static str,
+) {
+    replace_header(headers, name, http::HeaderValue::from_static(new))
 }
