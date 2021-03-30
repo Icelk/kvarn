@@ -8,131 +8,133 @@
 //! For example, if you mount the extensions [`download`], it binds the *extension declaration* `download`.
 //! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it!
 
-use kvarn::prelude::{internals::*, *};
+use kvarn::{
+    comprash::CombinedCachePreference,
+    extensions::*,
+    prelude::{internals::*, *},
+};
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
 /// The current defaults are [`download`], [`cache`], [`php`], and [`templates`]
 ///
 /// They will *always* get included in your server after calling this function.
-pub fn mount_all(server: &mut Config) {
-    server.mount_extension(download);
-    server.mount_extension(cache);
-    server.mount_extension(hide);
-    server.mount_extension(ip_allow);
+pub fn mount_all(extensions: &mut Extensions) {
+    extensions.add_present_internal("download".to_string(), &download);
+    extensions.add_present_internal("cache".to_string(), &cache);
+    extensions.add_present_internal("hide".to_string(), &hide);
+    extensions.add_present_file("private".to_string(), &hide);
+    extensions.add_present_internal("allow-ips".to_string(), &ip_allow);
     #[cfg(feature = "php")]
-    server.mount_extension(php);
+    extensions.add_present(php);
     #[cfg(feature = "templates")]
-    server.mount_extension(templates);
+    extensions.add_present(templates);
 }
 
 #[cfg(feature = "templates")]
 pub use templates::templates;
 
-#[cfg(feature = "fastcgi-client")]
-pub mod cgi {
-    use super::*;
-    use fastcgi_client::{Client, Params};
-    use kvarn::prelude::networking::*;
+// #[cfg(feature = "fastcgi-client")]
+// pub mod cgi {
+//     use super::*;
+//     use fastcgi_client::{Client, Params};
+//     use kvarn::prelude::networking::*;
 
-    pub enum FCGIError {
-        FailedToConnect(io::Error),
-        FailedToDoRequest(fastcgi_client::Error),
-        NoStdout,
-    }
-    pub fn connect_to_fcgi(
-        port: u16,
-        method: &str,
-        file_name: &str,
-        file_path: &str,
-        uri: &str,
-        address: &SocketAddr,
-        body: &[u8],
-    ) -> Result<Vec<u8>, FCGIError> {
-        // Create connection to FastCGI server
-        let stream = match std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
-            Ok(stream) => stream,
-            Err(err) => return Err(FCGIError::FailedToConnect(err)),
-        };
-        let mut client = Client::new(stream, false);
+//     pub enum FCGIError {
+//         FailedToConnect(io::Error),
+//         FailedToDoRequest(fastcgi_client::Error),
+//         NoStdout,
+//     }
+//     pub fn connect_to_fcgi(
+//         port: u16,
+//         method: &str,
+//         file_name: &str,
+//         file_path: &str,
+//         uri: &str,
+//         address: &SocketAddr,
+//         body: &[u8],
+//     ) -> Result<Vec<u8>, FCGIError> {
+//         // Create connection to FastCGI server
+//         let stream = match std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
+//             Ok(stream) => stream,
+//             Err(err) => return Err(FCGIError::FailedToConnect(err)),
+//         };
+//         let mut client = Client::new(stream, false);
 
-        let len = body.len().to_string();
-        let remote_addr = match address.ip() {
-            IpAddr::V4(addr) => addr.to_string(),
-            IpAddr::V6(addr) => addr.to_string(),
-        };
-        let remote_port = address.port().to_string();
+//         let len = body.len().to_string();
+//         let remote_addr = match address.ip() {
+//             IpAddr::V4(addr) => addr.to_string(),
+//             IpAddr::V6(addr) => addr.to_string(),
+//         };
+//         let remote_port = address.port().to_string();
 
-        let params = Params::with_predefine()
-            .set_request_method(method)
-            .set_script_name(file_name)
-            .set_script_filename(file_path)
-            .set_request_uri(uri)
-            .set_document_uri(file_name)
-            .set_remote_addr(&remote_addr)
-            .set_remote_port(&remote_port)
-            .set_server_addr("0.0.0.0")
-            .set_server_port("")
-            .set_server_name(kvarn::SERVER_NAME)
-            .set_content_type("")
-            .set_content_length(&len);
+//         let params = Params::with_predefine()
+//             .set_request_method(method)
+//             .set_script_name(file_name)
+//             .set_script_filename(file_path)
+//             .set_request_uri(uri)
+//             .set_document_uri(file_name)
+//             .set_remote_addr(&remote_addr)
+//             .set_remote_port(&remote_port)
+//             .set_server_addr("0.0.0.0")
+//             .set_server_port("")
+//             .set_server_name(kvarn::SERVER_NAME)
+//             .set_content_type("")
+//             .set_content_length(&len);
 
-        match client.do_request(&params, &mut (&*body)) {
-            Ok(output) => match output.get_stdout() {
-                Some(output) => Ok(output),
-                None => Err(FCGIError::NoStdout),
-            },
-            Err(err) => Err(FCGIError::FailedToDoRequest(err)),
-        }
-    }
-    pub fn fcgi_from_data(
-        data: &extensions_old::RequestData,
-        port: u16,
-    ) -> Result<Vec<u8>, Cow<'static, str>> {
-        let file_name = match parse::format_file_name(data.path) {
-            Some(name) => name,
-            None => {
-                return Err(Cow::Borrowed("Error formatting file name!"));
-            }
-        };
-        let file_path = match parse::format_file_path(data.path) {
-            Ok(name) => name,
-            Err(_) => {
-                return Err(Cow::Borrowed("Getting working directory!"));
-            }
-        };
-        let file_path = match file_path.to_str() {
-            Some(path) => path,
-            None => {
-                return Err(Cow::Borrowed("Error formatting file path!"));
-            }
-        };
+//         match client.do_request(&params, &mut (&*body)) {
+//             Ok(output) => match output.get_stdout() {
+//                 Some(output) => Ok(output),
+//                 None => Err(FCGIError::NoStdout),
+//             },
+//             Err(err) => Err(FCGIError::FailedToDoRequest(err)),
+//         }
+//     }
+//     pub fn fcgi_from_data(data: &PresentData, port: u16) -> Result<Vec<u8>, Cow<'static, str>> {
+//         let file_name = match parse::format_file_name(data.path) {
+//             Some(name) => name,
+//             None => {
+//                 return Err(Cow::Borrowed("Error formatting file name!"));
+//             }
+//         };
+//         let file_path = match parse::format_file_path(data.path) {
+//             Ok(name) => name,
+//             Err(_) => {
+//                 return Err(Cow::Borrowed("Getting working directory!"));
+//             }
+//         };
+//         let file_path = match file_path.to_str() {
+//             Some(path) => path,
+//             None => {
+//                 return Err(Cow::Borrowed("Error formatting file path!"));
+//             }
+//         };
 
-        // Fetch fastcgi server response.
-        match connect_to_fcgi(
-            port,
-            data.request.method().as_str(),
-            file_name,
-            file_path,
-            data.request.uri().path_and_query().unwrap().as_str(),
-            data.address,
-            data.request.body(),
-        ) {
-            Ok(vec) => Ok(vec),
-            Err(err) => match err {
-                FCGIError::FailedToConnect(err) => Err(Cow::Owned(format!(
-                    "Failed to connect to FastCGI server on port {}. IO Err: {}",
-                    port, err
-                ))),
-                FCGIError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
-                    "Failed to request from FastCGI server! Err: {}",
-                    err
-                ))),
-                FCGIError::NoStdout => Err(Cow::Borrowed("No stdout in response from FastCGI!")),
-            },
-        }
-    }
-}
+//         // Fetch fastcgi server response.
+//         match connect_to_fcgi(
+//             port,
+//             data.request.method().as_str(),
+//             file_name,
+//             file_path,
+//             data.request.uri().path_and_query().unwrap().as_str(),
+//             data.address,
+//             data.request.body(),
+//         ) {
+//             Ok(vec) => Ok(vec),
+//             Err(err) => match err {
+//                 FCGIError::FailedToConnect(err) => Err(Cow::Owned(format!(
+//                     "Failed to connect to FastCGI server on port {}. IO Err: {}",
+//                     port, err
+//                 ))),
+//                 FCGIError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
+//                     "Failed to request from FastCGI server! Err: {}",
+//                     err
+//                 ))),
+//                 FCGIError::NoStdout => Err(Cow::Borrowed("No stdout in response from FastCGI!")),
+//             },
+//         }
+//     }
+// }
 // Ok, since it is used, just not by every extension, and #[CFG] would be too fragile for this.
 #[allow(dead_code)]
 pub mod parse {
@@ -167,8 +169,7 @@ pub fn php() -> BoundExtension {
                     return;
                 }
             };
-            data.set_response(ByteResponse::with_partial_header(output));
-        }),
+            data.set
     }
 }
 
@@ -376,72 +377,55 @@ pub mod templates {
 }
 
 /// Makes the client download the file.
-pub fn download() -> BoundExtension {
-    BoundExtension {
-        extension_aliases: &["download"],
-        file_extension_aliases: &[],
-        ext: Extension::new(&|| {}, &|_, data| {
-            *data.content_type = Download;
-        }),
-    }
+pub fn download(present_data: PresentData) -> RetFut<()> {
+    Box::new(async {
+        let headers = present_data.response().headers_mut();
+        kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
+    })
 }
 
-pub fn cache() -> BoundExtension {
-    BoundExtension {
-        extension_aliases: &["cache"],
-        file_extension_aliases: &[],
-        ext: Extension::new(&|| {}, &|_, data| {
-            if let Some(cache) = data.args.get(1).and_then(|arg| arg.parse().ok()) {
-                *data.cached = cache;
-            }
-        }),
-    }
+pub fn cache(data: PresentData) -> RetFut<()> {
+    Box::new(async {
+        if let Some(preference) = data
+            .args()
+            .get(1)
+            .and_then(|arg| arg.parse::<CombinedCachePreference>().ok())
+        {
+            *data.server_cache_preference() = preference.0;
+            *data.client_cache_preference() = preference.1;
+        }
+    })
 }
 
-pub fn hide() -> BoundExtension {
-    BoundExtension {
-        extension_aliases: &["hide"],
-        file_extension_aliases: &["private"],
-        ext: Extension::new(&|| {}, &|_, data| {
-            let error = default_error(
-                http::StatusCode::NOT_FOUND,
-                data.close,
-                Some(data.storage.get_fs()),
-            );
-            data.set_response(error);
-            *data.content_type = Html;
-        }),
-    }
+pub fn hide(data: PresentData) -> RetFut<()> {
+    Box::new(async {
+        let error = default_error(http::StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
+        *data.response_mut() = error;
+    })
 }
 
-pub fn ip_allow() -> BoundExtension {
-    BoundExtension {
-        extension_aliases: &["allow-ips"],
-        file_extension_aliases: &[],
-        ext: Extension::new(&|| {}, &|_, data| {
-            let mut matched = false;
-            // Loop over denied ip in args
-            for denied in data.args.iter() {
-                // If parsed
-                if let Ok(ip) = denied.parse::<std::net::IpAddr>() {
-                    // check it against the requests IP.
-                    if data.address.ip() == ip {
-                        matched = true;
-                        // Then break out of loop
-                        break;
-                    }
+pub fn ip_allow(data: PresentData) -> RetFut<()> {
+    Box::new(async {
+        let mut matched = false;
+        // Loop over denied ip in args
+        for denied in data.args().iter() {
+            // If parsed
+            if let Ok(ip) = denied.parse::<std::net::IpAddr>() {
+                // check it against the requests IP.
+                if data.address().ip() == ip {
+                    matched = true;
+                    // Then break out of loop
+                    break;
                 }
             }
-            if !matched {
-                // If it does not match, set the response to 404
-                let error = default_error(
-                    http::StatusCode::NOT_FOUND,
-                    data.close,
-                    Some(data.storage.get_fs()),
-                );
-                data.set_response(error);
-            }
-            *data.cached = Cached::StaticClient;
-        }),
-    }
+        }
+        if !matched {
+            // If it does not match, set the response to 404
+            let error =
+                default_error(http::StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
+            *data.response_mut() = error;
+        }
+        *data.server_cache_preference() = kvarn::comprash::ServerCachePreference::None;
+        *data.client_cache_preference() = kvarn::comprash::ClientCachePreference::Changing;
+    })
 }
