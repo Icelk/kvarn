@@ -18,22 +18,54 @@ pub type Response = (
 pub type Prime = &'static (dyn Fn(&Uri) -> Option<Uri> + Sync);
 pub type Pre = &'static (dyn Fn(&mut Request, FsCache) -> RetFut<Option<Response>> + Sync);
 pub type Prepare = &'static (dyn Fn(&Request, FsCache) -> RetFut<Response> + Sync);
-pub type Present = &'static (dyn Fn(&mut PresentData<'_>) + Sync);
-pub type Package = &'static (dyn Fn(&mut http::Response<BytesMut>) + Sync);
-pub type Post = &'static (dyn Fn(&Bytes, &mut application::ResponsePipe) + Sync);
+pub type Present = &'static (dyn Fn(PresentData) -> RetFut<()> + Sync);
+pub type Package = &'static (dyn Fn(&mut http::Response<Bytes>) -> RetFut<()> + Sync);
+pub type Post = &'static (dyn Fn(&Bytes, &mut application::ResponsePipe) -> RetFut<()> + Sync);
 
-pub struct PresentData<'a> {
+/// # Safety
+/// It's not safe at all. This type must not be stored.
+/// Only one pointer should *own* the data; this should be created, passed to an extension, and destroyed. Then the next extension can kick in.
+pub struct PresentData {
     // Regarding request
-    pub address: net::SocketAddr,
-    pub request: &'a http::Request<Body>,
-    pub host: &'a Host,
-    pub path: &'a Path,
+    address: net::SocketAddr,
+    request: *const http::Request<Body>,
+    host: *const Host,
+    path: *const Path,
     // Regarding response
-    pub server_cache_preference: ServerCachePreference,
-    pub client_cache_preference: ClientCachePreference,
-    pub response: &'a mut http::Response<BytesMut>,
+    server_cache_preference: ServerCachePreference,
+    client_cache_preference: ClientCachePreference,
+    response: *mut http::Response<Bytes>,
     // Regarding extension
-    pub args: Vec<String>,
+    args: Vec<String>,
+}
+impl PresentData {
+    pub fn address(&self) -> net::SocketAddr {
+        self.address
+    }
+    pub fn request(&self) -> &http::Request<Body> {
+        unsafe { &*self.request }
+    }
+    pub fn host(&self) -> &Host {
+        unsafe { &*self.host }
+    }
+    pub fn path(&self) -> &Path {
+        unsafe { &*self.path }
+    }
+    pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
+        &mut self.server_cache_preference
+    }
+    pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
+        &mut self.client_cache_preference
+    }
+    pub fn response_mut(&mut self) -> &mut http::Response<Bytes> {
+        unsafe { &mut *self.response }
+    }
+    pub fn response(&mut self) -> &http::Response<Bytes> {
+        unsafe { &*self.response }
+    }
+    pub fn args(&self) -> &[String] {
+        &self.args
+    }
 }
 
 /// Contains all extensions.
