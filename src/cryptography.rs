@@ -265,19 +265,13 @@ impl HostData {
     }
     /// Returns `Ok` if it cleared a page.
     pub async fn clear_page(&self, host: &str, uri: &http::Uri) -> Result<(), ()> {
-        let mut key = UriKey::path_and_query(uri);
+        let key = UriKey::path_and_query(uri);
 
         let mut found = false;
         if host == "" || host == "default" {
-            found = true;
             let mut lock = self.default.1.response_cache.lock().await;
-            match key.call_all(|key| lock.remove(key).to_option()) {
-                (k, Some(_)) => {
-                    key = k;
-                }
-                (k, None) => {
-                    key = k;
-                }
+            if key.call_all(|key| lock.remove(key).to_option()).1.is_some() {
+                found = true;
             }
         } else {
             match self.by_name.get(host) {
