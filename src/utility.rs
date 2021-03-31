@@ -34,137 +34,68 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
-/// Should only be used when a file is typically access several times or from several requests.
-#[cfg(not(feature = "no-fs-cache"))]
-pub fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Arc<Vec<u8>>> {
-    match cache.try_lock() {
-        Ok(lock) => {
-            if let Some(cached) = lock.get(path) {
-                return Some(cached);
-            }
-        }
-        Err(ref err) => match err {
-            sync::TryLockError::Poisoned(..) => {
-                panic!("File System cache is poisoned!");
-            }
-            sync::TryLockError::WouldBlock => {}
-        },
-    }
-
-    match File::open(path) {
-        Ok(mut file) => {
-            let mut buffer = Vec::with_capacity(4096);
-            match file.read_to_end(&mut buffer) {
-                Ok(..) => {
-                    let buffer = Arc::new(buffer);
-                    match cache.try_lock() {
-                        Ok(mut lock) => match lock.cache(path.clone(), buffer) {
-                            Err(failed) => Some(failed),
-                            Ok(()) => Some(lock.get(path).unwrap()),
-                        },
-                        Err(ref err) => match err {
-                            sync::TryLockError::Poisoned(..) => {
-                                panic!("File System cache is poisoned!");
-                            }
-                            sync::TryLockError::WouldBlock => Some(buffer),
-                        },
-                    }
-                }
-                Err(..) => None,
-            }
-        }
-        Err(..) => None,
-    }
-}
-#[cfg(feature = "no-fs-cache")]
-/// Should only be used when a file is typically access several times or from several requests.
-///
 /// ToDo: optimize!
-pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
-    let mut file = File::open(path).await.ok()?;
-    let mut buffer = BytesMut::with_capacity(4096);
+async fn read_to_end<R: AsyncRead + Unpin>(mut file: R, capacity: usize) -> io::Result<BytesMut> {
+    let mut buffer = BytesMut::with_capacity(capacity);
     unsafe { buffer.set_len(buffer.capacity()) };
     let mut read = 0;
     loop {
-        match file.read(&mut buffer[..]).await {
-            Ok(0) => break,
-            Ok(len) => {
+        match file.read(&mut buffer[..]).await? {
+            0 => break,
+            len => {
                 read += len;
                 if read > buffer.len() - 512 {
                     buffer.reserve(2048);
                 }
             }
-            Err(_) => return None,
         }
     }
     unsafe { buffer.set_len(read) };
-    Some(buffer.freeze())
+    Ok(buffer)
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-/// Shared Reference or Owned defines either a Arc<T> or T.
-pub enum SRO<T, B: std::ops::Deref<Target = T>> {
-    Shared(B),
-    Owned(T),
-}
-impl<T, B: std::ops::Deref<Target = T>> SRO<T, B> {
-    pub fn into_owned(self) -> T
-    where
-        T: Clone,
-    {
-        match self {
-            SRO::Shared(arc) => (*arc).clone(),
-            SRO::Owned(value) => value,
-        }
+/// Should only be used when a file is typically access several times or from several requests.
+#[cfg(not(feature = "no-fs-cache"))]
+pub async fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Bytes> {
+    if let Some(file) = cache.lock().await.get(path.as_ref()) {
+        return Some(Bytes::clone(file));
     }
-}
-impl<T, B: std::ops::Deref<Target = T>> std::ops::Deref for SRO<T, B> {
-    type Target = T;
 
-    fn deref(&self) -> &Self::Target {
-        match self {
-            SRO::Shared(arc) => &**arc,
-            SRO::Owned(value) => value,
-        }
-    }
+    let file = File::open(path).await.ok()?;
+    let buffer = read_to_end(file, 4096).await.ok()?;
+    let buffer = buffer.freeze();
+    cache
+        .lock()
+        .await
+        .cache(path.as_ref().to_path_buf(), Bytes::clone(&buffer));
+    Some(buffer)
 }
+#[cfg(feature = "no-fs-cache")]
+/// Should only be used when a file is typically access several times or from several requests.
+pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
+    let file = File::open(path).await.ok()?;
+    read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
+}
+
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 ///
 /// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(not(feature = "no-fs-cache"))]
-pub async fn read_file(path: &PathBuf, cache: &FileCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
-    if let Some(cached) = cache.lock().await.get(path) {
-        return Some(SRO::Shared(Arc::clone(cached)));
+pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Bytes> {
+    if let Some(cached) = cache.lock().await.get(path.as_ref()) {
+        return Some(Bytes::clone(cached));
     }
 
-    match File::open(path).await {
-        Ok(mut file) => {
-            let mut buffer = Vec::with_capacity(4096);
-            match file.read_to_end(&mut buffer).await {
-                Ok(..) => Some(SRO::Owned(buffer)),
-                Err(..) => None,
-            }
-        }
-        Err(..) => None,
-    }
+    let file = File::open(path).await.ok()?;
+    read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
 }
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 ///
 /// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(feature = "no-fs-cache")]
-pub async fn read_file(path: &PathBuf, _: &mut FileCache) -> Option<SRO<Vec<u8>, Arc<Vec<u8>>>> {
-    match File::open(path).await {
-        Ok(mut file) => {
-            let mut buffer = Vec::with_capacity(4096);
-            match file.read_to_end(&mut buffer).await {
-                Ok(..) => {
-                    return Some(SRO::Owned(buffer));
-                }
-                Err(..) => None,
-            }
-        }
-        Err(..) => None,
-    }
+pub async fn read_file<P: AsRef<Path>>(path: &P, _: &mut FileCache) -> Option<Bytes> {
+    let file = File::open(path).await.ok()?;
+    read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
 }
 
 pub fn hardcoded_error_body(code: http::StatusCode) -> Bytes {
