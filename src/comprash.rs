@@ -411,9 +411,8 @@ impl<K: Eq + Hash> Cache<K, CachedCompression> {
         }
     }
 }
-impl<K: Eq + Hash> Cache<K, Arc<Vec<u8>>> {
-    pub fn cache(&mut self, key: K, contents: Vec<u8>) -> CacheOut<Arc<Vec<u8>>> {
-        let contents = Arc::new(contents);
+impl<K: Eq + Hash> Cache<K, Bytes> {
+    pub fn cache(&mut self, key: K, contents: Bytes) -> CacheOut<Bytes> {
         if contents.len() >= self.size_limit {
             return CacheOut::NotInserted(contents);
         }

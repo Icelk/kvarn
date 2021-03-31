@@ -377,16 +377,16 @@ pub mod parse {
 // }
 
 /// Makes the client download the file.
-pub fn download(data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async {
+pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
+    Box::new(async move {
         let data = unsafe { data.get_inner() };
-        let headers = data.response().headers_mut();
+        let headers = data.response_mut().headers_mut();
         kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
     })
 }
 
-pub fn cache(data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async {
+pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
+    Box::new(async move {
         let data = unsafe { data.get_inner() };
         if let Some(preference) = data
             .args()
@@ -399,16 +399,16 @@ pub fn cache(data: PresentDataWrapper) -> RetFut<()> {
     })
 }
 
-pub fn hide(data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async {
+pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
+    Box::new(async move {
         let data = unsafe { data.get_inner() };
         let error = default_error(http::StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
         *data.response_mut() = error;
     })
 }
 
-pub fn ip_allow(data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async {
+pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
+    Box::new(async move {
         let data = unsafe { data.get_inner() };
         let mut matched = false;
         // Loop over denied ip in args
