@@ -146,6 +146,7 @@ impl PresentData {
 /// See [extensions.md](../extensions.md) for more info.
 ///
 /// ToDo: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
+#[derive(Clone)]
 pub struct Extensions {
     prime: Vec<Prime>,
     pre: HashMap<String, Pre>,
