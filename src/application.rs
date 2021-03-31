@@ -373,6 +373,11 @@ mod response {
                         Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {}
                         _ => *response.version_mut() = Version::HTTP_11,
                     }
+                    utility::replace_header_static(
+                        response.headers_mut(),
+                        "connection",
+                        "keep-alive",
+                    );
                     write_http_1_response(&mut *writer, response)
                         .await
                         .map_err(Error::Io)?;
