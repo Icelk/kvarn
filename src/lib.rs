@@ -42,7 +42,6 @@ pub(crate) async fn handle_connection(
     stream: TcpStream,
     address: net::SocketAddr,
     host_descriptors: Arc<HostDescriptor>,
-    cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey, comprash::CachedCompression>>>,
 ) -> io::Result<()> {
     // LAYER 2
     let encrypted =
@@ -61,7 +60,7 @@ pub(crate) async fn handle_connection(
     // LAYER 3
     let mut http = application::HttpConnection::new(encrypted, version)
         .await
-        .unwrap();
+        .map_err::<io::Error, _>(application::Error::into)?;
 
     while let Ok((request, response_pipe)) = http.accept().await {
         let host = application::get_host(
@@ -70,9 +69,7 @@ pub(crate) async fn handle_connection(
             &host_descriptors.host_data,
         );
         // fn to handle getting from cache, generating response and sending it
-        handle_cache(request, address, response_pipe, cache.clone(), host)
-            .await
-            .unwrap();
+        handle_cache(request, address, response_pipe, host).await?;
     }
 
     Ok(())
@@ -83,19 +80,17 @@ pub(crate) async fn handle_cache(
     request: http::Request<application::Body>,
     address: net::SocketAddr,
     mut response_pipe: application::ResponsePipe,
-    cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey, comprash::CachedCompression>>>,
     host: &Host,
 ) -> io::Result<()> {
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
-    let lock = cache.lock().await;
+    let lock = host.response_cache.lock().await;
     let cached = path_query.call_all(|path| lock.get(path)).1;
     match cached {
         Some(resp) => {
             info!("Found in cache!");
             let resp = resp.get_preferred();
-            let mut response = utility::empty_clone_response(resp);
-            *response.version_mut() = http::Version::HTTP_2;
+            let response = utility::empty_clone_response(resp);
             let response_body = Bytes::clone(resp.body());
             drop(lock);
 
@@ -112,10 +107,8 @@ pub(crate) async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let (mut resp, compress, client_cache, server_cache) =
-                handle_request(request, address).await?;
-
-            utility::replace_header_static(resp.headers_mut(), "connection", "keep-alive");
+            let (resp, compress, client_cache, server_cache) =
+                handle_request(request, address).await.unwrap();
 
             let resp_no_body = utility::empty_clone_response(&resp);
             let mut pipe = response_pipe
@@ -126,7 +119,7 @@ pub(crate) async fn handle_cache(
                 .await
                 .map_err::<io::Error, _>(application::Error::into)?;
             if server_cache.cache() {
-                let mut lock = cache.lock().await;
+                let mut lock = host.response_cache.lock().await;
                 let key = match server_cache.query_matters() {
                     true => comprash::UriKey::PathQuery(path_query),
                     false => comprash::UriKey::Path(path_query.into_path()),
@@ -207,49 +200,6 @@ impl Config {
         }
     }
 
-    /// Runs a server from the config on a new thread, not blocking the current thread.
-    ///
-    /// Use a loop to capture the main thread.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// use kvarn::prelude::*;
-    /// use std::io::{stdin, BufRead};
-    /// use std::thread;
-    ///
-    /// let server = Config::on_ports(&[(443, ConnectionScheme::HTTP1S)]);
-    /// let mut storage = server.clone_storage();
-    ///
-    /// thread::spawn(move || server.run());
-    ///
-    /// for line in stdin().lock().lines() {
-    ///     if let Ok(line) = line {
-    ///         let mut words = line.split(" ");
-    ///         if let Some(command) = words.next() {
-    ///             match command {
-    ///                 "cfc" => match storage.try_fs() {
-    ///                      Some(mut lock) => {
-    ///                          lock.clear();
-    ///                          println!("Cleared file system cache!");
-    ///                      }
-    ///                      None => println!("File system cache in use by server!"),
-    ///                  },
-    ///                  "crc" => match storage.try_response() {
-    ///                      Some(mut lock) => {
-    ///                          lock.clear();
-    ///                          println!("Cleared response cache!");
-    ///                      }
-    ///                      None => println!("Response cache in use by server!"),
-    ///                  },
-    ///                 _ => {
-    ///                     eprintln!("Unknown command!");
-    ///                 }
-    ///             }
-    ///         }
-    ///     };
-    /// };
-    ///
-    /// ```
     pub async fn run(self) {
         trace!("Running from config");
 
@@ -285,9 +235,6 @@ impl Config {
         trace!("Started listening on {:?}", listener.local_addr());
         let host = Arc::new(host);
 
-        // ToDo: proper cache!
-        let tmp_cache = Arc::new(tokio::sync::Mutex::new(comprash::Cache::new()));
-
         loop {
             match listener.accept().await {
                 Ok((socket, addr)) => {
@@ -300,9 +247,8 @@ impl Config {
                         LimitStrength::Passed => {}
                     }
                     let host = Arc::clone(&host);
-                    let cache = Arc::clone(&tmp_cache);
                     tokio::spawn(async move {
-                        if let Err(err) = handle_connection(socket, addr, host, cache).await {
+                        if let Err(err) = handle_connection(socket, addr, host).await {
                             warn!(
                                 "An error occurred in the main processing function {:?}",
                                 err
