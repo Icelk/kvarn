@@ -247,40 +247,74 @@ impl HostData {
         config
     }
 
-    pub async fn clear_all_caches(&self) -> usize {
+    pub async fn clear_response_caches(&self) {
         // Handle default host
-        self.default.1.file_cache.lock().await.clear();
+        self.default.1.response_cache.lock().await.clear();
         // All other
         for (_, host) in self.by_name.iter() {
-            host.file_cache.lock().await.clear();
+            host.response_cache.lock().await.clear();
         }
-        1 + self.by_name.len()
     }
-    /// Returns `Ok` if it cleared a page.
-    pub async fn clear_page(&self, host: &str, uri: &http::Uri) -> Result<(), ()> {
+    /// # Returns
+    /// (found host, cleared page)
+    pub async fn clear_page(&self, host: &str, uri: &http::Uri) -> (bool, bool) {
         let key = UriKey::path_and_query(uri);
 
         let mut found = false;
+        let mut cleared = false;
         if host == "" || host == "default" {
+            found = true;
             let mut lock = self.default.1.response_cache.lock().await;
             if key.call_all(|key| lock.remove(key).to_option()).1.is_some() {
-                found = true;
+                cleared = true;
             }
         } else {
             match self.by_name.get(host) {
                 Some(host) => {
+                    found = true;
                     let mut lock = host.response_cache.lock().await;
                     if key.call_all(|key| lock.remove(key).to_option()).1.is_some() {
-                        found = true;
+                        cleared = true;
                     }
                 }
                 None => {}
             }
         }
-        match found {
-            false => Err(()),
-            true => Ok(()),
+        (found, cleared)
+    }
+    pub async fn clear_file_caches(&self) {
+        self.default.1.file_cache.lock().await.clear();
+        for (_, host) in self.by_name.iter() {
+            host.file_cache.lock().await.clear();
         }
+    }
+    pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
+        let mut found = false;
+        if self
+            .default
+            .1
+            .file_cache
+            .lock()
+            .await
+            .remove(path.as_ref())
+            .to_option()
+            .is_some()
+        {
+            found = true;
+        }
+        for (_, host) in self.by_name.iter() {
+            if host
+                .file_cache
+                .lock()
+                .await
+                .remove(path.as_ref())
+                .to_option()
+                .is_some()
+            {
+                found = true;
+            }
+        }
+        found
     }
 }
 impl ResolvesServerCert for HostData {
