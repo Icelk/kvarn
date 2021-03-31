@@ -41,12 +41,13 @@ pub const LINE_ENDING: &[u8] = b"\r\n";
 pub(crate) async fn handle_connection(
     stream: TcpStream,
     address: net::SocketAddr,
-    host: Arc<HostDescriptor>,
+    host_descriptors: Arc<HostDescriptor>,
     cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey, comprash::CachedCompression>>>,
 ) -> io::Result<()> {
     // LAYER 2
     let encrypted =
-        encryption::Encryption::new_from_connection_security(stream, &host.r#type).await?;
+        encryption::Encryption::new_from_connection_security(stream, &host_descriptors.r#type)
+            .await?;
 
     let version = match encrypted.get_alpn_protocol() {
         Some(b"h2") => http::Version::HTTP_2,
@@ -55,17 +56,21 @@ pub(crate) async fn handle_connection(
         Some(b"http/0.9") => http::Version::HTTP_09,
         _ => unimplemented!(),
     };
+    let hostname = encrypted.get_sni_hostname().map(str::to_string);
     println!("ALPN: {:?}", encrypted.get_alpn_protocol());
     // LAYER 3
     let mut http = application::HttpConnection::new(encrypted, version)
         .await
         .unwrap();
 
-    todo!("check for host");
-
     while let Ok((request, response_pipe)) = http.accept().await {
+        let host = application::get_host(
+            &request,
+            hostname.as_ref().map(String::as_str),
+            &host_descriptors.host_data,
+        );
         // fn to handle getting from cache, generating response and sending it
-        handle_cache(request, address, response_pipe, cache.clone())
+        handle_cache(request, address, response_pipe, cache.clone(), host)
             .await
             .unwrap();
     }
@@ -79,21 +84,8 @@ pub(crate) async fn handle_cache(
     address: net::SocketAddr,
     mut response_pipe: application::ResponsePipe,
     cache: Arc<tokio::sync::Mutex<comprash::Cache<comprash::UriKey, comprash::CachedCompression>>>,
+    host: &Host,
 ) -> io::Result<()> {
-    fn process_extensions<F: core::future::Future, C: FnMut(http::Response<bytes::Bytes>) -> F>(
-        _response_body: &bytes::Bytes,
-        _request: &http::Request<()>,
-        _callback: C,
-    ) {
-    }
-    let extension: &'static (dyn Fn(&bytes::Bytes, &mut application::ResponsePipe) + Sync) =
-        &|response, pipe| match pipe {
-            application::ResponsePipe::Http2(pipe) => {
-                println!("respo: {:?}, pipe {:?}", response, pipe)
-            }
-            _ => println!("unknown"),
-        };
-    std::thread::sleep(std::time::Duration::from_millis(250));
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = cache.lock().await;
@@ -104,68 +96,24 @@ pub(crate) async fn handle_cache(
             let resp = resp.get_preferred();
             let mut response = utility::empty_clone_response(resp);
             *response.version_mut() = http::Version::HTTP_2;
-            let response_body = bytes::Bytes::clone(resp.body());
-
+            let response_body = Bytes::clone(resp.body());
             drop(lock);
 
-            // process response push
-            // Write push to response
-            // Call post.rs with response and pipe to get all the h2 pushes!? An extension?
-            match &mut response_pipe {
-                application::ResponsePipe::Http2(h2) => {
-                    let example_uri = http::Uri::builder()
-                        .authority(request.uri().authority().unwrap().clone())
-                        .scheme(request.uri().scheme().unwrap().clone())
-                        .path_and_query("/favicon.ico")
-                        .build()
-                        .unwrap();
-                    let example_request = http::Request::builder()
-                        .uri(example_uri)
-                        .version(http::Version::HTTP_2)
-                        .method(http::Method::GET)
-                        .body(application::Body::Empty)
-                        .unwrap();
-                    // let mut example_request = utility::empty_clone_request(&request);
-                    // *example_request.uri_mut() = example_uri;
-                    // let example_request =
-                    //     example_request.map(|()| application::Body::Empty::<application::Nothing>);
-                    info!(
-                        "Sent request {:?}",
-                        utility::empty_clone_request(&example_request)
-                    );
-                    let mut pipe = h2
-                        .push_request(utility::empty_clone_request(&example_request))
-                        .unwrap();
-                    let (push_response, _, _, _) = handle_request(example_request, address).await?;
-                    let mut bytes = None;
-                    let push_response = push_response.map(|b| {
-                        bytes = Some(b);
-                    });
-                    let mut send = h2.send_response(response, false).unwrap();
-                    send.send_data(response_body.clone(), true).unwrap();
-
-                    let mut pipe = pipe.send_response(push_response, false).unwrap();
-                    pipe.send_data(bytes.unwrap(), true).unwrap();
-                    // info!("Sent push: {:?}", &pipe);
-                    let request = request.map(|_| ());
-                    process_extensions(&response_body, &request, move |_| async move {});
-                    extension(
-                        &response_body,
-                        &mut response_pipe, // as &mut application::ResponsePipe<&mut (dyn AsyncWrite + Unpin)>,
-                    );
-                }
-                _ => {}
-            }
+            let mut body_pipe = response_pipe
+                .send_response(response, false)
+                .await
+                .map_err::<io::Error, _>(application::Error::into)?;
+            body_pipe
+                .send(Bytes::clone(&response_body), true)
+                .await
+                .map_err::<io::Error, _>(application::Error::into)?;
         }
         None => {
-            // drop(cached);
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
             let (mut resp, compress, client_cache, server_cache) =
                 handle_request(request, address).await?;
-
-            todo!("extensions; package!");
 
             utility::replace_header_static(resp.headers_mut(), "connection", "keep-alive");
 
@@ -173,9 +121,10 @@ pub(crate) async fn handle_cache(
             let mut pipe = response_pipe
                 .send_response(resp_no_body, false)
                 .await
-                .unwrap();
-            pipe.write_all(resp.body()).await.unwrap();
-            pipe.flush().await.unwrap();
+                .map_err::<io::Error, _>(application::Error::into)?;
+            pipe.send(Bytes::clone(resp.body()), true)
+                .await
+                .map_err::<io::Error, _>(application::Error::into)?;
             if server_cache.cache() {
                 let mut lock = cache.lock().await;
                 let key = match server_cache.query_matters() {

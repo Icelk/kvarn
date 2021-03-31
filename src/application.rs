@@ -1,4 +1,4 @@
-use crate::{encryption::Encryption, prelude::*};
+use crate::{encryption::Encryption, prelude::*, HostDescriptor};
 use http::{header::HeaderName, HeaderValue, Method, Request, Uri, Version};
 use std::{
     io,
@@ -34,37 +34,47 @@ impl From<h2::Error> for Error {
         Self::H2(err)
     }
 }
+impl Into<io::Error> for Error {
+    fn into(self) -> io::Error {
+        match self {
+            Self::Io(io) => io,
+            Self::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
+            Self::H2(h2) => io::Error::new(io::ErrorKind::InvalidData, h2),
+            Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, "stream is exhausted"),
+            Self::NoPath => io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "no path was supplied in the request",
+            ),
+            Self::VersionNotSupported => io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "http version unsupported. Invalid ALPN config.",
+            ),
+        }
+    }
+}
 
 pub enum HttpConnection {
     Http1(Arc<Mutex<Encryption<TcpStream>>>),
     Http2(h2::server::Connection<Encryption<TcpStream>, bytes::Bytes>),
 }
 
-// pub struct Nothing {}
-// impl AsyncRead for Nothing {
-//     fn poll_read(
-//         self: Pin<&mut Self>,
-//         _cx: &mut Context<'_>,
-//         _buf: &mut ReadBuf<'_>,
-//     ) -> Poll<io::Result<()>> {
-//         Poll::Ready(Ok(()))
-//     }
-// }
-// impl AsyncWrite for Nothing {
-//     fn poll_write(
-//         self: Pin<&mut Self>,
-//         _cx: &mut Context<'_>,
-//         buf: &[u8],
-//     ) -> Poll<Result<usize, io::Error>> {
-//         Poll::Ready(Ok(buf.len()))
-//     }
-//     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-//         Poll::Ready(Ok(()))
-//     }
-//     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-//         Poll::Ready(Ok(()))
-//     }
-// }
+pub fn get_host<'a>(
+    request: &http::Request<Body>,
+    sni_hostname: Option<&str>,
+    data: &'a HostData,
+) -> &'a Host {
+    fn get_header(headers: &http::HeaderMap) -> Option<&str> {
+        headers
+            .get(http::header::HOST)
+            .map(http::HeaderValue::to_str)
+            .map(Result::ok)
+            .flatten()
+    }
+
+    let host = sni_hostname.or_else(|| get_header(request.headers()));
+
+    data.maybe_get_or_default(host)
+}
 
 /// ToDo: trailers
 #[derive(Debug)]
@@ -414,56 +424,19 @@ mod response {
         }
         writer.write_all(b"\r\n").await
     }
-    impl AsyncWrite for ResponseBodyPipe {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-            buf: &[u8],
-        ) -> Poll<Result<usize, io::Error>> {
-            match self.get_mut() {
-                Self::Http1(s) => match s.try_lock() {
-                    Ok(mut l) => unsafe { Pin::new_unchecked(&mut *l).poll_write(cx, buf) },
-                    Err(_) => Poll::Pending,
-                },
-                Self::Http2(s) => Poll::Ready(
-                    s.send_data(bytes::Bytes::copy_from_slice(buf), false)
-                        .map(|()| buf.len())
-                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
-                ),
-            }
-        }
-        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-            match self.get_mut() {
-                Self::Http1(s) => match s.try_lock() {
-                    Ok(mut l) => unsafe { Pin::new_unchecked(&mut *l).poll_flush(cx) },
-                    Err(_) => Poll::Pending,
-                },
-                Self::Http2(s) => Poll::Ready(
-                    s.send_data(bytes::Bytes::new(), true)
-                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
-                ),
-            }
-        }
-        fn poll_shutdown(
-            self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-        ) -> Poll<Result<(), io::Error>> {
-            match self.get_mut() {
-                Self::Http1(s) => match s.try_lock() {
-                    Ok(mut l) => unsafe { Pin::new_unchecked(&mut *l).poll_shutdown(cx) },
-                    Err(_) => Poll::Pending,
-                },
-                Self::Http2(s) => match s.poll_reset(cx) {
-                    Poll::Ready(result) => Poll::Ready(match result {
-                        Ok(_) => Ok(()),
-                        Err(err) => Err(io::Error::new(io::ErrorKind::InvalidData, err)),
-                    }),
-                    Poll::Pending => {
-                        s.send_reset(h2::Reason::NO_ERROR);
-                        Poll::Pending
+    impl ResponseBodyPipe {
+        pub async fn send(&mut self, data: Bytes, end_of_stream: bool) -> Result<(), Error> {
+            match self {
+                Self::Http1(h1) => {
+                    let mut lock = h1.lock().await;
+                    lock.write_all(&data).await?;
+                    if end_of_stream {
+                        lock.flush().await?;
                     }
-                },
+                }
+                Self::Http2(h2) => h2.send_data(data, end_of_stream)?,
             }
+            Ok(())
         }
     }
 }

@@ -223,6 +223,15 @@ impl HostData {
     pub fn get_host(&self, host: &str) -> Option<&Host> {
         self.by_name.get(host)
     }
+    pub fn get_or_default(&self, host: &str) -> &Host {
+        self.get_host(host).unwrap_or(&self.get_default().1)
+    }
+    pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> &Host {
+        match maybe_host {
+            Some(host) => self.get_or_default(host),
+            None => &self.get_default().1,
+        }
+    }
 
     pub fn has_secure(&self) -> bool {
         self.has_secure

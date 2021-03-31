@@ -87,10 +87,14 @@ pub struct CachedCompression {
 }
 impl CachedCompression {
     pub(crate) fn new(
-        identity: http::Response<Bytes>,
+        mut identity: http::Response<Bytes>,
         compress: CompressPreference,
         client_cache: ClientCachePreference,
     ) -> Self {
+        let len = identity.body().len();
+        let headers = identity.headers_mut();
+        Self::set_content_length(headers, len);
+        Self::set_client_cache(headers, client_cache);
         Self {
             identity,
             gzip: None,
@@ -129,23 +133,33 @@ impl CachedCompression {
         }
     }
 
+    fn set_content_length(headers: &mut http::HeaderMap, len: usize) {
+        // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
+        utility::replace_header(
+            headers,
+            "content-length",
+            http::HeaderValue::from_str(len.to_string().as_str()).unwrap(),
+        )
+    }
+    fn set_client_cache(headers: &mut http::HeaderMap, preference: ClientCachePreference) {
+        utility::replace_header(headers, "cache-control", preference.as_header());
+    }
+
     #[allow(dead_code)]
-    fn clone_response_set_compression(
-        response: &http::Response<Bytes>,
+    fn clone_identity_set_compression(
+        &self,
         new_data: Bytes,
         compression: http::HeaderValue,
     ) -> http::Response<Bytes> {
+        let response = &self.identity;
         let mut builder = http::Response::builder()
             .version(response.version())
             .status(response.status());
         let mut map = response.headers().clone();
-        utility::replace_header(&mut map, "content-encoding", compression);
-        utility::replace_header(
-            &mut map,
-            "content-length",
-            // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
-            http::HeaderValue::from_str(new_data.len().to_string().as_str()).unwrap(),
-        );
+        let headers = &mut map;
+        utility::replace_header(headers, "content-encoding", compression);
+        Self::set_content_length(headers, new_data.len());
+        Self::set_client_cache(headers, self.client_cache);
         *builder.headers_mut().unwrap() = map;
         builder.body(new_data).unwrap()
     }
@@ -167,11 +181,8 @@ impl CachedCompression {
             let buffer = buffer.into_inner();
             let buffer = buffer.freeze();
 
-            let response = Self::clone_response_set_compression(
-                self.get_identity(),
-                buffer,
-                http::HeaderValue::from_static("gzip"),
-            );
+            let response =
+                self.clone_identity_set_compression(buffer, http::HeaderValue::from_static("gzip"));
 
             if self.gzip.is_none() {
                 // maybe shooting myself in the foot...
@@ -201,11 +212,8 @@ impl CachedCompression {
             let buffer = buffer.into_inner();
             let buffer = buffer.freeze();
 
-            let response = Self::clone_response_set_compression(
-                self.get_identity(),
-                buffer,
-                http::HeaderValue::from_static("br"),
-            );
+            let response =
+                self.clone_identity_set_compression(buffer, http::HeaderValue::from_static("br"));
 
             if self.br.is_none() {
                 // maybe shooting myself in the foot...
@@ -259,6 +267,15 @@ pub enum ClientCachePreference {
     Changing,
     /// Will cache for 1 year
     Full,
+}
+impl ClientCachePreference {
+    pub fn as_header(&self) -> http::HeaderValue {
+        match self {
+            Self::None => http::HeaderValue::from_static("no-store"),
+            Self::Changing => http::HeaderValue::from_static("max-age=120"),
+            Self::Full => http::HeaderValue::from_static("public, max-age=604800, immutable"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
