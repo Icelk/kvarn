@@ -18,6 +18,7 @@ use crate::*;
 use application::Body;
 use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
 use http::Uri;
+use prelude::*;
 use std::future::Future;
 
 pub type RetFut<T> = Box<dyn Future<Output = T>>;
@@ -36,6 +37,9 @@ pub type Prepare = &'static (dyn Fn(RequestWrapper, FsCache) -> RetFut<Response>
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
 pub type Package = &'static (dyn Fn(ResponseWrapperMut) -> RetFut<()> + Sync);
 pub type Post = &'static (dyn Fn(Bytes, ResponsePipeWrapperMut) -> RetFut<()> + Sync);
+
+pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
+pub const EXTENSION_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
 macro_rules! get_unsafe {
     ($main:ty, $return:ty) => {
@@ -200,6 +204,7 @@ impl Extensions {
     }
 }
 
+#[derive(Debug)]
 pub struct PresentExtensions {
     data: Bytes,
     // Will have the start and end of name of extensions as first tuple,
@@ -208,6 +213,56 @@ pub struct PresentExtensions {
     extensions: Vec<((usize, usize), (usize, usize))>,
 }
 impl PresentExtensions {
+    pub fn new(data: Bytes) -> Option<Self> {
+        let mut extensions_args =
+            Vec::with_capacity(
+                data.iter()
+                    .fold(1, |acc, byte| if *byte == SPACE { acc + 1 } else { acc }),
+            );
+
+        if !data.starts_with(EXTENSION_PREFIX)
+            || data[EXTENSION_PREFIX.len()..].starts_with(EXTENSION_AND)
+        {
+            return None;
+        }
+        let mut start = EXTENSION_PREFIX.len();
+        let mut last_name = None;
+        for (pos, byte) in data.iter().enumerate().skip(3) {
+            if start > pos {
+                continue;
+            }
+            let byte = *byte;
+
+            if byte == SPACE || byte == CR || byte == LF {
+                if str::from_utf8(&data[start..pos]).is_err() {
+                    return None;
+                }
+                let len = pos - start;
+                let span = (start, len);
+                match last_name {
+                    Some(name) => extensions_args.push((name, span)),
+                    None => {
+                        last_name = Some((start, len));
+                        extensions_args.push((span, span))
+                    }
+                }
+                if byte == CR || byte == LF {
+                    return Some(Self {
+                        data,
+                        extensions: extensions_args,
+                    });
+                }
+                start = if data[pos..].starts_with(EXTENSION_AND) {
+                    last_name = None;
+                    pos + EXTENSION_AND.len()
+                } else {
+                    pos + 1
+                };
+            }
+        }
+
+        None
+    }
     pub fn iter(&self) -> PresentExtensionsIter {
         PresentExtensionsIter {
             data: &self,
@@ -215,6 +270,7 @@ impl PresentExtensions {
         }
     }
 }
+#[derive(Debug)]
 pub struct PresentExtensionsIter<'a> {
     data: &'a PresentExtensions,
     index: usize,
@@ -226,24 +282,29 @@ impl<'a> Iterator for PresentExtensionsIter<'a> {
         if start == self.data.extensions.len() {
             return None;
         }
-        let name = self.data.extensions[start].1;
+        let name = self.data.extensions[start].0;
 
         let mut iter = self.data.extensions[start + 1..].iter();
 
         while let Some(current) = iter.next() {
+            self.index += 1;
             if current.0 != name {
                 break;
             }
-            self.index += 1;
         }
+        // Cannot change name ↑ on last item; the end of each *peeks* forward one. If it's next to the end, add one.
+        if self.index + 1 == self.data.extensions.len() {
+            self.index += 1
+        };
         Some(PresentArguments {
             data: self.data,
             data_index: start,
             len: self.index - start,
-            index: 0,
+            index: 1,
         })
     }
 }
+#[derive(Debug)]
 pub struct PresentArguments<'a> {
     data: &'a PresentExtensions,
     data_index: usize,
@@ -265,6 +326,7 @@ impl<'a> Iterator for PresentArguments<'a> {
             return None;
         }
         let (start, len) = self.data.extensions[self.data_index + self.index].1;
+        self.index += 1;
         // Again, safe because we checked for str in creation of [`PresentExtensions`].
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
     }
