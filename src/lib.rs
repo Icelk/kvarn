@@ -110,12 +110,17 @@ pub(crate) async fn handle_cache(
             let (resp, compress, client_cache, server_cache) =
                 handle_request(request, address).await.unwrap();
 
-            let resp_no_body = utility::empty_clone_response(&resp);
+            let compressed_response =
+                comprash::CachedCompression::new(resp, compress, client_cache);
+
+            let response = compressed_response.get_preferred();
+
+            let resp_no_body = utility::empty_clone_response(response);
             let mut pipe = response_pipe
                 .send_response(resp_no_body, false)
                 .await
                 .map_err::<io::Error, _>(application::Error::into)?;
-            pipe.send(Bytes::clone(resp.body()), true)
+            pipe.send(Bytes::clone(response.body()), true)
                 .await
                 .map_err::<io::Error, _>(application::Error::into)?;
             if server_cache.cache() {
@@ -125,7 +130,7 @@ pub(crate) async fn handle_cache(
                     false => comprash::UriKey::Path(path_query.into_path()),
                 };
                 info!("Caching uri {:?}!", &key);
-                lock.cache(key, resp, compress, client_cache);
+                lock.cache(key, compressed_response);
             }
             // process response push
         }
@@ -148,7 +153,6 @@ pub(crate) async fn handle_request(
     Ok((
         http::Response::builder()
             .status(http::StatusCode::OK)
-            .header("content-length", format!("{}", content.len()))
             .header("content-type", "text/html; charset=utf-8")
             .body(bytes::Bytes::copy_from_slice(content))
             .unwrap(),

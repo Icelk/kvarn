@@ -405,24 +405,15 @@ impl<K: Eq + Hash, V> Cache<K, V> {
     }
 }
 impl<K: Eq + Hash> Cache<K, CachedCompression> {
-    pub fn cache(
-        &mut self,
-        key: K,
-        identity: http::Response<Bytes>,
-        compress: CompressPreference,
-        client_cache: ClientCachePreference,
-    ) -> CacheOut<CachedCompression> {
-        let len = identity.body().len();
-        let item = CachedCompression::new(identity, compress, client_cache);
-
-        if len >= self.size_limit {
-            return CacheOut::NotInserted(item);
+    pub fn cache(&mut self, key: K, response: CachedCompression) -> CacheOut<CachedCompression> {
+        if response.identity.body().len() >= self.size_limit {
+            return CacheOut::NotInserted(response);
         }
         self.inserts += 1;
         if self.map.len() >= self.max_items {
             self.discard_one();
         }
-        match self.map.insert(key, item) {
+        match self.map.insert(key, response) {
             Some(item) => CacheOut::Present(item),
             None => CacheOut::None,
         }
