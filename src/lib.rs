@@ -15,7 +15,8 @@ pub mod prelude;
 pub mod transport;
 pub mod utility;
 
-use extensions::Extensions;
+use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
+use extensions::{Extensions, Response};
 use limiting::LimitWrapper;
 use net::SocketAddrV4;
 use prelude::{internals::*, networking::*, threading::*, *};
@@ -77,7 +78,7 @@ pub(crate) async fn handle_connection(
 
 /// LAYER 4
 pub(crate) async fn handle_cache(
-    request: http::Request<application::Body>,
+    mut request: http::Request<application::Body>,
     address: net::SocketAddr,
     mut response_pipe: application::ResponsePipe,
     host: &Host,
@@ -107,11 +108,21 @@ pub(crate) async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let (resp, compress, client_cache, server_cache) =
-                handle_request(request, address).await.unwrap();
+            let (resp, client_cache, server_cache, compress) =
+                handle_request(&mut request, address, host).await.unwrap();
 
+            let extension = match Path::new(request.uri().path())
+                .extension()
+                .and_then(|s| s.to_str())
+            {
+                Some(ext) => ext,
+                None => match host.extension_default.as_ref() {
+                    Some(ext) => ext.as_str(),
+                    None => "",
+                },
+            };
             let compressed_response =
-                comprash::CachedCompression::new(resp, compress, client_cache);
+                comprash::CompressedResponse::new(resp, compress, client_cache, extension);
 
             let response = compressed_response.get_preferred();
 
@@ -140,25 +151,37 @@ pub(crate) async fn handle_cache(
 
 /// LAYER 5.1
 pub(crate) async fn handle_request(
-    _request: http::Request<application::Body>,
+    _request: &mut http::Request<application::Body>,
     _address: net::SocketAddr,
-) -> io::Result<(
-    http::Response<bytes::Bytes>,
-    comprash::CompressPreference,
-    comprash::ClientCachePreference,
-    comprash::ServerCachePreference,
-)> {
-    let content = b"<h1>Hello!</h1>What can I do for you?";
+    host: &Host,
+) -> io::Result<Response> {
+    let path = match parse::convert_uri(
+        _request.uri().path(),
+        host.path.as_path(),
+        host.get_folder_default_or("index.html"),
+        host.get_extension_default_or("html"),
+    ) {
+        Some(p) => p,
+        None => {
+            return Ok(utility::default_error_response(http::StatusCode::BAD_REQUEST, host).await)
+        }
+    };
+    let response = match utility::read_file(&path, &host.file_cache).await {
+        Some(response) => response,
+        None => {
+            return Ok(utility::default_error_response(http::StatusCode::NOT_FOUND, host).await)
+        }
+    };
+    // let content = b"<h1>Hello!</h1>What can I do for you?";
 
     Ok((
         http::Response::builder()
             .status(http::StatusCode::OK)
-            .header("content-type", "text/html; charset=utf-8")
-            .body(bytes::Bytes::copy_from_slice(content))
+            .body(response)
             .unwrap(),
-        comprash::CompressPreference::Full,
         comprash::ClientCachePreference::Full,
         comprash::ServerCachePreference::Full,
+        comprash::CompressPreference::Full,
     ))
 }
 
