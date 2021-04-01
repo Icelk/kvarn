@@ -15,14 +15,15 @@
 //! I'm awaiting you, guaranteeing the data isn't touched by anyone but the single extension.
 //! If you use it later, I probably have dropped the data.
 use crate::*;
-use application::Body;
+use application::{Body, ResponsePipe};
+use comprash::FileCache;
 use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
 use http::Uri;
 use prelude::*;
 use std::future::Future;
+use std::pin::Pin;
 
-pub type RetFut<T> = Box<dyn Future<Output = T>>;
-pub type FsCache = ();
+pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
 pub type Request = http::Request<application::Body>;
 pub type Response = (
     http::Response<Bytes>,
@@ -32,8 +33,9 @@ pub type Response = (
 );
 
 pub type Prime = &'static (dyn Fn(&Uri) -> Option<Uri> + Sync);
-pub type Pre = &'static (dyn Fn(RequestWrapperMut, FsCache) -> RetFut<Option<Response>> + Sync);
-pub type Prepare = &'static (dyn Fn(RequestWrapper, FsCache) -> RetFut<Response> + Sync);
+pub type Pre =
+    &'static (dyn Fn(RequestWrapperMut, FileCacheWrapper) -> RetFut<Option<Response>> + Sync);
+pub type Prepare = &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<Response> + Sync);
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
 pub type Package = &'static (dyn Fn(ResponseWrapperMut) -> RetFut<()> + Sync);
 pub type Post = &'static (dyn Fn(Bytes, ResponsePipeWrapperMut) -> RetFut<()> + Sync);
@@ -41,7 +43,7 @@ pub type Post = &'static (dyn Fn(Bytes, ResponsePipeWrapperMut) -> RetFut<()> + 
 pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const EXTENSION_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
-macro_rules! get_unsafe {
+macro_rules! impl_get_unsafe {
     ($main:ty, $return:ty) => {
         impl $main {
             pub(crate) fn new(data: &$return) -> Self {
@@ -52,9 +54,11 @@ macro_rules! get_unsafe {
                 &*self.0
             }
         }
+        unsafe impl Send for $main {}
+        unsafe impl Sync for $main {}
     };
 }
-macro_rules! get_unsafe_mut {
+macro_rules! impl_get_unsafe_mut {
     ($main:ty, $return:ty) => {
         impl $main {
             pub(crate) fn new(data: &mut $return) -> Self {
@@ -65,21 +69,36 @@ macro_rules! get_unsafe_mut {
                 &mut *self.0
             }
         }
+        unsafe impl Send for $main {}
+        unsafe impl Sync for $main {}
+    };
+}
+macro_rules! return_none {
+    ($option:expr) => {
+        match $option {
+            Some(value) => value,
+            None => return,
+        }
     };
 }
 
 pub struct RequestWrapper(*const Request);
-get_unsafe!(RequestWrapper, Request);
+impl_get_unsafe!(RequestWrapper, Request);
 
 pub struct RequestWrapperMut(*mut Request);
-get_unsafe_mut!(RequestWrapperMut, Request);
+impl_get_unsafe_mut!(RequestWrapperMut, Request);
 pub struct ResponseWrapperMut(*mut http::Response<Bytes>);
-get_unsafe_mut!(ResponseWrapperMut, http::Response<Bytes>);
+impl_get_unsafe_mut!(ResponseWrapperMut, http::Response<Bytes>);
 
 pub struct ResponsePipeWrapperMut(*mut application::ResponsePipe);
-get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
+impl_get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
 
-// impl
+pub struct FileCacheWrapper(*const FileCache);
+impl_get_unsafe!(FileCacheWrapper, FileCache);
+
+// pub struct PresentArgumentsWrapper(*mut PresentArguments<'_>);
+// impl_get_unsafe!(PresentArgumentsWrapper, PresentArguments);
+
 pub struct PresentDataWrapper(PresentData);
 impl PresentDataWrapper {
     /// # Safety
@@ -141,6 +160,8 @@ impl PresentData {
         &self.args
     }
 }
+unsafe impl Send for PresentData {}
+unsafe impl Sync for PresentData {}
 
 /// Contains all extensions.
 /// See [extensions.md](../extensions.md) for more info.
@@ -203,15 +224,142 @@ impl Extensions {
     pub fn add_post(&mut self, extension: Post) {
         self.post.push(extension);
     }
+
+    pub fn resolve_prime(&self, uri: &Uri) -> Option<Uri> {
+        for prime in self.prime.iter() {
+            if let Some(prime) = prime(uri) {
+                return Some(prime);
+            }
+        }
+        None
+    }
+    pub async fn resolve_pre(
+        &self,
+        request: &mut Request,
+        file_cache: &FileCache,
+    ) -> Option<Response> {
+        match self.pre.get(request.uri().path()) {
+            Some(extension) => {
+                extension(
+                    RequestWrapperMut::new(request),
+                    FileCacheWrapper::new(file_cache),
+                )
+                .await
+            }
+            None => None,
+        }
+    }
+    pub async fn resolve_prepare(
+        &self,
+        request: &http::Request<Body>,
+        file_cache: &FileCache,
+    ) -> Option<Response> {
+        match self.prepare_single.get(request.uri().path()) {
+            Some(extension) => Some(
+                extension(
+                    RequestWrapper::new(request),
+                    FileCacheWrapper::new(file_cache),
+                )
+                .await,
+            ),
+            None => {
+                for (dir, extension) in &self.prepare_dir {
+                    match request.uri().path().starts_with(dir) {
+                        true => {
+                            return Some(
+                                extension(
+                                    RequestWrapper::new(request),
+                                    FileCacheWrapper::new(file_cache),
+                                )
+                                .await,
+                            )
+                        }
+                        false => continue,
+                    }
+                }
+                None
+            }
+        }
+    }
+    pub async fn resolve_present(
+        &self,
+        request: &http::Request<Body>,
+        response: &mut http::Response<Bytes>,
+        client_cache_preference: ClientCachePreference,
+        server_cache_preference: ServerCachePreference,
+        host: &Host,
+        address: SocketAddr,
+        path: &Path,
+    ) {
+        let extensions = return_none!(PresentExtensions::new(Bytes::clone(response.body())));
+        *response.body_mut() = response.body_mut().split_off(extensions.data_start());
+        for extension_name_args in extensions.iter() {
+            match self.present_internal.get(extension_name_args.name()) {
+                Some(extension) => {
+                    let data = PresentData {
+                        address,
+                        request,
+                        host,
+                        path,
+                        server_cache_preference,
+                        client_cache_preference,
+                        response,
+                        args: extension_name_args.map(str::to_string).collect(),
+                    };
+                    let data = PresentDataWrapper(data);
+                    extension(data).await;
+                }
+                // No extension, do nothing.
+                None => {}
+            }
+        }
+        match path
+            .extension()
+            .and_then(|s| s.to_str())
+            .and_then(|s| self.present_file.get(s))
+        {
+            Some(extension) => {
+                let data = PresentData {
+                    address,
+                    request,
+                    host,
+                    path,
+                    server_cache_preference,
+                    client_cache_preference,
+                    response,
+                    args: Vec::new(),
+                };
+                let data = PresentDataWrapper(data);
+                extension(data).await;
+            }
+            None => {}
+        }
+    }
+    pub async fn resolve_package(&self, response: &mut http::Response<Bytes>) {
+        for extension in &self.package {
+            extension(ResponseWrapperMut::new(response)).await;
+        }
+    }
+    pub async fn resolve_post(&self, bytes: Bytes, response_pipe: &mut ResponsePipe) {
+        for extension in self.post.iter().take(self.post.len() - 1) {
+            extension(
+                Bytes::clone(&bytes),
+                ResponsePipeWrapperMut::new(response_pipe),
+            )
+            .await;
+        }
+        if let Some(extension) = self.post.last() {
+            extension(bytes, ResponsePipeWrapperMut::new(response_pipe)).await;
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct PresentExtensions {
     data: Bytes,
-    // Will have the start and end of name of extensions as first tuple,
-    // then the name/argument start and length as second.
-    // There wil be several names starting on same position.
+    // Will have the start and enVec<Stringstarting on same position.
     extensions: Vec<((usize, usize), (usize, usize))>,
+    data_start: usize,
 }
 impl PresentExtensions {
     pub fn new(data: Bytes) -> Option<Self> {
@@ -228,6 +376,7 @@ impl PresentExtensions {
         }
         let mut start = EXTENSION_PREFIX.len();
         let mut last_name = None;
+        let mut has_cr = false;
         for (pos, byte) in data.iter().enumerate().skip(3) {
             if start > pos {
                 continue;
@@ -247,10 +396,14 @@ impl PresentExtensions {
                         extensions_args.push((span, span))
                     }
                 }
+                if byte == CR {
+                    has_cr = true;
+                }
                 if byte == CR || byte == LF {
                     return Some(Self {
                         data,
                         extensions: extensions_args,
+                        data_start: pos + if has_cr { 2 } else { 1 },
                     });
                 }
                 start = if data[pos..].starts_with(EXTENSION_AND) {
@@ -269,6 +422,9 @@ impl PresentExtensions {
             data: &self,
             index: 0,
         }
+    }
+    pub fn data_start(&self) -> usize {
+        self.data_start
     }
 }
 #[derive(Debug)]

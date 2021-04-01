@@ -112,8 +112,33 @@ pub(crate) async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let (resp, client_cache, server_cache, compress) =
-                handle_request(&mut request, address, host).await.unwrap();
+            let (resp, client_cache, server_cache, compress) = match parse::convert_uri(
+                request.uri().path(),
+                host.path.as_path(),
+                host.get_folder_default_or("index.html"),
+                host.get_extension_default_or("html"),
+            ) {
+                Some(path) => {
+                    let (mut resp, client_cache, server_cache, compress) =
+                        handle_request(&mut request, address, host, &path)
+                            .await
+                            .unwrap();
+
+                    host.extensions
+                        .resolve_present(
+                            &request,
+                            &mut resp,
+                            client_cache,
+                            server_cache,
+                            host,
+                            address,
+                            path.as_path(),
+                        )
+                        .await;
+                    (resp, client_cache, server_cache, compress)
+                }
+                None => utility::default_error_response(http::StatusCode::BAD_REQUEST, host).await,
+            };
 
             let extension = match Path::new(request.uri().path())
                 .extension()
@@ -158,18 +183,8 @@ pub(crate) async fn handle_request(
     _request: &mut http::Request<application::Body>,
     _address: net::SocketAddr,
     host: &Host,
+    path: &PathBuf,
 ) -> io::Result<Response> {
-    let path = match parse::convert_uri(
-        _request.uri().path(),
-        host.path.as_path(),
-        host.get_folder_default_or("index.html"),
-        host.get_extension_default_or("html"),
-    ) {
-        Some(p) => p,
-        None => {
-            return Ok(utility::default_error_response(http::StatusCode::BAD_REQUEST, host).await)
-        }
-    };
     let response = match utility::read_file(&path, &host.file_cache).await {
         Some(response) => response,
         None => {

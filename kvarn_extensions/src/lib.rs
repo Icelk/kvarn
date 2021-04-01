@@ -378,7 +378,7 @@ pub mod parse {
 
 /// Makes the client download the file.
 pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async move {
+    Box::pin(async move {
         let data = unsafe { data.get_inner() };
         let headers = data.response_mut().headers_mut();
         kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
@@ -386,7 +386,7 @@ pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async move {
+    Box::pin(async move {
         let data = unsafe { data.get_inner() };
         if let Some(preference) = data
             .args()
@@ -400,7 +400,7 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async move {
+    Box::pin(async move {
         let data = unsafe { data.get_inner() };
         let error = default_error(http::StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
         *data.response_mut() = error;
@@ -408,7 +408,7 @@ pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::new(async move {
+    let future = Box::pin(async move {
         let data = unsafe { data.get_inner() };
         let mut matched = false;
         // Loop over denied ip in args
@@ -431,5 +431,6 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
         }
         *data.server_cache_preference() = kvarn::comprash::ServerCachePreference::None;
         *data.client_cache_preference() = kvarn::comprash::ClientCachePreference::Changing;
-    })
+    })/*  as Box<(dyn std::future::Future<Output = ()> + Unpin)> */;
+    future
 }
