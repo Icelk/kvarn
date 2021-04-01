@@ -1,5 +1,6 @@
 use crate::{
-    comprash::FileCache,
+    comprash::{ClientCachePreference, CompressPreference, FileCache, ServerCachePreference},
+    extensions::Response,
     prelude::{fs::*, internals::*, *},
 };
 
@@ -46,6 +47,7 @@ async fn read_to_end<R: AsyncRead + Unpin>(mut file: R, capacity: usize) -> io::
                 read += len;
                 if read > buffer.len() - 512 {
                     buffer.reserve(2048);
+                    unsafe { buffer.set_len(buffer.capacity()) };
                 }
             }
         }
@@ -90,10 +92,8 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<By
     read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
 }
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
-///
-/// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(feature = "no-fs-cache")]
-pub async fn read_file<P: AsRef<Path>>(path: &P, _: &mut FileCache) -> Option<Bytes> {
+pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
     let file = File::open(path).await.ok()?;
     read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
 }
@@ -147,6 +147,15 @@ pub async fn default_error(
         .header("content-encoding", "identity")
         .body(body)
         .unwrap()
+}
+
+pub async fn default_error_response(code: http::StatusCode, host: &Host) -> Response {
+    (
+        default_error(code, Some(&host.file_cache)).await,
+        ClientCachePreference::Full,
+        ServerCachePreference::None,
+        CompressPreference::Full,
+    )
 }
 
 #[derive(Debug)]
