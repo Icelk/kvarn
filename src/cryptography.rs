@@ -1,4 +1,4 @@
-use crate::comprash::{Cache, CachedCompression, FileCache, PathQuery, ResponseCache, UriKey};
+use crate::comprash::{Cache, CompressedResponse, FileCache, PathQuery, ResponseCache, UriKey};
 use crate::extensions::Extensions;
 use crate::prelude::{fs::*, *};
 use rustls::{
@@ -33,7 +33,7 @@ pub struct Host {
     pub path: PathBuf,
     pub extensions: Extensions,
     pub file_cache: FileCache,
-    pub response_cache: Mutex<Cache<UriKey, CachedCompression>>,
+    pub response_cache: Mutex<Cache<UriKey, CompressedResponse>>,
 
     /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
     /// E.g. `/posts/` -> `/posts/index.html`

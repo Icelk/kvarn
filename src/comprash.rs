@@ -4,9 +4,9 @@ use http::Response;
 use std::{borrow::Borrow, hash::Hash, rc::Rc, sync::Arc};
 use tokio::sync::Mutex;
 
-pub type CachedResponse = Arc<Response<CachedCompression>>;
+pub type CachedResponse = Arc<Response<CompressedResponse>>;
 pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
-pub type ResponseCache = Mutex<Cache<UriKey, CachedCompression>>;
+pub type ResponseCache = Mutex<Cache<UriKey, CompressedResponse>>;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct PathQuery {
@@ -77,7 +77,7 @@ impl UriKey {
 // for when no compression is compiled in
 #[allow(dead_code)]
 #[derive(Debug)]
-pub struct CachedCompression {
+pub struct CompressedResponse {
     identity: http::Response<Bytes>,
     gzip: Option<http::Response<Bytes>>,
     br: Option<http::Response<Bytes>>,
@@ -85,16 +85,18 @@ pub struct CachedCompression {
     compress: CompressPreference,
     client_cache: ClientCachePreference,
 }
-impl CachedCompression {
+impl CompressedResponse {
     pub(crate) fn new(
         mut identity: http::Response<Bytes>,
         compress: CompressPreference,
         client_cache: ClientCachePreference,
+        extension: &str,
     ) -> Self {
         let len = identity.body().len();
         let headers = identity.headers_mut();
         Self::set_content_length(headers, len);
         Self::set_client_cache(headers, client_cache);
+        Self::check_utf_8(&mut identity, extension);
         Self {
             identity,
             gzip: None,
@@ -144,6 +146,56 @@ impl CachedCompression {
     fn set_client_cache(headers: &mut http::HeaderMap, preference: ClientCachePreference) {
         utility::replace_header(headers, "cache-control", preference.as_header());
     }
+    fn check_utf_8(response: &mut http::Response<Bytes>, extension: &str) {
+        let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
+        match response.headers().get("content-type") {
+            Some(content_type) => match content_type
+                .to_str()
+                .ok()
+                .and_then(|s| s.parse::<mime::Mime>().ok())
+            {
+                Some(mime_type) => {
+                    match mime_type.get_param("charset") {
+                        // Has charset attribute.
+                        Some(_) => {}
+                        None if utf_8 => {
+                            // Unsafe if ok; we know the added bytes are safe for a http::HeaderValue
+                            // and unwrap is ok; we checked same thing  just above
+                            let content_type = unsafe {
+                                http::HeaderValue::from_maybe_shared_unchecked(
+                                    format!("{}; charset=utf-8", content_type.to_str().unwrap())
+                                        .into_bytes(),
+                                )
+                            };
+                            utility::replace_header(
+                                response.headers_mut(),
+                                "content-type",
+                                content_type,
+                            );
+                        }
+                        // We should not add charset parameter
+                        None => {}
+                    }
+                }
+                // Mime type is not recognised, not touching.
+                None => {}
+            },
+            None => {
+                let mime = match utf_8 {
+                    true => mime::TEXT_HTML_UTF_8,
+                    false => mime::APPLICATION_OCTET_STREAM,
+                };
+                let mime_type = mime_guess::from_ext(extension).first_or(mime);
+                // Is ok; mime::Mime will only contain ok bytes.
+                let content_type = unsafe {
+                    http::HeaderValue::from_maybe_shared_unchecked(
+                        mime_type.to_string().into_bytes(),
+                    )
+                };
+                response.headers_mut().insert("content-type", content_type);
+            }
+        }
+    }
 
     #[allow(dead_code)]
     fn clone_identity_set_compression(
@@ -172,7 +224,6 @@ impl CachedCompression {
             let bytes = self.identity.body().as_ref();
 
             let mut buffer = bytes::BytesMut::with_capacity(bytes.len() / 2 + 64).writer();
-            // unsafe { buffer.set_len(buffer.capacity()) };
 
             let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::fast());
             c.write(bytes).expect("Failed to compress using gzip!");
@@ -404,8 +455,8 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         });
     }
 }
-impl<K: Eq + Hash> Cache<K, CachedCompression> {
-    pub fn cache(&mut self, key: K, response: CachedCompression) -> CacheOut<CachedCompression> {
+impl<K: Eq + Hash> Cache<K, CompressedResponse> {
+    pub fn cache(&mut self, key: K, response: CompressedResponse) -> CacheOut<CompressedResponse> {
         if response.identity.body().len() >= self.size_limit {
             return CacheOut::NotInserted(response);
         }
