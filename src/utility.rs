@@ -35,6 +35,27 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
+pub struct WriteableBytes {
+    bytes: BytesMut,
+}
+impl WriteableBytes {
+    pub fn new(bytes: BytesMut) -> Self {
+        Self { bytes }
+    }
+    pub fn into_inner(self) -> BytesMut {
+        self.bytes
+    }
+}
+impl Write for WriteableBytes {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.bytes.extend(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// ToDo: optimize!
 async fn read_to_end<R: AsyncRead + Unpin>(mut file: R, capacity: usize) -> io::Result<BytesMut> {
     let mut buffer = BytesMut::with_capacity(capacity);
