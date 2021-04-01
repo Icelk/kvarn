@@ -8,7 +8,6 @@ pub mod connection;
 pub mod cryptography;
 pub mod encryption;
 pub mod extensions;
-#[cfg(feature = "limiting")]
 pub mod limiting;
 pub mod parse;
 pub mod prelude;
@@ -54,7 +53,12 @@ pub(crate) async fn handle_connection(
         None | Some(b"http/1.1") => http::Version::HTTP_11,
         Some(b"http/1.0") => http::Version::HTTP_10,
         Some(b"http/0.9") => http::Version::HTTP_09,
-        _ => unimplemented!(),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "HTTP version not supported",
+            ))
+        }
     };
     let hostname = encrypted.get_sni_hostname().map(str::to_string);
     println!("ALPN: {:?}", encrypted.get_alpn_protocol());
@@ -217,20 +221,18 @@ impl HostDescriptor {
 
 pub struct Config {
     sockets: Vec<HostDescriptor>,
-    extensions: Extensions,
 }
 impl Config {
     pub fn new(descriptors: Vec<HostDescriptor>) -> Self {
         Config {
             sockets: descriptors,
-            extensions: Extensions::new(),
         }
     }
 
     pub async fn run(self) {
         trace!("Running from config");
 
-        let mut limiter = LimitWrapper::default();
+        let limiter = LimitWrapper::default();
 
         let len = self.sockets.len();
         for (pos, descriptor) in self.sockets.into_iter().enumerate() {
