@@ -83,7 +83,6 @@ pub struct CompressedResponse {
     br: Option<http::Response<Bytes>>,
 
     compress: CompressPreference,
-    client_cache: ClientCachePreference,
 }
 impl CompressedResponse {
     pub(crate) fn new(
@@ -103,7 +102,6 @@ impl CompressedResponse {
             br: None,
 
             compress,
-            client_cache,
         }
     }
     pub fn get_identity(&self) -> &http::Response<Bytes> {
@@ -211,7 +209,6 @@ impl CompressedResponse {
         let headers = &mut map;
         utility::replace_header(headers, "content-encoding", compression);
         Self::set_content_length(headers, new_data.len());
-        Self::set_client_cache(headers, self.client_cache);
         *builder.headers_mut().unwrap() = map;
         builder.body(new_data).unwrap()
     }
