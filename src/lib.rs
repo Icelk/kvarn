@@ -67,24 +67,24 @@ pub(crate) async fn handle_connection(
         .await
         .map_err::<io::Error, _>(application::Error::into)?;
 
-    while let Ok((request, response_pipe)) = http.accept().await {
+    while let Ok((request, mut response_pipe)) = http.accept().await {
         let host = application::get_host(
             &request,
             hostname.as_ref().map(String::as_str),
             &host_descriptors.host_data,
         );
         // fn to handle getting from cache, generating response and sending it
-        handle_cache(request, address, response_pipe, host).await?;
+        handle_cache(request, address, &mut response_pipe, host).await?;
     }
 
     Ok(())
 }
 
 /// LAYER 4
-pub(crate) async fn handle_cache(
+pub async fn handle_cache(
     mut request: http::Request<application::Body>,
     address: net::SocketAddr,
-    mut response_pipe: application::ResponsePipe,
+    response_pipe: &mut application::ResponsePipe,
     host: &Host,
 ) -> io::Result<()> {
     let path_query = comprash::UriKey::path_and_query(request.uri());
@@ -99,6 +99,8 @@ pub(crate) async fn handle_cache(
             let response_body = Bytes::clone(resp.body());
             drop(lock);
 
+            todo!("dont close connection!");
+            todo!("id number (or enum (Respond, Push)) to make it push instead of response when called");
             let mut body_pipe = response_pipe
                 .send_response(response, false)
                 .await
@@ -107,6 +109,9 @@ pub(crate) async fn handle_cache(
                 .send(Bytes::clone(&response_body), true)
                 .await
                 .map_err::<io::Error, _>(application::Error::into)?;
+            host.extensions
+                .resolve_post(&request, response_body, response_pipe, address, host)
+                .await;
         }
         None => {
             drop(lock);
@@ -163,6 +168,8 @@ pub(crate) async fn handle_cache(
             pipe.send(Bytes::clone(response.body()), true)
                 .await
                 .map_err::<io::Error, _>(application::Error::into)?;
+
+            let response_bytes = Bytes::clone(compressed_response.get_identity().body());
             if server_cache.cache() {
                 let mut lock = host.response_cache.lock().await;
                 let key = match server_cache.query_matters() {
@@ -172,6 +179,9 @@ pub(crate) async fn handle_cache(
                 info!("Caching uri {:?}!", &key);
                 lock.cache(key, compressed_response);
             }
+            host.extensions
+                .resolve_post(&request, response_bytes, response_pipe, address, host)
+                .await;
             // process response push
         }
     }

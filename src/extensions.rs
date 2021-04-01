@@ -38,7 +38,14 @@ pub type Pre =
 pub type Prepare = &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<Response> + Sync);
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
 pub type Package = &'static (dyn Fn(ResponseWrapperMut) -> RetFut<()> + Sync);
-pub type Post = &'static (dyn Fn(Bytes, ResponsePipeWrapperMut) -> RetFut<()> + Sync);
+pub type Post = &'static (dyn Fn(
+    RequestWrapper,
+    Bytes,
+    ResponsePipeWrapperMut,
+    SocketAddr,
+    HostWrapper,
+) -> RetFut<()>
+              + Sync);
 
 pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const EXTENSION_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
@@ -96,8 +103,8 @@ impl_get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
 pub struct FileCacheWrapper(*const FileCache);
 impl_get_unsafe!(FileCacheWrapper, FileCache);
 
-// pub struct PresentArgumentsWrapper(*mut PresentArguments<'_>);
-// impl_get_unsafe!(PresentArgumentsWrapper, PresentArguments);
+pub struct HostWrapper(*const Host);
+impl_get_unsafe!(HostWrapper, Host);
 
 pub struct PresentDataWrapper(PresentData);
 impl PresentDataWrapper {
@@ -340,16 +347,33 @@ impl Extensions {
             extension(ResponseWrapperMut::new(response)).await;
         }
     }
-    pub async fn resolve_post(&self, bytes: Bytes, response_pipe: &mut ResponsePipe) {
+    pub async fn resolve_post(
+        &self,
+        request: &Request,
+        bytes: Bytes,
+        response_pipe: &mut ResponsePipe,
+        addr: SocketAddr,
+        host: &Host,
+    ) {
         for extension in self.post.iter().take(self.post.len() - 1) {
             extension(
+                RequestWrapper::new(request),
                 Bytes::clone(&bytes),
                 ResponsePipeWrapperMut::new(response_pipe),
+                addr,
+                HostWrapper::new(host),
             )
             .await;
         }
         if let Some(extension) = self.post.last() {
-            extension(bytes, ResponsePipeWrapperMut::new(response_pipe)).await;
+            extension(
+                RequestWrapper::new(request),
+                bytes,
+                ResponsePipeWrapperMut::new(response_pipe),
+                addr,
+                HostWrapper::new(host),
+            )
+            .await;
         }
     }
 }
