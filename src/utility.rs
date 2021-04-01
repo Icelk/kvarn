@@ -41,7 +41,7 @@ async fn read_to_end<R: AsyncRead + Unpin>(mut file: R, capacity: usize) -> io::
     unsafe { buffer.set_len(buffer.capacity()) };
     let mut read = 0;
     loop {
-        match file.read(&mut buffer[..]).await? {
+        match file.read(&mut buffer[read..]).await? {
             0 => break,
             len => {
                 read += len;
