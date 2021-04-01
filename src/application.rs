@@ -112,14 +112,11 @@ impl HttpConnection {
         }
     }
 
-    pub async fn accept(
-        &mut self,
-        default_host: &[u8],
-    ) -> Result<(http::Request<Body>, ResponsePipe), Error> {
+    pub async fn accept(&mut self) -> Result<(http::Request<Body>, ResponsePipe), Error> {
         match self {
             Self::Http1(stream) => {
                 let response = ResponsePipe::Http1(Arc::clone(stream));
-                request::parse_http_1(Arc::clone(stream), default_host)
+                request::parse_http_1(Arc::clone(stream))
                     .await
                     .map(|request| (request, response))
             }
@@ -142,9 +139,8 @@ mod request {
 
     pub async fn parse_http_1(
         stream: Arc<Mutex<Encryption<TcpStream>>>,
-        default_host: &[u8],
     ) -> Result<http::Request<Body>, Error> {
-        let (head, start, vec) = parse_request(&stream, default_host).await?;
+        let (head, start, vec) = parse_request(&stream).await?;
         Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, vec, start))))
     }
 
@@ -174,7 +170,6 @@ mod request {
     /// request will be cut off at `crate::BUFFER_SIZE`.
     pub async fn parse_request(
         stream: &Mutex<Encryption<TcpStream>>,
-        default_host: &[u8],
     ) -> Result<(Request<()>, usize, Vec<u8>), Error> {
         let mut buffer = Vec::with_capacity(utility::BUFFER_SIZE);
 
@@ -277,30 +272,30 @@ mod request {
             return Err(Error::NoPath);
         }
 
-        // ToDo: remove default host!
-        let host = parsed
-            .headers_ref()
-            .and_then(|headers| {
-                headers
-                    .get(http::header::HOST)
-                    .map(|header| header.as_bytes())
-            })
-            .unwrap_or(default_host);
+        let host = parsed.headers_ref().and_then(|headers| {
+            headers
+                .get(http::header::HOST)
+                .map(|header| header.as_bytes())
+        });
 
-        let scheme = match &*stream.lock().await {
-            Encryption::None(_) => "http",
-            Encryption::Tls(_) => "https",
-        };
+        let uri = match host {
+            None => Bytes::copy_from_slice(&buffer[path_start..path_end]),
+            Some(host) => {
+                let scheme = match &*stream.lock().await {
+                    Encryption::None(_) => "http",
+                    Encryption::Tls(_) => "https",
+                };
 
-        let uri = {
-            let mut uri =
-                BytesMut::with_capacity(scheme.len() + 3 + host.len() + (path_end - path_start));
+                let mut uri = BytesMut::with_capacity(
+                    scheme.len() + 3 + host.len() + (path_end - path_start),
+                );
 
-            uri.extend(scheme.as_bytes());
-            uri.extend(b"://");
-            uri.extend(host);
-            uri.extend(&buffer[path_start..path_end]);
-            uri.freeze()
+                uri.extend(scheme.as_bytes());
+                uri.extend(b"://");
+                uri.extend(host);
+                uri.extend(&buffer[path_start..path_end]);
+                uri.freeze()
+            }
         };
 
         match parsed
