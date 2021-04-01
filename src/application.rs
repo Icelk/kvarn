@@ -18,6 +18,7 @@ pub enum Error {
     NoPath,
     Done,
     VersionNotSupported,
+    InvalidHost,
 }
 impl From<http::Error> for Error {
     fn from(err: http::Error) -> Self {
@@ -49,6 +50,9 @@ impl Into<io::Error> for Error {
                 io::ErrorKind::InvalidInput,
                 "http version unsupported. Invalid ALPN config.",
             ),
+            Self::InvalidHost => {
+                io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
+            }
         }
     }
 }
@@ -108,11 +112,14 @@ impl HttpConnection {
         }
     }
 
-    pub async fn accept(&mut self) -> Result<(http::Request<Body>, ResponsePipe), Error> {
+    pub async fn accept(
+        &mut self,
+        default_host: &[u8],
+    ) -> Result<(http::Request<Body>, ResponsePipe), Error> {
         match self {
             Self::Http1(stream) => {
                 let response = ResponsePipe::Http1(Arc::clone(stream));
-                request::parse_http_1(Arc::clone(stream))
+                request::parse_http_1(Arc::clone(stream), default_host)
                     .await
                     .map(|request| (request, response))
             }
@@ -135,8 +142,9 @@ mod request {
 
     pub async fn parse_http_1(
         stream: Arc<Mutex<Encryption<TcpStream>>>,
+        default_host: &[u8],
     ) -> Result<http::Request<Body>, Error> {
-        let (head, start, vec) = parse_request(&stream).await?;
+        let (head, start, vec) = parse_request(&stream, default_host).await?;
         Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, vec, start))))
     }
 
@@ -164,8 +172,9 @@ mod request {
     ///
     /// # Limitation
     /// request will be cut off at `crate::BUFFER_SIZE`.
-    pub async fn parse_request<S: AsyncRead + Unpin>(
-        stream: &Arc<Mutex<S>>,
+    pub async fn parse_request(
+        stream: &Mutex<Encryption<TcpStream>>,
+        default_host: &[u8],
     ) -> Result<(Request<()>, usize, Vec<u8>), Error> {
         let mut buffer = Vec::with_capacity(utility::BUFFER_SIZE);
 
@@ -173,16 +182,18 @@ mod request {
         // Method is max 7 bytes long
         let mut method = [0; 7];
         let mut method_len = 0;
-        let mut path = Vec::with_capacity(128);
+        let mut path_start = 0;
+        let mut path_end = 0;
         // Version is 8 bytes long
         let mut version = [0; 8];
         let mut version_index = 0;
         let mut parsed = Request::builder();
-        let mut current_header_name = Vec::with_capacity(128);
-        let mut current_header_value = Vec::with_capacity(256);
+        let mut current_header_name = Vec::with_capacity(16);
+        let mut current_header_value = Vec::with_capacity(32);
         let mut lf_in_row = 0_u8;
         let mut header_end = 0;
         unsafe { buffer.set_len(buffer.capacity()) };
+        // ToDo: don't read only once, and only have max size with smaller start!
         let read = stream
             .lock()
             .await
@@ -191,7 +202,7 @@ mod request {
             .map_err(Error::Io)?;
         unsafe { buffer.set_len(read) };
 
-        for byte in buffer.iter().copied() {
+        for (pos, byte) in buffer.iter().copied().enumerate() {
             header_end += 1;
             if byte == CR {
                 continue;
@@ -214,11 +225,14 @@ mod request {
                     method_len += 1;
                 }
                 DecodeStage::Path => {
+                    if path_start == 0 {
+                        path_start = pos;
+                    }
                     if byte == SPACE {
+                        path_end = pos;
                         parse_stage.next();
                         continue;
                     }
-                    path.push(byte);
                 }
                 DecodeStage::Version => {
                     if byte == LF || version_index == version.len() {
@@ -255,12 +269,43 @@ mod request {
                 }
             };
         }
-        if path.is_empty() {
+        if path_end
+            .checked_sub(path_start)
+            .map(|len| len == 0)
+            .unwrap_or(true)
+        {
             return Err(Error::NoPath);
         }
+
+        // ToDo: remove default host!
+        let host = parsed
+            .headers_ref()
+            .and_then(|headers| {
+                headers
+                    .get(http::header::HOST)
+                    .map(|header| header.as_bytes())
+            })
+            .unwrap_or(default_host);
+
+        let scheme = match &*stream.lock().await {
+            Encryption::None(_) => "http",
+            Encryption::Tls(_) => "https",
+        };
+
+        let uri = {
+            let mut uri =
+                BytesMut::with_capacity(scheme.len() + 3 + host.len() + (path_end - path_start));
+
+            uri.extend(scheme.as_bytes());
+            uri.extend(b"://");
+            uri.extend(host);
+            uri.extend(&buffer[path_start..path_end]);
+            uri.freeze()
+        };
+
         match parsed
             .method(Method::from_bytes(&method[..method_len]).unwrap_or(Method::GET))
-            .uri(Uri::from_maybe_shared(path).unwrap_or(Uri::from_static("/")))
+            .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidHost)?)
             .version(match &version[..] {
                 b"HTTP/0.9" => Version::HTTP_09,
                 b"HTTP/1.0" => Version::HTTP_10,
