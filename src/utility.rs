@@ -37,18 +37,27 @@ pub mod chars {
 
 pub struct WriteableBytes {
     bytes: BytesMut,
+    len: usize,
 }
 impl WriteableBytes {
-    pub fn new(bytes: BytesMut) -> Self {
-        Self { bytes }
+    pub fn new(mut bytes: BytesMut) -> Self {
+        let len = bytes.len();
+        unsafe { bytes.set_len(bytes.capacity()) };
+        Self { len, bytes }
     }
-    pub fn into_inner(self) -> BytesMut {
+    pub fn into_inner(mut self) -> BytesMut {
+        unsafe { self.bytes.set_len(self.len) };
         self.bytes
     }
 }
 impl Write for WriteableBytes {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.bytes.extend(buf);
+        if self.len + buf.len() > self.bytes.capacity() {
+            self.bytes.reserve(buf.len() + 512);
+            unsafe { self.bytes.set_len(self.bytes.capacity()) };
+        }
+        self.bytes[self.len..self.len + buf.len()].copy_from_slice(buf);
+        self.len += buf.len();
         Ok(buf.len())
     }
     fn flush(&mut self) -> io::Result<()> {

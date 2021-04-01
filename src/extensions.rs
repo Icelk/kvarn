@@ -153,7 +153,7 @@ impl PresentData {
     pub fn response_mut(&mut self) -> &mut http::Response<Bytes> {
         unsafe { &mut *self.response }
     }
-    pub fn response(&mut self) -> &http::Response<Bytes> {
+    pub fn response(&self) -> &http::Response<Bytes> {
         unsafe { &*self.response }
     }
     pub fn args(&self) -> &[String] {
