@@ -224,7 +224,7 @@ impl CompressedResponse {
                 utility::WriteableBytes::new(bytes::BytesMut::with_capacity(bytes.len() / 2 + 64));
 
             let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::fast());
-            c.write(bytes).expect("Failed to compress using gzip!");
+            c.write_all(bytes).expect("Failed to compress using gzip!");
             c.finish().expect("Failed to compress using gzip!");
 
             let buffer = buffer.into_inner();
@@ -233,7 +233,6 @@ impl CompressedResponse {
             let response =
                 self.clone_identity_set_compression(buffer, http::HeaderValue::from_static("gzip"));
 
-            println!("{}", response.body().len());
             if self.gzip.is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
@@ -256,7 +255,8 @@ impl CompressedResponse {
                 utility::WriteableBytes::new(bytes::BytesMut::with_capacity(bytes.len() / 2 + 64));
 
             let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, 8, 21);
-            c.write(bytes).expect("Failed to compress using Brotli!");
+            c.write_all(bytes)
+                .expect("Failed to compress using Brotli!");
             c.flush().expect("Failed to compress using Brotli!");
             c.into_inner();
 
