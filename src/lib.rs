@@ -14,7 +14,9 @@ pub mod prelude;
 pub mod transport;
 pub mod utility;
 
-use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
+use comprash::{
+    ClientCachePreference, CompressPreference, CompressedResponse, PathQuery, ServerCachePreference,
+};
 use extensions::{Extensions, Response};
 use limiting::LimitWrapper;
 use net::SocketAddrV4;
@@ -61,7 +63,6 @@ pub(crate) async fn handle_connection(
         }
     };
     let hostname = encrypted.get_sni_hostname().map(str::to_string);
-    println!("ALPN: {:?}", encrypted.get_alpn_protocol());
     // LAYER 3
     let mut http = application::HttpConnection::new(encrypted, version)
         .await
@@ -74,17 +75,22 @@ pub(crate) async fn handle_connection(
             &host_descriptors.host_data,
         );
         // fn to handle getting from cache, generating response and sending it
-        handle_cache(request, address, &mut response_pipe, host).await?;
+        handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await?;
     }
 
     Ok(())
+}
+
+pub enum SendKind<'a> {
+    Send(&'a mut application::ResponsePipe),
+    Push(&'a mut application::PushedResponsePipe),
 }
 
 /// LAYER 4
 pub async fn handle_cache(
     mut request: http::Request<application::Body>,
     address: net::SocketAddr,
-    response_pipe: &mut application::ResponsePipe,
+    pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
     let path_query = comprash::UriKey::path_and_query(request.uri());
@@ -94,24 +100,40 @@ pub async fn handle_cache(
     match cached {
         Some(resp) => {
             info!("Found in cache!");
-            let resp = resp.get_preferred();
-            let response = utility::empty_clone_response(resp);
-            let response_body = Bytes::clone(resp.body());
+            let body_response = resp.get_preferred();
+            let response = utility::empty_clone_response(body_response);
+            let response_body = Bytes::clone(body_response.body());
+            let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
 
-            todo!("dont close connection!");
-            todo!("id number (or enum (Respond, Push)) to make it push instead of response when called");
-            let mut body_pipe = response_pipe
-                .send_response(response, false)
-                .await
-                .map_err::<io::Error, _>(application::Error::into)?;
-            body_pipe
-                .send(Bytes::clone(&response_body), true)
-                .await
-                .map_err::<io::Error, _>(application::Error::into)?;
-            host.extensions
-                .resolve_post(&request, response_body, response_pipe, address, host)
-                .await;
+            match pipe {
+                SendKind::Send(response_pipe) => {
+                    let mut body_pipe = response_pipe
+                        .send_response(response, false)
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                    body_pipe
+                        .send(response_body, false)
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                    host.extensions
+                        .resolve_post(&request, identity_body, response_pipe, address, host)
+                        .await;
+                    body_pipe
+                        .close()
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                }
+                SendKind::Push(push_pipe) => {
+                    let mut body_pipe = push_pipe
+                        .send_response(response, false)
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                    body_pipe
+                        .send(response_body, true)
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                }
+            }
         }
         None => {
             drop(lock);
@@ -161,28 +183,56 @@ pub async fn handle_cache(
             let response = compressed_response.get_preferred();
 
             let resp_no_body = utility::empty_clone_response(response);
-            let mut pipe = response_pipe
-                .send_response(resp_no_body, false)
-                .await
-                .map_err::<io::Error, _>(application::Error::into)?;
-            pipe.send(Bytes::clone(response.body()), true)
-                .await
-                .map_err::<io::Error, _>(application::Error::into)?;
 
-            let response_bytes = Bytes::clone(compressed_response.get_identity().body());
-            if server_cache.cache() {
-                let mut lock = host.response_cache.lock().await;
-                let key = match server_cache.query_matters() {
-                    true => comprash::UriKey::PathQuery(path_query),
-                    false => comprash::UriKey::Path(path_query.into_path()),
-                };
-                info!("Caching uri {:?}!", &key);
-                lock.cache(key, compressed_response);
+            let identity_body = Bytes::clone(compressed_response.get_identity().body());
+            async fn maybe_cache(
+                host: &Host,
+                server_cache: ServerCachePreference,
+                path_query: PathQuery,
+                response: CompressedResponse,
+            ) {
+                if server_cache.cache() {
+                    let mut lock = host.response_cache.lock().await;
+                    let key = match server_cache.query_matters() {
+                        true => comprash::UriKey::PathQuery(path_query),
+                        false => comprash::UriKey::Path(path_query.into_path()),
+                    };
+                    info!("Caching uri {:?}!", &key);
+                    lock.cache(key, response);
+                }
+            };
+
+            match pipe {
+                SendKind::Send(response_pipe) => {
+                    let mut pipe = response_pipe
+                        .send_response(resp_no_body, false)
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                    pipe.send(Bytes::clone(response.body()), false)
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+
+                    maybe_cache(host, server_cache, path_query, compressed_response).await;
+
+                    // process response push
+                    host.extensions
+                        .resolve_post(&request, identity_body, response_pipe, address, host)
+                        .await;
+                    pipe.close()
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                }
+                SendKind::Push(push_pipe) => {
+                    let mut pipe = push_pipe
+                        .send_response(resp_no_body, false)
+                        .map_err::<io::Error, _>(application::Error::into)?;
+                    pipe.send(Bytes::clone(response.body()), true)
+                        .await
+                        .map_err::<io::Error, _>(application::Error::into)?;
+
+                    maybe_cache(host, server_cache, path_query, compressed_response).await;
+                }
             }
-            host.extensions
-                .resolve_post(&request, response_bytes, response_pipe, address, host)
-                .await;
-            // process response push
         }
     }
     Ok(())

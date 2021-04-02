@@ -19,6 +19,7 @@ pub enum Error {
     Done,
     VersionNotSupported,
     InvalidHost,
+    PushOnHttp1,
 }
 impl From<http::Error> for Error {
     fn from(err: http::Error) -> Self {
@@ -53,6 +54,10 @@ impl Into<io::Error> for Error {
             Self::InvalidHost => {
                 io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
             }
+            Self::PushOnHttp1 => io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "can not push requests on http/1",
+            ),
         }
     }
 }
@@ -90,11 +95,14 @@ pub enum Body {
 
 pub enum ResponsePipe {
     Http1(Arc<Mutex<Encryption<TcpStream>>>),
-    Http2(h2::server::SendResponse<bytes::Bytes>),
+    Http2(h2::server::SendResponse<Bytes>),
 }
 pub enum ResponseBodyPipe {
     Http1(Arc<Mutex<Encryption<TcpStream>>>),
-    Http2(h2::SendStream<bytes::Bytes>),
+    Http2(h2::SendStream<Bytes>),
+}
+pub enum PushedResponsePipe {
+    Http2(h2::server::SendPushedResponse<Bytes>),
 }
 
 impl HttpConnection {
@@ -354,7 +362,6 @@ mod response {
 
     use super::*;
 
-    // #[derive(Debug)]
     pub struct PreBufferedReader<R: AsyncRead + Unpin> {
         reader: Arc<Mutex<R>>,
         buffer: Vec<u8>,
@@ -433,6 +440,36 @@ mod response {
                 }
             }
         }
+        pub fn push_request(
+            &mut self,
+            request: http::Request<()>,
+        ) -> Result<PushedResponsePipe, Error> {
+            match self {
+                Self::Http1(_) => Err(Error::PushOnHttp1),
+                Self::Http2(h2) => match h2.push_request(request) {
+                    Ok(pipe) => Ok(PushedResponsePipe::Http2(pipe)),
+                    Err(err) => Err(Error::H2(err)),
+                },
+            }
+        }
+    }
+    impl PushedResponsePipe {
+        pub fn send_response(
+            &mut self,
+            mut response: http::Response<()>,
+            end_of_stream: bool,
+        ) -> Result<ResponseBodyPipe, Error> {
+            match self {
+                Self::Http2(s) => {
+                    *response.version_mut() = Version::HTTP_2;
+
+                    match s.send_response(response, end_of_stream) {
+                        Err(err) => Err(Error::H2(err)),
+                        Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
+                    }
+                }
+            }
+        }
     }
 
     /// Writer **must** be buffered!
@@ -482,6 +519,12 @@ mod response {
                 Self::Http2(h2) => h2.send_data(data, end_of_stream)?,
             }
             Ok(())
+        }
+        pub async fn close(&mut self) -> Result<(), Error> {
+            match self {
+                Self::Http1(h1) => h1.lock().await.flush().await.map_err(Error::from),
+                Self::Http2(h2) => h2.send_data(Bytes::new(), true).map_err(Error::from),
+            }
         }
     }
 }

@@ -29,6 +29,7 @@ Content-Length: 514\r\n\
 ";
 pub(crate) const HOST_RESPONSE_MAX_ENTITIES: usize = 512;
 pub struct Host {
+    pub host_name: &'static str,
     pub certificate: Option<sign::CertifiedKey>,
     pub path: PathBuf,
     pub extensions: Extensions,
@@ -48,6 +49,7 @@ pub struct Host {
 }
 impl Host {
     pub fn new<P: AsRef<Path>>(
+        host_name: &'static str,
         cert_path: P,
         private_key_path: P,
         path: PathBuf,
@@ -56,6 +58,7 @@ impl Host {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
             Ok(cert) => Ok(Self {
+                host_name,
                 certificate: Some(cert),
                 path,
                 extensions,
@@ -67,6 +70,7 @@ impl Host {
             Err(err) => Err((
                 err,
                 Self {
+                    host_name,
                     certificate: None,
                     path,
                     extensions,
@@ -78,8 +82,13 @@ impl Host {
             )),
         }
     }
-    pub fn no_certification(path: PathBuf, extensions: Extensions) -> Self {
+    pub fn no_certification(
+        host_name: &'static str,
+        path: PathBuf,
+        extensions: Extensions,
+    ) -> Self {
         Self {
+            host_name,
             certificate: None,
             path,
             extensions,
@@ -91,12 +100,13 @@ impl Host {
     }
 
     pub fn with_http_redirect<P: AsRef<Path>>(
+        host_name: &'static str,
         cert_path: P,
         private_key_path: P,
         path: PathBuf,
         extensions: Extensions,
     ) -> Self {
-        match Host::new(cert_path, private_key_path, path, extensions) {
+        match Host::new(host_name, cert_path, private_key_path, path, extensions) {
             Ok(mut host) => {
                 host.set_http_redirect_to_https();
                 host
@@ -170,8 +180,8 @@ impl Debug for Host {
 #[derive(Debug)]
 pub struct HostDataBuilder(HostData);
 impl HostDataBuilder {
-    pub fn add_host(mut self, host_name: String, host_data: Host) -> Self {
-        self.0.add_host(host_name, host_data);
+    pub fn add_host(mut self, host_data: Host) -> Self {
+        self.0.add_host(host_data.host_name, host_data);
         self
     }
     pub fn build(self) -> Arc<HostData> {
@@ -180,56 +190,53 @@ impl HostDataBuilder {
 }
 #[derive(Debug)]
 pub struct HostData {
-    default: (String, Host),
-    by_name: HashMap<String, Host>,
+    default: Host,
+    by_name: HashMap<&'static str, Host>,
     has_secure: bool,
 }
 impl HostData {
-    pub fn builder(default_host_name: String, default_host: Host) -> HostDataBuilder {
+    pub fn builder(default_host: Host) -> HostDataBuilder {
         HostDataBuilder(Self {
             has_secure: default_host.is_secure(),
-            default: (default_host_name, default_host),
+            default: default_host,
             by_name: HashMap::new(),
         })
     }
-    pub fn new(default_host_name: String, default_host: Host) -> Self {
+    pub fn new(default_host: Host) -> Self {
         Self {
             has_secure: default_host.is_secure(),
-            default: (default_host_name, default_host),
+            default: default_host,
             by_name: HashMap::new(),
         }
     }
     /// Creates a `Host` without certification, using the directories `./public` and `./templates`.
-    pub fn simple(default_host_name: String, extensions: Extensions) -> Self {
+    pub fn simple(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
-            default: (
-                default_host_name,
-                Host::no_certification(".".into(), extensions),
-            ),
+            default: Host::no_certification(default_host_name, ".".into(), extensions),
             by_name: HashMap::new(),
             has_secure: false,
         }
     }
-    pub fn add_host(&mut self, host_name: String, host_data: Host) {
+    pub fn add_host(&mut self, host_name: &'static str, host_data: Host) {
         if host_data.is_secure() {
             self.has_secure = true;
         }
         self.by_name.insert(host_name, host_data);
     }
 
-    pub fn get_default(&self) -> &(String, Host) {
+    pub fn get_default(&self) -> &Host {
         &self.default
     }
     pub fn get_host(&self, host: &str) -> Option<&Host> {
         self.by_name.get(host)
     }
     pub fn get_or_default(&self, host: &str) -> &Host {
-        self.get_host(host).unwrap_or(&self.get_default().1)
+        self.get_host(host).unwrap_or(&self.get_default())
     }
     pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> &Host {
         match maybe_host {
             Some(host) => self.get_or_default(host),
-            None => &self.get_default().1,
+            None => &self.get_default(),
         }
     }
 
@@ -249,7 +256,7 @@ impl HostData {
 
     pub async fn clear_response_caches(&self) {
         // Handle default host
-        self.default.1.response_cache.lock().await.clear();
+        self.default.response_cache.lock().await.clear();
         // All other
         for (_, host) in self.by_name.iter() {
             host.response_cache.lock().await.clear();
@@ -264,7 +271,7 @@ impl HostData {
         let mut cleared = false;
         if host == "" || host == "default" {
             found = true;
-            let mut lock = self.default.1.response_cache.lock().await;
+            let mut lock = self.default.response_cache.lock().await;
             if key.call_all(|key| lock.remove(key).to_option()).1.is_some() {
                 cleared = true;
             }
@@ -283,7 +290,7 @@ impl HostData {
         (found, cleared)
     }
     pub async fn clear_file_caches(&self) {
-        self.default.1.file_cache.lock().await.clear();
+        self.default.file_cache.lock().await.clear();
         for (_, host) in self.by_name.iter() {
             host.file_cache.lock().await.clear();
         }
@@ -292,7 +299,6 @@ impl HostData {
         let mut found = false;
         if self
             .default
-            .1
             .file_cache
             .lock()
             .await
@@ -324,12 +330,12 @@ impl ResolvesServerCert for HostData {
         if let Some(name) = client_hello.server_name() {
             self.by_name
                 .get(name.into())
-                .unwrap_or(&self.default.1)
+                .unwrap_or(&self.default)
                 .certificate
                 .clone()
         } else {
             // Else, get default certificate
-            self.default.1.certificate.clone()
+            self.default.certificate.clone()
         }
     }
 }
@@ -350,13 +356,13 @@ impl HostBinding {
         unsafe { self.host.map(|ptr| &*ptr) }
     }
     pub fn get_default(&self) -> &Host {
-        &self.host_data.default.1
+        &self.host_data.default
     }
     pub fn get_host_or_default(&self) -> &Host {
         unsafe {
             self.host
                 .map(|ptr| &*ptr)
-                .unwrap_or(&self.host_data.default.1)
+                .unwrap_or(&self.host_data.default)
         }
     }
     pub fn get_or_set_host(&mut self, host: &str) -> &Host {
@@ -367,7 +373,7 @@ impl HostBinding {
                     self.host = Some(host);
                     host
                 }
-                None => &self.host_data.default.1,
+                None => &self.host_data.default,
             },
         }
     }
