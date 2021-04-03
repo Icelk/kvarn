@@ -136,7 +136,7 @@ pub struct PresentData {
     client_cache_preference: ClientCachePreference,
     response: *mut http::Response<Bytes>,
     // Regarding extension
-    args: Vec<String>,
+    args: PresentArguments,
 }
 impl PresentData {
     pub fn address(&self) -> net::SocketAddr {
@@ -163,7 +163,7 @@ impl PresentData {
     pub fn response(&self) -> &http::Response<Bytes> {
         unsafe { &*self.response }
     }
-    pub fn args(&self) -> &[String] {
+    pub fn args(&self) -> &PresentArguments {
         &self.args
     }
 }
@@ -311,7 +311,7 @@ impl Extensions {
                         server_cache_preference,
                         client_cache_preference,
                         response,
-                        args: extension_name_args.map(str::to_string).collect(),
+                        args: extension_name_args,
                     };
                     let data = PresentDataWrapper(data);
                     extension(data).await;
@@ -334,7 +334,7 @@ impl Extensions {
                     server_cache_preference,
                     client_cache_preference,
                     response,
-                    args: Vec::new(),
+                    args: PresentArguments::empty(),
                 };
                 let data = PresentDataWrapper(data);
                 extension(data).await;
@@ -378,11 +378,11 @@ impl Extensions {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PresentExtensions {
     data: Bytes,
     // Will have the start and enVec<Stringstarting on same position.
-    extensions: Vec<((usize, usize), (usize, usize))>,
+    extensions: Arc<Vec<((usize, usize), (usize, usize))>>,
     data_start: usize,
 }
 impl PresentExtensions {
@@ -426,7 +426,7 @@ impl PresentExtensions {
                 if byte == CR || byte == LF {
                     return Some(Self {
                         data,
-                        extensions: extensions_args,
+                        extensions: Arc::new(extensions_args),
                         data_start: pos + if has_cr { 2 } else { 1 },
                     });
                 }
@@ -441,9 +441,16 @@ impl PresentExtensions {
 
         None
     }
+    pub fn empty() -> Self {
+        Self {
+            data: Bytes::new(),
+            extensions: Arc::new(Vec::new()),
+            data_start: 0,
+        }
+    }
     pub fn iter(&self) -> PresentExtensionsIter {
         PresentExtensionsIter {
-            data: &self,
+            data: Self::clone(&self),
             index: 0,
         }
     }
@@ -452,12 +459,12 @@ impl PresentExtensions {
     }
 }
 #[derive(Debug)]
-pub struct PresentExtensionsIter<'a> {
-    data: &'a PresentExtensions,
+pub struct PresentExtensionsIter {
+    data: PresentExtensions,
     index: usize,
 }
-impl<'a> Iterator for PresentExtensionsIter<'a> {
-    type Item = PresentArguments<'a>;
+impl Iterator for PresentExtensionsIter {
+    type Item = PresentArguments;
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.index;
         if start == self.data.extensions.len() {
@@ -478,36 +485,68 @@ impl<'a> Iterator for PresentExtensionsIter<'a> {
             self.index += 1
         };
         Some(PresentArguments {
-            data: self.data,
+            data: PresentExtensions::clone(&self.data),
             data_index: start,
             len: self.index - start,
-            index: 1,
         })
     }
 }
-#[derive(Debug)]
-pub struct PresentArguments<'a> {
-    data: &'a PresentExtensions,
+pub struct PresentArguments {
+    data: PresentExtensions,
     data_index: usize,
     len: usize,
-    index: usize,
 }
-impl<'a> PresentArguments<'a> {
+impl PresentArguments {
+    pub fn empty() -> Self {
+        Self {
+            data: PresentExtensions::empty(),
+            data_index: 0,
+            len: 0,
+        }
+    }
     pub fn name(&self) -> &str {
         // .1 and .0 should be the same; the name of (usize, usize) should have the same name as it's first argument.
         let (start, len) = self.data.extensions[self.data_index].0;
         // safe, because we checked for str in creation of [`PresentExtensions`].
         unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) }
     }
+    pub fn iter(&self) -> PresentArgumentsIter {
+        PresentArgumentsIter {
+            data: &self.data,
+            data_index: self.data_index,
+            back_index: self.len,
+            index: 1,
+        }
+    }
 }
-impl<'a> Iterator for PresentArguments<'a> {
+
+#[derive(Debug)]
+pub struct PresentArgumentsIter<'a> {
+    data: &'a PresentExtensions,
+    data_index: usize,
+    back_index: usize,
+    index: usize,
+}
+impl<'a> Iterator for PresentArgumentsIter<'a> {
     type Item = &'a str;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index == self.len {
+        if self.index == self.back_index {
             return None;
         }
         let (start, len) = self.data.extensions[self.data_index + self.index].1;
         self.index += 1;
+        // Again, safe because we checked for str in creation of [`PresentExtensions`].
+        Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
+    }
+}
+impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        // todo!("wrong?");
+        if self.index == self.back_index {
+            return None;
+        }
+        let (start, len) = self.data.extensions[self.data_index + self.back_index - 1].1;
+        self.back_index -= 1;
         // Again, safe because we checked for str in creation of [`PresentExtensions`].
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
     }

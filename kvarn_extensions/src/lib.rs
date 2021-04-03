@@ -201,13 +201,13 @@ pub mod templates {
         })
     }
 
-    pub async fn handle_template<S: AsRef<str>>(
-        arguments: &[S],
+    pub async fn handle_template(
+        arguments: &PresentArguments,
         file: &[u8],
         host: &Host,
     ) -> Vec<u8> {
         // Get templates, from cache or file
-        let templates = read_templates(arguments.iter().map(S::as_ref), host).await;
+        let templates = read_templates(arguments.iter().rev(), host).await;
 
         #[derive(Eq, PartialEq)]
         enum Stage {
@@ -272,13 +272,13 @@ pub mod templates {
         }
         response
     }
-    async fn read_templates<'a, I: DoubleEndedIterator<Item = &'a str>>(
+    async fn read_templates<'a, I: Iterator<Item = &'a str>>(
         files: I,
         host: &Host,
     ) -> HashMap<String, Vec<u8>> {
         let mut templates = HashMap::with_capacity(32);
 
-        for template in files.rev() {
+        for template in files {
             if let Some(map) = read_templates_from_file(template, host).await {
                 for (key, value) in map.into_iter() {
                     templates.insert(key, value);
@@ -394,7 +394,8 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
         let data = unsafe { data.get_inner() };
         if let Some(preference) = data
             .args()
-            .get(1)
+            .iter()
+            .next()
             .and_then(|arg| arg.parse::<CombinedCachePreference>().ok())
         {
             *data.server_cache_preference() = preference.0;
