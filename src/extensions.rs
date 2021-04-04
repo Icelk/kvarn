@@ -14,28 +14,15 @@
 //! It's safe to get the underlying type is you are inside the extension which received the data;
 //! I'm awaiting you, guaranteeing the data isn't touched by anyone but the single extension.
 //! If you use it later, I probably have dropped the data.
-use crate::*;
-use application::{Body, ResponsePipe};
-use comprash::FileCache;
-use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
-use http::Uri;
-use prelude::*;
-use std::future::Future;
-use std::pin::Pin;
+use crate::prelude::{internals::*, *};
 
 pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
-pub type Request = http::Request<application::Body>;
-pub type Response = (
-    http::Response<Bytes>,
-    ClientCachePreference,
-    ServerCachePreference,
-    CompressPreference,
-);
 
 pub type Prime = &'static (dyn Fn(&Uri) -> Option<Uri> + Sync);
 pub type Pre =
-    &'static (dyn Fn(RequestWrapperMut, FileCacheWrapper) -> RetFut<Option<Response>> + Sync);
-pub type Prepare = &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<Response> + Sync);
+    &'static (dyn Fn(RequestWrapperMut, FileCacheWrapper) -> RetFut<Option<FatResponse>> + Sync);
+pub type Prepare =
+    &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<FatResponse> + Sync);
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
 pub type Package = &'static (dyn Fn(ResponseWrapperMut) -> RetFut<()> + Sync);
 pub type Post = &'static (dyn Fn(
@@ -89,11 +76,11 @@ macro_rules! return_none {
     };
 }
 
-pub struct RequestWrapper(*const Request);
-impl_get_unsafe!(RequestWrapper, Request);
+pub struct RequestWrapper(*const FatRequest);
+impl_get_unsafe!(RequestWrapper, FatRequest);
 
-pub struct RequestWrapperMut(*mut Request);
-impl_get_unsafe_mut!(RequestWrapperMut, Request);
+pub struct RequestWrapperMut(*mut FatRequest);
+impl_get_unsafe_mut!(RequestWrapperMut, FatRequest);
 pub struct ResponseWrapperMut(*mut http::Response<Bytes>);
 impl_get_unsafe_mut!(ResponseWrapperMut, http::Response<Bytes>);
 
@@ -127,7 +114,7 @@ impl PresentDataWrapper {
 /// See [module level documentation](crate::extensions).
 pub struct PresentData {
     // Regarding request
-    address: net::SocketAddr,
+    address: SocketAddr,
     request: *const http::Request<Body>,
     host: *const Host,
     path: *const Path,
@@ -139,7 +126,7 @@ pub struct PresentData {
     args: PresentArguments,
 }
 impl PresentData {
-    pub fn address(&self) -> net::SocketAddr {
+    pub fn address(&self) -> SocketAddr {
         self.address
     }
     pub fn request(&self) -> &http::Request<Body> {
@@ -242,9 +229,9 @@ impl Extensions {
     }
     pub async fn resolve_pre(
         &self,
-        request: &mut Request,
+        request: &mut FatRequest,
         file_cache: &FileCache,
-    ) -> Option<Response> {
+    ) -> Option<FatResponse> {
         match self.pre.get(request.uri().path()) {
             Some(extension) => {
                 extension(
@@ -260,7 +247,7 @@ impl Extensions {
         &self,
         request: &http::Request<Body>,
         file_cache: &FileCache,
-    ) -> Option<Response> {
+    ) -> Option<FatResponse> {
         match self.prepare_single.get(request.uri().path()) {
             Some(extension) => Some(
                 extension(
@@ -349,7 +336,7 @@ impl Extensions {
     }
     pub async fn resolve_post(
         &self,
-        request: &Request,
+        request: &FatRequest,
         bytes: Bytes,
         response_pipe: &mut ResponsePipe,
         addr: SocketAddr,

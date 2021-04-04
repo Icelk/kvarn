@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use http::{Request, Uri};
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -8,95 +7,6 @@ pub enum ParseError {
     Io(io::Error),
 }
 
-pub fn parse_only_headers(buffer: &[u8]) -> http::HeaderMap {
-    let mut stage = DecodeStage::Method;
-    let mut map = http::HeaderMap::new();
-    let mut header_name_start = 0;
-    let mut header_name_end = 0;
-    let mut header_value_start = 0;
-
-    for (position, byte) in buffer.iter().enumerate() {
-        match stage {
-            DecodeStage::Method if *byte == LF => {
-                stage = DecodeStage::HeaderName(0);
-                header_name_start = position + 1;
-            }
-            DecodeStage::HeaderName(current_header) if *byte == COLON => {
-                header_name_end = position;
-                if buffer.get(position + 1) == Some(&SPACE) {
-                    header_value_start = position + 2;
-                } else {
-                    header_value_start = position + 1;
-                }
-                stage = DecodeStage::HeaderValue(current_header);
-            }
-            DecodeStage::HeaderValue(current_header) if *byte == CR => {
-                let name = http::header::HeaderName::from_bytes(
-                    &buffer[header_name_start..header_name_end],
-                );
-                let value =
-                    http::header::HeaderValue::from_bytes(&buffer[header_value_start..position]);
-
-                if name.is_ok() && value.is_ok() {
-                    map.insert(name.unwrap(), value.unwrap());
-                }
-                header_name_start = position + 2;
-                stage = DecodeStage::HeaderName(current_header);
-            }
-            _ => {}
-        }
-    }
-
-    map
-}
-
-enum DecodeStage {
-    Method,
-    HeaderName(i32),
-    HeaderValue(i32),
-}
-
-#[derive(Debug)]
-pub struct HeaderInfo<'a> {
-    url: Cow<'a, Uri>,
-    queries: HashMap<&'a str, &'a str>,
-    accept: Vec<ValueQualitySet<'a>>,
-    accept_lang: Vec<ValueQualitySet<'a>>,
-}
-impl HeaderInfo<'_> {
-    pub fn entire_known_url(&self) -> String {
-        // Create with appropriate capacity
-        let mut string = String::with_capacity(
-            self.url.host().map_or(0, str::len)
-                + self.url.path().len()
-                + self.url.query().map_or(0, str::len),
-        );
-        if let Some(host) = self.url.host() {
-            string.push_str(host);
-        }
-        string.push_str(self.url.path());
-        if let Some(query) = self.url.query() {
-            string.push_str(query);
-        }
-        string
-    }
-    pub fn host(&self) -> Option<&str> {
-        self.url.host()
-    }
-    pub fn path(&self) -> &str {
-        self.url.path()
-    }
-
-    pub fn queries(&self) -> &HashMap<&str, &str> {
-        &self.queries
-    }
-    pub fn accept_types(&self) -> &Vec<ValueQualitySet> {
-        &self.accept
-    }
-    pub fn accept_languages(&self) -> &Vec<ValueQualitySet> {
-        &self.accept_lang
-    }
-}
 #[derive(Debug)]
 pub struct ValueQualitySet<'a> {
     pub value: &'a str,
@@ -110,49 +20,6 @@ impl PartialEq for ValueQualitySet<'_> {
 impl PartialEq<str> for ValueQualitySet<'_> {
     fn eq(&self, other: &str) -> bool {
         self.value == other
-    }
-}
-
-/// Formats headers to extract useful info.
-///
-/// Only allocates vectors and hashmaps to references, and possibly an URI struct if a host is specified in the headers.
-/// Only allocates once for expandable structs, as count is calculated before allocation.
-///
-/// Assumes scheme is https, since you can't construct a URI without a scheme. Should not be relied upon.
-pub fn format_headers<T>(request: &Request<T>) -> HeaderInfo {
-    let headers = request.headers();
-    let uri = request.uri();
-    let url = {
-        match headers.get("host").and_then(to_option_str) {
-            Some(host) => {
-                let mut url = Uri::builder().authority(host).scheme("https");
-                url = match uri.path_and_query() {
-                    Some(path) => url.path_and_query(path.clone()),
-                    None => url.path_and_query(uri.path()),
-                };
-                match url.build() {
-                    Ok(url) => Cow::Owned(url),
-                    Err(..) => Cow::Borrowed(uri),
-                }
-            }
-            None => Cow::Borrowed(uri),
-        }
-    };
-    HeaderInfo {
-        url,
-        queries: uri.query().map(format_query).unwrap_or(HashMap::new()),
-        accept: request
-            .headers()
-            .get("accept")
-            .and_then(to_option_str)
-            .map(format_list_header)
-            .unwrap_or(Vec::new()),
-        accept_lang: request
-            .headers()
-            .get("accept-language")
-            .and_then(to_option_str)
-            .map(format_list_header)
-            .unwrap_or(Vec::new()),
     }
 }
 
@@ -313,7 +180,6 @@ pub fn convert_uri(
 }
 
 pub fn parse_version(bytes: &[u8]) -> Option<http::Version> {
-    use http::Version;
     Some(match &bytes[..] {
         b"HTTP/0.9" => Version::HTTP_09,
         b"HTTP/1.0" => Version::HTTP_10,

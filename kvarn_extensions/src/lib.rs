@@ -141,7 +141,7 @@ pub mod parse {
     use super::*;
 
     pub fn format_file_name<P: AsRef<Path>>(path: &P) -> Option<&str> {
-        path.as_ref().file_name().and_then(OsStr::to_str)
+        path.as_ref().file_name().and_then(std::ffi::OsStr::to_str)
     }
     pub fn format_file_path<P: AsRef<Path>>(path: &P) -> Result<PathBuf, io::Error> {
         let mut file_path = std::env::current_dir()?;
@@ -419,7 +419,7 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
         // Loop over denied ip in args
         for denied in data.args().iter() {
             // If parsed
-            if let Ok(ip) = denied.parse::<std::net::IpAddr>() {
+            if let Ok(ip) = denied.parse::<IpAddr>() {
                 // check it against the requests IP.
                 if data.address().ip() == ip {
                     matched = true;

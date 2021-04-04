@@ -1,14 +1,4 @@
-use crate::{encryption::Encryption, prelude::*, HostDescriptor};
-use http::{header::HeaderName, HeaderValue, Method, Request, Uri, Version};
-use std::{
-    io,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use crate::prelude::{internals::*, *};
 
 #[derive(Debug)]
 pub enum Error {
@@ -442,7 +432,7 @@ mod response {
         offset: usize,
     }
     impl<R: AsyncRead + Unpin + Debug> Debug for PreBufferedReader<R> {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             write!(
                 f,
                 "PreBufferedReader {{ reader: {:?}, buffer: [internal buffer], offset: {:?} }}",

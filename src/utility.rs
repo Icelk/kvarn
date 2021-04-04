@@ -1,10 +1,4 @@
-use crate::{
-    comprash::{ClientCachePreference, CompressPreference, FileCache, ServerCachePreference},
-    extensions::Response,
-    prelude::{fs::*, internals::*, *},
-};
-
-pub const BUFFER_SIZE: usize = 1024 * 8;
+use crate::prelude::{fs::*, *};
 
 pub mod chars {
     /// Tab
@@ -179,7 +173,7 @@ pub async fn default_error(
         .unwrap()
 }
 
-pub async fn default_error_response(code: http::StatusCode, host: &Host) -> Response {
+pub async fn default_error_response(code: http::StatusCode, host: &Host) -> FatResponse {
     (
         default_error(code, Some(&host.file_cache)).await,
         ClientCachePreference::Full,
@@ -188,18 +182,11 @@ pub async fn default_error_response(code: http::StatusCode, host: &Host) -> Resp
     )
 }
 
-pub fn to_option_str(header: &http::HeaderValue) -> Option<&str> {
-    header.to_str().ok()
-}
-
 pub fn empty_clone_response<T>(response: &http::Response<T>) -> http::Response<()> {
     let mut builder = http::Response::builder()
         .version(response.version())
         .status(response.status());
-    // match builder.headers_mut() {
-    //     Some(headers) => *headers = response.headers().clone(),
-    //     None => {}
-    // };
+
     *builder.headers_mut().unwrap() = response.headers().clone();
     builder.body(()).unwrap()
 }
@@ -254,12 +241,12 @@ impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
     }
 }
 impl<'a, T: ?Sized + Display> Debug for CleanDebug<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
     }
 }
 impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
     }
 }

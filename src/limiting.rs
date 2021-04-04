@@ -1,4 +1,4 @@
-use crate::prelude::{networking::*, threading::*, *};
+use crate::prelude::{threading::*, *};
 
 #[cfg(feature = "limiting")]
 pub const TOO_MANY_REQUESTS: &'static [u8] = b"\
@@ -52,37 +52,29 @@ impl LimitManager {
             iteration: Arc::new(atomic::AtomicUsize::new(0)),
         }
     }
-    pub fn register(&mut self, addr: SocketAddr) -> LimitStrength {
+    pub async fn register(&mut self, addr: SocketAddr) -> LimitStrength {
         if self.iteration.fetch_add(1, atomic::Ordering::AcqRel) + 1 < self.check_every {
             LimitStrength::Passed
         } else {
             self.iteration.store(0, atomic::Ordering::Release);
-            match self.connection_map_and_time.try_lock() {
-                Err(err) => match err {
-                    // Do nothing! You are allowed inside
-                    TryLockError::WouldBlock => LimitStrength::Passed,
-                    TryLockError::Poisoned(_) => panic!("Connection Map lock poisoned!"),
-                },
-                Ok(mut lock) => {
-                    let (map, time) = &mut *lock;
-                    if time.elapsed().as_secs() >= self.reset_seconds {
-                        *time = time::Instant::now();
-                        map.clear();
-                        LimitStrength::Passed
+            let mut lock = self.connection_map_and_time.lock().await;
+            let (map, time) = &mut *lock;
+            if time.elapsed().as_secs() >= self.reset_seconds {
+                *time = time::Instant::now();
+                map.clear();
+                LimitStrength::Passed
+            } else {
+                let requests = *map
+                    .entry(addr.ip())
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                if requests <= self.max_requests {
+                    LimitStrength::Passed
+                } else {
+                    if requests <= self.max_requests * 10 {
+                        LimitStrength::Send
                     } else {
-                        let requests = *map
-                            .entry(addr.ip())
-                            .and_modify(|count| *count += 1)
-                            .or_insert(1);
-                        if requests <= self.max_requests {
-                            LimitStrength::Passed
-                        } else {
-                            if requests <= self.max_requests * 10 {
-                                LimitStrength::Send
-                            } else {
-                                LimitStrength::Drop
-                            }
-                        }
+                        LimitStrength::Drop
                     }
                 }
             }
@@ -112,10 +104,10 @@ impl LimitWrapper {
     pub fn new() -> Self {
         Self {}
     }
-    pub fn register(&mut self, addr: SocketAddr) -> LimitStrength {
+    pub async fn register(&mut self, addr: SocketAddr) -> LimitStrength {
         #[cfg(feature = "limiting")]
         {
-            self.limiter.register(addr)
+            self.limiter.register(addr).await
         }
         #[cfg(not(feature = "limiting"))]
         {

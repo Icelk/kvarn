@@ -1,10 +1,6 @@
 use crate::prelude::*;
-use bytes::{BufMut, Bytes};
-use http::Response;
-use std::{borrow::Borrow, hash::Hash, rc::Rc, sync::Arc};
-use tokio::sync::Mutex;
+use std::{borrow::Borrow, hash::Hash};
 
-pub type CachedResponse = Arc<Response<CompressedResponse>>;
 pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
 pub type ResponseCache = Mutex<Cache<UriKey, CompressedResponse>>;
 
@@ -150,7 +146,7 @@ impl CompressedResponse {
             Some(content_type) => match content_type
                 .to_str()
                 .ok()
-                .and_then(|s| s.parse::<mime::Mime>().ok())
+                .and_then(|s| s.parse::<Mime>().ok())
             {
                 Some(mime_type) => {
                     match mime_type.get_param("charset") {
@@ -184,7 +180,7 @@ impl CompressedResponse {
                     false => mime::APPLICATION_OCTET_STREAM,
                 };
                 let mime_type = mime_guess::from_ext(extension).first_or(mime);
-                // Is ok; mime::Mime will only contain ok bytes.
+                // Is ok; Mime will only contain ok bytes.
                 let content_type = unsafe {
                     http::HeaderValue::from_maybe_shared_unchecked(
                         mime_type.to_string().into_bytes(),
@@ -217,7 +213,6 @@ impl CompressedResponse {
     /// Gets the gzip compressed version of [`CachedCompression::get_identity()`]
     pub fn get_gzip(&self) -> &http::Response<Bytes> {
         if self.gzip.is_none() {
-            use std::io::Write;
             let bytes = self.identity.body().as_ref();
 
             let mut buffer =
@@ -248,7 +243,6 @@ impl CompressedResponse {
     /// Gets the Brotli compressed version of [`CachedCompression::get_identity()`]
     pub fn get_br(&self) -> &http::Response<Bytes> {
         if self.br.is_none() {
-            use std::io::Write;
             let bytes = self.identity.body().as_ref();
 
             let mut buffer =

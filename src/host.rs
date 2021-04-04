@@ -1,10 +1,7 @@
-use crate::comprash::{Cache, CompressedResponse, FileCache, PathQuery, ResponseCache, UriKey};
-use crate::extensions::Extensions;
-use crate::prelude::{fs::*, *};
+use crate::prelude::{fs::*, internals::*, *};
 use rustls::{
     internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
 };
-use tokio::sync::Mutex;
 
 pub const HTTP_REDIRECT_NO_HOST: &[u8] = b"\
 HTTP/1.1 505 HTTP Version Not Supported\r\n\
@@ -33,7 +30,7 @@ pub struct Host {
     pub path: PathBuf,
     pub extensions: Extensions,
     pub file_cache: FileCache,
-    pub response_cache: Mutex<Cache<UriKey, CompressedResponse>>,
+    pub response_cache: ResponseCache,
 
     /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
     /// E.g. `/posts/` -> `/posts/index.html`
@@ -167,7 +164,7 @@ impl Host {
     }
 }
 impl Debug for Host {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "Host {{ certificate, path: {:?}, extensions, fs_cache, folder_default: {:?}, extension_default: {:?} }}",

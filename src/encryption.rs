@@ -1,14 +1,6 @@
-use crate::prelude::*;
-use rustls::{ServerConfig, Session};
-use std::{
-    error, fmt, io,
-    pin::Pin,
-    task::{Context, Poll},
-};
-use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
-    net::TcpStream,
-};
+use crate::prelude::{networking::*, *};
+use rustls::{ServerConfig, ServerSession, Session};
+
 use tokio_tls::*;
 
 #[derive(Debug)]
@@ -24,7 +16,7 @@ impl Encryption {
         match certificate {
             None => Ok(Self::Tcp(stream)),
             Some(config) => {
-                let session = rustls::ServerSession::new(config);
+                let session = ServerSession::new(config);
                 let stream = TlsStream {
                     io: stream,
                     session: session,
@@ -110,36 +102,6 @@ impl AsyncWrite for Encryption {
         }
     }
 }
-// unsafe impl<S: AsyncRead + AsyncWrite + Unpin> Unpin for Encryption<S> {}
-
-// impl<S: AsyncSeek + Unpin> AsyncSeek for Encryption<S> {
-//     fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
-//         match self.get_mut() {
-//             Self::None(s) => unsafe { Pin::new_unchecked(s).poll_complete(cx) },
-//             Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_complete(cx) },
-//         }
-//     }
-//     fn start_seek(self: Pin<&mut Self>, position: io::SeekFrom) -> io::Result<()> {
-//         match self.get_mut() {
-//             Self::None(s) => unsafe { Pin::new_unchecked(s).start_seek(position) },
-//             Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).start_seek(position) },
-//         }
-//     }
-// }
-
-async fn read_to_vec<R: AsyncRead + Unpin>(mut reader: R) -> io::Result<Vec<u8>> {
-    use tokio::io::AsyncReadExt;
-    let mut buffer = Vec::with_capacity(1024 * 16);
-    unsafe { buffer.set_len(buffer.capacity()) };
-    let r = match reader.read(&mut buffer[..]).await {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(e);
-        }
-    };
-    unsafe { buffer.set_len(r) };
-    Ok(buffer)
-}
 #[derive(Debug)]
 pub enum TlsIoError {
     Io(io::Error),
@@ -157,7 +119,7 @@ impl From<rustls::TLSError> for TlsIoError {
 }
 
 impl Display for TlsIoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(e) => {
                 f.write_str("std::Io: ")?;
@@ -171,7 +133,7 @@ impl Display for TlsIoError {
     }
 }
 
-impl error::Error for TlsIoError {}
+impl std::error::Error for TlsIoError {}
 
 /// Tokio Rustls glue code
 mod tokio_tls {
