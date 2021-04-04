@@ -30,9 +30,7 @@ pub use std::sync::{self, Arc};
 pub use std::time;
 
 // Modules
-pub use crate::compression;
-pub use crate::connection;
-pub use crate::cryptography;
+pub use crate::host;
 #[cfg(feature = "limiting")]
 pub use crate::limiting;
 pub use crate::parse;
@@ -40,8 +38,7 @@ pub use crate::utility;
 
 // Crate types
 pub use crate::Config;
-pub use connection::{ConnectionScheme, ConnectionSecurity};
-pub use cryptography::{Host, HostData};
+pub use host::{Host, HostData};
 pub use utility::chars::*;
 pub use utility::{read_file, read_file_cached, to_option_str};
 
@@ -64,7 +61,6 @@ pub mod fs {
 pub mod networking {
     use super::*;
 
-    pub use connection::ConnectionHeader;
     #[cfg(feature = "limiting")]
     pub use limiting::LimitStrength;
     pub use std::io::{Read, Write};
@@ -77,7 +73,7 @@ pub mod networking {
 pub mod crypto {
     use super::*;
 
-    pub use cryptography::{get_certified_key, Host, HostBinding, HostData};
+    pub use host::{get_certified_key, Host, HostBinding, HostData};
 }
 
 /// ## **The Kvarn *Internal* Prelude**
@@ -98,14 +94,6 @@ pub mod internals {
 pub mod threading {
     pub use std::sync::{self, atomic, Mutex, TryLockError};
     pub use std::thread;
-}
-
-/// ## **The Kvarn *Connection* Prelude**
-///
-/// The purpose of this module is to expose the internal connections types and operations.
-pub mod con {
-    use super::*;
-    pub use connection::{ConnectionScheme, ConnectionSecurity};
 }
 
 /// ## **The Kvarn *Rustless* Prelude**

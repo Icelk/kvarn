@@ -1,6 +1,5 @@
 use crate::prelude::*;
-use connection::EncryptionType;
-use rustls::Session;
+use rustls::{ServerConfig, Session};
 use std::{
     error, fmt, io,
     pin::Pin,
@@ -20,11 +19,11 @@ pub enum Encryption {
 impl Encryption {
     pub async fn new_tcp_from_connection_security(
         stream: TcpStream,
-        security: &ConnectionSecurity,
+        certificate: Option<&Arc<ServerConfig>>,
     ) -> io::Result<Self> {
-        match security.get_config() {
-            EncryptionType::NonSecure => Ok(Self::Tcp(stream)),
-            EncryptionType::Secure(config) => {
+        match certificate {
+            None => Ok(Self::Tcp(stream)),
+            Some(config) => {
                 let session = rustls::ServerSession::new(config);
                 let stream = TlsStream {
                     io: stream,

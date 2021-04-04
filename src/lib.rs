@@ -3,11 +3,9 @@
 // Module declaration
 pub mod application;
 pub mod comprash;
-pub mod compression;
-pub mod connection;
-pub mod cryptography;
 pub mod encryption;
 pub mod extensions;
+pub mod host;
 pub mod limiting;
 pub mod parse;
 pub mod prelude;
@@ -38,7 +36,10 @@ pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Linux)\r\n";
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Kvarn";
-pub const LINE_ENDING: &[u8] = b"\r\n";
+
+pub fn alpn() -> Vec<Vec<u8>> {
+    vec![b"h2".to_vec()]
+}
 
 pub(crate) async fn handle_connection(
     stream: TcpStream,
@@ -46,9 +47,11 @@ pub(crate) async fn handle_connection(
     host_descriptors: Arc<HostDescriptor>,
 ) -> io::Result<()> {
     // LAYER 2
-    let encrypted =
-        encryption::Encryption::new_tcp_from_connection_security(stream, &host_descriptors.r#type)
-            .await?;
+    let encrypted = encryption::Encryption::new_tcp_from_connection_security(
+        stream,
+        host_descriptors.server_config.as_ref(),
+    )
+    .await?;
 
     let version = match encrypted.get_alpn_protocol() {
         Some(b"h2") => http::Version::HTTP_2,
@@ -279,33 +282,47 @@ pub(crate) async fn handle_request(
     ))
 }
 
-#[derive(Debug)]
 pub struct HostDescriptor {
     port: u16,
-    r#type: ConnectionSecurity,
+    server_config: Option<Arc<ServerConfig>>,
     host_data: Arc<HostData>,
 }
 impl HostDescriptor {
-    pub fn http_1(host: Arc<HostData>) -> Self {
+    pub fn http(host: Arc<HostData>) -> Self {
         Self {
             port: 80,
-            r#type: ConnectionSecurity::http1(),
+            server_config: None,
             host_data: host,
         }
     }
-    pub fn https_1(host: Arc<HostData>, security: Arc<ServerConfig>) -> Self {
+    pub fn https(host: Arc<HostData>, server_config: Arc<ServerConfig>) -> Self {
         Self {
             port: 443,
-            r#type: ConnectionSecurity::http1s(security),
+            server_config: Some(server_config),
             host_data: host,
         }
     }
-    pub fn new(port: u16, host: Arc<HostData>, security: ConnectionSecurity) -> Self {
+    pub fn new(port: u16, host: Arc<HostData>, server_config: Option<Arc<ServerConfig>>) -> Self {
         Self {
             port,
-            r#type: security,
+            server_config,
             host_data: host,
         }
+    }
+}
+impl Debug for HostDescriptor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostDescriptor")
+            .field("port", &self.port)
+            .field(
+                "server_config",
+                &self
+                    .server_config
+                    .as_ref()
+                    .map(|_| utility::CleanDebug::new("certificate")),
+            )
+            .field("host_data", &self.host_data)
+            .finish()
     }
 }
 

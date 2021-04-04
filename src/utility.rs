@@ -246,3 +246,20 @@ pub fn valid_method(bytes: &[u8]) -> bool {
         || bytes.starts_with(b"CONNECT")
         || bytes.starts_with(b"PATCH")
 }
+
+pub struct CleanDebug<'a, T: ?Sized + Display>(&'a T);
+impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
+    pub fn new(value: &'a T) -> Self {
+        Self(value)
+    }
+}
+impl<'a, T: ?Sized + Display> Debug for CleanDebug<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self.0, f)
+    }
+}
+impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self.0, f)
+    }
+}

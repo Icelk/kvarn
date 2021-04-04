@@ -27,7 +27,6 @@ Content-Length: 514\r\n\
     </body>\
 </html>\
 ";
-pub(crate) const HOST_RESPONSE_MAX_ENTITIES: usize = 512;
 pub struct Host {
     pub host_name: &'static str,
     pub certificate: Option<sign::CertifiedKey>,
