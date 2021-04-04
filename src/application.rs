@@ -158,7 +158,6 @@ mod request {
         max_len: usize,
     ) -> Result<http::Request<Body>, Error> {
         let (head, bytes) = parse_request(&stream, max_len).await?;
-        println!("{:?}, {}", head, String::from_utf8_lossy(&bytes));
         Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, bytes))))
     }
 
@@ -245,7 +244,6 @@ mod request {
                 break;
             };
             if !utility::valid_method(&buffer) {
-                println!("early invalid method");
                 return Err(Error::InvalidMethod);
             }
 

@@ -112,7 +112,7 @@ impl Host {
                 host
             }
             Err((err, host_without_cert)) => {
-                eprintln!(
+                warn!(
                     "Failed to get certificate! Not running host on HTTPS. {:?}",
                     err
                 );

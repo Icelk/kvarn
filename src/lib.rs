@@ -245,22 +245,37 @@ pub(crate) async fn handle_request(
     host: &Host,
     path: &PathBuf,
 ) -> io::Result<Response> {
-    let response = match utility::read_file(&path, &host.file_cache).await {
-        Some(response) => response,
+    #[allow(unused_mut)]
+    let mut response = None;
+    #[allow(unused_mut)]
+    let mut client_cache = None;
+    #[allow(unused_mut)]
+    let mut server_cache = None;
+    #[allow(unused_mut)]
+    let mut compress = None;
+
+    #[cfg(feature = "fs")]
+    {
+        match utility::read_file(&path, &host.file_cache).await {
+            Some(resp) => response = Some(http::Response::new(resp)),
+            None => {}
+        }
+    }
+
+    let response = match response {
+        Some(r) => r,
         None => {
-            return Ok(utility::default_error_response(http::StatusCode::NOT_FOUND, host).await)
+            utility::default_error_response(http::StatusCode::NOT_FOUND, host)
+                .await
+                .0
         }
     };
-    // let content = b"<h1>Hello!</h1>What can I do for you?";
 
     Ok((
-        http::Response::builder()
-            .status(http::StatusCode::OK)
-            .body(response)
-            .unwrap(),
-        comprash::ClientCachePreference::Full,
-        comprash::ServerCachePreference::Full,
-        comprash::CompressPreference::Full,
+        response,
+        client_cache.unwrap_or(ClientCachePreference::Full),
+        server_cache.unwrap_or(ServerCachePreference::Full),
+        compress.unwrap_or(CompressPreference::Full),
     ))
 }
 

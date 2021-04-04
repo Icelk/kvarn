@@ -95,7 +95,7 @@ impl CompressedResponse {
         let headers = identity.headers_mut();
         Self::set_content_length(headers, len);
         Self::set_client_cache(headers, client_cache);
-        Self::check_utf_8(&mut identity, extension);
+        Self::check_content_type(&mut identity, extension);
         Self {
             identity,
             gzip: None,
@@ -144,7 +144,7 @@ impl CompressedResponse {
     fn set_client_cache(headers: &mut http::HeaderMap, preference: ClientCachePreference) {
         utility::replace_header(headers, "cache-control", preference.as_header());
     }
-    fn check_utf_8(response: &mut http::Response<Bytes>, extension: &str) {
+    fn check_content_type(response: &mut http::Response<Bytes>, extension: &str) {
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
         match response.headers().get("content-type") {
             Some(content_type) => match content_type
