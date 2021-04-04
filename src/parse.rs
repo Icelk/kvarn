@@ -311,3 +311,15 @@ pub fn convert_uri(
     };
     Some(buf)
 }
+
+pub fn parse_version(bytes: &[u8]) -> Option<http::Version> {
+    use http::Version;
+    Some(match &bytes[..] {
+        b"HTTP/0.9" => Version::HTTP_09,
+        b"HTTP/1.0" => Version::HTTP_10,
+        b"HTTP/1.1" => Version::HTTP_11,
+        b"HTTP/2" => Version::HTTP_2,
+        b"HTTP/3" => Version::HTTP_3,
+        _ => return None,
+    })
+}

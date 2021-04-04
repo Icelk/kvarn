@@ -6,28 +6,24 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::{
+    io::{AsyncRead, AsyncWrite, ReadBuf},
+    net::TcpStream,
+};
 use tokio_tls::*;
 
-pub enum Encryption<S> {
-    Tls(TlsStream<S>),
-    None(S),
+#[derive(Debug)]
+pub enum Encryption {
+    TcpTls(TlsStream<TcpStream>),
+    Tcp(TcpStream),
 }
-impl<S: Debug> Debug for Encryption<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Tls(tls) => write!(f, "Encryption::Tls(TlsStream({:?}))", tls),
-            Self::None(s) => write!(f, "Encryption::None({:?})", s),
-        }
-    }
-}
-impl<S: AsyncRead + AsyncWrite + Unpin> Encryption<S> {
-    pub async fn new_from_connection_security(
-        stream: S,
+impl Encryption {
+    pub async fn new_tcp_from_connection_security(
+        stream: TcpStream,
         security: &ConnectionSecurity,
     ) -> io::Result<Self> {
         match security.get_config() {
-            EncryptionType::NonSecure => Ok(Self::None(stream)),
+            EncryptionType::NonSecure => Ok(Self::Tcp(stream)),
             EncryptionType::Secure(config) => {
                 let session = rustls::ServerSession::new(config);
                 let stream = TlsStream {
@@ -38,70 +34,70 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Encryption<S> {
                 let acceptor = MidHandshake::Handshaking(stream);
                 let connect = acceptor.await.map_err(|(err, _)| err)?;
 
-                Ok(Self::Tls(connect))
+                Ok(Self::TcpTls(connect))
             }
         }
     }
 }
-impl<S> Encryption<S> {
+impl Encryption {
     pub fn get_peer_certificates(&self) -> Option<Vec<rustls::Certificate>> {
         match self {
-            Self::Tls(s) => s.session.get_peer_certificates(),
-            Self::None(_) => None,
+            Self::TcpTls(s) => s.session.get_peer_certificates(),
+            Self::Tcp(_) => None,
         }
     }
     pub fn get_alpn_protocol(&self) -> Option<&[u8]> {
         match self {
-            Self::Tls(s) => s.session.get_alpn_protocol(),
-            Self::None(_) => None,
+            Self::TcpTls(s) => s.session.get_alpn_protocol(),
+            Self::Tcp(_) => None,
         }
     }
     pub fn get_protocol_version(&self) -> Option<rustls::ProtocolVersion> {
         match self {
-            Self::Tls(s) => s.session.get_protocol_version(),
-            Self::None(_) => None,
+            Self::TcpTls(s) => s.session.get_protocol_version(),
+            Self::Tcp(_) => None,
         }
     }
     pub fn get_sni_hostname(&self) -> Option<&str> {
         match self {
-            Self::Tls(s) => s.session.get_sni_hostname(),
-            Self::None(_) => None,
+            Self::TcpTls(s) => s.session.get_sni_hostname(),
+            Self::Tcp(_) => None,
         }
     }
 }
-impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for Encryption<S> {
+impl AsyncRead for Encryption {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         match self.get_mut() {
-            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_read(cx, buf) },
-            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_read(cx, buf) },
+            Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_read(cx, buf) },
+            Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_read(cx, buf) },
         }
     }
 }
-impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for Encryption<S> {
+impl AsyncWrite for Encryption {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
         match self.get_mut() {
-            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_write(cx, buf) },
-            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_write(cx, buf) },
+            Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_write(cx, buf) },
+            Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_write(cx, buf) },
         }
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         match self.get_mut() {
-            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_flush(cx) },
-            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_flush(cx) },
+            Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_flush(cx) },
+            Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_flush(cx) },
         }
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         match self.get_mut() {
-            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_shutdown(cx) },
-            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_shutdown(cx) },
+            Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_shutdown(cx) },
+            Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_shutdown(cx) },
         }
     }
     fn poll_write_vectored(
@@ -110,8 +106,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for Encryption<S> {
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<Result<usize, io::Error>> {
         match self.get_mut() {
-            Self::None(s) => unsafe { Pin::new_unchecked(s).poll_write_vectored(cx, bufs) },
-            Self::Tls(tls) => unsafe { Pin::new_unchecked(tls).poll_write_vectored(cx, bufs) },
+            Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_write_vectored(cx, bufs) },
+            Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_write_vectored(cx, bufs) },
         }
     }
 }

@@ -47,7 +47,7 @@ pub(crate) async fn handle_connection(
 ) -> io::Result<()> {
     // LAYER 2
     let encrypted =
-        encryption::Encryption::new_from_connection_security(stream, &host_descriptors.r#type)
+        encryption::Encryption::new_tcp_from_connection_security(stream, &host_descriptors.r#type)
             .await?;
 
     let version = match encrypted.get_alpn_protocol() {

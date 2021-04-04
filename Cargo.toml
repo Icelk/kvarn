@@ -16,7 +16,7 @@ members = [
 
 [dependencies]
 rustls = "0.19"
-tokio = { version = "1.2.0", features = ["rt-multi-thread", "io-util", "net", "fs", "sync", "parking_lot"] }
+tokio = { version = "1.2.0", features = ["rt-multi-thread", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
 webpki = "0.21"
 log = "0.4.14"
 http = "0.2"

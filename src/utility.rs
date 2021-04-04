@@ -188,77 +188,6 @@ pub async fn default_error_response(code: http::StatusCode, host: &Host) -> Resp
     )
 }
 
-#[derive(Debug)]
-pub enum ContentType {
-    FromMime(Mime),
-    Html,
-    PlainText,
-    Download,
-    AutoOrDownload,
-    AutoOrPlain,
-    AutoOrHTML,
-}
-impl ContentType {
-    pub fn as_str<P: AsRef<Path>>(&self, path: P) -> Cow<'static, str> {
-        match self {
-            ContentType::FromMime(mime) => Cow::Owned(format!("{}", mime)),
-            ContentType::Html => Cow::Borrowed("text/html"),
-            ContentType::PlainText => Cow::Borrowed("text/plain"),
-            ContentType::Download => Cow::Borrowed("application/octet-stream"),
-            ContentType::AutoOrDownload => Cow::Owned(format!(
-                "{}",
-                mime_guess::from_path(&path).first_or_octet_stream()
-            )),
-            ContentType::AutoOrPlain => Cow::Owned(format!(
-                "{}",
-                mime_guess::from_path(&path).first_or_text_plain()
-            )),
-            ContentType::AutoOrHTML => Cow::Owned(format!(
-                "{}",
-                mime_guess::from_path(&path).first_or(mime::TEXT_HTML)
-            )),
-        }
-    }
-    pub fn as_str_utf8<P: AsRef<Path>>(&self, path: P, is_valid_utf8: bool) -> Cow<'static, str> {
-        if is_valid_utf8 {
-            match self {
-                ContentType::FromMime(mime) => Cow::Owned(format!("{}; charset=utf-8", mime)),
-                ContentType::Html => Cow::Borrowed("text/html; charset=utf-8"),
-                ContentType::PlainText => Cow::Borrowed("text/plain; charset=utf-8"),
-                ContentType::Download => Cow::Borrowed("application/octet-stream"),
-                ContentType::AutoOrDownload => {
-                    let mime = mime_guess::from_path(&path).first_or_octet_stream();
-                    match mime.type_().as_str() {
-                        "text" => Cow::Owned(format!("{}; charset=utf-8", mime)),
-                        _ => Cow::Owned(format!("{}", mime)),
-                    }
-                }
-                ContentType::AutoOrPlain => {
-                    let mime = mime_guess::from_path(&path).first_or_text_plain();
-                    match mime.type_().as_str() {
-                        "text" => Cow::Owned(format!("{}; charset=utf-8", mime)),
-                        _ => Cow::Owned(format!("{}", mime)),
-                    }
-                }
-                ContentType::AutoOrHTML => {
-                    let mime = mime_guess::from_path(&path).first_or(mime::TEXT_HTML);
-                    match mime.type_().as_str() {
-                        "text" => Cow::Owned(format!("{}; charset=utf-8", mime)),
-                        _ => Cow::Owned(format!("{}", mime)),
-                    }
-                }
-            }
-        } else {
-            self.as_str(path)
-        }
-    }
-}
-impl Default for ContentType {
-    fn default() -> Self {
-        Self::AutoOrDownload
-    }
-}
-
 pub fn to_option_str(header: &http::HeaderValue) -> Option<&str> {
     header.to_str().ok()
 }
@@ -304,4 +233,16 @@ pub fn replace_header_static<K: http::header::IntoHeaderName + Copy>(
     new: &'static str,
 ) {
     replace_header(headers, name, http::HeaderValue::from_static(new))
+}
+
+pub fn valid_method(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"GET")
+        || bytes.starts_with(b"HEAD")
+        || bytes.starts_with(b"POST")
+        || bytes.starts_with(b"PUT")
+        || bytes.starts_with(b"DELETE")
+        || bytes.starts_with(b"TRACE")
+        || bytes.starts_with(b"OPTIONS")
+        || bytes.starts_with(b"CONNECT")
+        || bytes.starts_with(b"PATCH")
 }

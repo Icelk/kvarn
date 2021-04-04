@@ -18,8 +18,11 @@ pub enum Error {
     NoPath,
     Done,
     VersionNotSupported,
-    InvalidHost,
     PushOnHttp1,
+    InvalidHost,
+    InvalidVersion,
+    InvalidMethod,
+    HeaderTooLong,
 }
 impl From<http::Error> for Error {
     fn from(err: http::Error) -> Self {
@@ -51,20 +54,25 @@ impl Into<io::Error> for Error {
                 io::ErrorKind::InvalidInput,
                 "http version unsupported. Invalid ALPN config.",
             ),
-            Self::InvalidHost => {
-                io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
-            }
             Self::PushOnHttp1 => io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "can not push requests on http/1",
             ),
+            Self::InvalidHost => {
+                io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
+            }
+            Self::InvalidVersion => {
+                io::Error::new(io::ErrorKind::InvalidData, "version is invalid")
+            }
+            Self::InvalidMethod => io::Error::new(io::ErrorKind::InvalidData, "method is invalid"),
+            Self::HeaderTooLong => io::Error::new(io::ErrorKind::InvalidData, "header is too long"),
         }
     }
 }
 
 pub enum HttpConnection {
-    Http1(Arc<Mutex<Encryption<TcpStream>>>),
-    Http2(h2::server::Connection<Encryption<TcpStream>, bytes::Bytes>),
+    Http1(Arc<Mutex<Encryption>>),
+    Http2(h2::server::Connection<Encryption, bytes::Bytes>),
 }
 
 pub fn get_host<'a>(
@@ -89,16 +97,16 @@ pub fn get_host<'a>(
 #[derive(Debug)]
 pub enum Body {
     Empty,
-    Http1(response::PreBufferedReader<Encryption<TcpStream>>),
+    Http1(response::PreBufferedReader<Encryption>),
     Http2(h2::RecvStream),
 }
 
 pub enum ResponsePipe {
-    Http1(Arc<Mutex<Encryption<TcpStream>>>),
+    Http1(Arc<Mutex<Encryption>>),
     Http2(h2::server::SendResponse<Bytes>),
 }
 pub enum ResponseBodyPipe {
-    Http1(Arc<Mutex<Encryption<TcpStream>>>),
+    Http1(Arc<Mutex<Encryption>>),
     Http2(h2::SendStream<Bytes>),
 }
 pub enum PushedResponsePipe {
@@ -106,7 +114,7 @@ pub enum PushedResponsePipe {
 }
 
 impl HttpConnection {
-    pub async fn new(stream: Encryption<TcpStream>, version: http::Version) -> Result<Self, Error> {
+    pub async fn new(stream: Encryption, version: http::Version) -> Result<Self, Error> {
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
                 Ok(Self::Http1(Arc::new(Mutex::new(stream))))
@@ -124,7 +132,7 @@ impl HttpConnection {
         match self {
             Self::Http1(stream) => {
                 let response = ResponsePipe::Http1(Arc::clone(stream));
-                request::parse_http_1(Arc::clone(stream))
+                request::parse_http_1(Arc::clone(stream), 16 * 1024)
                     .await
                     .map(|request| (request, response))
             }
@@ -146,10 +154,12 @@ mod request {
     use super::*;
 
     pub async fn parse_http_1(
-        stream: Arc<Mutex<Encryption<TcpStream>>>,
+        stream: Arc<Mutex<Encryption>>,
+        max_len: usize,
     ) -> Result<http::Request<Body>, Error> {
-        let (head, start, vec) = parse_request(&stream).await?;
-        Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, vec, start))))
+        let (head, bytes) = parse_request(&stream, max_len).await?;
+        println!("{:?}, {}", head, String::from_utf8_lossy(&bytes));
+        Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, bytes))))
     }
 
     enum DecodeStage {
@@ -177,9 +187,73 @@ mod request {
     /// # Limitation
     /// request will be cut off at `crate::BUFFER_SIZE`.
     pub async fn parse_request(
-        stream: &Mutex<Encryption<TcpStream>>,
-    ) -> Result<(Request<()>, usize, Vec<u8>), Error> {
-        let mut buffer = Vec::with_capacity(utility::BUFFER_SIZE);
+        stream: &Mutex<Encryption>,
+        max_len: usize,
+    ) -> Result<(Request<()>, Bytes), Error> {
+        let mut buffer = BytesMut::with_capacity(1024);
+        let mut read = 0;
+        let read = &mut read;
+        async fn read_more(
+            buffer: &mut BytesMut,
+            reader: &Mutex<Encryption>,
+            read: &mut usize,
+            max_len: usize,
+        ) -> Result<usize, Error> {
+            assert!(buffer.len() == *read);
+            if buffer.len() == max_len {
+                return Err(Error::HeaderTooLong);
+            }
+
+            let mut reader = reader.lock().await;
+
+            if buffer.capacity() < buffer.len() + 512 {
+                if buffer.len() + 512 > max_len {
+                    buffer.reserve((buffer.len() + 512) - max_len);
+                } else {
+                    buffer.reserve(512);
+                }
+            }
+
+            unsafe { buffer.set_len(buffer.capacity()) };
+            let read_now = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                reader.read(&mut buffer[*read..]),
+            )
+            .await
+            .ok()
+            .ok_or(Error::Done)??;
+            *read += read_now;
+            unsafe { buffer.set_len(*read) };
+
+            Ok(read_now)
+        };
+        fn contains_two_newlines(bytes: &[u8]) -> bool {
+            let mut in_row = 0_u8;
+            for byte in bytes.iter().cloned() {
+                match byte {
+                    LF if in_row == 0 => in_row += 1,
+                    LF => return true,
+                    CR => {}
+                    _ => in_row = 0,
+                }
+            }
+            false
+        }
+
+        loop {
+            if read_more(&mut buffer, stream, read, max_len).await? == 0 {
+                break;
+            };
+            if !utility::valid_method(&buffer) {
+                println!("early invalid method");
+                return Err(Error::InvalidMethod);
+            }
+
+            if contains_two_newlines(&buffer) {
+                break;
+            }
+        }
+        let buffer = buffer.freeze();
 
         let mut parse_stage = DecodeStage::Method;
         // Method is max 7 bytes long
@@ -191,19 +265,11 @@ mod request {
         let mut version = [0; 8];
         let mut version_index = 0;
         let mut parsed = Request::builder();
-        let mut current_header_name = Vec::with_capacity(16);
-        let mut current_header_value = Vec::with_capacity(32);
+        let mut header_name_start = 0;
+        let mut header_name_end = 0;
+        let mut header_value_start = 0;
         let mut lf_in_row = 0_u8;
         let mut header_end = 0;
-        unsafe { buffer.set_len(buffer.capacity()) };
-        // ToDo: don't read only once, and only have max size with smaller start!
-        let read = stream
-            .lock()
-            .await
-            .read(&mut buffer)
-            .await
-            .map_err(Error::Io)?;
-        unsafe { buffer.set_len(read) };
 
         for (pos, byte) in buffer.iter().copied().enumerate() {
             header_end += 1;
@@ -221,6 +287,9 @@ mod request {
             match parse_stage {
                 DecodeStage::Method => {
                     if byte == SPACE || method_len == method.len() {
+                        if Method::from_bytes(&buffer[..method_len]).is_err() {
+                            return Err(Error::InvalidMethod);
+                        }
                         parse_stage.next();
                         continue;
                     }
@@ -239,7 +308,11 @@ mod request {
                 }
                 DecodeStage::Version => {
                     if byte == LF || version_index == version.len() {
+                        if parse::parse_version(&version[..version_index]).is_none() {
+                            return Err(Error::InvalidVersion);
+                        }
                         parse_stage.next();
+                        header_name_start = pos + 1;
                         continue;
                     }
                     version[version_index] = byte;
@@ -247,28 +320,36 @@ mod request {
                 }
                 DecodeStage::HeaderName(..) => {
                     if byte == COLON {
+                        header_name_end = pos;
+                        if buffer.get(pos + 1) != Some(&SPACE) {
+                            parse_stage.next();
+                            header_value_start = pos + 1;
+                        }
                         continue;
                     }
                     if byte == SPACE {
                         parse_stage.next();
+                        header_value_start = pos + 1;
                         continue;
                     }
-                    current_header_name.push(byte);
                 }
                 DecodeStage::HeaderValue(..) => {
                     if byte == LF {
-                        let name = HeaderName::from_bytes(&current_header_name[..]);
-                        let value = HeaderValue::from_bytes(&current_header_value[..]);
+                        let name =
+                            HeaderName::from_bytes(&buffer[header_name_start..header_name_end]);
+                        let value = HeaderValue::from_maybe_shared(
+                            buffer.slice(header_value_start..pos - 1),
+                        );
                         if name.is_ok() && value.is_ok() {
                             // Ok, because of ↑
                             parsed = parsed.header(name.unwrap(), value.unwrap());
+                        } else {
+                            error!("error in parsing headers");
                         }
-                        current_header_name.clear();
-                        current_header_value.clear();
                         parse_stage.next();
+                        header_name_start = pos + 1;
                         continue;
                     }
-                    current_header_value.push(byte);
                 }
             };
         }
@@ -287,11 +368,11 @@ mod request {
         });
 
         let uri = match host {
-            None => Bytes::copy_from_slice(&buffer[path_start..path_end]),
+            None => buffer.slice(path_start..path_end),
             Some(host) => {
                 let scheme = match &*stream.lock().await {
-                    Encryption::None(_) => "http",
-                    Encryption::Tls(_) => "https",
+                    Encryption::Tcp(_) => "http",
+                    Encryption::TcpTls(_) => "https",
                 };
 
                 let mut uri = BytesMut::with_capacity(
@@ -307,22 +388,17 @@ mod request {
         };
 
         match parsed
-            .method(Method::from_bytes(&method[..method_len]).unwrap_or(Method::GET))
+            .method(
+                Method::from_bytes(&method[..method_len])
+                    .ok()
+                    .ok_or(Error::InvalidMethod)?,
+            )
             .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidHost)?)
-            .version(match &version[..] {
-                b"HTTP/0.9" => Version::HTTP_09,
-                b"HTTP/1.0" => Version::HTTP_10,
-                b"HTTP/1.1" => Version::HTTP_11,
-                b"HTTP/2" => Version::HTTP_2,
-                b"HTTP/2.0" => Version::HTTP_2,
-                b"HTTP/3" => Version::HTTP_3,
-                b"HTTP/3.0" => Version::HTTP_3,
-                _ => Version::default(),
-            })
+            .version(parse::parse_version(&version[..version_index]).ok_or(Error::InvalidVersion)?)
             .body(())
         {
             Err(err) => Err(Error::Http(err)),
-            Ok(request) => Ok((request, header_end, buffer)),
+            Ok(request) => Ok((request, buffer.slice(header_end..))),
         }
     }
 
@@ -364,7 +440,7 @@ mod response {
 
     pub struct PreBufferedReader<R: AsyncRead + Unpin> {
         reader: Arc<Mutex<R>>,
-        buffer: Vec<u8>,
+        bytes: Bytes,
         offset: usize,
     }
     impl<R: AsyncRead + Unpin + Debug> Debug for PreBufferedReader<R> {
@@ -377,27 +453,32 @@ mod response {
         }
     }
     impl<R: AsyncRead + Unpin> PreBufferedReader<R> {
-        pub fn new(reader: Arc<Mutex<R>>, buffer: Vec<u8>, start: usize) -> Self {
+        pub fn new(reader: Arc<Mutex<R>>, bytes: Bytes) -> Self {
             Self {
                 reader,
-                buffer,
-                offset: start,
+                bytes,
+                offset: 0,
             }
         }
     }
     impl<R: AsyncRead + Unpin> AsyncRead for PreBufferedReader<R> {
         fn poll_read(
-            self: Pin<&mut Self>,
+            mut self: Pin<&mut Self>,
             cx: &mut Context<'_>,
             buf: &mut ReadBuf<'_>,
         ) -> Poll<io::Result<()>> {
-            let me = self.get_mut();
-            if me.offset < me.buffer.len() {
-                buf.put_slice(&me.buffer[me.offset..]);
-                me.offset = me.buffer.len();
+            if self.offset < self.bytes.len() {
+                let remaining = buf.remaining();
+                if self.bytes.len() - self.offset > remaining {
+                    buf.put_slice(&self.bytes[self.offset..self.offset + remaining]);
+                    self.offset += remaining;
+                } else {
+                    buf.put_slice(&self.bytes[self.offset..]);
+                    self.offset = self.bytes.len();
+                }
                 Poll::Ready(Ok(()))
             } else {
-                let mut reader = match me.reader.try_lock() {
+                let mut reader = match self.reader.try_lock() {
                     Err(_) => return Poll::Pending,
                     Ok(r) => r,
                 };

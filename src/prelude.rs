@@ -43,7 +43,7 @@ pub use crate::Config;
 pub use connection::{ConnectionScheme, ConnectionSecurity};
 pub use cryptography::{Host, HostData};
 pub use utility::chars::*;
-pub use utility::{read_file, read_file_cached, to_option_str, ContentType::*};
+pub use utility::{read_file, read_file_cached, to_option_str};
 
 /// ## **The Kvarn *File System* Prelude**
 ///
