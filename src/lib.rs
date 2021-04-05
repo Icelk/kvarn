@@ -11,7 +11,7 @@ pub mod parse;
 pub mod prelude;
 pub mod utility;
 
-use prelude::{*, internals::*, networking::*, prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::extensions::RetFut};
+use prelude::{internals::*, networking::*, *};
 // When user only imports crate::* and not crate::prelude::*
 pub use comprash::{
     ClientCachePreference, CompressPreference, CompressedResponse, ServerCachePreference,
