@@ -39,7 +39,8 @@ pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const EXTENSION_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
 macro_rules! impl_get_unsafe {
-    ($main:ty, $return:ty) => {
+    ($main:ident, $return:ty) => {
+        pub struct $main(*const $return);
         impl $main {
             pub(crate) fn new(data: &$return) -> Self {
                 Self(data)
@@ -54,7 +55,8 @@ macro_rules! impl_get_unsafe {
     };
 }
 macro_rules! impl_get_unsafe_mut {
-    ($main:ty, $return:ty) => {
+    ($main:ident, $return:ty) => {
+        pub struct $main(*mut $return);
         impl $main {
             pub(crate) fn new(data: &mut $return) -> Self {
                 Self(data)
@@ -77,22 +79,16 @@ macro_rules! return_none {
     };
 }
 
-pub struct RequestWrapper(*const FatRequest);
 impl_get_unsafe!(RequestWrapper, FatRequest);
 
-pub struct RequestWrapperMut(*mut FatRequest);
 impl_get_unsafe_mut!(RequestWrapperMut, FatRequest);
 
-pub struct EmptyResponseWrapperMut(*mut Response<()>);
 impl_get_unsafe_mut!(EmptyResponseWrapperMut, Response<()>);
 
-pub struct ResponsePipeWrapperMut(*mut application::ResponsePipe);
 impl_get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
 
-pub struct FileCacheWrapper(*const FileCache);
 impl_get_unsafe!(FileCacheWrapper, FileCache);
 
-pub struct HostWrapper(*const Host);
 impl_get_unsafe!(HostWrapper, Host);
 
 pub struct PresentDataWrapper(PresentData);
@@ -200,7 +196,7 @@ impl Extensions {
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
         self.prepare_single.insert(path, extension);
     }
-    /// Adds a prepare extension for a whole directory.
+    /// Adds a prepare extension run if `function` return `true`.
     pub fn add_prepare_fn(&mut self, function: If, extension: Prepare) {
         self.prepare_fn.push((function, extension));
     }

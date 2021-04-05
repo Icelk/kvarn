@@ -122,6 +122,9 @@ pub async fn handle_cache(
     pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
+    let bad_path = request.uri().path().is_empty()
+        || request.uri().path().contains("./")
+        || request.uri().path().starts_with("//");
     match host.extensions.resolve_prime(&request, address).await {
         Some(uri) => *request.uri_mut() = uri,
         None => {}
@@ -177,13 +180,14 @@ pub async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let (resp, client_cache, server_cache, compress) = match parse::convert_uri(
-                request.uri().path(),
-                host.path.as_path(),
-                host.get_folder_default_or("index.html"),
-                host.get_extension_default_or("html"),
-            ) {
-                Some(path) => {
+            let (resp, client_cache, server_cache, compress) = match bad_path {
+                false => {
+                    let path = parse::convert_uri(
+                        request.uri().path(),
+                        host.path.as_path(),
+                        host.get_folder_default_or("index.html"),
+                        host.get_extension_default_or("html"),
+                    );
                     let (mut resp, client_cache, server_cache, compress) =
                         handle_request(&mut request, address, host, &path)
                             .await
@@ -202,7 +206,7 @@ pub async fn handle_cache(
                         .await;
                     (resp, client_cache, server_cache, compress)
                 }
-                None => utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
+                true => utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
             };
 
             let extension = match Path::new(request.uri().path())
@@ -283,25 +287,33 @@ pub async fn handle_cache(
 
 /// LAYER 5.1
 pub(crate) async fn handle_request(
-    _request: &mut Request<application::Body>,
+    request: &mut Request<application::Body>,
     _address: net::SocketAddr,
     host: &Host,
     path: &PathBuf,
 ) -> io::Result<FatResponse> {
-    #[allow(unused_mut)]
     let mut response = None;
-    #[allow(unused_mut)]
     let mut client_cache = None;
-    #[allow(unused_mut)]
     let mut server_cache = None;
-    #[allow(unused_mut)]
     let mut compress = None;
+
+    {
+        if let Some(resp) = host
+            .extensions
+            .resolve_prepare(request, &host.file_cache)
+            .await
+        {
+            response.replace(resp.0);
+            client_cache.replace(resp.1);
+            server_cache.replace(resp.2);
+            compress.replace(resp.3);
+        }
+    }
 
     #[cfg(feature = "fs")]
     {
-        match utility::read_file(&path, &host.file_cache).await {
-            Some(resp) => response = Some(Response::new(resp)),
-            None => {}
+        if let Some(content) = utility::read_file(&path, &host.file_cache).await {
+            response = Some(Response::new(content));
         }
     }
 

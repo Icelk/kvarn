@@ -154,10 +154,8 @@ pub fn convert_uri(
     base_path: &Path,
     folder_default: &str,
     extension_default: &str,
-) -> Option<PathBuf> {
-    if path.contains("./") || path.is_empty() {
-        return None;
-    }
+) -> PathBuf {
+    assert_eq!(path.as_bytes()[0], FORWARD_SLASH);
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
@@ -176,7 +174,7 @@ pub fn convert_uri(
     } else if last_byte == PERIOD {
         buf.set_extension(extension_default);
     };
-    Some(buf)
+    buf
 }
 
 pub fn parse_version(bytes: &[u8]) -> Option<Version> {

@@ -115,18 +115,27 @@ impl Host {
     }
 
     pub fn set_http_redirect_to_https(&mut self) {
-        self.extensions.add_prepare_fn(
-            &|req| req.uri().scheme_str() == Some("http") && req.uri().port().is_none(),
-            &|request, _| {
-                let mut uri = unsafe { request.get_inner() }.uri().clone().into_parts();
+        const SPECIAL_PATH: &'static str = "/../to_https";
+        self.extensions
+            .add_prepare_single(SPECIAL_PATH.to_string(), &|request, _| {
+                // "/../ path" is special; it will not be accepted from outside.
+                // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
+                let request: &FatRequest = unsafe { request.get_inner() };
+                let mut uri = request.uri().clone().into_parts();
+                let path = request.uri().query().unwrap_or("/");
 
                 uri.scheme = Some(http::uri::Scheme::HTTPS);
+                uri.path_and_query = Some(
+                    http::uri::PathAndQuery::from_maybe_shared(Bytes::copy_from_slice(
+                        path.as_bytes(),
+                    ))
+                    .unwrap(),
+                );
 
-                // it must be valid
                 let uri = Uri::from_parts(uri).unwrap();
 
                 let response = Response::builder()
-                    .status(StatusCode::PERMANENT_REDIRECT)
+                    .status(StatusCode::TEMPORARY_REDIRECT)
                     // I know this is excessive cloning of value;
                     // first we clone Uri, then make it a String, then it gets converted to a Bytes.
                     // But it happens once.
@@ -135,11 +144,42 @@ impl Host {
                 ready((
                     response.body(Bytes::new()).unwrap(),
                     ClientCachePreference::Full,
-                    ServerCachePreference::Full,
+                    ServerCachePreference::None,
                     CompressPreference::None,
                 ))
-            },
-        );
+            });
+        self.extensions.add_prime(&|request, _| {
+            let request: &FatRequest = unsafe { request.get_inner() };
+            let uri = match request.uri().scheme_str() == Some("http")
+                && request.uri().port().is_none()
+            {
+                // redirect
+                true => {
+                    let mut uri = request.uri().clone().into_parts();
+
+                    let mut bytes = BytesMut::with_capacity(
+                        SPECIAL_PATH.len()
+                            + 1
+                            + request.uri().path().len()
+                            + request.uri().query().map(|s| s.len() + 1).unwrap_or(0),
+                    );
+                    bytes.extend(SPECIAL_PATH.as_bytes());
+                    bytes.extend(b"?");
+                    bytes.extend(request.uri().path().as_bytes());
+                    if let Some(query) = request.uri().query() {
+                        bytes.extend(b"?");
+                        bytes.extend(query.as_bytes());
+                    }
+                    // it must be a valid Uri
+                    uri.path_and_query =
+                        Some(http::uri::PathAndQuery::from_maybe_shared(bytes.freeze()).unwrap());
+                    let uri = Uri::from_parts(uri).unwrap();
+                    Some(uri)
+                }
+                false => None,
+            };
+            ready(uri)
+        });
         self.extensions.add_package(&|mut response, request| {
             let response: &mut Response<_> = unsafe { response.get_inner() };
             let request: &FatRequest = unsafe { request.get_inner() };
