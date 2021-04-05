@@ -473,9 +473,12 @@ mod response {
                         "connection",
                         "keep-alive",
                     );
-                    write_http_1_response(&mut *writer, response)
+                    let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
+                    write_http_1_response(&mut writer, response)
                         .await
                         .map_err(Error::Io)?;
+                    writer.flush().await.map_err(Error::Io)?;
+
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
                 }
                 Self::Http2(s) => match s.send_response(response, end_of_stream) {
