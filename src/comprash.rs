@@ -70,6 +70,26 @@ impl UriKey {
     }
 }
 
+pub fn do_compress<F: Fn() -> bool>(mime: Mime, check_utf8: F) -> bool {
+    // IMAGE first, because it is the most likely
+    mime.type_() != mime::IMAGE
+        && mime.type_() != mime::FONT
+        && mime.type_() != mime::VIDEO
+        && mime.type_() != mime::AUDIO
+        && mime.type_() != mime::STAR
+        // compressed applications
+        && mime != mime::APPLICATION_PDF
+        && mime.subtype() == "zip"
+        && mime.subtype() != "zstd"
+        // all applications which are not js, graphql, json, xml, or valid utf-8
+        && (mime.type_() != mime::APPLICATION
+            || (mime.subtype() == mime::JAVASCRIPT
+                || mime.subtype() == "graphql"
+                || mime.subtype() == mime::JSON
+                || mime.subtype() == mime::XML
+                || check_utf8()))
+}
+
 // for when no compression is compiled in
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -104,27 +124,41 @@ impl CompressedResponse {
     }
 
     pub fn clone_preferred(&self) -> Response<Bytes> {
-        let (bytes, compression) = match self.compress {
-            CompressPreference::None => (self.identity.body(), "identity"),
-            CompressPreference::Full => {
-                #[cfg(all(feature = "gzip", feature = "br"))]
-                match self.br.is_some() && self.gzip.is_none() {
-                    true => (self.get_br(), "br"),
-                    false => (self.get_gzip(), "gzip"),
-                }
-                #[cfg(all(feature = "gzip", not(feature = "br")))]
-                {
-                    (self.get_gzip(), "gzip")
-                }
-                #[cfg(all(feature = "br", not(feature = "gzip")))]
-                {
-                    (self.get_br(), "br")
-                }
-                #[cfg(not(any(feature = "gzip", feature = "br")))]
-                {
-                    (self.identity.body(), "identity")
+        let mime = self
+            .get_identity()
+            .headers()
+            .get("content-type")
+            .and_then(|header| header.to_str().ok())
+            .and_then(|header| header.parse().ok());
+        let (bytes, compression) = match mime {
+            Some(mime) => {
+                match do_compress(mime, || str::from_utf8(self.get_identity().body()).is_ok()) {
+                    true => match self.compress {
+                        CompressPreference::None => (self.get_identity().body(), "identity"),
+                        CompressPreference::Full => {
+                            #[cfg(all(feature = "gzip", feature = "br"))]
+                            match self.br.is_some() && self.gzip.is_none() {
+                                true => (self.get_br(), "br"),
+                                false => (self.get_gzip(), "gzip"),
+                            }
+                            #[cfg(all(feature = "gzip", not(feature = "br")))]
+                            {
+                                (self.get_gzip(), "gzip")
+                            }
+                            #[cfg(all(feature = "br", not(feature = "gzip")))]
+                            {
+                                (self.get_br(), "br")
+                            }
+                            #[cfg(not(any(feature = "gzip", feature = "br")))]
+                            {
+                                (self.get_identity().body(), "identity")
+                            }
+                        }
+                    },
+                    false => (self.get_identity().body(), "identity"),
                 }
             }
+            None => (self.get_identity().body(), "identity"),
         };
         self.clone_identity_set_compression(
             Bytes::clone(bytes),
