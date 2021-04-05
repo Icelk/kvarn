@@ -13,6 +13,7 @@ use kvarn::{
     extensions::*,
     prelude::{internals::*, *},
 };
+use std::borrow::Cow;
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
@@ -25,116 +26,205 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_internal("hide".to_string(), &hide);
     extensions.add_present_file("private".to_string(), &hide);
     extensions.add_present_internal("allow-ips".to_string(), &ip_allow);
-    // #[cfg(feature = "php")]
-    // extensions.add_present(php);
+    #[cfg(feature = "php")]
+    extensions.add_present_file("php".to_string(), &php);
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), &templates);
+    #[cfg(feature = "push")]
+    extensions.add_post(&push);
+}
+
+#[cfg(feature = "push")]
+fn push(
+    request: RequestWrapper,
+    bytes: Bytes,
+    mut response_pipe: ResponsePipeWrapperMut,
+    addr: SocketAddr,
+    host: HostWrapper,
+) -> RetFut<()> {
+    Box::pin(async move {
+        // If it is not HTTP/1
+        if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
+            return;
+        }
+
+        match str::from_utf8(&bytes) {
+            // If it is HTML
+            Ok(string) if bytes.starts_with(b"<!doctype HTML>") => {
+                let mut urls = url_crawl::get_urls(string);
+                let host = unsafe { host.get_inner() };
+
+                urls.retain(|url| {
+                    let correct_host = {
+                        // only push https://; it's eight bytes long
+                        url.get(8..)
+                            .map(|url| url.starts_with(host.host_name))
+                            .unwrap_or(false)
+                    };
+                    url.starts_with("/") || correct_host
+                });
+
+                info!("Pushing urls {:?}", urls);
+
+                for url in urls {
+                    unsafe {
+                        let mut uri = request.get_inner().uri().clone().into_parts();
+                        match http::uri::PathAndQuery::from_maybe_shared(url.into_bytes())
+                            .ok()
+                            .and_then(|path| {
+                                uri.path_and_query = Some(path);
+                                http::Uri::from_parts(uri).ok()
+                            }) {
+                            Some(url) => {
+                                let mut request = utility::empty_clone_request(request.get_inner());
+                                *request.uri_mut() = url;
+
+                                let empty_request = utility::empty_clone_request(&request);
+
+                                let response = response_pipe.get_inner();
+                                let mut response_pipe = match response.push_request(empty_request) {
+                                    Ok(pipe) => pipe,
+                                    Err(_) => return,
+                                };
+
+                                let request = request.map(|_| kvarn::application::Body::Empty);
+
+                                if let Err(err) = kvarn::handle_cache(
+                                    request,
+                                    addr,
+                                    kvarn::SendKind::Push(&mut response_pipe),
+                                    host,
+                                )
+                                .await
+                                {
+                                    error!("Error occurred when pushing request. {:?}", err);
+                                };
+                            }
+                            None => {}
+                        }
+                    }
+                }
+            }
+            // Else, do nothing
+            _ => {}
+        }
+    })
 }
 
 #[cfg(feature = "templates")]
 pub use templates::templates;
 
-// #[cfg(feature = "fastcgi-client")]
-// pub mod cgi {
-//     use super::*;
-//     use fastcgi_client::{Client, Params};
-//     use kvarn::prelude::networking::*;
+#[cfg(feature = "fastcgi-client")]
+pub mod cgi {
+    use std::net::Ipv4Addr;
 
-//     pub enum FCGIError {
-//         FailedToConnect(io::Error),
-//         FailedToDoRequest(fastcgi_client::Error),
-//         NoStdout,
-//     }
-//     pub fn connect_to_fcgi(
-//         port: u16,
-//         method: &str,
-//         file_name: &str,
-//         file_path: &str,
-//         uri: &str,
-//         address: &SocketAddr,
-//         body: &[u8],
-//     ) -> Result<Vec<u8>, FCGIError> {
-//         // Create connection to FastCGI server
-//         let stream = match std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
-//             Ok(stream) => stream,
-//             Err(err) => return Err(FCGIError::FailedToConnect(err)),
-//         };
-//         let mut client = Client::new(stream, false);
+    use super::*;
+    use fastcgi_client::{Client, Params};
+    use kvarn::prelude::networking::*;
 
-//         let len = body.len().to_string();
-//         let remote_addr = match address.ip() {
-//             IpAddr::V4(addr) => addr.to_string(),
-//             IpAddr::V6(addr) => addr.to_string(),
-//         };
-//         let remote_port = address.port().to_string();
+    pub enum FCGIError {
+        FailedToConnect(io::Error),
+        FailedToDoRequest(fastcgi_client::ClientError),
+        NoStdout,
+    }
+    pub async fn connect_to_fcgi(
+        port: u16,
+        method: &str,
+        file_name: &str,
+        file_path: &str,
+        uri: &str,
+        address: &SocketAddr,
+        body: &[u8],
+    ) -> Result<Vec<u8>, FCGIError> {
+        // Create connection to FastCGI server
+        let stream = match TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await {
+            Ok(stream) => stream,
+            Err(err) => return Err(FCGIError::FailedToConnect(err)),
+        };
+        let mut client = Client::new(stream, false);
 
-//         let params = Params::with_predefine()
-//             .set_request_method(method)
-//             .set_script_name(file_name)
-//             .set_script_filename(file_path)
-//             .set_request_uri(uri)
-//             .set_document_uri(file_name)
-//             .set_remote_addr(&remote_addr)
-//             .set_remote_port(&remote_port)
-//             .set_server_addr("0.0.0.0")
-//             .set_server_port("")
-//             .set_server_name(kvarn::SERVER_NAME)
-//             .set_content_type("")
-//             .set_content_length(&len);
+        let len = body.len().to_string();
+        let remote_addr = match address.ip() {
+            IpAddr::V4(addr) => addr.to_string(),
+            IpAddr::V6(addr) => addr.to_string(),
+        };
+        let remote_port = address.port().to_string();
 
-//         match client.do_request(&params, &mut (&*body)) {
-//             Ok(output) => match output.get_stdout() {
-//                 Some(output) => Ok(output),
-//                 None => Err(FCGIError::NoStdout),
-//             },
-//             Err(err) => Err(FCGIError::FailedToDoRequest(err)),
-//         }
-//     }
-//     pub fn fcgi_from_data(data: &PresentData, port: u16) -> Result<Vec<u8>, Cow<'static, str>> {
-//         let file_name = match parse::format_file_name(data.path) {
-//             Some(name) => name,
-//             None => {
-//                 return Err(Cow::Borrowed("Error formatting file name!"));
-//             }
-//         };
-//         let file_path = match parse::format_file_path(data.path) {
-//             Ok(name) => name,
-//             Err(_) => {
-//                 return Err(Cow::Borrowed("Getting working directory!"));
-//             }
-//         };
-//         let file_path = match file_path.to_str() {
-//             Some(path) => path,
-//             None => {
-//                 return Err(Cow::Borrowed("Error formatting file path!"));
-//             }
-//         };
+        let params = Params::default()
+            .set_request_method(method)
+            .set_script_name(file_name)
+            .set_script_filename(file_path)
+            .set_request_uri(uri)
+            .set_document_uri(file_name)
+            .set_remote_addr(&remote_addr)
+            .set_remote_port(&remote_port)
+            .set_server_addr("0.0.0.0")
+            .set_server_port("")
+            .set_server_name(kvarn::SERVER_NAME)
+            .set_content_type("")
+            .set_content_length(&len);
 
-//         // Fetch fastcgi server response.
-//         match connect_to_fcgi(
-//             port,
-//             data.request.method().as_str(),
-//             file_name,
-//             file_path,
-//             data.request.uri().path_and_query().unwrap().as_str(),
-//             data.address,
-//             data.request.body(),
-//         ) {
-//             Ok(vec) => Ok(vec),
-//             Err(err) => match err {
-//                 FCGIError::FailedToConnect(err) => Err(Cow::Owned(format!(
-//                     "Failed to connect to FastCGI server on port {}. IO Err: {}",
-//                     port, err
-//                 ))),
-//                 FCGIError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
-//                     "Failed to request from FastCGI server! Err: {}",
-//                     err
-//                 ))),
-//                 FCGIError::NoStdout => Err(Cow::Borrowed("No stdout in response from FastCGI!")),
-//             },
-//         }
-//     }
-// }
+        let request = fastcgi_client::Request::new(params, body);
+
+        match client.execute(request).await {
+            Ok(output) => match output.get_stdout() {
+                Some(output) => Ok(output),
+                None => Err(FCGIError::NoStdout),
+            },
+            Err(err) => Err(FCGIError::FailedToDoRequest(err)),
+        }
+    }
+    pub async fn fcgi_from_data(
+        data: &PresentData,
+        port: u16,
+    ) -> Result<Vec<u8>, Cow<'static, str>> {
+        let path = data.path();
+        let file_name = match parse::format_file_name(&path) {
+            Some(name) => name,
+            None => {
+                return Err(Cow::Borrowed("Error formatting file name!"));
+            }
+        };
+        let file_path = match parse::format_file_path(&path) {
+            Ok(name) => name,
+            Err(_) => {
+                return Err(Cow::Borrowed("Getting working directory!"));
+            }
+        };
+        let file_path = match file_path.to_str() {
+            Some(path) => path,
+            None => {
+                return Err(Cow::Borrowed("Error formatting file path!"));
+            }
+        };
+
+        // Fetch fastcgi server response.
+        match connect_to_fcgi(
+            port,
+            data.request().method().as_str(),
+            file_name,
+            file_path,
+            data.request().uri().path_and_query().unwrap().as_str(),
+            &data.address(),
+            data.request().body(),
+        )
+        .await
+        {
+            Ok(vec) => Ok(vec),
+            Err(err) => match err {
+                FCGIError::FailedToConnect(err) => Err(Cow::Owned(format!(
+                    "Failed to connect to FastCGI server on port {}. IO Err: {}",
+                    port, err
+                ))),
+                FCGIError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
+                    "Failed to request from FastCGI server! Err: {}",
+                    err
+                ))),
+                FCGIError::NoStdout => Err(Cow::Borrowed("No stdout in response from FastCGI!")),
+            },
+        }
+    }
+}
 // Ok, since it is used, just not by every extension, and #[CFG] would be too fragile for this.
 #[allow(dead_code)]
 pub mod parse {
@@ -150,28 +240,22 @@ pub mod parse {
     }
 }
 
-// #[cfg(feature = "php")]
-// pub fn php() -> BoundExtension {
-//     BoundExtension {
-//         extension_aliases: &[],
-//         file_extension_aliases: &["php"],
-//         ext: Extension::new(&|| {}, &|_, data| {
-//             // Content type will be HTML!
-//             // Will be overriden by headers from PHP.
-//             *data.content_type = Html;
-//             // So it won't remove the query before caching!
-//             *data.cached = Cached::PerQuery;
-
-//             let output = match cgi::fcgi_from_data(&data, 6633) {
-//                 Ok(vec) => vec,
-//                 Err(err) => {
-//                     eprintln!("{}", err);
-//                     return;
-//                 }
-//             };
-//             data.set
-//     }
-// }
+#[cfg(feature = "php")]
+pub fn php(data: PresentDataWrapper) -> RetFut<()> {
+    Box::pin(async move {
+        let data = unsafe { data.get_inner() };
+        *data.server_cache_preference() = ServerCachePreference::QueryMatters;
+        let output = match cgi::fcgi_from_data(data, 6633).await {
+            Ok(vec) => vec,
+            Err(err) => {
+                error!("FastCGI failed. {}", err);
+                return;
+            }
+        };
+        *data.response_mut() = kvarn::parse::response(&output);
+        todo!("fork repo and change client.rs from dyn AsyncRead + Unpin to AsyncRead + Send + Unpin and the same in request.rs");
+    })
+}
 
 #[cfg(feature = "templates")]
 pub mod templates {

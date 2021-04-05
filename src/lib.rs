@@ -38,6 +38,7 @@ pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (macOS)";
 pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (Linux)";
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (unknown OS)";
+pub const SERVER_NAME: &str = "Kvarn";
 
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]
@@ -202,7 +203,7 @@ pub async fn handle_cache(
 
                         host.extensions
                             .resolve_present(
-                                &request,
+                                &mut request,
                                 &mut resp,
                                 client_cache,
                                 server_cache,
@@ -210,7 +211,7 @@ pub async fn handle_cache(
                                 address,
                                 path.as_path(),
                             )
-                            .await;
+                            .await?;
                         ((resp, client_cache, server_cache, compress), None)
                     }
                 },

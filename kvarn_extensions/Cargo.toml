@@ -8,9 +8,11 @@ edition = "2018"
 
 [dependencies]
 kvarn = { path = "../", default-features = false }
-fastcgi-client = { version = "0.5", default-features = false, optional = true }
+fastcgi-client = { version = "0.6",  optional = true }
+url_crawl = { path = "../url_crawl", optional = true }
 
 [features]
-default = ["php", "templates"]
+default = ["php", "templates", "push"]
 php = ["fastcgi-client"]
 templates = []
+push = ["url_crawl"]

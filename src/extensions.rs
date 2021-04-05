@@ -117,7 +117,7 @@ impl PresentDataWrapper {
 pub struct PresentData {
     // Regarding request
     address: SocketAddr,
-    request: *const Request<Body>,
+    request: *const Request<Vec<u8>>,
     host: *const Host,
     path: *const Path,
     // Regarding response
@@ -131,7 +131,7 @@ impl PresentData {
     pub fn address(&self) -> SocketAddr {
         self.address
     }
-    pub fn request(&self) -> &Request<Body> {
+    pub fn request(&self) -> &Request<Vec<u8>> {
         unsafe { &*self.request }
     }
     pub fn host(&self) -> &Host {
@@ -275,34 +275,59 @@ impl Extensions {
     }
     pub async fn resolve_present(
         &self,
-        request: &Request<Body>,
+        request: &mut Request<Body>,
         response: &mut Response<Bytes>,
         client_cache_preference: ClientCachePreference,
         server_cache_preference: ServerCachePreference,
         host: &Host,
         address: SocketAddr,
         path: &Path,
-    ) {
-        let extensions = return_on_none!(PresentExtensions::new(Bytes::clone(response.body())));
-        *response.body_mut() = response.body_mut().split_off(extensions.data_start());
-        for extension_name_args in extensions.iter() {
-            match self.present_internal.get(extension_name_args.name()) {
-                Some(extension) => {
-                    let data = PresentData {
-                        address,
-                        request,
-                        host,
-                        path,
-                        server_cache_preference,
-                        client_cache_preference,
-                        response,
-                        args: extension_name_args,
-                    };
-                    let data = PresentDataWrapper(data);
-                    extension(data).await;
+    ) -> io::Result<()> {
+        pub struct LazyRequestBody<'a> {
+            request: &'a mut FatRequest,
+            result: Option<Request<Vec<u8>>>,
+        }
+        impl<'a> LazyRequestBody<'a> {
+            pub async fn get(&mut self) -> io::Result<&Request<Vec<u8>>> {
+                match self.result {
+                    Some(ref result) => Ok(result),
+                    None => {
+                        let mut buffer = Vec::with_capacity(256);
+                        self.request.body_mut().read_to_end(&mut buffer).await?;
+                        let request = utility::empty_clone_request(&self.request).map(|()| buffer);
+                        self.result.replace(request);
+                        Ok(self.result.as_ref().unwrap())
+                    }
                 }
-                // No extension, do nothing.
-                None => {}
+            }
+        }
+
+        let mut request = LazyRequestBody {
+            request,
+            result: None,
+        };
+
+        if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
+            *response.body_mut() = response.body_mut().split_off(extensions.data_start());
+            for extension_name_args in extensions.iter() {
+                match self.present_internal.get(extension_name_args.name()) {
+                    Some(extension) => {
+                        let data = PresentData {
+                            address,
+                            request: request.get().await?,
+                            host,
+                            path,
+                            server_cache_preference,
+                            client_cache_preference,
+                            response,
+                            args: extension_name_args,
+                        };
+                        let data = PresentDataWrapper(data);
+                        extension(data).await;
+                    }
+                    // No extension, do nothing.
+                    None => {}
+                }
             }
         }
         match path
@@ -313,7 +338,7 @@ impl Extensions {
             Some(extension) => {
                 let data = PresentData {
                     address,
-                    request,
+                    request: request.get().await?,
                     host,
                     path,
                     server_cache_preference,
@@ -326,6 +351,7 @@ impl Extensions {
             }
             None => {}
         }
+        Ok(())
     }
     pub async fn resolve_package(&self, response: &mut Response<()>, request: &FatRequest) {
         for extension in &self.package {
