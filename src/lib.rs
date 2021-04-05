@@ -31,14 +31,13 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
 }
 
 #[cfg(target_os = "windows")]
-pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Windows)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (Windows)";
 #[cfg(target_os = "macos")]
-pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (macOS)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (macOS)";
 #[cfg(target_os = "linux")]
-pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Linux)\r\n";
+pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (Linux)";
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
-pub const SERVER_NAME: &str = "Kvarn";
+pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (unknown OS)";
 
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]
@@ -139,11 +138,12 @@ pub async fn handle_cache(
         Some(uri) => *request.uri_mut() = uri,
         None => {}
     }
+    println!("uri {:?}", request.uri());
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = host.response_cache.lock().await;
     let cached = path_query.call_all(|path| lock.get(path)).1;
-    match cached {
+    let future = match cached {
         Some(resp) => {
             info!("Found in cache!");
             let body_response = resp.get_preferred();
@@ -183,36 +183,43 @@ pub async fn handle_cache(
                     ret_log_app_error!(body_pipe.send(response_body, true).await);
                 }
             }
+            None
         }
         None => {
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let (resp, client_cache, server_cache, compress) = match bad_path {
-                false => {
-                    let path = parse::convert_uri(
-                        request.uri().path(),
-                        host.path.as_path(),
-                        host.get_folder_default_or("index.html"),
-                        host.get_extension_default_or("html"),
-                    );
-                    let (mut resp, client_cache, server_cache, compress) =
-                        handle_request(&mut request, address, host, &path).await?;
+            let ((resp, client_cache, server_cache, compress), future) = match bad_path {
+                false => match host.extensions.resolve_pre(&mut request, host).await {
+                    Some((response, future)) => (response, Some(future)),
+                    None => {
+                        let path = parse::convert_uri(
+                            request.uri().path(),
+                            host.path.as_path(),
+                            host.get_folder_default_or("index.html"),
+                            host.get_extension_default_or("html"),
+                        );
+                        let (mut resp, client_cache, server_cache, compress) =
+                            handle_request(&mut request, address, host, &path).await?;
 
-                    host.extensions
-                        .resolve_present(
-                            &request,
-                            &mut resp,
-                            client_cache,
-                            server_cache,
-                            host,
-                            address,
-                            path.as_path(),
-                        )
-                        .await;
-                    (resp, client_cache, server_cache, compress)
-                }
-                true => utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
+                        host.extensions
+                            .resolve_present(
+                                &request,
+                                &mut resp,
+                                client_cache,
+                                server_cache,
+                                host,
+                                address,
+                                path.as_path(),
+                            )
+                            .await;
+                        ((resp, client_cache, server_cache, compress), None)
+                    }
+                },
+                true => (
+                    utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
+                    None,
+                ),
             };
 
             let extension = match Path::new(request.uri().path())
@@ -243,15 +250,20 @@ pub async fn handle_cache(
                 server_cache: ServerCachePreference,
                 path_query: PathQuery,
                 response: CompressedResponse,
+                future: &Option<RetSyncFut<()>>,
             ) {
-                if server_cache.cache() {
-                    let mut lock = host.response_cache.lock().await;
-                    let key = match server_cache.query_matters() {
-                        true => comprash::UriKey::PathQuery(path_query),
-                        false => comprash::UriKey::Path(path_query.into_path()),
-                    };
-                    info!("Caching uri {:?}!", &key);
-                    lock.cache(key, response);
+                if future.is_none() {
+                    if server_cache.cache() {
+                        let mut lock = host.response_cache.lock().await;
+                        let key = match server_cache.query_matters() {
+                            true => comprash::UriKey::PathQuery(path_query),
+                            false => comprash::UriKey::Path(path_query.into_path()),
+                        };
+                        info!("Caching uri {:?}!", &key);
+                        lock.cache(key, response);
+                    }
+                } else {
+                    info!("Not caching; a Pre extension has captured. If we cached, it would not be called again.");
                 }
             };
 
@@ -276,7 +288,11 @@ pub async fn handle_cache(
                     maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
                 }
             }
+            future
         }
+    };
+    if let Some(future) = future {
+        future.await;
     }
     Ok(())
 }

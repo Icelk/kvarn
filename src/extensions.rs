@@ -17,10 +17,11 @@
 use crate::prelude::{internals::*, *};
 
 pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
+pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
 
 pub type Prime = &'static (dyn Fn(RequestWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync);
-pub type Pre =
-    &'static (dyn Fn(RequestWrapperMut, FileCacheWrapper) -> RetFut<Option<FatResponse>> + Sync);
+pub type Pre = &'static (dyn Fn(RequestWrapperMut, HostWrapper) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
+              + Sync);
 pub type Prepare =
     &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<FatResponse> + Sync);
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
@@ -228,15 +229,11 @@ impl Extensions {
     pub async fn resolve_pre(
         &self,
         request: &mut FatRequest,
-        file_cache: &FileCache,
-    ) -> Option<FatResponse> {
+        host: &Host,
+    ) -> Option<(FatResponse, RetSyncFut<()>)> {
         match self.pre.get(request.uri().path()) {
             Some(extension) => {
-                extension(
-                    RequestWrapperMut::new(request),
-                    FileCacheWrapper::new(file_cache),
-                )
-                .await
+                extension(RequestWrapperMut::new(request), HostWrapper::new(host)).await
             }
             None => None,
         }
