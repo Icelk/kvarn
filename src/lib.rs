@@ -31,13 +31,13 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
 }
 
 #[cfg(target_os = "windows")]
-pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (Windows)";
+pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (Windows)";
 #[cfg(target_os = "macos")]
-pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (macOS)";
+pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (macOS)";
 #[cfg(target_os = "linux")]
-pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (Linux)";
+pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (Linux)";
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-pub const SERVER_HEADER: &[u8] = b"Kvarn/0.1.0 (unknown OS)";
+pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (unknown OS)";
 
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]

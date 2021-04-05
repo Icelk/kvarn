@@ -91,6 +91,7 @@ impl CompressedResponse {
         let headers = identity.headers_mut();
         Self::set_content_length(headers, len);
         Self::set_client_cache(headers, client_cache);
+        Self::add_server_header(headers);
         Self::check_content_type(&mut identity, extension);
         Self {
             identity,
@@ -129,6 +130,9 @@ impl CompressedResponse {
         }
     }
 
+    fn add_server_header(headers: &mut HeaderMap) {
+        headers.insert("server", HeaderValue::from_static(SERVER_HEADER));
+    }
     fn set_content_length(headers: &mut HeaderMap, len: usize) {
         // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
         utility::replace_header(
