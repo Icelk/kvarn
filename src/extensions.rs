@@ -24,7 +24,7 @@ pub type Pre =
 pub type Prepare =
     &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<FatResponse> + Sync);
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
-pub type Package = &'static (dyn Fn(ResponseWrapperMut) -> RetFut<()> + Sync);
+pub type Package = &'static (dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync);
 pub type Post = &'static (dyn Fn(
     RequestWrapper,
     Bytes,
@@ -33,6 +33,7 @@ pub type Post = &'static (dyn Fn(
     HostWrapper,
 ) -> RetFut<()>
               + Sync);
+pub type If = &'static (dyn Fn(&FatRequest) -> bool + Sync);
 
 pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const EXTENSION_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
@@ -81,8 +82,9 @@ impl_get_unsafe!(RequestWrapper, FatRequest);
 
 pub struct RequestWrapperMut(*mut FatRequest);
 impl_get_unsafe_mut!(RequestWrapperMut, FatRequest);
-pub struct ResponseWrapperMut(*mut http::Response<Bytes>);
-impl_get_unsafe_mut!(ResponseWrapperMut, http::Response<Bytes>);
+
+pub struct EmptyResponseWrapperMut(*mut Response<()>);
+impl_get_unsafe_mut!(EmptyResponseWrapperMut, Response<()>);
 
 pub struct ResponsePipeWrapperMut(*mut application::ResponsePipe);
 impl_get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
@@ -115,13 +117,13 @@ impl PresentDataWrapper {
 pub struct PresentData {
     // Regarding request
     address: SocketAddr,
-    request: *const http::Request<Body>,
+    request: *const Request<Body>,
     host: *const Host,
     path: *const Path,
     // Regarding response
     server_cache_preference: ServerCachePreference,
     client_cache_preference: ClientCachePreference,
-    response: *mut http::Response<Bytes>,
+    response: *mut Response<Bytes>,
     // Regarding extension
     args: PresentArguments,
 }
@@ -129,7 +131,7 @@ impl PresentData {
     pub fn address(&self) -> SocketAddr {
         self.address
     }
-    pub fn request(&self) -> &http::Request<Body> {
+    pub fn request(&self) -> &Request<Body> {
         unsafe { &*self.request }
     }
     pub fn host(&self) -> &Host {
@@ -144,10 +146,10 @@ impl PresentData {
     pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
         &mut self.client_cache_preference
     }
-    pub fn response_mut(&mut self) -> &mut http::Response<Bytes> {
+    pub fn response_mut(&mut self) -> &mut Response<Bytes> {
         unsafe { &mut *self.response }
     }
-    pub fn response(&self) -> &http::Response<Bytes> {
+    pub fn response(&self) -> &Response<Bytes> {
         unsafe { &*self.response }
     }
     pub fn args(&self) -> &PresentArguments {
@@ -166,7 +168,7 @@ pub struct Extensions {
     prime: Vec<Prime>,
     pre: HashMap<String, Pre>,
     prepare_single: HashMap<String, Prepare>,
-    prepare_dir: Vec<(String, Prepare)>,
+    prepare_fn: Vec<(If, Prepare)>,
     present_internal: HashMap<String, Present>,
     present_file: HashMap<String, Present>,
     package: Vec<Package>,
@@ -178,7 +180,7 @@ impl Extensions {
             prime: Vec::new(),
             pre: HashMap::new(),
             prepare_single: HashMap::new(),
-            prepare_dir: Vec::new(),
+            prepare_fn: Vec::new(),
             present_internal: HashMap::new(),
             present_file: HashMap::new(),
             package: Vec::new(),
@@ -199,8 +201,8 @@ impl Extensions {
         self.prepare_single.insert(path, extension);
     }
     /// Adds a prepare extension for a whole directory.
-    pub fn add_prepare_dir(&mut self, path: String, extension: Prepare) {
-        self.prepare_dir.push((path, extension));
+    pub fn add_prepare_fn(&mut self, function: If, extension: Prepare) {
+        self.prepare_fn.push((function, extension));
     }
     /// Adds a present internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: String, extension: Present) {
@@ -245,7 +247,7 @@ impl Extensions {
     }
     pub async fn resolve_prepare(
         &self,
-        request: &http::Request<Body>,
+        request: &FatRequest,
         file_cache: &FileCache,
     ) -> Option<FatResponse> {
         match self.prepare_single.get(request.uri().path()) {
@@ -257,8 +259,8 @@ impl Extensions {
                 .await,
             ),
             None => {
-                for (dir, extension) in &self.prepare_dir {
-                    match request.uri().path().starts_with(dir) {
+                for (function, extension) in &self.prepare_fn {
+                    match function(request) {
                         true => {
                             return Some(
                                 extension(
@@ -277,8 +279,8 @@ impl Extensions {
     }
     pub async fn resolve_present(
         &self,
-        request: &http::Request<Body>,
-        response: &mut http::Response<Bytes>,
+        request: &Request<Body>,
+        response: &mut Response<Bytes>,
         client_cache_preference: ClientCachePreference,
         server_cache_preference: ServerCachePreference,
         host: &Host,
@@ -329,9 +331,13 @@ impl Extensions {
             None => {}
         }
     }
-    pub async fn resolve_package(&self, response: &mut http::Response<Bytes>) {
+    pub async fn resolve_package(&self, response: &mut Response<()>, request: &FatRequest) {
         for extension in &self.package {
-            extension(ResponseWrapperMut::new(response)).await;
+            extension(
+                EmptyResponseWrapperMut::new(response),
+                RequestWrapper::new(request),
+            )
+            .await;
         }
     }
     pub async fn resolve_post(

@@ -26,6 +26,7 @@ This type can modify most data in response and will be executed in series.
 # Package
 > *I know the name is a stretch*
 Here, you can define headers to add to the final response.
+These headers are not cached, but applied every time. You can therefore compare things like other headers and version from request.
 
 **ToDo**: Can cookies be handled here? No, they should be added when making the `::http::Response`
 Default `Referer` header is part of the `Options` struct?

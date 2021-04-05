@@ -13,7 +13,10 @@
 // External commonly used dependencies
 pub use bytes::{Bytes, BytesMut};
 pub use http;
-pub use http::{header::HeaderName, HeaderValue, Method, Request, Response, Uri, Version};
+pub use http::{
+    header, header::HeaderName, HeaderMap, HeaderValue, Method, Request, Response, StatusCode, Uri,
+    Version,
+};
 pub use log::*;
 pub use mime::Mime;
 pub use mime_guess;
@@ -50,6 +53,7 @@ pub use crate::utility;
 pub use crate::Config;
 pub use crate::*;
 pub use comprash::UriKey;
+pub use extensions::{Package, Post, Pre, Prepare, Present, Prime};
 pub use host::{Host, HostData};
 pub use utility::chars::*;
 pub use utility::{read_file, read_file_cached};

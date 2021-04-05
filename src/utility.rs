@@ -122,7 +122,7 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes>
     read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
 }
 
-pub fn hardcoded_error_body(code: http::StatusCode) -> Bytes {
+pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
     let mut body = BytesMut::with_capacity(1024);
     match code {
         _ => {
@@ -151,10 +151,7 @@ pub fn hardcoded_error_body(code: http::StatusCode) -> Bytes {
     body.freeze()
 }
 
-pub async fn default_error(
-    code: http::StatusCode,
-    cache: Option<&FileCache>,
-) -> http::Response<Bytes> {
+pub async fn default_error(code: StatusCode, cache: Option<&FileCache>) -> Response<Bytes> {
     // Error files will be used several times.
     let body = match cache {
         Some(cache) => {
@@ -165,7 +162,7 @@ pub async fn default_error(
         }
         None => hardcoded_error_body(code),
     };
-    http::Response::builder()
+    Response::builder()
         .status(code)
         .header("content-type", "text/html; charset=utf-8")
         .header("content-encoding", "identity")
@@ -173,7 +170,7 @@ pub async fn default_error(
         .unwrap()
 }
 
-pub async fn default_error_response(code: http::StatusCode, host: &Host) -> FatResponse {
+pub async fn default_error_response(code: StatusCode, host: &Host) -> FatResponse {
     (
         default_error(code, Some(&host.file_cache)).await,
         ClientCachePreference::Full,
@@ -182,16 +179,16 @@ pub async fn default_error_response(code: http::StatusCode, host: &Host) -> FatR
     )
 }
 
-pub fn empty_clone_response<T>(response: &http::Response<T>) -> http::Response<()> {
-    let mut builder = http::Response::builder()
+pub fn empty_clone_response<T>(response: &Response<T>) -> Response<()> {
+    let mut builder = Response::builder()
         .version(response.version())
         .status(response.status());
 
     *builder.headers_mut().unwrap() = response.headers().clone();
     builder.body(()).unwrap()
 }
-pub fn empty_clone_request<T>(request: &http::Request<T>) -> http::Request<()> {
-    let mut builder = http::Request::builder()
+pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
+    let mut builder = Request::builder()
         .method(request.method())
         .version(request.version())
         .uri(request.uri().clone());
@@ -199,28 +196,29 @@ pub fn empty_clone_request<T>(request: &http::Request<T>) -> http::Request<()> {
     builder.body(()).unwrap()
 }
 
-pub fn replace_header<K: http::header::IntoHeaderName + Copy>(
-    headers: &mut http::HeaderMap,
+pub fn replace_header<K: header::IntoHeaderName + Copy>(
+    headers: &mut HeaderMap,
     name: K,
-    new: http::HeaderValue,
+    new: HeaderValue,
 ) {
     match headers.entry(name) {
-        http::header::Entry::Vacant(slot) => {
+        header::Entry::Vacant(slot) => {
             slot.insert(new);
         }
-        http::header::Entry::Occupied(slot) => {
+        header::Entry::Occupied(slot) => {
             slot.remove_entry_mult();
             headers.insert(name, new);
         }
     }
 }
-pub fn replace_header_static<K: http::header::IntoHeaderName + Copy>(
-    headers: &mut http::HeaderMap,
+pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
+    headers: &mut HeaderMap,
     name: K,
     new: &'static str,
 ) {
-    replace_header(headers, name, http::HeaderValue::from_static(new))
+    replace_header(headers, name, HeaderValue::from_static(new))
 }
+// pub fn maybe
 
 pub fn valid_method(bytes: &[u8]) -> bool {
     bytes.starts_with(b"GET")

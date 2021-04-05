@@ -11,20 +11,24 @@ pub mod parse;
 pub mod prelude;
 pub mod utility;
 
-use prelude::{internals::*, networking::*, *};
+use prelude::{*, internals::*, networking::*, prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::prelude::extensions::RetFut};
 // When user only imports crate::* and not crate::prelude::*
 pub use comprash::{
     ClientCachePreference, CompressPreference, CompressedResponse, ServerCachePreference,
 };
 pub use extensions::Extensions;
 pub use utility::{read_file, read_file_cached};
-pub type FatRequest = http::Request<application::Body>;
+pub type FatRequest = Request<application::Body>;
 pub type FatResponse = (
-    http::Response<Bytes>,
+    Response<Bytes>,
     ClientCachePreference,
     ServerCachePreference,
     CompressPreference,
 );
+// pub use std::future::ready;
+pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
+    Box::pin(core::future::ready(value))
+}
 
 #[cfg(target_os = "windows")]
 pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (Windows)\r\n";
@@ -59,10 +63,10 @@ pub(crate) async fn handle_connection(
     .await?;
 
     let version = match encrypted.get_alpn_protocol() {
-        Some(b"h2") => http::Version::HTTP_2,
-        None | Some(b"http/1.1") => http::Version::HTTP_11,
-        Some(b"http/1.0") => http::Version::HTTP_10,
-        Some(b"http/0.9") => http::Version::HTTP_09,
+        Some(b"h2") => Version::HTTP_2,
+        None | Some(b"http/1.1") => Version::HTTP_11,
+        Some(b"http/1.0") => Version::HTTP_10,
+        Some(b"http/0.9") => Version::HTTP_09,
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -102,14 +106,26 @@ pub enum SendKind<'a> {
     Send(&'a mut application::ResponsePipe),
     Push(&'a mut application::PushedResponsePipe),
 }
+impl<'a> SendKind<'a> {
+    pub fn ensure_version<T>(&self, response: &mut Response<T>) {
+        match self {
+            Self::Send(p) => p.ensure_version(response),
+            Self::Push(p) => p.ensure_version(response),
+        }
+    }
+}
 
 /// LAYER 4
 pub async fn handle_cache(
-    mut request: http::Request<application::Body>,
+    mut request: Request<application::Body>,
     address: SocketAddr,
     pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
+    match host.extensions.resolve_prime(&request, address).await {
+        Some(uri) => *request.uri_mut() = uri,
+        None => {}
+    }
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = host.response_cache.lock().await;
@@ -118,10 +134,15 @@ pub async fn handle_cache(
         Some(resp) => {
             info!("Found in cache!");
             let body_response = resp.get_preferred();
-            let response = utility::empty_clone_response(body_response);
+            let mut response = utility::empty_clone_response(body_response);
             let response_body = Bytes::clone(body_response.body());
             let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
+
+            pipe.ensure_version(&mut response);
+            host.extensions
+                .resolve_package(&mut response, &request)
+                .await;
 
             match pipe {
                 SendKind::Send(response_pipe) => {
@@ -181,7 +202,7 @@ pub async fn handle_cache(
                         .await;
                     (resp, client_cache, server_cache, compress)
                 }
-                None => utility::default_error_response(http::StatusCode::BAD_REQUEST, host).await,
+                None => utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
             };
 
             let extension = match Path::new(request.uri().path())
@@ -199,9 +220,14 @@ pub async fn handle_cache(
 
             let response = compressed_response.get_preferred();
 
-            let resp_no_body = utility::empty_clone_response(response);
+            let mut resp_no_body = utility::empty_clone_response(response);
+            pipe.ensure_version(&mut resp_no_body);
+            host.extensions
+                .resolve_package(&mut resp_no_body, &request)
+                .await;
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
+
             async fn maybe_cache(
                 host: &Host,
                 server_cache: ServerCachePreference,
@@ -257,7 +283,7 @@ pub async fn handle_cache(
 
 /// LAYER 5.1
 pub(crate) async fn handle_request(
-    _request: &mut http::Request<application::Body>,
+    _request: &mut Request<application::Body>,
     _address: net::SocketAddr,
     host: &Host,
     path: &PathBuf,
@@ -274,7 +300,7 @@ pub(crate) async fn handle_request(
     #[cfg(feature = "fs")]
     {
         match utility::read_file(&path, &host.file_cache).await {
-            Some(resp) => response = Some(http::Response::new(resp)),
+            Some(resp) => response = Some(Response::new(resp)),
             None => {}
         }
     }
@@ -282,7 +308,7 @@ pub(crate) async fn handle_request(
     let response = match response {
         Some(r) => r,
         None => {
-            utility::default_error_response(http::StatusCode::NOT_FOUND, host)
+            utility::default_error_response(StatusCode::NOT_FOUND, host)
                 .await
                 .0
         }
@@ -344,14 +370,13 @@ impl Debug for HostDescriptor {
     }
 }
 
+#[derive(Debug)]
 pub struct Config {
-    sockets: Vec<HostDescriptor>,
+    descriptors: Vec<HostDescriptor>,
 }
 impl Config {
     pub fn new(descriptors: Vec<HostDescriptor>) -> Self {
-        Config {
-            sockets: descriptors,
-        }
+        Config { descriptors }
     }
 
     pub async fn run(self) {
@@ -359,8 +384,8 @@ impl Config {
 
         let limiter = LimitWrapper::default();
 
-        let len = self.sockets.len();
-        for (pos, descriptor) in self.sockets.into_iter().enumerate() {
+        let len = self.descriptors.len();
+        for (pos, descriptor) in self.descriptors.into_iter().enumerate() {
             let listener = TcpListener::bind(net::SocketAddrV4::new(
                 net::Ipv4Addr::UNSPECIFIED,
                 descriptor.port,
@@ -421,10 +446,5 @@ impl Config {
                 }
             }
         }
-    }
-}
-impl Debug for Config {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Config {{ sockets: {:?}, extensions }}", self.sockets)
     }
 }

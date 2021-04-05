@@ -66,14 +66,14 @@ pub enum HttpConnection {
 }
 
 pub fn get_host<'a>(
-    request: &http::Request<Body>,
+    request: &Request<Body>,
     sni_hostname: Option<&str>,
     data: &'a HostData,
 ) -> &'a Host {
-    fn get_header(headers: &http::HeaderMap) -> Option<&str> {
+    fn get_header(headers: &HeaderMap) -> Option<&str> {
         headers
-            .get(http::header::HOST)
-            .map(http::HeaderValue::to_str)
+            .get(header::HOST)
+            .map(HeaderValue::to_str)
             .map(Result::ok)
             .flatten()
     }
@@ -104,7 +104,7 @@ pub enum PushedResponsePipe {
 }
 
 impl HttpConnection {
-    pub async fn new(stream: Encryption, version: http::Version) -> Result<Self, Error> {
+    pub async fn new(stream: Encryption, version: Version) -> Result<Self, Error> {
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
                 Ok(Self::Http1(Arc::new(Mutex::new(stream))))
@@ -121,7 +121,7 @@ impl HttpConnection {
     pub async fn accept(
         &mut self,
         default_host: &[u8],
-    ) -> Result<(http::Request<Body>, ResponsePipe), Error> {
+    ) -> Result<(Request<Body>, ResponsePipe), Error> {
         match self {
             Self::Http1(stream) => {
                 let response = ResponsePipe::Http1(Arc::clone(stream));
@@ -150,7 +150,7 @@ mod request {
         stream: Arc<Mutex<Encryption>>,
         max_len: usize,
         default_host: &[u8],
-    ) -> Result<http::Request<Body>, Error> {
+    ) -> Result<Request<Body>, Error> {
         let (head, bytes) = parse_request(&stream, max_len, default_host).await?;
         Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, bytes))))
     }
@@ -356,11 +356,7 @@ mod request {
 
         let host = parsed
             .headers_ref()
-            .and_then(|headers| {
-                headers
-                    .get(http::header::HOST)
-                    .map(|header| header.as_bytes())
-            })
+            .and_then(|headers| headers.get(header::HOST).map(|header| header.as_bytes()))
             .unwrap_or(default_host);
 
         let uri = {
@@ -480,19 +476,16 @@ mod response {
     }
 
     impl ResponsePipe {
+        /// You must ensure the [`Response::version()`] is correct before calling this function. It can be guaranteed by first calling [`Self::ensure_version()`]
         /// It is critical to call [`AsyncWriteExt::flush()`] on [`ResponseBodyPipe`], else the message won't be seen as fully transmitted.
         pub async fn send_response(
             &mut self,
-            mut response: http::Response<()>,
+            mut response: Response<()>,
             end_of_stream: bool,
         ) -> Result<ResponseBodyPipe, Error> {
             match self {
                 Self::Http1(s) => {
                     let mut writer = s.lock().await;
-                    match response.version() {
-                        Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {}
-                        _ => *response.version_mut() = Version::HTTP_11,
-                    }
                     utility::replace_header_static(
                         response.headers_mut(),
                         "connection",
@@ -503,20 +496,13 @@ mod response {
                         .map_err(Error::Io)?;
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
                 }
-                Self::Http2(s) => {
-                    *response.version_mut() = Version::HTTP_2;
-
-                    match s.send_response(response, end_of_stream) {
-                        Err(err) => Err(Error::H2(err)),
-                        Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
-                    }
-                }
+                Self::Http2(s) => match s.send_response(response, end_of_stream) {
+                    Err(err) => Err(Error::H2(err)),
+                    Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
+                },
             }
         }
-        pub fn push_request(
-            &mut self,
-            request: http::Request<()>,
-        ) -> Result<PushedResponsePipe, Error> {
+        pub fn push_request(&mut self, request: Request<()>) -> Result<PushedResponsePipe, Error> {
             match self {
                 Self::Http1(_) => Err(Error::PushOnHttp1),
                 Self::Http2(h2) => match h2.push_request(request) {
@@ -525,11 +511,20 @@ mod response {
                 },
             }
         }
+        pub fn ensure_version<T>(&self, response: &mut Response<T>) {
+            match self {
+                Self::Http1(_) => match response.version() {
+                    Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {}
+                    _ => *response.version_mut() = Version::HTTP_11,
+                },
+                Self::Http2(_) => *response.version_mut() = Version::HTTP_2,
+            }
+        }
     }
     impl PushedResponsePipe {
         pub fn send_response(
             &mut self,
-            mut response: http::Response<()>,
+            mut response: Response<()>,
             end_of_stream: bool,
         ) -> Result<ResponseBodyPipe, Error> {
             match self {
@@ -543,12 +538,17 @@ mod response {
                 }
             }
         }
+        pub fn ensure_version<T>(&self, response: &mut Response<T>) {
+            match self {
+                Self::Http2(_) => *response.version_mut() = Version::HTTP_2,
+            }
+        }
     }
 
     /// Writer **must** be buffered!
     pub async fn write_http_1_response<W: AsyncWrite + Unpin>(
         mut writer: W,
-        response: http::Response<()>,
+        response: Response<()>,
     ) -> io::Result<()> {
         let version = match response.version() {
             Version::HTTP_09 => &b"HTTP/0.9"[..],

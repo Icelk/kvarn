@@ -10,7 +10,7 @@ pub struct PathQuery {
     query_start: usize,
 }
 impl PathQuery {
-    pub fn from_uri(uri: &http::Uri) -> Self {
+    pub fn from_uri(uri: &Uri) -> Self {
         match uri.query() {
             Some(query) => {
                 let mut string = String::with_capacity(uri.path().len() + query.len());
@@ -49,7 +49,7 @@ pub enum UriKey {
     PathQuery(PathQuery),
 }
 impl UriKey {
-    pub fn path_and_query(uri: &http::Uri) -> Self {
+    pub fn path_and_query(uri: &Uri) -> Self {
         Self::PathQuery(PathQuery::from_uri(uri))
     }
 
@@ -74,15 +74,15 @@ impl UriKey {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct CompressedResponse {
-    identity: http::Response<Bytes>,
-    gzip: Option<http::Response<Bytes>>,
-    br: Option<http::Response<Bytes>>,
+    identity: Response<Bytes>,
+    gzip: Option<Response<Bytes>>,
+    br: Option<Response<Bytes>>,
 
     compress: CompressPreference,
 }
 impl CompressedResponse {
     pub(crate) fn new(
-        mut identity: http::Response<Bytes>,
+        mut identity: Response<Bytes>,
         compress: CompressPreference,
         client_cache: ClientCachePreference,
         extension: &str,
@@ -100,11 +100,11 @@ impl CompressedResponse {
             compress,
         }
     }
-    pub fn get_identity(&self) -> &http::Response<Bytes> {
+    pub fn get_identity(&self) -> &Response<Bytes> {
         &self.identity
     }
 
-    pub fn get_preferred(&self) -> &http::Response<Bytes> {
+    pub fn get_preferred(&self) -> &Response<Bytes> {
         match self.compress {
             CompressPreference::None => &self.identity,
             CompressPreference::Full => {
@@ -129,18 +129,18 @@ impl CompressedResponse {
         }
     }
 
-    fn set_content_length(headers: &mut http::HeaderMap, len: usize) {
+    fn set_content_length(headers: &mut HeaderMap, len: usize) {
         // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
         utility::replace_header(
             headers,
             "content-length",
-            http::HeaderValue::from_str(len.to_string().as_str()).unwrap(),
+            HeaderValue::from_str(len.to_string().as_str()).unwrap(),
         )
     }
-    fn set_client_cache(headers: &mut http::HeaderMap, preference: ClientCachePreference) {
+    fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
         utility::replace_header(headers, "cache-control", preference.as_header());
     }
-    fn check_content_type(response: &mut http::Response<Bytes>, extension: &str) {
+    fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
         match response.headers().get("content-type") {
             Some(content_type) => match content_type
@@ -156,7 +156,7 @@ impl CompressedResponse {
                             // Unsafe if ok; we know the added bytes are safe for a http::HeaderValue
                             // and unwrap is ok; we checked same thing  just above
                             let content_type = unsafe {
-                                http::HeaderValue::from_maybe_shared_unchecked(
+                                HeaderValue::from_maybe_shared_unchecked(
                                     format!("{}; charset=utf-8", content_type.to_str().unwrap())
                                         .into_bytes(),
                                 )
@@ -182,9 +182,7 @@ impl CompressedResponse {
                 let mime_type = mime_guess::from_ext(extension).first_or(mime);
                 // Is ok; Mime will only contain ok bytes.
                 let content_type = unsafe {
-                    http::HeaderValue::from_maybe_shared_unchecked(
-                        mime_type.to_string().into_bytes(),
-                    )
+                    HeaderValue::from_maybe_shared_unchecked(mime_type.to_string().into_bytes())
                 };
                 response.headers_mut().insert("content-type", content_type);
             }
@@ -195,10 +193,10 @@ impl CompressedResponse {
     fn clone_identity_set_compression(
         &self,
         new_data: Bytes,
-        compression: http::HeaderValue,
-    ) -> http::Response<Bytes> {
+        compression: HeaderValue,
+    ) -> Response<Bytes> {
         let response = &self.identity;
-        let mut builder = http::Response::builder()
+        let mut builder = Response::builder()
             .version(response.version())
             .status(response.status());
         let mut map = response.headers().clone();
@@ -211,7 +209,7 @@ impl CompressedResponse {
 
     #[cfg(feature = "gzip")]
     /// Gets the gzip compressed version of [`CachedCompression::get_identity()`]
-    pub fn get_gzip(&self) -> &http::Response<Bytes> {
+    pub fn get_gzip(&self) -> &Response<Bytes> {
         if self.gzip.is_none() {
             let bytes = self.identity.body().as_ref();
 
@@ -226,13 +224,13 @@ impl CompressedResponse {
             let buffer = buffer.freeze();
 
             let response =
-                self.clone_identity_set_compression(buffer, http::HeaderValue::from_static("gzip"));
+                self.clone_identity_set_compression(buffer, HeaderValue::from_static("gzip"));
 
             if self.gzip.is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
                 unsafe {
-                    (&mut *{ &self.gzip as *const _ as *mut Option<http::Response<Bytes>> })
+                    (&mut *{ &self.gzip as *const _ as *mut Option<Response<Bytes>> })
                         .replace(response)
                 };
             }
@@ -241,7 +239,7 @@ impl CompressedResponse {
     }
     #[cfg(feature = "br")]
     /// Gets the Brotli compressed version of [`CachedCompression::get_identity()`]
-    pub fn get_br(&self) -> &http::Response<Bytes> {
+    pub fn get_br(&self) -> &Response<Bytes> {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();
 
@@ -258,13 +256,13 @@ impl CompressedResponse {
             let buffer = buffer.freeze();
 
             let response =
-                self.clone_identity_set_compression(buffer, http::HeaderValue::from_static("br"));
+                self.clone_identity_set_compression(buffer, HeaderValue::from_static("br"));
 
             if self.br.is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
                 unsafe {
-                    (&mut *{ &self.br as *const _ as *mut Option<http::Response<Bytes>> })
+                    (&mut *{ &self.br as *const _ as *mut Option<Response<Bytes>> })
                         .replace(response)
                 };
             }
@@ -314,11 +312,11 @@ pub enum ClientCachePreference {
     Full,
 }
 impl ClientCachePreference {
-    pub fn as_header(&self) -> http::HeaderValue {
+    pub fn as_header(&self) -> HeaderValue {
         match self {
-            Self::None => http::HeaderValue::from_static("no-store"),
-            Self::Changing => http::HeaderValue::from_static("max-age=120"),
-            Self::Full => http::HeaderValue::from_static("public, max-age=604800, immutable"),
+            Self::None => HeaderValue::from_static("no-store"),
+            Self::Changing => HeaderValue::from_static("max-age=120"),
+            Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
         }
     }
 }

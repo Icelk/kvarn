@@ -115,31 +115,45 @@ impl Host {
     }
 
     pub fn set_http_redirect_to_https(&mut self) {
-        self.extensions.add_prime(&|request, _| {
-            Box::pin(async move {
-                let uri = unsafe { request.get_inner() }.uri();
-                match uri.scheme_str() {
-                    Some("http") => {
-                        println!("http connection!");
-                        let mut uri = uri.clone().into_parts();
-                        let authority = match uri.authority {
-                            Some(authority) => {
-                                let authority = format!("https{}", &authority.as_str()[4..]);
-                                let authority = Vec::from(authority);
-                                // it must be a valid URI; unwrap is OK
+        self.extensions.add_prepare_fn(
+            &|req| req.uri().scheme_str() == Some("http") && req.uri().port().is_none(),
+            &|request, _| {
+                let mut uri = unsafe { request.get_inner() }.uri().clone().into_parts();
 
-                                Some(http::uri::Authority::from_maybe_shared(authority).unwrap())
-                            }
-                            None => None,
-                        };
-                        uri.authority = authority;
+                uri.scheme = Some(http::uri::Scheme::HTTPS);
 
-                        // again, must be valid
-                        Some(http::Uri::from_parts(uri).unwrap())
-                    }
-                    _ => None,
-                }
-            })
+                // it must be valid
+                let uri = Uri::from_parts(uri).unwrap();
+
+                let response = Response::builder()
+                    .status(StatusCode::PERMANENT_REDIRECT)
+                    // I know this is excessive cloning of value;
+                    // first we clone Uri, then make it a String, then it gets converted to a Bytes.
+                    // But it happens once.
+                    .header("location", uri.to_string());
+                // Unwrap is ok; we know this is valid.
+                ready((
+                    response.body(Bytes::new()).unwrap(),
+                    ClientCachePreference::Full,
+                    ServerCachePreference::Full,
+                    CompressPreference::None,
+                ))
+            },
+        );
+        self.extensions.add_package(&|mut response, request| {
+            let response: &mut Response<_> = unsafe { response.get_inner() };
+            let request: &FatRequest = unsafe { request.get_inner() };
+            if response.version() <= Version::HTTP_11 && request.uri().scheme_str() == Some("https")
+            {
+                response
+                    .headers_mut()
+                    .entry("strict-transport-security")
+                    .or_insert(HeaderValue::from_static(
+                        "max-age=63072000; includeSubDomains; preload",
+                    ));
+            }
+
+            ready(())
         })
     }
 
@@ -244,7 +258,7 @@ impl HostData {
     }
     /// # Returns
     /// (found host, cleared page)
-    pub async fn clear_page(&self, host: &str, uri: &http::Uri) -> (bool, bool) {
+    pub async fn clear_page(&self, host: &str, uri: &Uri) -> (bool, bool) {
         let key = UriKey::path_and_query(uri);
 
         let mut found = false;

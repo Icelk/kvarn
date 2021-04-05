@@ -179,7 +179,7 @@ pub fn convert_uri(
     Some(buf)
 }
 
-pub fn parse_version(bytes: &[u8]) -> Option<http::Version> {
+pub fn parse_version(bytes: &[u8]) -> Option<Version> {
     Some(match &bytes[..] {
         b"HTTP/0.9" => Version::HTTP_09,
         b"HTTP/1.0" => Version::HTTP_10,
