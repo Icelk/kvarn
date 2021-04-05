@@ -121,25 +121,24 @@ impl Host {
                 // "/../ path" is special; it will not be accepted from outside.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
                 let request: &FatRequest = unsafe { request.get_inner() };
-                let mut uri = request.uri().clone().into_parts();
-                let path = request.uri().query().unwrap_or("/");
-
-                uri.scheme = Some(http::uri::Scheme::HTTPS);
-                uri.path_and_query = Some(
-                    http::uri::PathAndQuery::from_maybe_shared(Bytes::copy_from_slice(
-                        path.as_bytes(),
-                    ))
-                    .unwrap(),
-                );
-
-                let uri = Uri::from_parts(uri).unwrap();
+                let uri = request.uri();
+                let uri = {
+                    let authority = uri
+                        .authority()
+                        .map(http::uri::Authority::as_str)
+                        .unwrap_or("");
+                    let path = uri.query().unwrap_or("");
+                    let mut bytes = BytesMut::with_capacity(8 + authority.len() + path.len());
+                    bytes.extend(b"https://");
+                    bytes.extend(authority.as_bytes());
+                    bytes.extend(path.as_bytes());
+                    // Ok, since we just introduced https:// in the start, which are valid bytes.
+                    unsafe { HeaderValue::from_maybe_shared_unchecked(bytes.freeze()) }
+                };
 
                 let response = Response::builder()
                     .status(StatusCode::TEMPORARY_REDIRECT)
-                    // I know this is excessive cloning of value;
-                    // first we clone Uri, then make it a String, then it gets converted to a Bytes.
-                    // But it happens once.
-                    .header("location", uri.to_string());
+                    .header("location", uri);
                 // Unwrap is ok; we know this is valid.
                 ready((
                     response.body(Bytes::new()).unwrap(),
