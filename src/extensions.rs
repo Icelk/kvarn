@@ -36,8 +36,12 @@ pub type Post = &'static (dyn Fn(
               + Sync);
 pub type If = &'static (dyn Fn(&FatRequest) -> bool + Sync);
 
-pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
-pub const EXTENSION_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
+pub trait PrepareProvider {
+    fn get(request: RequestWrapper, host: HostWrapper) -> RetFut<FatResponse>;
+}
+
+pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
+pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
 macro_rules! impl_get_unsafe {
     ($main:ident, $return:ty) => {
@@ -71,25 +75,12 @@ macro_rules! impl_get_unsafe_mut {
         unsafe impl Sync for $main {}
     };
 }
-macro_rules! return_none {
-    ($option:expr) => {
-        match $option {
-            Some(value) => value,
-            None => return,
-        }
-    };
-}
 
 impl_get_unsafe!(RequestWrapper, FatRequest);
-
 impl_get_unsafe_mut!(RequestWrapperMut, FatRequest);
-
 impl_get_unsafe_mut!(EmptyResponseWrapperMut, Response<()>);
-
 impl_get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
-
 impl_get_unsafe!(FileCacheWrapper, FileCache);
-
 impl_get_unsafe!(HostWrapper, Host);
 
 pub struct PresentDataWrapper(PresentData);
@@ -280,7 +271,7 @@ impl Extensions {
         address: SocketAddr,
         path: &Path,
     ) {
-        let extensions = return_none!(PresentExtensions::new(Bytes::clone(response.body())));
+        let extensions = return_on_none!(PresentExtensions::new(Bytes::clone(response.body())));
         *response.body_mut() = response.body_mut().split_off(extensions.data_start());
         for extension_name_args in extensions.iter() {
             match self.present_internal.get(extension_name_args.name()) {
@@ -381,12 +372,12 @@ impl PresentExtensions {
                     .fold(1, |acc, byte| if *byte == SPACE { acc + 1 } else { acc }),
             );
 
-        if !data.starts_with(EXTENSION_PREFIX)
-            || data[EXTENSION_PREFIX.len()..].starts_with(EXTENSION_AND)
+        if !data.starts_with(PRESENT_INTERNAL_PREFIX)
+            || data[PRESENT_INTERNAL_PREFIX.len()..].starts_with(PRESENT_INTERNAL_AND)
         {
             return None;
         }
-        let mut start = EXTENSION_PREFIX.len();
+        let mut start = PRESENT_INTERNAL_PREFIX.len();
         let mut last_name = None;
         let mut has_cr = false;
         for (pos, byte) in data.iter().enumerate().skip(3) {
@@ -418,9 +409,9 @@ impl PresentExtensions {
                         data_start: pos + if has_cr { 2 } else { 1 },
                     });
                 }
-                start = if data[pos..].starts_with(EXTENSION_AND) {
+                start = if data[pos..].starts_with(PRESENT_INTERNAL_AND) {
                     last_name = None;
-                    pos + EXTENSION_AND.len()
+                    pos + PRESENT_INTERNAL_AND.len()
                 } else {
                     pos + 1
                 };

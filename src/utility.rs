@@ -254,3 +254,13 @@ impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
         Display::fmt(self.0, f)
     }
 }
+
+#[macro_export]
+macro_rules! return_on_none {
+    ($option:expr) => {
+        match $option {
+            Some(value) => value,
+            None => return,
+        }
+    };
+}
