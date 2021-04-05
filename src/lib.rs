@@ -113,6 +113,18 @@ impl<'a> SendKind<'a> {
     }
 }
 
+macro_rules! ret_log_app_error {
+    ($e:expr) => {
+        match $e {
+            Err(err) => {
+                error!("An error occurred while sending a request. {:?}", &err);
+                return Err(err.into());
+            }
+            Ok(val) => val,
+        }
+    };
+}
+
 /// LAYER 4
 pub async fn handle_cache(
     mut request: Request<application::Body>,
@@ -147,30 +159,28 @@ pub async fn handle_cache(
 
             match pipe {
                 SendKind::Send(response_pipe) => {
-                    let mut body_pipe = response_pipe
-                        .send_response(response, false)
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
-                    body_pipe
-                        .send(response_body, false)
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
+                    // Send response
+                    let mut body_pipe =
+                        ret_log_app_error!(response_pipe.send_response(response, false).await);
+
+                    // Send body
+                    ret_log_app_error!(body_pipe.send(response_body, false).await);
+
+                    // Process post extensions
                     host.extensions
                         .resolve_post(&request, identity_body, response_pipe, address, host)
                         .await;
-                    body_pipe
-                        .close()
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
+
+                    // Close the pipe.
+                    ret_log_app_error!(body_pipe.close().await);
                 }
                 SendKind::Push(push_pipe) => {
-                    let mut body_pipe = push_pipe
-                        .send_response(response, false)
-                        .map_err::<io::Error, _>(application::Error::into)?;
-                    body_pipe
-                        .send(response_body, true)
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
+                    // Send response
+                    let mut body_pipe =
+                        ret_log_app_error!(push_pipe.send_response(response, false));
+
+                    // Send body
+                    ret_log_app_error!(body_pipe.send(response_body, true).await);
                 }
             }
         }
@@ -247,33 +257,23 @@ pub async fn handle_cache(
 
             match pipe {
                 SendKind::Send(response_pipe) => {
-                    let mut pipe = response_pipe
-                        .send_response(resp_no_body, false)
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
-                    pipe.send(Bytes::clone(response.body()), false)
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
+                    let mut pipe =
+                        ret_log_app_error!(response_pipe.send_response(resp_no_body, false).await);
+                    ret_log_app_error!(pipe.send(Bytes::clone(response.body()), false).await);
 
-                    maybe_cache(host, server_cache, path_query, compressed_response).await;
+                    maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
 
                     // process response push
                     host.extensions
                         .resolve_post(&request, identity_body, response_pipe, address, host)
                         .await;
-                    pipe.close()
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
+                    ret_log_app_error!(pipe.close().await);
                 }
                 SendKind::Push(push_pipe) => {
-                    let mut pipe = push_pipe
-                        .send_response(resp_no_body, false)
-                        .map_err::<io::Error, _>(application::Error::into)?;
-                    pipe.send(Bytes::clone(response.body()), true)
-                        .await
-                        .map_err::<io::Error, _>(application::Error::into)?;
+                    let mut pipe = ret_log_app_error!(push_pipe.send_response(resp_no_body, false));
+                    ret_log_app_error!(pipe.send(Bytes::clone(response.body()), true).await);
 
-                    maybe_cache(host, server_cache, path_query, compressed_response).await;
+                    maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
                 }
             }
         }
