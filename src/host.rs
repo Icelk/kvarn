@@ -1,29 +1,7 @@
-use crate::prelude::{fs::*, internals::*, *};
+use crate::prelude::{internals::*, *};
 use rustls::{
     internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
 };
-
-pub const HTTP_REDIRECT_NO_HOST: &[u8] = b"\
-HTTP/1.1 505 HTTP Version Not Supported\r\n\
-Content-Type: text/html\r\n\
-Connection: keep-alive\r\n\
-Content-Encoding: identity\r\n\
-Content-Length: 514\r\n\
-\r\n\
-<html>\
-    <head>\
-        <title>Failed to redirect</title>\
-    </head>\
-    <body>\
-        <center>\
-            <h1>Failed to redirect you to security</h1>\
-            <hr>\
-            <p>You have accessed this site using the HTTP1.1 protocol. It is not secure. Your agent (e.g. browser) is not sending an <code>Host</code> header, so we weren't aviable to redirect you automatically.</p>\
-            <p>Please try to access this website with <code>https://</code> before the URL, not <code>http://</code>. If this error persists, please contact the website administrator.</p>\
-        </center>\
-    </body>\
-</html>\
-";
 pub struct Host {
     pub host_name: &'static str,
     pub certificate: Option<sign::CertifiedKey>,
@@ -137,25 +115,31 @@ impl Host {
     }
 
     pub fn set_http_redirect_to_https(&mut self) {
-        self.extensions.add_prime(&|uri| match uri.scheme_str() {
-            Some("http") => {
-                let mut uri = uri.clone().into_parts();
-                let authority = match uri.authority {
-                    Some(authority) => {
-                        let authority = format!("https{}", &authority.as_str()[4..]);
-                        let authority = Vec::from(authority);
-                        // it must be a valid URI; unwrap is OK
+        self.extensions.add_prime(&|request, _| {
+            Box::pin(async move {
+                let uri = unsafe { request.get_inner() }.uri();
+                match uri.scheme_str() {
+                    Some("http") => {
+                        println!("http connection!");
+                        let mut uri = uri.clone().into_parts();
+                        let authority = match uri.authority {
+                            Some(authority) => {
+                                let authority = format!("https{}", &authority.as_str()[4..]);
+                                let authority = Vec::from(authority);
+                                // it must be a valid URI; unwrap is OK
 
-                        Some(http::uri::Authority::from_maybe_shared(authority).unwrap())
+                                Some(http::uri::Authority::from_maybe_shared(authority).unwrap())
+                            }
+                            None => None,
+                        };
+                        uri.authority = authority;
+
+                        // again, must be valid
+                        Some(http::Uri::from_parts(uri).unwrap())
                     }
-                    None => None,
-                };
-                uri.authority = authority;
-
-                // again, must be valid
-                Some(http::Uri::from_parts(uri).unwrap())
-            }
-            _ => None,
+                    _ => None,
+                }
+            })
         })
     }
 

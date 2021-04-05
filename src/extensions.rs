@@ -18,7 +18,7 @@ use crate::prelude::{internals::*, *};
 
 pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
 
-pub type Prime = &'static (dyn Fn(&Uri) -> Option<Uri> + Sync);
+pub type Prime = &'static (dyn Fn(RequestWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync);
 pub type Pre =
     &'static (dyn Fn(RequestWrapperMut, FileCacheWrapper) -> RetFut<Option<FatResponse>> + Sync);
 pub type Prepare =
@@ -219,9 +219,9 @@ impl Extensions {
         self.post.push(extension);
     }
 
-    pub fn resolve_prime(&self, uri: &Uri) -> Option<Uri> {
+    pub async fn resolve_prime(&self, request: &FatRequest, address: SocketAddr) -> Option<Uri> {
         for prime in self.prime.iter() {
-            if let Some(prime) = prime(uri) {
+            if let Some(prime) = prime(RequestWrapper::new(request), address).await {
                 return Some(prime);
             }
         }

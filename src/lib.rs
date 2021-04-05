@@ -70,7 +70,16 @@ pub(crate) async fn handle_connection(
         .await
         .map_err::<io::Error, _>(application::Error::into)?;
 
-    while let Ok((request, mut response_pipe)) = http.accept().await {
+    while let Ok((request, mut response_pipe)) = http
+        .accept(
+            host_descriptors
+                .host_data
+                .get_default()
+                .host_name
+                .as_bytes(),
+        )
+        .await
+    {
         let host = application::get_host(
             &request,
             hostname.as_ref().map(String::as_str),
