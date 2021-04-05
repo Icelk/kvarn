@@ -75,8 +75,8 @@ impl UriKey {
 #[derive(Debug)]
 pub struct CompressedResponse {
     identity: Response<Bytes>,
-    gzip: Option<Response<Bytes>>,
-    br: Option<Response<Bytes>>,
+    gzip: Option<Bytes>,
+    br: Option<Bytes>,
 
     compress: CompressPreference,
 }
@@ -87,9 +87,7 @@ impl CompressedResponse {
         client_cache: ClientCachePreference,
         extension: &str,
     ) -> Self {
-        let len = identity.body().len();
         let headers = identity.headers_mut();
-        Self::set_content_length(headers, len);
         Self::set_client_cache(headers, client_cache);
         Self::add_server_header(headers);
         Self::check_content_type(&mut identity, extension);
@@ -105,29 +103,33 @@ impl CompressedResponse {
         &self.identity
     }
 
-    pub fn get_preferred(&self) -> &Response<Bytes> {
-        match self.compress {
-            CompressPreference::None => &self.identity,
+    pub fn clone_preferred(&self) -> Response<Bytes> {
+        let (bytes, compression) = match self.compress {
+            CompressPreference::None => (self.identity.body(), "identity"),
             CompressPreference::Full => {
                 #[cfg(all(feature = "gzip", feature = "br"))]
                 match self.br.is_some() && self.gzip.is_none() {
-                    true => return self.br.as_ref().unwrap(),
-                    false => self.get_gzip(),
+                    true => (self.get_br(), "br"),
+                    false => (self.get_gzip(), "gzip"),
                 }
                 #[cfg(all(feature = "gzip", not(feature = "br")))]
                 {
-                    self.get_gzip()
+                    (self.get_gzip(), "gzip")
                 }
                 #[cfg(all(feature = "br", not(feature = "gzip")))]
                 {
-                    self.get_br()
+                    (self.get_br(), "br")
                 }
                 #[cfg(not(any(feature = "gzip", feature = "br")))]
                 {
-                    &self.identity
+                    (self.identity.body(), "identity")
                 }
             }
-        }
+        };
+        self.clone_identity_set_compression(
+            Bytes::clone(bytes),
+            HeaderValue::from_static(compression),
+        )
     }
 
     fn add_server_header(headers: &mut HeaderMap) {
@@ -193,7 +195,6 @@ impl CompressedResponse {
         }
     }
 
-    #[allow(dead_code)]
     fn clone_identity_set_compression(
         &self,
         new_data: Bytes,
@@ -213,7 +214,7 @@ impl CompressedResponse {
 
     #[cfg(feature = "gzip")]
     /// Gets the gzip compressed version of [`CachedCompression::get_identity()`]
-    pub fn get_gzip(&self) -> &Response<Bytes> {
+    pub fn get_gzip(&self) -> &Bytes {
         if self.gzip.is_none() {
             let bytes = self.identity.body().as_ref();
 
@@ -227,23 +228,17 @@ impl CompressedResponse {
             let buffer = buffer.into_inner();
             let buffer = buffer.freeze();
 
-            let response =
-                self.clone_identity_set_compression(buffer, HeaderValue::from_static("gzip"));
-
             if self.gzip.is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
-                unsafe {
-                    (&mut *{ &self.gzip as *const _ as *mut Option<Response<Bytes>> })
-                        .replace(response)
-                };
+                unsafe { (&mut *{ &self.gzip as *const _ as *mut Option<Bytes> }).replace(buffer) };
             }
         }
         self.gzip.as_ref().unwrap()
     }
     #[cfg(feature = "br")]
     /// Gets the Brotli compressed version of [`CachedCompression::get_identity()`]
-    pub fn get_br(&self) -> &Response<Bytes> {
+    pub fn get_br(&self) -> &Bytes {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();
 
@@ -259,16 +254,10 @@ impl CompressedResponse {
             let buffer = buffer.into_inner();
             let buffer = buffer.freeze();
 
-            let response =
-                self.clone_identity_set_compression(buffer, HeaderValue::from_static("br"));
-
             if self.br.is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
-                unsafe {
-                    (&mut *{ &self.br as *const _ as *mut Option<Response<Bytes>> })
-                        .replace(response)
-                };
+                unsafe { (&mut *{ &self.br as *const _ as *mut Option<Bytes> }).replace(buffer) };
             }
         }
         self.br.as_ref().unwrap()

@@ -146,9 +146,7 @@ pub async fn handle_cache(
     let future = match cached {
         Some(resp) => {
             info!("Found in cache!");
-            let body_response = resp.get_preferred();
-            let mut response = utility::empty_clone_response(body_response);
-            let response_body = Bytes::clone(body_response.body());
+            let (mut response, body) = utility::extract_body(resp.clone_preferred());
             let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
 
@@ -164,7 +162,7 @@ pub async fn handle_cache(
                         ret_log_app_error!(response_pipe.send_response(response, false).await);
 
                     // Send body
-                    ret_log_app_error!(body_pipe.send(response_body, false).await);
+                    ret_log_app_error!(body_pipe.send(body, false).await);
 
                     // Process post extensions
                     host.extensions
@@ -180,7 +178,7 @@ pub async fn handle_cache(
                         ret_log_app_error!(push_pipe.send_response(response, false));
 
                     // Send body
-                    ret_log_app_error!(body_pipe.send(response_body, true).await);
+                    ret_log_app_error!(body_pipe.send(body, true).await);
                 }
             }
             None
@@ -235,12 +233,11 @@ pub async fn handle_cache(
             let compressed_response =
                 comprash::CompressedResponse::new(resp, compress, client_cache, extension);
 
-            let response = compressed_response.get_preferred();
+            let (mut response, body) = utility::extract_body(compressed_response.clone_preferred());
 
-            let mut resp_no_body = utility::empty_clone_response(response);
-            pipe.ensure_version(&mut resp_no_body);
+            pipe.ensure_version(&mut response);
             host.extensions
-                .resolve_package(&mut resp_no_body, &request)
+                .resolve_package(&mut response, &request)
                 .await;
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
@@ -270,8 +267,8 @@ pub async fn handle_cache(
             match pipe {
                 SendKind::Send(response_pipe) => {
                     let mut pipe =
-                        ret_log_app_error!(response_pipe.send_response(resp_no_body, false).await);
-                    ret_log_app_error!(pipe.send(Bytes::clone(response.body()), false).await);
+                        ret_log_app_error!(response_pipe.send_response(response, false).await);
+                    ret_log_app_error!(pipe.send(body, false).await);
 
                     maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
 
@@ -282,8 +279,8 @@ pub async fn handle_cache(
                     ret_log_app_error!(pipe.close().await);
                 }
                 SendKind::Push(push_pipe) => {
-                    let mut pipe = ret_log_app_error!(push_pipe.send_response(resp_no_body, false));
-                    ret_log_app_error!(pipe.send(Bytes::clone(response.body()), true).await);
+                    let mut pipe = ret_log_app_error!(push_pipe.send_response(response, false));
+                    ret_log_app_error!(pipe.send(body, true).await);
 
                     maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
                 }

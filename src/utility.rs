@@ -195,6 +195,12 @@ pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
     *builder.headers_mut().unwrap() = request.headers().clone();
     builder.body(()).unwrap()
 }
+pub fn extract_body<T>(response: Response<T>) -> (Response<()>, T) {
+    let mut body = None;
+    let response = response.map(|t| body = Some(t));
+    // We know it is `Some`.
+    (response, body.unwrap())
+}
 
 pub fn replace_header<K: header::IntoHeaderName + Copy>(
     headers: &mut HeaderMap,
