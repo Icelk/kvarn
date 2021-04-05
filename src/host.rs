@@ -116,9 +116,8 @@ impl Host {
 
     pub fn set_http_redirect_to_https(&mut self) {
         const SPECIAL_PATH: &'static str = "/../to_https";
-        self.extensions.add_prepare_single(
-            SPECIAL_PATH.to_string(),
-            &extensions::PrepareGetProvider::new(&|request, _| {
+        self.extensions
+            .add_prepare_single(SPECIAL_PATH.to_string(), &|request, _| {
                 // "/../ path" is special; it will not be accepted from outside.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
                 let request: &FatRequest = unsafe { request.get_inner() };
@@ -147,8 +146,7 @@ impl Host {
                     ServerCachePreference::None,
                     CompressPreference::None,
                 ))
-            }),
-        );
+            });
         self.extensions.add_prime(&|request, _| {
             let request: &FatRequest = unsafe { request.get_inner() };
             let uri = match request.uri().scheme_str() == Some("http")
