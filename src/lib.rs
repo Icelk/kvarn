@@ -90,11 +90,9 @@ pub(crate) async fn handle_connection(
         )
         .await
     {
-        let host = application::get_host(
-            &request,
-            hostname.as_ref().map(String::as_str),
-            &host_descriptors.host_data,
-        );
+        let host = host_descriptors
+            .host_data
+            .smart_get(&request, hostname.as_ref().map(String::as_str));
         // fn to handle getting from cache, generating response and sending it
         handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await?;
     }

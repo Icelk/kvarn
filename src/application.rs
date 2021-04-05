@@ -65,24 +65,6 @@ pub enum HttpConnection {
     Http2(h2::server::Connection<Encryption, bytes::Bytes>),
 }
 
-pub fn get_host<'a>(
-    request: &Request<Body>,
-    sni_hostname: Option<&str>,
-    data: &'a HostData,
-) -> &'a Host {
-    fn get_header(headers: &HeaderMap) -> Option<&str> {
-        headers
-            .get(header::HOST)
-            .map(HeaderValue::to_str)
-            .map(Result::ok)
-            .flatten()
-    }
-
-    let host = sni_hostname.or_else(|| get_header(request.headers()));
-
-    data.maybe_get_or_default(host)
-}
-
 /// ToDo: trailers
 #[derive(Debug)]
 pub enum Body {

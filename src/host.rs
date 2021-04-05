@@ -272,14 +272,28 @@ impl HostData {
             None => &self.get_default(),
         }
     }
+    pub fn smart_get<'a>(
+        &'a self,
+        request: &Request<Body>,
+        sni_hostname: Option<&str>,
+    ) -> &'a Host {
+        fn get_header(headers: &HeaderMap) -> Option<&str> {
+            headers
+                .get(header::HOST)
+                .map(HeaderValue::to_str)
+                .map(Result::ok)
+                .flatten()
+        }
+
+        let host = sni_hostname.or_else(|| get_header(request.headers()));
+
+        self.maybe_get_or_default(host)
+    }
 
     pub fn has_secure(&self) -> bool {
         self.has_secure
     }
 
-    pub fn build(self) -> Arc<Self> {
-        Arc::new(self)
-    }
     pub fn make_config(arc: &Arc<Self>) -> ServerConfig {
         let mut config = ServerConfig::new(NoClientAuth::new());
         let arc = Arc::clone(arc);
