@@ -37,7 +37,13 @@ pub const SERVER_HEADER: &[u8] = b"Server: Kvarn/0.1.0 (unknown OS)\r\n";
 pub const SERVER_NAME: &str = "Kvarn";
 
 pub fn alpn() -> Vec<Vec<u8>> {
-    vec![b"h2".to_vec()]
+    #[allow(unused_mut)]
+    let mut vec = Vec::with_capacity(4);
+    #[cfg(feature = "http2")]
+    {
+        vec.push(b"h2".to_vec());
+    }
+    vec
 }
 
 pub(crate) async fn handle_connection(
