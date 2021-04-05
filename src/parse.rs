@@ -187,3 +187,235 @@ pub fn parse_version(bytes: &[u8]) -> Option<Version> {
         _ => return None,
     })
 }
+
+enum RequestParseStage {
+    Method,
+    Path,
+    Version,
+    HeaderName(i32),
+    HeaderValue(i32),
+}
+impl RequestParseStage {
+    fn next(&mut self) {
+        *self = match self {
+            RequestParseStage::Method => RequestParseStage::Path,
+            RequestParseStage::Path => RequestParseStage::Version,
+            RequestParseStage::Version => RequestParseStage::HeaderName(0),
+            RequestParseStage::HeaderName(n) => RequestParseStage::HeaderValue(*n),
+            RequestParseStage::HeaderValue(n) => RequestParseStage::HeaderName(*n + 1),
+        }
+    }
+}
+/// # Errors
+/// Will return error if building the `http::Response` internally failed, or if path is empty.
+///
+/// # Limitation
+/// request will be cut off at `crate::BUFFER_SIZE`.
+pub async fn request(
+    stream: &Mutex<Encryption>,
+    max_len: usize,
+    default_host: &[u8],
+) -> Result<(Request<()>, Bytes), Error> {
+    let mut buffer = BytesMut::with_capacity(1024);
+    let mut read = 0;
+    let read = &mut read;
+    async fn read_more(
+        buffer: &mut BytesMut,
+        reader: &Mutex<Encryption>,
+        read: &mut usize,
+        max_len: usize,
+    ) -> Result<usize, Error> {
+        assert!(buffer.len() == *read);
+        if buffer.len() == max_len {
+            return Err(Error::HeaderTooLong);
+        }
+
+        let mut reader = reader.lock().await;
+
+        if buffer.capacity() < buffer.len() + 512 {
+            if buffer.len() + 512 > max_len {
+                buffer.reserve((buffer.len() + 512) - max_len);
+            } else {
+                buffer.reserve(512);
+            }
+        }
+
+        unsafe { buffer.set_len(buffer.capacity()) };
+        let read_now = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            reader.read(&mut buffer[*read..]),
+        )
+        .await
+        .ok()
+        .ok_or(Error::Done)??;
+        *read += read_now;
+        unsafe { buffer.set_len(*read) };
+
+        Ok(read_now)
+    };
+    fn contains_two_newlines(bytes: &[u8]) -> bool {
+        let mut in_row = 0_u8;
+        for byte in bytes.iter().cloned() {
+            match byte {
+                LF if in_row == 0 => in_row += 1,
+                LF => return true,
+                CR => {}
+                _ => in_row = 0,
+            }
+        }
+        false
+    }
+
+    loop {
+        if read_more(&mut buffer, stream, read, max_len).await? == 0 {
+            break;
+        };
+        if !utility::valid_method(&buffer) {
+            return Err(Error::InvalidMethod);
+        }
+
+        if contains_two_newlines(&buffer) {
+            break;
+        }
+    }
+    let buffer = buffer.freeze();
+
+    let mut parse_stage = RequestParseStage::Method;
+    // Method is max 7 bytes long
+    let mut method = [0; 7];
+    let mut method_len = 0;
+    let mut path_start = 0;
+    let mut path_end = 0;
+    // Version is 8 bytes long
+    let mut version = [0; 8];
+    let mut version_index = 0;
+    let mut parsed = Request::builder();
+    let mut header_name_start = 0;
+    let mut header_name_end = 0;
+    let mut header_value_start = 0;
+    let mut lf_in_row = 0_u8;
+    let mut header_end = 0;
+
+    for (pos, byte) in buffer.iter().copied().enumerate() {
+        header_end += 1;
+        if byte == CR {
+            continue;
+        }
+        if byte == LF {
+            lf_in_row += 1;
+            if lf_in_row == 2 {
+                break;
+            }
+        } else {
+            lf_in_row = 0;
+        }
+        match parse_stage {
+            RequestParseStage::Method => {
+                if byte == SPACE || method_len == method.len() {
+                    if Method::from_bytes(&buffer[..method_len]).is_err() {
+                        return Err(Error::InvalidMethod);
+                    }
+                    parse_stage.next();
+                    continue;
+                }
+                method[method_len] = byte;
+                method_len += 1;
+            }
+            RequestParseStage::Path => {
+                if path_start == 0 {
+                    path_start = pos;
+                }
+                if byte == SPACE {
+                    path_end = pos;
+                    parse_stage.next();
+                    continue;
+                }
+            }
+            RequestParseStage::Version => {
+                if byte == LF || version_index == version.len() {
+                    if parse::parse_version(&version[..version_index]).is_none() {
+                        return Err(Error::InvalidVersion);
+                    }
+                    parse_stage.next();
+                    header_name_start = pos + 1;
+                    continue;
+                }
+                version[version_index] = byte;
+                version_index += 1;
+            }
+            RequestParseStage::HeaderName(..) => {
+                if byte == COLON {
+                    header_name_end = pos;
+                    if buffer.get(pos + 1) != Some(&SPACE) {
+                        parse_stage.next();
+                        header_value_start = pos + 1;
+                    }
+                    continue;
+                }
+                if byte == SPACE {
+                    parse_stage.next();
+                    header_value_start = pos + 1;
+                    continue;
+                }
+            }
+            RequestParseStage::HeaderValue(..) => {
+                if byte == LF {
+                    let name = HeaderName::from_bytes(&buffer[header_name_start..header_name_end]);
+                    let value =
+                        HeaderValue::from_maybe_shared(buffer.slice(header_value_start..pos - 1));
+                    if name.is_ok() && value.is_ok() {
+                        // Ok, because of ↑
+                        parsed = parsed.header(name.unwrap(), value.unwrap());
+                    } else {
+                        error!("error in parsing headers");
+                    }
+                    parse_stage.next();
+                    header_name_start = pos + 1;
+                    continue;
+                }
+            }
+        };
+    }
+    if path_end
+        .checked_sub(path_start)
+        .map(|len| len == 0)
+        .unwrap_or(true)
+    {
+        return Err(Error::NoPath);
+    }
+
+    let host = parsed
+        .headers_ref()
+        .and_then(|headers| headers.get(header::HOST).map(|header| header.as_bytes()))
+        .unwrap_or(default_host);
+
+    let uri = {
+        let scheme = match &*stream.lock().await {
+            Encryption::Tcp(_) => "http",
+            Encryption::TcpTls(_) => "https",
+        };
+
+        let mut uri =
+            BytesMut::with_capacity(scheme.len() + 3 + host.len() + (path_end - path_start));
+
+        uri.extend(scheme.as_bytes());
+        uri.extend(b"://");
+        uri.extend(host);
+        uri.extend(&buffer[path_start..path_end]);
+        uri.freeze()
+    };
+
+    match parsed
+        .method(
+            Method::from_bytes(&method[..method_len])
+                .ok()
+                .ok_or(Error::InvalidMethod)?,
+        )
+        .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidHost)?)
+        .version(parse::parse_version(&version[..version_index]).ok_or(Error::InvalidVersion)?)
+        .body(())
+    {
+        Err(err) => Err(Error::Http(err)),
+        Ok(request) => Ok((request, buffer.slice(header_end..))),
+    }
+}
