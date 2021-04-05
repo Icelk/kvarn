@@ -22,8 +22,10 @@ pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
 pub type Prime = &'static (dyn Fn(RequestWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync);
 pub type Pre = &'static (dyn Fn(RequestWrapperMut, HostWrapper) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
               + Sync);
-pub type Prepare =
+pub type PrepareRet =
     &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<FatResponse> + Sync);
+pub type Prepare = &'static (dyn PrepareProvider + Sync);
+
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
 pub type Package = &'static (dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync);
 pub type Post = &'static (dyn Fn(
@@ -36,8 +38,90 @@ pub type Post = &'static (dyn Fn(
               + Sync);
 pub type If = &'static (dyn Fn(&FatRequest) -> bool + Sync);
 
+pub fn invalid_method(_: RequestWrapper, cache: FileCacheWrapper) -> RetFut<FatResponse> {
+    Box::pin(async move {
+        (
+            utility::default_error(
+                StatusCode::METHOD_NOT_ALLOWED,
+                Some(unsafe { cache.get_inner() }),
+            )
+            .await,
+            ClientCachePreference::Full,
+            ServerCachePreference::Full,
+            CompressPreference::Full,
+        )
+    })
+}
+
 pub trait PrepareProvider {
-    fn get(request: RequestWrapper, host: HostWrapper) -> RetFut<FatResponse>;
+    fn get(&self) -> PrepareRet;
+    fn head(&self) -> PrepareRet;
+    fn post(&self) -> PrepareRet;
+    fn put(&self) -> PrepareRet;
+    fn delete(&self) -> PrepareRet;
+    fn trace(&self) -> PrepareRet;
+    fn options(&self) -> PrepareRet;
+    fn connect(&self) -> PrepareRet;
+    fn patch(&self) -> PrepareRet;
+
+    fn with_method(&self, method: Method) -> PrepareRet {
+        match method {
+            Method::GET => self.get(),
+            Method::HEAD => self.head(),
+            Method::POST => self.post(),
+            Method::PUT => self.put(),
+            Method::DELETE => self.delete(),
+            Method::TRACE => self.trace(),
+            Method::OPTIONS => self.options(),
+            Method::CONNECT => self.connect(),
+            Method::PATCH => self.patch(),
+            _ => &invalid_method,
+        }
+    }
+}
+pub struct PrepareGetProvider {
+    f: PrepareRet,
+}
+impl PrepareGetProvider {
+    pub fn new(f: PrepareRet) -> Self {
+        Self { f }
+    }
+}
+impl PrepareProvider for PrepareGetProvider {
+    fn get(&self) -> PrepareRet {
+        self.f
+    }
+    fn head(&self) -> PrepareRet {
+        &invalid_method
+    }
+
+    fn post(&self) -> PrepareRet {
+        &invalid_method
+    }
+
+    fn put(&self) -> PrepareRet {
+        &invalid_method
+    }
+
+    fn delete(&self) -> PrepareRet {
+        &invalid_method
+    }
+
+    fn trace(&self) -> PrepareRet {
+        &invalid_method
+    }
+
+    fn options(&self) -> PrepareRet {
+        &invalid_method
+    }
+
+    fn connect(&self) -> PrepareRet {
+        &invalid_method
+    }
+
+    fn patch(&self) -> PrepareRet {
+        &invalid_method
+    }
 }
 
 pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
@@ -236,7 +320,7 @@ impl Extensions {
     ) -> Option<FatResponse> {
         match self.prepare_single.get(request.uri().path()) {
             Some(extension) => Some(
-                extension(
+                extension.with_method(Method::clone(request.method()))(
                     RequestWrapper::new(request),
                     FileCacheWrapper::new(file_cache),
                 )
@@ -247,7 +331,7 @@ impl Extensions {
                     match function(request) {
                         true => {
                             return Some(
-                                extension(
+                                extension.with_method(Method::clone(request.method()))(
                                     RequestWrapper::new(request),
                                     FileCacheWrapper::new(file_cache),
                                 )
