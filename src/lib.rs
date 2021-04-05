@@ -187,9 +187,7 @@ pub async fn handle_cache(
                         host.get_extension_default_or("html"),
                     );
                     let (mut resp, client_cache, server_cache, compress) =
-                        handle_request(&mut request, address, host, &path)
-                            .await
-                            .unwrap();
+                        handle_request(&mut request, address, host, &path).await?;
 
                     host.extensions
                         .resolve_present(
