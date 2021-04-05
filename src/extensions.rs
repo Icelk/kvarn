@@ -367,7 +367,9 @@ impl Extensions {
 #[derive(Debug, Clone)]
 pub struct PresentExtensions {
     data: Bytes,
-    // Will have the start and enVec<Stringstarting on same position.
+    // Will have the start and end of name of extensions as first tuple,
+    // then the name/argument start and length as second.
+    // There wil be several names starting on same position.
     extensions: Arc<Vec<((usize, usize), (usize, usize))>>,
     data_start: usize,
 }
