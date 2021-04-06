@@ -316,10 +316,13 @@ pub enum ServerCachePreference {
 }
 impl ServerCachePreference {
     pub fn cache(&self) -> bool {
+        #[cfg(not(feature = "no-response-cache"))]
         match self {
             Self::None => false,
             Self::QueryMatters | Self::Full => true,
         }
+        #[cfg(feature = "no-response-cache")]
+        false
     }
     pub fn query_matters(&self) -> bool {
         match self {
