@@ -69,7 +69,7 @@ pub enum HttpConnection {
 #[derive(Debug)]
 pub enum Body {
     Empty,
-    Http1(response::PreBufferedReader<Encryption>),
+    Http1(response::Http1Body<Encryption>),
     Http2(h2::RecvStream),
 }
 
@@ -134,7 +134,25 @@ mod request {
         default_host: &[u8],
     ) -> Result<Request<Body>, Error> {
         let (head, bytes) = parse::request(&stream, max_len, default_host).await?;
-        Ok(head.map(|()| Body::Http1(response::PreBufferedReader::new(stream, bytes))))
+        let body = Body::Http1(response::Http1Body::new(
+            stream,
+            bytes,
+            utility::get_content_length(&head),
+        ));
+        Ok(head.map(|()| body))
+    }
+
+    impl Body {
+        pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
+            match self {
+                Self::Empty => Ok(Bytes::new()),
+                Self::Http1(h1) => h1.read_to_bytes().await,
+                Self::Http2(h2) => futures::future::poll_fn(|cx| h2.poll_data(cx))
+                    .await
+                    .unwrap_or(Ok(Bytes::new()))
+                    .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
+            }
+        }
     }
 
     impl AsyncRead for Body {
@@ -173,30 +191,45 @@ mod response {
 
     use super::*;
 
-    pub struct PreBufferedReader<R: AsyncRead + Unpin> {
+    pub struct Http1Body<R: AsyncRead + Unpin> {
         reader: Arc<Mutex<R>>,
         bytes: Bytes,
         offset: usize,
+
+        content_length: usize,
     }
-    impl<R: AsyncRead + Unpin + Debug> Debug for PreBufferedReader<R> {
-        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-            write!(
-                f,
-                "PreBufferedReader {{ reader: {:?}, buffer: [internal buffer], offset: {:?} }}",
-                self.reader, self.offset
-            )
-        }
-    }
-    impl<R: AsyncRead + Unpin> PreBufferedReader<R> {
-        pub fn new(reader: Arc<Mutex<R>>, bytes: Bytes) -> Self {
+    impl<R: AsyncRead + Unpin> Http1Body<R> {
+        pub fn new(reader: Arc<Mutex<R>>, bytes: Bytes, content_length: usize) -> Self {
             Self {
                 reader,
                 bytes,
                 offset: 0,
+
+                content_length,
             }
         }
+        pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
+            let mut buffer = BytesMut::with_capacity(self.bytes.len() + 512);
+            buffer.extend(&self.bytes);
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                utility::read_to_end(&mut buffer, &mut *self),
+            )
+            .await;
+            Ok(buffer.freeze())
+        }
     }
-    impl<R: AsyncRead + Unpin> AsyncRead for PreBufferedReader<R> {
+    impl<R: AsyncRead + Unpin + Debug> Debug for Http1Body<R> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            f.debug_struct("Http1Body")
+                .field("reader", &self.reader)
+                .field("buffer", &utility::CleanDebug::new("[internal buffer]"))
+                .field("offset", &self.offset)
+                .field("content_length", &self.content_length)
+                .finish()
+        }
+    }
+    impl<R: AsyncRead + Unpin> AsyncRead for Http1Body<R> {
         fn poll_read(
             mut self: Pin<&mut Self>,
             cx: &mut Context<'_>,
@@ -211,13 +244,21 @@ mod response {
                     buf.put_slice(&self.bytes[self.offset..]);
                     self.offset = self.bytes.len();
                 }
-                Poll::Ready(Ok(()))
+                Poll::Pending
             } else {
                 let mut reader = match self.reader.try_lock() {
                     Err(_) => return Poll::Pending,
                     Ok(r) => r,
                 };
-                unsafe { Pin::new_unchecked(&mut *reader).poll_read(cx, buf) }
+                let size = buf.filled().len();
+                let result = unsafe { Pin::new_unchecked(&mut *reader).poll_read(cx, buf) };
+                drop(reader);
+                let difference = buf.filled().len() - size;
+                self.offset += difference;
+                if self.offset == self.content_length {
+                    return Poll::Ready(Ok(()));
+                }
+                result
             }
         }
     }
@@ -241,8 +282,10 @@ mod response {
                     let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
                     write_http_1_response(&mut writer, response)
                         .await
-                        .map_err(Error::Io)?;
-                    writer.flush().await.map_err(Error::Io)?;
+                        .map_err(Error::Io)
+                        .unwrap();
+                    writer.flush().await.map_err(Error::Io).unwrap();
+                    writer.into_inner();
 
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
                 }

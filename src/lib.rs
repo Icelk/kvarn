@@ -139,7 +139,6 @@ pub async fn handle_cache(
         Some(uri) => *request.uri_mut() = uri,
         None => {}
     }
-    println!("uri {:?}", request.uri());
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = host.response_cache.lock().await;

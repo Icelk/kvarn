@@ -117,7 +117,7 @@ impl PresentDataWrapper {
 pub struct PresentData {
     // Regarding request
     address: SocketAddr,
-    request: *const Request<Vec<u8>>,
+    request: *const Request<Bytes>,
     host: *const Host,
     path: *const Path,
     // Regarding response
@@ -131,7 +131,7 @@ impl PresentData {
     pub fn address(&self) -> SocketAddr {
         self.address
     }
-    pub fn request(&self) -> &Request<Vec<u8>> {
+    pub fn request(&self) -> &Request<Bytes> {
         unsafe { &*self.request }
     }
     pub fn host(&self) -> &Host {
@@ -285,15 +285,14 @@ impl Extensions {
     ) -> io::Result<()> {
         pub struct LazyRequestBody<'a> {
             request: &'a mut FatRequest,
-            result: Option<Request<Vec<u8>>>,
+            result: Option<Request<Bytes>>,
         }
         impl<'a> LazyRequestBody<'a> {
-            pub async fn get(&mut self) -> io::Result<&Request<Vec<u8>>> {
+            pub async fn get(&mut self) -> io::Result<&Request<Bytes>> {
                 match self.result {
                     Some(ref result) => Ok(result),
                     None => {
-                        let mut buffer = Vec::with_capacity(256);
-                        self.request.body_mut().read_to_end(&mut buffer).await?;
+                        let buffer = self.request.body_mut().read_to_bytes().await?;
                         let request = utility::empty_clone_request(&self.request).map(|()| buffer);
                         self.result.replace(request);
                         Ok(self.result.as_ref().unwrap())

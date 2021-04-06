@@ -60,12 +60,14 @@ impl Write for WriteableBytes {
 }
 
 /// ToDo: optimize!
-async fn read_to_end<R: AsyncRead + Unpin>(mut file: R, capacity: usize) -> io::Result<BytesMut> {
-    let mut buffer = BytesMut::with_capacity(capacity);
+pub async fn read_to_end<R: AsyncRead + Unpin>(
+    buffer: &mut BytesMut,
+    mut reader: R,
+) -> io::Result<()> {
+    let mut read = buffer.len();
     unsafe { buffer.set_len(buffer.capacity()) };
-    let mut read = 0;
     loop {
-        match file.read(&mut buffer[read..]).await? {
+        match reader.read(&mut buffer[read..]).await? {
             0 => break,
             len => {
                 read += len;
@@ -77,7 +79,7 @@ async fn read_to_end<R: AsyncRead + Unpin>(mut file: R, capacity: usize) -> io::
         }
     }
     unsafe { buffer.set_len(read) };
-    Ok(buffer)
+    Ok(())
 }
 
 /// Should only be used when a file is typically access several times or from several requests.
@@ -88,7 +90,8 @@ pub async fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Op
     }
 
     let file = File::open(path).await.ok()?;
-    let buffer = read_to_end(file, 4096).await.ok()?;
+    let mut buffer = BytesMut::with_capacity(4096);
+    read_to_end(&mut buffer, file).await.ok()?;
     let buffer = buffer.freeze();
     cache
         .lock()
@@ -100,7 +103,9 @@ pub async fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Op
 /// Should only be used when a file is typically access several times or from several requests.
 pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
     let file = File::open(path).await.ok()?;
-    read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
+    let mut buffer = BytesMut::with_capacity(4096);
+    read_to_end(&mut buffer, file).await.ok()?;
+    Some(buffer.freeze())
 }
 
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
@@ -113,13 +118,17 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<By
     }
 
     let file = File::open(path).await.ok()?;
-    read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
+    let mut buffer = BytesMut::with_capacity(4096);
+    read_to_end(&mut buffer, file).await.ok()?;
+    Some(buffer.freeze())
 }
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 #[cfg(feature = "no-fs-cache")]
 pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
     let file = File::open(path).await.ok()?;
-    read_to_end(file, 4096).await.ok().map(BytesMut::freeze)
+    let mut buffer = BytesMut::with_capacity(4096);
+    read_to_end(&mut buffer, file).await.ok()?;
+    Some(buffer.freeze())
 }
 
 pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
@@ -236,6 +245,31 @@ pub fn valid_method(bytes: &[u8]) -> bool {
         || bytes.starts_with(b"OPTIONS")
         || bytes.starts_with(b"CONNECT")
         || bytes.starts_with(b"PATCH")
+}
+pub fn get_content_length<T>(request: &Request<T>) -> usize {
+    use std::str::FromStr;
+    match method_has_body(request.method()) {
+        true => request
+            .headers()
+            .get("content-length")
+            .map(HeaderValue::to_str)
+            .and_then(Result::ok)
+            .map(usize::from_str)
+            .and_then(Result::ok)
+            .unwrap_or(0),
+        false => 0,
+    }
+}
+pub fn method_has_body(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::GET
+            | Method::DELETE
+            | Method::OPTIONS
+            | Method::TRACE
+            | Method::CONNECT
+            | Method::HEAD
+    )
 }
 
 pub struct CleanDebug<'a, T: ?Sized + Display>(&'a T);
