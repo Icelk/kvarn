@@ -79,7 +79,7 @@ pub fn do_compress<F: Fn() -> bool>(mime: Mime, check_utf8: F) -> bool {
         && mime.type_() != mime::STAR
         // compressed applications
         && mime != mime::APPLICATION_PDF
-        && mime.subtype() == "zip"
+        && mime.subtype() != "zip"
         && mime.subtype() != "zstd"
         // all applications which are not js, graphql, json, xml, or valid utf-8
         && (mime.type_() != mime::APPLICATION
@@ -130,6 +130,7 @@ impl CompressedResponse {
             .get("content-type")
             .and_then(|header| header.to_str().ok())
             .and_then(|header| header.parse().ok());
+        debug!("Recognised mime {:?}", mime);
         let (bytes, compression) = match mime {
             Some(mime) => {
                 match do_compress(mime, || str::from_utf8(self.get_identity().body()).is_ok()) {
@@ -155,7 +156,10 @@ impl CompressedResponse {
                             }
                         }
                     },
-                    false => (self.get_identity().body(), "identity"),
+                    false => {
+                        debug!("Not compressing; filtered out.");
+                        (self.get_identity().body(), "identity")
+                    }
                 }
             }
             None => (self.get_identity().body(), "identity"),
@@ -169,14 +173,7 @@ impl CompressedResponse {
     fn add_server_header(headers: &mut HeaderMap) {
         headers.insert("server", HeaderValue::from_static(SERVER_HEADER));
     }
-    fn set_content_length(headers: &mut HeaderMap, len: usize) {
-        // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
-        utility::replace_header(
-            headers,
-            "content-length",
-            HeaderValue::from_str(len.to_string().as_str()).unwrap(),
-        )
-    }
+
     fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
         if let Some(header) = preference.as_header() {
             utility::replace_header(headers, "cache-control", header)
@@ -242,8 +239,12 @@ impl CompressedResponse {
             .status(response.status());
         let mut map = response.headers().clone();
         let headers = &mut map;
+        debug!(
+            "Changing content-encoding from {:?}. Has content-type {:?}",
+            headers.get("content-encoding"),
+            headers.get("content-type"),
+        );
         utility::replace_header(headers, "content-encoding", compression);
-        Self::set_content_length(headers, new_data.len());
         *builder.headers_mut().unwrap() = map;
         builder.body(new_data).unwrap()
     }
