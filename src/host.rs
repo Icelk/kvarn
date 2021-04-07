@@ -179,11 +179,13 @@ impl Host {
             };
             ready(uri)
         });
+    }
+
+    pub fn enable_hsts(&mut self) {
         self.extensions.add_package(&|mut response, request| {
             let response: &mut Response<_> = unsafe { response.get_inner() };
             let request: &FatRequest = unsafe { request.get_inner() };
-            if response.version() <= Version::HTTP_11 && request.uri().scheme_str() == Some("https")
-            {
+            if request.uri().scheme_str() == Some("https") {
                 response
                     .headers_mut()
                     .entry("strict-transport-security")
