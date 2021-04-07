@@ -394,50 +394,6 @@ impl ResolvesServerCert for HostData {
         }
     }
 }
-#[derive(Debug)]
-pub struct HostBinding {
-    host_data: Arc<HostData>,
-    host: Option<*const Host>,
-}
-impl HostBinding {
-    pub fn new(data: Arc<HostData>) -> Self {
-        Self {
-            host_data: data,
-            host: None,
-        }
-    }
-
-    pub fn get_host(&self) -> Option<&Host> {
-        unsafe { self.host.map(|ptr| &*ptr) }
-    }
-    pub fn get_default(&self) -> &Host {
-        &self.host_data.default
-    }
-    pub fn get_host_or_default(&self) -> &Host {
-        unsafe {
-            self.host
-                .map(|ptr| &*ptr)
-                .unwrap_or(&self.host_data.default)
-        }
-    }
-    pub fn get_or_set_host(&mut self, host: &str) -> &Host {
-        match self.host {
-            Some(host) => unsafe { &*host },
-            None => match self.host_data.get_host(host) {
-                Some(host) => {
-                    self.host = Some(host);
-                    host
-                }
-                None => &self.host_data.default,
-            },
-        }
-    }
-    pub fn set_host(&mut self, host: &str) -> Result<(), ()> {
-        let data = self.host_data.get_host(host).ok_or(())?;
-        self.host = Some(data as *const Host);
-        Ok(())
-    }
-}
 
 #[derive(Debug)]
 pub enum ServerConfigError {
