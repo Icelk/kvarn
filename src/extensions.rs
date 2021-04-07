@@ -114,6 +114,7 @@ impl PresentDataWrapper {
 /// Can be acquired from [`PresentDataWrapper`].
 ///
 /// See [module level documentation](crate::extensions).
+#[derive(Debug)]
 pub struct PresentData {
     // Regarding request
     address: SocketAddr,
@@ -507,6 +508,7 @@ impl Iterator for PresentExtensionsIter {
         })
     }
 }
+#[derive(Debug)]
 pub struct PresentArguments {
     data: PresentExtensions,
     data_index: usize,

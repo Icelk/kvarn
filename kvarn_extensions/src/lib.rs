@@ -13,7 +13,6 @@ use kvarn::{
     extensions::*,
     prelude::{internals::*, *},
 };
-use std::borrow::Cow;
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
@@ -116,11 +115,10 @@ pub use templates::templates;
 
 #[cfg(feature = "fastcgi-client")]
 pub mod cgi {
-    use std::net::Ipv4Addr;
+    use std::borrow::Cow;
 
     use super::*;
     use fastcgi_client::{Client, Params};
-    use kvarn::prelude::networking::*;
 
     pub enum FCGIError {
         FailedToConnect(io::Error),
@@ -128,7 +126,7 @@ pub mod cgi {
         NoStdout,
     }
     pub async fn connect_to_fcgi(
-        port: u16,
+        _port: u16,
         method: &str,
         file_name: &str,
         file_path: &str,
@@ -137,7 +135,13 @@ pub mod cgi {
         body: &[u8],
     ) -> Result<Vec<u8>, FCGIError> {
         // Create connection to FastCGI server
-        let stream = match TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await {
+        #[cfg(windows)]
+        let stream = match networking::TcpStream::connect((net::Ipv4Addr::LOCALHOST, _port)).await {
+            Ok(stream) => stream,
+            Err(err) => return Err(FCGIError::FailedToConnect(err)),
+        };
+        #[cfg(unix)]
+        let stream = match tokio::net::UnixStream::connect("/run/php-fpm/php-fpm.sock").await {
             Ok(stream) => stream,
             Err(err) => return Err(FCGIError::FailedToConnect(err)),
         };
@@ -155,7 +159,7 @@ pub mod cgi {
             .set_script_name(file_name)
             .set_script_filename(file_path)
             .set_request_uri(uri)
-            .set_document_uri(file_name)
+            .set_document_uri(uri)
             .set_remote_addr(&remote_addr)
             .set_remote_port(&remote_port)
             .set_server_addr("0.0.0.0")
@@ -241,7 +245,7 @@ pub mod parse {
 }
 
 #[cfg(feature = "php")]
-pub fn php(data: PresentDataWrapper) -> RetFut<()> {
+pub fn php(mut data: PresentDataWrapper) -> RetFut<()> {
     Box::pin(async move {
         let data = unsafe { data.get_inner() };
         *data.server_cache_preference() = ServerCachePreference::QueryMatters;
@@ -252,8 +256,14 @@ pub fn php(data: PresentDataWrapper) -> RetFut<()> {
                 return;
             }
         };
-        *data.response_mut() = kvarn::parse::response(&output);
-        todo!("fork repo and change client.rs from dyn AsyncRead + Unpin to AsyncRead + Send + Unpin and the same in request.rs");
+        println!("Data: {:?}", str::from_utf8(&output));
+        let output = Bytes::copy_from_slice(&output);
+        match kvarn::parse::response_php(&output) {
+            Some(response) => *data.response_mut() = response,
+            None => {
+                error!("failed to parse response");
+            }
+        };
     })
 }
 

@@ -8,11 +8,12 @@ edition = "2018"
 
 [dependencies]
 kvarn = { path = "../", default-features = false }
-fastcgi-client = { version = "0.6",  optional = true }
+fastcgi-client = { git = "https://github.com/Iselk/fastcgi-client-rs", optional = true }
+tokio = { version = "1", optional = true, features = ["net", "io-util"] }
 url_crawl = { path = "../url_crawl", optional = true }
 
 [features]
 default = ["php", "templates", "push"]
-php = ["fastcgi-client"]
+php = ["fastcgi-client", "tokio"]
 templates = []
 push = ["url_crawl"]
