@@ -296,7 +296,7 @@ pub async fn handle_cache(
 /// LAYER 5.1
 pub(crate) async fn handle_request(
     request: &mut Request<application::Body>,
-    _address: net::SocketAddr,
+    address: net::SocketAddr,
     host: &Host,
     path: &PathBuf,
 ) -> io::Result<FatResponse> {
@@ -308,7 +308,7 @@ pub(crate) async fn handle_request(
     {
         if let Some(resp) = host
             .extensions
-            .resolve_prepare(request, &host.file_cache)
+            .resolve_prepare(request, &host, path.as_path(), address)
             .await
         {
             response.replace(resp.0);
@@ -319,7 +319,7 @@ pub(crate) async fn handle_request(
     }
 
     #[cfg(feature = "fs")]
-    {
+    if response.is_none() {
         if let Some(content) = utility::read_file(&path, &host.file_cache).await {
             response = Some(Response::new(content));
         }

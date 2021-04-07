@@ -22,8 +22,8 @@ pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
 pub type Prime = &'static (dyn Fn(RequestWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync);
 pub type Pre = &'static (dyn Fn(RequestWrapperMut, HostWrapper) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
               + Sync);
-pub type Prepare =
-    &'static (dyn Fn(RequestWrapper, FileCacheWrapper) -> RetFut<FatResponse> + Sync);
+pub type Prepare = &'static (dyn Fn(RequestWrapperMut, HostWrapper, PathWrapper, SocketAddr) -> RetFut<FatResponse>
+              + Sync);
 
 pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
 pub type Package = &'static (dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync);
@@ -37,12 +37,16 @@ pub type Post = &'static (dyn Fn(
               + Sync);
 pub type If = &'static (dyn Fn(&FatRequest) -> bool + Sync);
 
-pub fn invalid_method(_: RequestWrapper, cache: FileCacheWrapper) -> RetFut<FatResponse> {
+pub fn invalid_method(
+    _: RequestWrapper,
+    cache: HostWrapper,
+    _: PathWrapper,
+) -> RetFut<FatResponse> {
     Box::pin(async move {
         (
             utility::default_error(
                 StatusCode::METHOD_NOT_ALLOWED,
-                Some(unsafe { cache.get_inner() }),
+                Some(unsafe { &cache.get_inner().file_cache }),
             )
             .await,
             ClientCachePreference::Full,
@@ -100,8 +104,8 @@ impl_get_unsafe!(RequestWrapper, FatRequest);
 impl_get_unsafe_mut!(RequestWrapperMut, FatRequest);
 impl_get_unsafe_mut!(EmptyResponseWrapperMut, Response<()>);
 impl_get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
-impl_get_unsafe!(FileCacheWrapper, FileCache);
 impl_get_unsafe!(HostWrapper, Host);
+impl_get_unsafe!(PathWrapper, Path);
 
 pub struct PresentDataWrapper(PresentData);
 impl PresentDataWrapper {
@@ -252,14 +256,18 @@ impl Extensions {
     }
     pub async fn resolve_prepare(
         &self,
-        request: &FatRequest,
-        file_cache: &FileCache,
+        request: &mut FatRequest,
+        host: &Host,
+        path: &Path,
+        address: SocketAddr,
     ) -> Option<FatResponse> {
         match self.prepare_single.get(request.uri().path()) {
             Some(extension) => Some(
                 extension(
-                    RequestWrapper::new(request),
-                    FileCacheWrapper::new(file_cache),
+                    RequestWrapperMut::new(request),
+                    HostWrapper::new(host),
+                    PathWrapper::new(path),
+                    address,
                 )
                 .await,
             ),
@@ -269,11 +277,13 @@ impl Extensions {
                         true => {
                             return Some(
                                 extension(
-                                    RequestWrapper::new(request),
-                                    FileCacheWrapper::new(file_cache),
+                                    RequestWrapperMut::new(request),
+                                    HostWrapper::new(host),
+                                    PathWrapper::new(path),
+                                    address,
                                 )
                                 .await,
-                            )
+                            );
                         }
                         false => continue,
                     }

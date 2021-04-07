@@ -178,7 +178,9 @@ impl CompressedResponse {
         )
     }
     fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
-        utility::replace_header(headers, "cache-control", preference.as_header());
+        if let Some(header) = preference.as_header() {
+            utility::replace_header(headers, "cache-control", header)
+        };
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
@@ -340,13 +342,22 @@ pub enum ClientCachePreference {
     Changing,
     /// Will cache for 1 year
     Full,
+    /// Will not add or remove any header
+    Undefined,
 }
 impl ClientCachePreference {
-    pub fn as_header(&self) -> HeaderValue {
+    pub fn as_header(&self) -> Option<HeaderValue> {
         match self {
-            Self::None => HeaderValue::from_static("no-store"),
-            Self::Changing => HeaderValue::from_static("max-age=120"),
-            Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
+            Self::None => Some(HeaderValue::from_static(
+                "public, max-age=604800, immutable",
+            )),
+            Self::Changing => Some(HeaderValue::from_static(
+                "public, max-age=604800, immutable",
+            )),
+            Self::Full => Some(HeaderValue::from_static(
+                "public, max-age=604800, immutable",
+            )),
+            Self::Undefined => None,
         }
     }
 }

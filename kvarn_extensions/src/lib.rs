@@ -26,7 +26,7 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_file("private".to_string(), &hide);
     extensions.add_present_internal("allow-ips".to_string(), &ip_allow);
     #[cfg(feature = "php")]
-    extensions.add_present_file("php".to_string(), &php);
+    extensions.add_prepare_fn(&|req| req.uri().path().ends_with(".php"), &php);
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), &templates);
     #[cfg(feature = "push")]
@@ -178,11 +178,13 @@ pub mod cgi {
             Err(err) => Err(FCGIError::FailedToDoRequest(err)),
         }
     }
-    pub async fn fcgi_from_data(
-        data: &PresentData,
-        port: u16,
+    pub async fn fcgi_from_prepare<T>(
+        request: &Request<T>,
+        body: &[u8],
+        path: &Path,
+        address: SocketAddr,
+        fcgi_server_port: u16,
     ) -> Result<Vec<u8>, Cow<'static, str>> {
-        let path = data.path();
         let file_name = match parse::format_file_name(&path) {
             Some(name) => name,
             None => {
@@ -204,13 +206,13 @@ pub mod cgi {
 
         // Fetch fastcgi server response.
         match connect_to_fcgi(
-            port,
-            data.request().method().as_str(),
+            fcgi_server_port,
+            request.method().as_str(),
             file_name,
             file_path,
-            data.request().uri().path_and_query().unwrap().as_str(),
-            &data.address(),
-            data.request().body(),
+            request.uri().path_and_query().unwrap().as_str(),
+            &address,
+            body,
         )
         .await
         {
@@ -218,7 +220,7 @@ pub mod cgi {
             Err(err) => match err {
                 FCGIError::FailedToConnect(err) => Err(Cow::Owned(format!(
                     "Failed to connect to FastCGI server on port {}. IO Err: {}",
-                    port, err
+                    fcgi_server_port, err
                 ))),
                 FCGIError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
                     "Failed to request from FastCGI server! Err: {}",
@@ -245,24 +247,37 @@ pub mod parse {
 }
 
 #[cfg(feature = "php")]
-pub fn php(mut data: PresentDataWrapper) -> RetFut<()> {
+pub fn php(
+    mut req: RequestWrapperMut,
+    host: HostWrapper,
+    path: PathWrapper,
+    address: SocketAddr,
+) -> RetFut<FatResponse> {
     ext!(
-        let data = unsafe { data.get_inner() };
-        *data.server_cache_preference() = ServerCachePreference::QueryMatters;
-        let output = match cgi::fcgi_from_data(data, 6633).await {
+        let req = unsafe { req.get_inner() };
+        let host = unsafe{host.get_inner()};
+        let path = unsafe{path.get_inner()};
+
+        let body =match req.body_mut().read_to_bytes().await{
+            Ok(body) => body,
+            Err(_) => return utility::default_error_response(StatusCode::BAD_REQUEST, host).await
+        };
+        let output = match cgi::fcgi_from_prepare(req,&body, path, address, 6633).await {
             Ok(vec) => vec,
             Err(err) => {
                 error!("FastCGI failed. {}", err);
-                return;
+                return utility::default_error_response(StatusCode::INTERNAL_SERVER_ERROR, host).await;
             }
         };
         let output = Bytes::copy_from_slice(&output);
         match kvarn::parse::response_php(&output) {
-            Some(response) => *data.response_mut() = response,
+            Some(response) =>  (response, ClientCachePreference::Undefined, ServerCachePreference::None, CompressPreference::Full),
             None => {
                 error!("failed to parse response");
+                utility::default_error_response(StatusCode::NOT_FOUND, host).await
             }
-        };
+        }
+
     )
 }
 
