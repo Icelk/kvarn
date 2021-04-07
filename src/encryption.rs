@@ -138,7 +138,6 @@ impl std::error::Error for TlsIoError {}
 /// Tokio Rustls glue code
 mod tokio_tls {
     use super::TlsIoError;
-    use futures_util::ready;
     use rustls::{ServerSession, Session};
     use std::future::Future;
     use std::io::{self, IoSlice, Read, Write};
@@ -545,14 +544,20 @@ mod tokio_tls {
         fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
             self.session.flush()?;
             while self.session.wants_write() {
-                ready!(self.write_io(cx))?;
+                match self.write_io(cx) {
+                    Poll::Ready(t) => t,
+                    Poll::Pending => return Poll::Pending,
+                }?;
             }
             Pin::new(&mut self.io).poll_flush(cx)
         }
 
         fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             while self.session.wants_write() {
-                ready!(self.write_io(cx))?;
+                match self.write_io(cx) {
+                    Poll::Ready(t) => t,
+                    Poll::Pending => return Poll::Pending,
+                }?;
             }
             Pin::new(&mut self.io).poll_shutdown(cx)
         }
