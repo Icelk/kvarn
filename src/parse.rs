@@ -467,7 +467,8 @@ pub fn response_php(bytes: &Bytes) -> Option<Response<Bytes>> {
     let (headers, end) = headers(&bytes.slice(header_start..));
     let status = headers
         .get("status")
-        .map(HeaderValue::to_str)
+        .and_then(|h| h.as_bytes().get(..3))
+        .map(str::from_utf8)
         .and_then(Result::ok)
         .map(str::parse)
         .and_then(Result::ok)
