@@ -49,7 +49,7 @@ gzip = ["flate2"]
 
 # HTTP standards
 https = ["rustls", "webpki"]
-http2 = ["h2"]
+http2 = ["h2", "https"]
 
 # Multi threading
 mt = ["tokio/rt-multi-thread"]

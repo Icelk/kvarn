@@ -1,15 +1,19 @@
 use crate::prelude::{networking::*, *};
+#[cfg(feature = "https")]
 use rustls::{ServerConfig, ServerSession, Session};
 
+#[cfg(feature = "https")]
 use tokio_tls::*;
 
 #[derive(Debug)]
 pub enum Encryption {
+    #[cfg(feature = "https")]
     TcpTls(TlsStream<TcpStream>),
     Tcp(TcpStream),
 }
 impl Encryption {
-    pub async fn new_tcp_from_connection_security(
+    #[cfg(feature = "https")]
+    pub async fn new_tcp(
         stream: TcpStream,
         certificate: Option<&Arc<ServerConfig>>,
     ) -> io::Result<Self> {
@@ -29,8 +33,13 @@ impl Encryption {
             }
         }
     }
+    #[cfg(not(feature = "https"))]
+    pub fn new_tcp(stream: TcpStream) -> Self {
+        Self::Tcp(stream)
+    }
 }
 impl Encryption {
+    #[cfg(feature = "https")]
     pub fn get_peer_certificates(&self) -> Option<Vec<rustls::Certificate>> {
         match self {
             Self::TcpTls(s) => s.session.get_peer_certificates(),
@@ -39,10 +48,12 @@ impl Encryption {
     }
     pub fn get_alpn_protocol(&self) -> Option<&[u8]> {
         match self {
+            #[cfg(feature = "https")]
             Self::TcpTls(s) => s.session.get_alpn_protocol(),
             Self::Tcp(_) => None,
         }
     }
+    #[cfg(feature = "https")]
     pub fn get_protocol_version(&self) -> Option<rustls::ProtocolVersion> {
         match self {
             Self::TcpTls(s) => s.session.get_protocol_version(),
@@ -51,6 +62,7 @@ impl Encryption {
     }
     pub fn get_sni_hostname(&self) -> Option<&str> {
         match self {
+            #[cfg(feature = "https")]
             Self::TcpTls(s) => s.session.get_sni_hostname(),
             Self::Tcp(_) => None,
         }
@@ -64,6 +76,7 @@ impl AsyncRead for Encryption {
     ) -> Poll<io::Result<()>> {
         match self.get_mut() {
             Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_read(cx, buf) },
+            #[cfg(feature = "https")]
             Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_read(cx, buf) },
         }
     }
@@ -76,18 +89,21 @@ impl AsyncWrite for Encryption {
     ) -> Poll<Result<usize, io::Error>> {
         match self.get_mut() {
             Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_write(cx, buf) },
+            #[cfg(feature = "https")]
             Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_write(cx, buf) },
         }
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         match self.get_mut() {
             Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_flush(cx) },
+            #[cfg(feature = "https")]
             Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_flush(cx) },
         }
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         match self.get_mut() {
             Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_shutdown(cx) },
+            #[cfg(feature = "https")]
             Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_shutdown(cx) },
         }
     }
@@ -98,6 +114,7 @@ impl AsyncWrite for Encryption {
     ) -> Poll<Result<usize, io::Error>> {
         match self.get_mut() {
             Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_write_vectored(cx, bufs) },
+            #[cfg(feature = "https")]
             Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_write_vectored(cx, bufs) },
         }
     }
@@ -105,6 +122,7 @@ impl AsyncWrite for Encryption {
 #[derive(Debug)]
 pub enum TlsIoError {
     Io(io::Error),
+    #[cfg(feature = "https")]
     Tls(rustls::TLSError),
 }
 impl From<io::Error> for TlsIoError {
@@ -112,6 +130,7 @@ impl From<io::Error> for TlsIoError {
         Self::Io(err)
     }
 }
+#[cfg(feature = "https")]
 impl From<rustls::TLSError> for TlsIoError {
     fn from(err: rustls::TLSError) -> Self {
         Self::Tls(err)
@@ -125,6 +144,7 @@ impl Display for TlsIoError {
                 f.write_str("std::Io: ")?;
                 Display::fmt(e, f)
             }
+            #[cfg(feature = "https")]
             Self::Tls(e) => {
                 f.write_str("rustls::TLSError: ")?;
                 Display::fmt(e, f)
@@ -136,6 +156,7 @@ impl Display for TlsIoError {
 impl std::error::Error for TlsIoError {}
 
 /// Tokio Rustls glue code
+#[cfg(feature = "https")]
 mod tokio_tls {
     use super::TlsIoError;
     use rustls::{ServerSession, Session};

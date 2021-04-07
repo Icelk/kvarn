@@ -1,9 +1,11 @@
 use crate::prelude::{internals::*, *};
+#[cfg(feature = "https")]
 use rustls::{
     internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
 };
 pub struct Host {
     pub host_name: &'static str,
+    #[cfg(feature = "https")]
     pub certificate: Option<sign::CertifiedKey>,
     pub path: PathBuf,
     pub extensions: Extensions,
@@ -22,6 +24,7 @@ pub struct Host {
     pub extension_default: Option<String>,
 }
 impl Host {
+    #[cfg(feature = "https")]
     pub fn new<P: AsRef<Path>>(
         host_name: &'static str,
         cert_path: P,
@@ -69,6 +72,7 @@ impl Host {
     ) -> Self {
         Self {
             host_name,
+            #[cfg(feature = "https")]
             certificate: None,
             path,
             extensions,
@@ -79,6 +83,7 @@ impl Host {
         }
     }
 
+    #[cfg(feature = "https")]
     pub fn with_http_redirect<P: AsRef<Path>>(
         host_name: &'static str,
         cert_path: P,
@@ -92,7 +97,7 @@ impl Host {
                 host
             }
             Err((err, host_without_cert)) => {
-                warn!(
+                error!(
                     "Failed to get certificate! Not running host on HTTPS. {:?}",
                     err
                 );
@@ -120,6 +125,7 @@ impl Host {
         self.extension_default = Some(default);
     }
 
+    #[cfg(feature = "https")]
     pub fn set_http_redirect_to_https(&mut self) {
         const SPECIAL_PATH: &'static str = "/../to_https";
         self.extensions
@@ -187,6 +193,7 @@ impl Host {
         });
     }
 
+    #[cfg(feature = "https")]
     pub fn enable_hsts(&mut self) {
         self.extensions.add_package(&|mut response, request| {
             let response: &mut Response<_> = unsafe { response.get_inner() };
@@ -204,8 +211,13 @@ impl Host {
         })
     }
 
+    #[cfg(feature = "https")]
     pub fn is_secure(&self) -> bool {
         self.certificate.is_some()
+    }
+    #[cfg(not(feature = "https"))]
+    pub(crate) fn is_secure(&self) -> bool {
+        false
     }
 }
 impl Debug for Host {
@@ -302,6 +314,7 @@ impl HostData {
         self.has_secure
     }
 
+    #[cfg(feature = "https")]
     pub fn make_config(arc: &Arc<Self>) -> ServerConfig {
         let mut config = ServerConfig::new(NoClientAuth::new());
         let arc = Arc::clone(arc);
@@ -378,6 +391,7 @@ impl HostData {
         found
     }
 }
+#[cfg(feature = "https")]
 impl ResolvesServerCert for HostData {
     fn resolve(&self, client_hello: ClientHello) -> Option<sign::CertifiedKey> {
         // Mostly returns true, since we have a default
@@ -410,6 +424,7 @@ impl From<io::Error> for ServerConfigError {
 }
 
 /// Get a certified key to use (maybe) when adding domain certificates to the server
+#[cfg(feature = "https")]
 pub fn get_certified_key<P: AsRef<Path>>(
     cert_path: P,
     private_key_path: P,

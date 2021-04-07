@@ -71,11 +71,11 @@ pub(crate) async fn handle_connection(
     let mut limiter = limiter;
 
     // LAYER 2
-    let encrypted = encryption::Encryption::new_tcp_from_connection_security(
-        stream,
-        host_descriptors.server_config.as_ref(),
-    )
-    .await?;
+    #[cfg(feature = "https")]
+    let encrypted =
+        encryption::Encryption::new_tcp(stream, host_descriptors.server_config.as_ref()).await?;
+    #[cfg(not(feature = "https"))]
+    let encrypted = encryption::Encryption::new_tcp(stream);
 
     let version = match encrypted.get_alpn_protocol() {
         Some(b"h2") => Version::HTTP_2,
@@ -365,6 +365,7 @@ pub(crate) async fn handle_request(
 
 pub struct HostDescriptor {
     port: u16,
+    #[cfg(feature = "https")]
     server_config: Option<Arc<rustls::ServerConfig>>,
     host_data: Arc<HostData>,
 }
@@ -372,10 +373,12 @@ impl HostDescriptor {
     pub fn http(host: Arc<HostData>) -> Self {
         Self {
             port: 80,
+            #[cfg(feature = "https")]
             server_config: None,
             host_data: host,
         }
     }
+    #[cfg(feature = "https")]
     pub fn https(host: Arc<HostData>, server_config: Arc<rustls::ServerConfig>) -> Self {
         Self {
             port: 443,
@@ -383,31 +386,38 @@ impl HostDescriptor {
             host_data: host,
         }
     }
+    #[cfg(feature = "https")]
     pub fn new(
         port: u16,
-        host: Arc<HostData>,
+        host_data: Arc<HostData>,
         server_config: Option<Arc<rustls::ServerConfig>>,
     ) -> Self {
         Self {
             port,
             server_config,
-            host_data: host,
+            host_data,
         }
+    }
+    #[cfg(not(feature = "https"))]
+    pub fn new(port: u16, host_data: Arc<HostData>) -> Self {
+        Self { port, host_data }
     }
 }
 impl Debug for HostDescriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("HostDescriptor")
-            .field("port", &self.port)
-            .field(
-                "server_config",
-                &self
-                    .server_config
-                    .as_ref()
-                    .map(|_| utility::CleanDebug::new("certificate")),
-            )
-            .field("host_data", &self.host_data)
-            .finish()
+        let mut s = f.debug_struct("HostDescriptor");
+        s.field("port", &self.port);
+
+        #[cfg(feature = "https")]
+        s.field(
+            "server_config",
+            &self
+                .server_config
+                .as_ref()
+                .map(|_| utility::CleanDebug::new("certificate")),
+        );
+
+        s.field("host_data", &self.host_data).finish()
     }
 }
 

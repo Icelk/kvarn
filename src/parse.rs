@@ -430,6 +430,7 @@ pub async fn request(
     let uri = {
         let scheme = match &*stream.lock().await {
             Encryption::Tcp(_) => "http",
+            #[cfg(feature = "https")]
             Encryption::TcpTls(_) => "https",
         };
 
