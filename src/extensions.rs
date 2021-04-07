@@ -130,7 +130,7 @@ impl PresentDataWrapper {
 pub struct PresentData {
     // Regarding request
     address: SocketAddr,
-    request: *const Request<Bytes>,
+    request: *mut LazyRequestBody,
     host: *const Host,
     path: *const Path,
     // Regarding response
@@ -144,8 +144,8 @@ impl PresentData {
     pub fn address(&self) -> SocketAddr {
         self.address
     }
-    pub fn request(&self) -> &Request<Bytes> {
-        unsafe { &*self.request }
+    pub fn request(&mut self) -> &mut LazyRequestBody {
+        unsafe { &mut *self.request }
     }
     pub fn host(&self) -> &Host {
         unsafe { &*self.host }
@@ -302,28 +302,8 @@ impl Extensions {
         address: SocketAddr,
         path: &Path,
     ) -> io::Result<()> {
-        pub struct LazyRequestBody<'a> {
-            request: &'a mut FatRequest,
-            result: Option<Request<Bytes>>,
-        }
-        impl<'a> LazyRequestBody<'a> {
-            pub async fn get(&mut self) -> io::Result<&Request<Bytes>> {
-                match self.result {
-                    Some(ref result) => Ok(result),
-                    None => {
-                        let buffer = self.request.body_mut().read_to_bytes().await?;
-                        let request = utility::empty_clone_request(&self.request).map(|()| buffer);
-                        self.result.replace(request);
-                        Ok(self.result.as_ref().unwrap())
-                    }
-                }
-            }
-        }
-
-        let mut request = LazyRequestBody {
-            request,
-            result: None,
-        };
+        let mut request = LazyRequestBody::new(request);
+        let request = &mut request;
 
         if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());
@@ -332,7 +312,7 @@ impl Extensions {
                     Some(extension) => {
                         let data = PresentData {
                             address,
-                            request: request.get().await?,
+                            request,
                             host,
                             path,
                             server_cache_preference,
@@ -356,7 +336,7 @@ impl Extensions {
             Some(extension) => {
                 let data = PresentData {
                     address,
-                    request: request.get().await?,
+                    request,
                     host,
                     path,
                     server_cache_preference,
@@ -410,6 +390,31 @@ impl Extensions {
         }
     }
 }
+pub struct LazyRequestBody {
+    request: *mut FatRequest,
+    result: Option<Request<Bytes>>,
+}
+impl LazyRequestBody {
+    pub(crate) fn new(request: &mut FatRequest) -> Self {
+        Self {
+            request,
+            result: None,
+        }
+    }
+    pub async unsafe fn get(&mut self) -> io::Result<&Request<Bytes>> {
+        match self.result {
+            Some(ref result) => Ok(result),
+            None => {
+                let buffer = (&mut *self.request).body_mut().read_to_bytes().await?;
+                let request = utility::empty_clone_request(&*self.request).map(|()| buffer);
+                self.result.replace(request);
+                Ok(self.result.as_ref().unwrap())
+            }
+        }
+    }
+}
+unsafe impl Send for LazyRequestBody {}
+unsafe impl Sync for LazyRequestBody {}
 
 #[derive(Debug, Clone)]
 pub struct PresentExtensions {
