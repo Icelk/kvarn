@@ -260,6 +260,14 @@ pub fn get_content_length<T>(request: &Request<T>) -> usize {
         false => 0,
     }
 }
+pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
+    // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
+    utility::replace_header(
+        headers,
+        "content-length",
+        HeaderValue::from_str(len.to_string().as_str()).unwrap(),
+    )
+}
 pub fn method_has_body(method: &Method) -> bool {
     matches!(
         *method,

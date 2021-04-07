@@ -104,9 +104,9 @@ pub enum SendKind<'a> {
     Push(&'a mut application::PushedResponsePipe),
 }
 impl<'a> SendKind<'a> {
-    pub fn ensure_version<T>(&self, response: &mut Response<T>) {
+    pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
         match self {
-            Self::Send(p) => p.ensure_version(response),
+            Self::Send(p) => p.ensure_version_and_length(response, len),
             Self::Push(p) => p.ensure_version(response),
         }
     }
@@ -149,7 +149,7 @@ pub async fn handle_cache(
             let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
 
-            pipe.ensure_version(&mut response);
+            pipe.ensure_version_and_length(&mut response, body.len());
             host.extensions
                 .resolve_package(&mut response, &request)
                 .await;
@@ -234,7 +234,7 @@ pub async fn handle_cache(
 
             let (mut response, body) = utility::extract_body(compressed_response.clone_preferred());
 
-            pipe.ensure_version(&mut response);
+            pipe.ensure_version_and_length(&mut response, body.len());
             host.extensions
                 .resolve_package(&mut response, &request)
                 .await;
