@@ -30,6 +30,12 @@ impl Host {
         extensions: Extensions,
     ) -> Result<Self, (ServerConfigError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
+        // ToDo: redirect path which ends with . or / to it's index.html
+        // extensions.add_prime(&|request, _| {
+        //     let uri = unsafe { request.get_inner().uri() };
+
+        //     ready()
+        // });
         match cert {
             Ok(cert) => Ok(Self {
                 host_name,

@@ -4,6 +4,7 @@ use crate::prelude::{internals::*, *};
 pub enum Error {
     Http(http::Error),
     Io(io::Error),
+    #[cfg(feature = "h2")]
     H2(h2::Error),
     NoPath,
     Done,
@@ -24,6 +25,7 @@ impl From<io::Error> for Error {
         Self::Io(err)
     }
 }
+#[cfg(feature = "h2")]
 impl From<h2::Error> for Error {
     fn from(err: h2::Error) -> Self {
         Self::H2(err)
@@ -34,6 +36,7 @@ impl Into<io::Error> for Error {
         match self {
             Self::Io(io) => io,
             Self::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
+            #[cfg(feature = "h2")]
             Self::H2(h2) => io::Error::new(io::ErrorKind::InvalidData, h2),
             Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, "stream is exhausted"),
             Self::NoPath => io::Error::new(
@@ -62,6 +65,7 @@ impl Into<io::Error> for Error {
 
 pub enum HttpConnection {
     Http1(Arc<Mutex<Encryption>>),
+    #[cfg(feature = "h2")]
     Http2(h2::server::Connection<Encryption, bytes::Bytes>),
 }
 
@@ -70,18 +74,22 @@ pub enum HttpConnection {
 pub enum Body {
     Empty,
     Http1(response::Http1Body<Encryption>),
+    #[cfg(feature = "h2")]
     Http2(h2::RecvStream),
 }
 
 pub enum ResponsePipe {
     Http1(Arc<Mutex<Encryption>>),
+    #[cfg(feature = "h2")]
     Http2(h2::server::SendResponse<Bytes>),
 }
 pub enum ResponseBodyPipe {
     Http1(Arc<Mutex<Encryption>>),
+    #[cfg(feature = "h2")]
     Http2(h2::SendStream<Bytes>),
 }
 pub enum PushedResponsePipe {
+    #[cfg(feature = "h2")]
     Http2(h2::server::SendPushedResponse<Bytes>),
 }
 
@@ -91,10 +99,13 @@ impl HttpConnection {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
                 Ok(Self::Http1(Arc::new(Mutex::new(stream))))
             }
+            #[cfg(feature = "h2")]
             Version::HTTP_2 => match h2::server::handshake(stream).await {
                 Ok(connection) => Ok(HttpConnection::Http2(connection)),
                 Err(err) => Err(Error::H2(err)),
             },
+            #[cfg(not(feature = "h2"))]
+            Version::HTTP_2 => Err(Error::VersionNotSupported),
             Version::HTTP_3 => Err(Error::VersionNotSupported),
             _ => Err(Error::VersionNotSupported),
         }
@@ -111,6 +122,7 @@ impl HttpConnection {
                     .await
                     .map(|request| (request, response))
             }
+            #[cfg(feature = "h2")]
             Self::Http2(connection) => match connection.accept().await {
                 Some(connection) => match connection {
                     Ok((request, response)) => Ok((
@@ -147,6 +159,7 @@ mod request {
             match self {
                 Self::Empty => Ok(Bytes::new()),
                 Self::Http1(h1) => h1.read_to_bytes().await,
+                #[cfg(feature = "h2")]
                 Self::Http2(h2) => futures::future::poll_fn(|cx| h2.poll_data(cx))
                     .await
                     .unwrap_or(Ok(Bytes::new()))
@@ -163,6 +176,7 @@ mod request {
         ) -> Poll<io::Result<()>> {
             match self.get_mut() {
                 Self::Http1(s) => unsafe { Pin::new_unchecked(s).poll_read(cx, buf) },
+                #[cfg(feature = "h2")]
                 Self::Http2(tls) => {
                     let data = match tls.poll_data(cx) {
                         Poll::Ready(data) => data,
@@ -269,7 +283,7 @@ mod response {
         pub async fn send_response(
             &mut self,
             mut response: Response<()>,
-            end_of_stream: bool,
+            #[allow(unused_variables)] end_of_stream: bool,
         ) -> Result<ResponseBodyPipe, Error> {
             match self {
                 Self::Http1(s) => {
@@ -289,15 +303,20 @@ mod response {
 
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
                 }
+                #[cfg(feature = "h2")]
                 Self::Http2(s) => match s.send_response(response, end_of_stream) {
                     Err(err) => Err(Error::H2(err)),
                     Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
                 },
             }
         }
-        pub fn push_request(&mut self, request: Request<()>) -> Result<PushedResponsePipe, Error> {
+        pub fn push_request(
+            &mut self,
+            #[allow(unused_variables)] request: Request<()>,
+        ) -> Result<PushedResponsePipe, Error> {
             match self {
                 Self::Http1(_) => Err(Error::PushOnHttp1),
+                #[cfg(feature = "h2")]
                 Self::Http2(h2) => match h2.push_request(request) {
                     Ok(pipe) => Ok(PushedResponsePipe::Http2(pipe)),
                     Err(err) => Err(Error::H2(err)),
@@ -312,18 +331,22 @@ mod response {
                     }
                     _ => *response.version_mut() = Version::HTTP_11,
                 },
+                #[cfg(feature = "h2")]
                 Self::Http2(_) => *response.version_mut() = Version::HTTP_2,
             }
         }
     }
+    #[allow(unused_variables)]
     impl PushedResponsePipe {
         pub fn send_response(
             &mut self,
-            mut response: Response<()>,
+            response: Response<()>,
             end_of_stream: bool,
         ) -> Result<ResponseBodyPipe, Error> {
             match self {
+                #[cfg(feature = "h2")]
                 Self::Http2(s) => {
+                    let mut response = response;
                     *response.version_mut() = Version::HTTP_2;
 
                     match s.send_response(response, end_of_stream) {
@@ -331,11 +354,17 @@ mod response {
                         Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
                     }
                 }
+                #[cfg(not(any(feature = "h2")))]
+                _ => unreachable!(),
             }
         }
+        #[allow(unused_variables)]
         pub fn ensure_version<T>(&self, response: &mut Response<T>) {
             match self {
+                #[cfg(feature = "h2")]
                 Self::Http2(_) => *response.version_mut() = Version::HTTP_2,
+                #[cfg(not(any(feature = "h2")))]
+                _ => unreachable!(),
             }
         }
     }
@@ -384,6 +413,7 @@ mod response {
                         lock.flush().await?;
                     }
                 }
+                #[cfg(feature = "h2")]
                 Self::Http2(h2) => h2.send_data(data, end_of_stream)?,
             }
             Ok(())
@@ -391,6 +421,7 @@ mod response {
         pub async fn close(&mut self) -> Result<(), Error> {
             match self {
                 Self::Http1(h1) => h1.lock().await.flush().await.map_err(Error::from),
+                #[cfg(feature = "h2")]
                 Self::Http2(h2) => h2.send_data(Bytes::new(), true).map_err(Error::from),
             }
         }

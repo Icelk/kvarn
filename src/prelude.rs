@@ -44,7 +44,6 @@ pub use crate::comprash;
 pub use crate::encryption;
 pub use crate::extensions;
 pub use crate::host;
-#[cfg(feature = "limiting")]
 pub use crate::limiting;
 pub use crate::parse;
 pub use crate::utility;
@@ -85,7 +84,6 @@ pub mod internals {
     pub use comprash::{Cache, FileCache, PathQuery, ResponseCache};
     pub use encryption::Encryption;
     pub use extensions::{RetFut, RetSyncFut};
-    #[cfg(feature = "limiting")]
     pub use limiting::*;
     pub use utility::default_error;
 }

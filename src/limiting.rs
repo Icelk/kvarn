@@ -1,14 +1,10 @@
-use crate::prelude::{threading::*, *};
+use crate::prelude::*;
+#[cfg(feature = "limiting")]
+use threading::*;
 
 #[cfg(feature = "limiting")]
-pub const TOO_MANY_REQUESTS: &'static [u8] = b"\
-HTTP/1.1 429 Too Many Requests\r\n\
-Content-Type: text/html\r\n\
-Connection: keep-alive\r\n\
-Content-Encoding: identity\r\n\
-Content-Length: 342\r\n\
-\r\n\
-<html>\
+pub fn get_too_many_requests() -> Response<Bytes> {
+    let body = Bytes::from_static(b"<html>\
     <head>\
         <title>429 Too Many Requests</title>\
     </head>\
@@ -20,8 +16,19 @@ Content-Length: 342\r\n\
             <p>Try to access this page again in a minute. If this error persists, please contact the website administrator.</p>\
         </center>\
     </body>\
-</html>\
-";
+</html>");
+
+    Response::builder()
+        .status(StatusCode::TOO_MANY_REQUESTS)
+        .header(
+            "content-type",
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        )
+        .header("content-length", body.len().to_string())
+        .header("content-encoding", "identity")
+        .body(body)
+        .unwrap()
+}
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum LimitStrength {
@@ -104,6 +111,7 @@ impl LimitWrapper {
     pub fn new() -> Self {
         Self {}
     }
+    #[allow(unused_variables)]
     pub async fn register(&mut self, addr: SocketAddr) -> LimitStrength {
         #[cfg(feature = "limiting")]
         {

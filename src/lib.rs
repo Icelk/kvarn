@@ -49,11 +49,27 @@ pub fn alpn() -> Vec<Vec<u8>> {
     vec
 }
 
+macro_rules! ret_log_app_error {
+    ($e:expr) => {
+        match $e {
+            Err(err) => {
+                error!("An error occurred while sending a request. {:?}", &err);
+                return Err(err.into());
+            }
+            Ok(val) => val,
+        }
+    };
+}
+
 pub(crate) async fn handle_connection(
     stream: TcpStream,
     address: SocketAddr,
     host_descriptors: Arc<HostDescriptor>,
+    #[allow(unused_variables)] limiter: LimitWrapper,
 ) -> io::Result<()> {
+    #[cfg(feature = "limiting")]
+    let mut limiter = limiter;
+
     // LAYER 2
     let encrypted = encryption::Encryption::new_tcp_from_connection_security(
         stream,
@@ -89,6 +105,23 @@ pub(crate) async fn handle_connection(
         )
         .await
     {
+        #[cfg(feature = "limiting")]
+        match limiter.register(address).await {
+            LimitStrength::Drop => return Ok(()),
+            LimitStrength::Send => {
+                let version = match response_pipe {
+                    ResponsePipe::Http1(_) => Version::HTTP_11,
+                    ResponsePipe::Http2(_) => Version::HTTP_2,
+                };
+                let (mut response, body) = utility::extract_body(limiting::get_too_many_requests());
+                *response.version_mut() = version;
+                let mut body_pipe =
+                    ret_log_app_error!(response_pipe.send_response(response, false).await);
+                ret_log_app_error!(body_pipe.send(body, true).await);
+                continue;
+            }
+            LimitStrength::Passed => {}
+        }
         let host = host_descriptors
             .host_data
             .smart_get(&request, hostname.as_ref().map(String::as_str));
@@ -110,18 +143,6 @@ impl<'a> SendKind<'a> {
             Self::Push(p) => p.ensure_version(response),
         }
     }
-}
-
-macro_rules! ret_log_app_error {
-    ($e:expr) => {
-        match $e {
-            Err(err) => {
-                error!("An error occurred while sending a request. {:?}", &err);
-                return Err(err.into());
-            }
-            Ok(val) => val,
-        }
-    };
 }
 
 /// LAYER 4
@@ -402,8 +423,6 @@ impl Config {
     pub async fn run(self) {
         trace!("Running from config");
 
-        let limiter = LimitWrapper::default();
-
         let len = self.descriptors.len();
         for (pos, descriptor) in self.descriptors.into_iter().enumerate() {
             let listener = TcpListener::bind(net::SocketAddrV4::new(
@@ -413,9 +432,8 @@ impl Config {
             .await
             .expect("Failed to bind to port");
 
-            let limiter = limiter.clone();
             let future = async move {
-                Self::accept(listener, descriptor, limiter)
+                Self::accept(listener, descriptor)
                     .await
                     .expect("Failed to accept message!")
             };
@@ -428,28 +446,28 @@ impl Config {
         }
     }
 
-    async fn accept(
-        listener: TcpListener,
-        host: HostDescriptor,
-        mut limiter: LimitWrapper,
-    ) -> Result<(), io::Error> {
+    async fn accept(listener: TcpListener, host: HostDescriptor) -> Result<(), io::Error> {
         trace!("Started listening on {:?}", listener.local_addr());
         let host = Arc::new(host);
+
+        #[allow(unused_mut)]
+        let mut limiter = LimitWrapper::default();
 
         loop {
             match listener.accept().await {
                 Ok((socket, addr)) => {
                     #[cfg(feature = "limiting")]
                     match limiter.register(addr).await {
-                        LimitStrength::Send | LimitStrength::Drop => {
+                        LimitStrength::Drop => {
                             drop(socket);
                             return Ok(());
                         }
-                        LimitStrength::Passed => {}
+                        LimitStrength::Send | LimitStrength::Passed => {}
                     }
                     let host = Arc::clone(&host);
+                    let limiter = LimitWrapper::clone(&limiter);
                     tokio::spawn(async move {
-                        if let Err(err) = handle_connection(socket, addr, host).await {
+                        if let Err(err) = handle_connection(socket, addr, host, limiter).await {
                             warn!(
                                 "An error occurred in the main processing function {:?}",
                                 err

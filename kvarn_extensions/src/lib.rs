@@ -43,6 +43,7 @@ fn push(
 ) -> RetFut<()> {
     ext!(
         // If it is not HTTP/1
+        #[allow(irrefutable_let_patterns)]
         if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
             return;
         }
