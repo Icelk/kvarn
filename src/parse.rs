@@ -206,11 +206,73 @@ impl RequestParseStage {
         }
     }
 }
+
+/// Formats headers and returns the bytes from the start of `bytes` where the body starts; how many bytes the header occupy.
+pub fn headers(bytes: &Bytes) -> (HeaderMap, usize) {
+    let mut headers = HeaderMap::new();
+    let mut parse_stage = RequestParseStage::HeaderName(0);
+    let mut header_end = 0;
+    let mut lf_in_row = 0;
+    let mut header_name_start = 0;
+    let mut header_name_end = 0;
+    let mut header_value_start = 0;
+    for (pos, byte) in bytes.iter().copied().enumerate() {
+        header_end += 1;
+        if byte == CR {
+            continue;
+        }
+        if byte == LF {
+            lf_in_row += 1;
+            if lf_in_row == 2 {
+                break;
+            }
+        } else {
+            lf_in_row = 0;
+        }
+        match parse_stage {
+            RequestParseStage::HeaderName(..) => {
+                if byte == COLON {
+                    header_name_end = pos;
+                    if bytes.get(pos + 1) != Some(&SPACE) {
+                        parse_stage.next();
+                        header_value_start = pos + 1;
+                    }
+                    continue;
+                }
+                if byte == SPACE {
+                    parse_stage.next();
+                    header_value_start = pos + 1;
+                    continue;
+                }
+            }
+            RequestParseStage::HeaderValue(..) => {
+                if byte == LF {
+                    let name = HeaderName::from_bytes(&bytes[header_name_start..header_name_end]);
+                    let value =
+                        HeaderValue::from_maybe_shared(bytes.slice(header_value_start..pos - 1));
+                    if name.is_ok() && value.is_ok() {
+                        // Ok, because of ↑
+                        headers.insert(name.unwrap(), value.unwrap());
+                    } else {
+                        error!("error in parsing headers");
+                    }
+                    parse_stage.next();
+                    header_name_start = pos + 1;
+                    continue;
+                }
+            }
+            _ => unreachable!(),
+        };
+    }
+    (headers, header_end)
+}
+
 /// # Errors
-/// Will return error if building the `http::Response` internally failed, or if path is empty.
+/// Will return error if building the `http::Response` internally failed, if path is empty,
+/// or any errors which occurs while reading from `stream`.
 ///
 /// # Limitation
-/// request will be cut off at `crate::BUFFER_SIZE`.
+/// Request will be cut off at `max_len`.
 pub async fn request(
     stream: &Mutex<Encryption>,
     max_len: usize,
@@ -290,9 +352,6 @@ pub async fn request(
     let mut version = [0; 8];
     let mut version_index = 0;
     let mut parsed = Request::builder();
-    let mut header_name_start = 0;
-    let mut header_name_end = 0;
-    let mut header_value_start = 0;
     let mut lf_in_row = 0_u8;
     let mut header_end = 0;
 
@@ -337,42 +396,21 @@ pub async fn request(
                         return Err(Error::InvalidVersion);
                     }
                     parse_stage.next();
-                    header_name_start = pos + 1;
                     continue;
                 }
                 version[version_index] = byte;
                 version_index += 1;
             }
-            RequestParseStage::HeaderName(..) => {
-                if byte == COLON {
-                    header_name_end = pos;
-                    if buffer.get(pos + 1) != Some(&SPACE) {
-                        parse_stage.next();
-                        header_value_start = pos + 1;
+            RequestParseStage::HeaderName(..) | RequestParseStage::HeaderValue(..) => {
+                match parsed.headers_mut() {
+                    Some(h) => {
+                        let (headers, end) = headers(&buffer.slice(header_end - 1..));
+                        *h = headers;
+                        header_end += end;
                     }
-                    continue;
+                    None => panic!("request wrongly built"),
                 }
-                if byte == SPACE {
-                    parse_stage.next();
-                    header_value_start = pos + 1;
-                    continue;
-                }
-            }
-            RequestParseStage::HeaderValue(..) => {
-                if byte == LF {
-                    let name = HeaderName::from_bytes(&buffer[header_name_start..header_name_end]);
-                    let value =
-                        HeaderValue::from_maybe_shared(buffer.slice(header_value_start..pos - 1));
-                    if name.is_ok() && value.is_ok() {
-                        // Ok, because of ↑
-                        parsed = parsed.header(name.unwrap(), value.unwrap());
-                    } else {
-                        error!("error in parsing headers");
-                    }
-                    parse_stage.next();
-                    header_name_start = pos + 1;
-                    continue;
-                }
+                break;
             }
         };
     }
@@ -416,6 +454,26 @@ pub async fn request(
         .body(())
     {
         Err(err) => Err(Error::Http(err)),
-        Ok(request) => Ok((request, buffer.slice(header_end..))),
+        Ok(request) => Ok((request, buffer.slice(header_end - 1..))),
     }
+}
+
+pub fn response_php(bytes: &Bytes) -> Option<Response<Bytes>> {
+    // let status = bytes.iter().position(|b| *b == SPACE)? + 1;
+    // let status = StatusCode::from_bytes(bytes.get(status..status + 3)?).unwrap();
+    // let header_start = bytes.windows(2).position(|bytes| bytes == b"\r\n")? + 2;
+    let header_start = 0;
+
+    let (headers, end) = headers(&bytes.slice(header_start..));
+    let status = headers
+        .get("status")
+        .map(HeaderValue::to_str)
+        .and_then(Result::ok)
+        .map(str::parse)
+        .and_then(Result::ok)
+        .unwrap_or(200_u16);
+    let end = header_start + end;
+    let mut builder = Response::builder().status(status);
+    *builder.headers_mut().expect("wrongly built response") = headers;
+    builder.body(bytes.slice(end..)).ok()
 }
