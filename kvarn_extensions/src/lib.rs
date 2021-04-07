@@ -41,7 +41,7 @@ fn push(
     addr: SocketAddr,
     host: HostWrapper,
 ) -> RetFut<()> {
-    Box::pin(async move {
+    ext!(
         // If it is not HTTP/1
         if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
             return;
@@ -107,7 +107,7 @@ fn push(
             // Else, do nothing
             _ => {}
         }
-    })
+    )
 }
 
 #[cfg(feature = "templates")]
@@ -246,7 +246,7 @@ pub mod parse {
 
 #[cfg(feature = "php")]
 pub fn php(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::pin(async move {
+    ext!(
         let data = unsafe { data.get_inner() };
         *data.server_cache_preference() = ServerCachePreference::QueryMatters;
         let output = match cgi::fcgi_from_data(data, 6633).await {
@@ -256,7 +256,6 @@ pub fn php(mut data: PresentDataWrapper) -> RetFut<()> {
                 return;
             }
         };
-        println!("Data: {:?}", str::from_utf8(&output));
         let output = Bytes::copy_from_slice(&output);
         match kvarn::parse::response_php(&output) {
             Some(response) => *data.response_mut() = response,
@@ -264,7 +263,7 @@ pub fn php(mut data: PresentDataWrapper) -> RetFut<()> {
                 error!("failed to parse response");
             }
         };
-    })
+    )
 }
 
 #[cfg(feature = "templates")]
@@ -272,27 +271,13 @@ pub mod templates {
     use super::*;
 
     pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
-        // BoundExtension {
-        //     extension_aliases: &["tmpl"],
-        //     file_extension_aliases: &[],
-        //     ext: Extension::new(&|| {}, &|_, data| {
-        //     }),
-        // }
-        Box::pin(async move {
-            // let response = ByteResponse::without_header(handle_template(
-            //     &data.args.iter().map(String::as_str).collect::<Vec<_>>(),
-            //     data.body,
-            //     data.storage,
-            //     data.host,
-            // ));
-
-            // data.set_response(response);
+        ext!(
             let data = unsafe { data.get_inner() };
             let bytes = Bytes::copy_from_slice(
                 &handle_template(data.args(), &data.response().body(), data.host()).await,
             );
             *data.response_mut().body_mut() = bytes;
-        })
+        )
     }
 
     pub async fn handle_template(
@@ -476,15 +461,15 @@ pub mod templates {
 
 /// Makes the client download the file.
 pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::pin(async move {
+    ext!(
         let data = unsafe { data.get_inner() };
         let headers = data.response_mut().headers_mut();
         kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
-    })
+    )
 }
 
 pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::pin(async move {
+    ext!(
         let data = unsafe { data.get_inner() };
         if let Some(preference) = data
             .args()
@@ -495,19 +480,19 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
             *data.server_cache_preference() = preference.0;
             *data.client_cache_preference() = preference.1;
         }
-    })
+    )
 }
 
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
-    Box::pin(async move {
+    ext!(
         let data = unsafe { data.get_inner() };
         let error = default_error(http::StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
         *data.response_mut() = error;
-    })
+    )
 }
 
 pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
-    let future = Box::pin(async move {
+    ext!(
         let data = unsafe { data.get_inner() };
         let mut matched = false;
         // Loop over denied ip in args
@@ -530,6 +515,5 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
         }
         *data.server_cache_preference() = kvarn::comprash::ServerCachePreference::None;
         *data.client_cache_preference() = kvarn::comprash::ClientCachePreference::Changing;
-    })/*  as Box<(dyn std::future::Future<Output = ()> + Unpin)> */;
-    future
+    )
 }

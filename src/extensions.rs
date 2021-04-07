@@ -55,6 +55,14 @@ pub fn invalid_method(_: RequestWrapper, cache: FileCacheWrapper) -> RetFut<FatR
 pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
+#[macro_export]
+macro_rules! ext {
+    ($($item:tt)*) => {
+        Box::pin(async move { $($item)* })
+    };
+}
+// ToDo: Add macro to declare whole extension functions. Perhaps one per extension type? That can then also get_inner on types.
+
 macro_rules! impl_get_unsafe {
     ($main:ident, $return:ty) => {
         pub struct $main(*const $return);

@@ -25,7 +25,6 @@ pub type FatResponse = (
     ServerCachePreference,
     CompressPreference,
 );
-// pub use std::future::ready;
 pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
     Box::pin(core::future::ready(value))
 }
