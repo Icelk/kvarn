@@ -225,12 +225,18 @@ impl Host {
 }
 impl Debug for Host {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        todo!("change to f.debug_struct");
-        write!(
-            f,
-            "Host {{ certificate, path: {:?}, extensions, fs_cache, folder_default: {:?}, extension_default: {:?} }}",
-            self.path, self.folder_default, self.extension_default,
-        )
+        use utility::CleanDebug;
+        let mut d = f.debug_struct("Host");
+        d.field("host_name", &CleanDebug::new(self.host_name));
+        #[cfg(feature = "https")]
+        d.field("certificate", &CleanDebug::new("[internal certificate]"));
+        d.field("path", &self.path);
+        d.field("extensions", &CleanDebug::new("[internal extension data]"));
+        d.field("file_cache", &CleanDebug::new("[internal cache]"));
+        d.field("response_cache", &CleanDebug::new("[internal cache]"));
+        d.field("folder_default", &self.folder_default);
+        d.field("extension_default", &self.extension_default);
+        d.finish()
     }
 }
 
