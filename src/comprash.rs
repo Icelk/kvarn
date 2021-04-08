@@ -250,7 +250,7 @@ impl CompressedResponse {
     }
 
     #[cfg(feature = "gzip")]
-    /// Gets the gzip compressed version of [`CachedCompression::get_identity()`]
+    /// Gets the gzip compressed version of [`CompressedResponse::get_identity()`]
     pub fn get_gzip(&self) -> &Bytes {
         if self.gzip.is_none() {
             let bytes = self.identity.body().as_ref();
@@ -274,7 +274,7 @@ impl CompressedResponse {
         self.gzip.as_ref().unwrap()
     }
     #[cfg(feature = "br")]
-    /// Gets the Brotli compressed version of [`CachedCompression::get_identity()`]
+    /// Gets the Brotli compressed version of [`CompressedResponse::get_identity()`]
     pub fn get_br(&self) -> &Bytes {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();

@@ -278,7 +278,7 @@ mod response {
     }
 
     impl ResponsePipe {
-        /// You must ensure the [`Response::version()`] is correct before calling this function. It can be guaranteed by first calling [`Self::ensure_version()`]
+        /// You must ensure the [`Response::version()`] is correct before calling this function. It can be guaranteed by first calling [`Self::ensure_version_and_length()`]
         /// It is critical to call [`AsyncWriteExt::flush()`] on [`ResponseBodyPipe`], else the message won't be seen as fully transmitted.
         pub async fn send_response(
             &mut self,

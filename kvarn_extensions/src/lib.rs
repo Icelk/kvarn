@@ -1,12 +1,12 @@
 //! # Kvarn extensions
 //! A *supporter-lib* for Kvarn to supply extensions to the web server.
 //!
-//! Use [`mount_all`] to get started quickly.
+//! Use [`new()`] to get started quickly.
 //!
 //! ## An introduction to the *Kvarn extension system*
-//! Kvarn extensions can bind to *extension declarations* and to *file extensions*.
+//! On of the many things Kvarn extensions can to is bind to *extension declarations* and to *file extensions*.
 //! For example, if you mount the extensions [`download`], it binds the *extension declaration* `download`.
-//! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it!
+//! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it.
 
 use kvarn::{
     comprash::CombinedCachePreference,
@@ -25,7 +25,7 @@ pub fn new() -> Extensions {
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
-/// The current defaults are [`download`], [`cache`], [`php`], and [`templates`]
+/// The current defaults are [`download()`], [`cache()`], [`php()`], and [`templates()`]
 ///
 /// They will *always* get included in your server after calling this function.
 pub fn mount_all(extensions: &mut Extensions) {
