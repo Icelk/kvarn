@@ -137,9 +137,14 @@ pub enum SendKind<'a> {
     Push(&'a mut application::PushedResponsePipe),
 }
 impl<'a> SendKind<'a> {
-    pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
+    pub fn ensure_version_and_length<T>(
+        &self,
+        response: &mut Response<T>,
+        len: usize,
+        method: &Method,
+    ) {
         match self {
-            Self::Send(p) => p.ensure_version_and_length(response, len),
+            Self::Send(p) => p.ensure_version_and_length(response, len, method),
             Self::Push(p) => p.ensure_version(response),
         }
     }
@@ -174,7 +179,7 @@ pub async fn handle_cache(
             let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
 
-            pipe.ensure_version_and_length(&mut response, body.len());
+            pipe.ensure_version_and_length(&mut response, body.len(), request.method());
             host.extensions
                 .resolve_package(&mut response, &request)
                 .await;
@@ -185,7 +190,7 @@ pub async fn handle_cache(
                     let mut body_pipe =
                         ret_log_app_error!(response_pipe.send_response(response, false).await);
 
-                    if utility::method_has_body(request.method()) {
+                    if utility::method_has_response_body(request.method()) {
                         // Send body
                         ret_log_app_error!(body_pipe.send(body, false).await);
                     }
@@ -199,7 +204,7 @@ pub async fn handle_cache(
                     ret_log_app_error!(body_pipe.close().await);
                 }
                 SendKind::Push(push_pipe) => {
-                    let send_body = utility::method_has_body(request.method());
+                    let send_body = utility::method_has_response_body(request.method());
                     // Send response
                     let mut body_pipe =
                         ret_log_app_error!(push_pipe.send_response(response, !send_body));
@@ -267,7 +272,7 @@ pub async fn handle_cache(
                     Ok(response) => response,
                 });
 
-            pipe.ensure_version_and_length(&mut response, body.len());
+            pipe.ensure_version_and_length(&mut response, body.len(), request.method());
             host.extensions
                 .resolve_package(&mut response, &request)
                 .await;
@@ -300,7 +305,7 @@ pub async fn handle_cache(
                 SendKind::Send(response_pipe) => {
                     let mut pipe =
                         ret_log_app_error!(response_pipe.send_response(response, false).await);
-                    if utility::method_has_body(request.method()) {
+                    if utility::method_has_response_body(request.method()) {
                         ret_log_app_error!(pipe.send(body, false).await);
                     }
 
@@ -313,7 +318,7 @@ pub async fn handle_cache(
                     ret_log_app_error!(pipe.close().await);
                 }
                 SendKind::Push(push_pipe) => {
-                    let send_body = utility::method_has_body(request.method());
+                    let send_body = utility::method_has_response_body(request.method());
                     let mut pipe =
                         ret_log_app_error!(push_pipe.send_response(response, !send_body));
                     if send_body {

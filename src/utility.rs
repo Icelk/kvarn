@@ -262,7 +262,7 @@ pub fn valid_method(bytes: &[u8]) -> bool {
 }
 pub fn get_content_length<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
-    match method_has_body(request.method()) {
+    match method_has_request_body(request.method()) {
         true => request
             .headers()
             .get("content-length")
@@ -282,15 +282,18 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
         HeaderValue::from_str(len.to_string().as_str()).unwrap(),
     )
 }
-pub fn method_has_body(method: &Method) -> bool {
+pub fn method_has_request_body(method: &Method) -> bool {
+    matches!(*method, Method::POST | Method::PUT | Method::DELETE)
+}
+pub fn method_has_response_body(method: &Method) -> bool {
     matches!(
         *method,
         Method::GET
+            | Method::POST
             | Method::DELETE
-            | Method::OPTIONS
-            | Method::TRACE
             | Method::CONNECT
-            | Method::HEAD
+            | Method::OPTIONS
+            | Method::PATCH
     )
 }
 

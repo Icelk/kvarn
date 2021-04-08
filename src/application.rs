@@ -323,10 +323,17 @@ mod response {
                 },
             }
         }
-        pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
+        pub fn ensure_version_and_length<T>(
+            &self,
+            response: &mut Response<T>,
+            len: usize,
+            method: &Method,
+        ) {
             match self {
                 Self::Http1(_) => match response.version() {
-                    Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
+                    Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11
+                        if utility::method_has_response_body(method) =>
+                    {
                         utility::set_content_length(response.headers_mut(), len);
                     }
                     _ => *response.version_mut() = Version::HTTP_11,
