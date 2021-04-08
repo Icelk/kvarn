@@ -34,15 +34,13 @@ macro_rules! build_bytes {
     () => (
         $crate::prelude::Bytes::new()
     );
-    ($($bytes:expr),+ $(,)?) => {
-        {
-            let mut b = $crate::prelude::BytesMut::with_capacity($($bytes.len() +)* 0);
+    ($($bytes:expr),+ $(,)?) => {{
+        let mut b = $crate::prelude::BytesMut::with_capacity($($bytes.len() +)* 0);
 
         $(b.extend($bytes.iter());)*
 
         b.freeze()
-    }
-    };
+    }};
 }
 
 pub struct WriteableBytes {
@@ -311,14 +309,4 @@ impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
     }
-}
-
-#[macro_export]
-macro_rules! return_on_none {
-    ($option:expr) => {
-        match $option {
-            Some(value) => value,
-            None => return,
-        }
-    };
 }

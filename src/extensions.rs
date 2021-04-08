@@ -70,6 +70,7 @@ macro_rules! ext {
         Box::pin(async move { $($item)* })
     };
 }
+
 /// Will make a prepare extension.
 ///
 /// See example bellow. Where `times_called` is defined in the arguments of the macro, you can enter several `Arc`s to capture from the environment.
@@ -78,8 +79,10 @@ macro_rules! ext {
 ///
 /// You have to have kvarn imported as `kvarn`.
 ///
+///
 /// # Examples
-/// ```rust
+///
+/// ```
 /// use std::sync::{Arc, atomic};
 ///
 /// let times_called = Arc::new(atomic::AtomicUsize::new(0));
@@ -89,6 +92,13 @@ macro_rules! ext {
 ///     println!("Called {} time(s). Request {:?}", times_called, req);
 ///
 ///     utility::default_error_response(StatusCode::NOT_FOUND, host).await
+/// });
+/// ```
+///
+/// Here, we capture not variables, and it results in `, ,`.
+/// ```
+/// prepare!(req, host, path, addr, , {
+///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host).await
 /// });
 /// ```
 #[macro_export]
