@@ -85,6 +85,7 @@ pub mod internals {
     pub use encryption::Encryption;
     pub use extensions::{RetFut, RetSyncFut};
     pub use limiting::*;
+    pub use tokio::time::{timeout, Duration};
     pub use utility::default_error;
 }
 

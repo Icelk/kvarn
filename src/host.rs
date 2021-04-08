@@ -100,21 +100,25 @@ impl Host {
         }
     }
 
+    #[inline(always)]
     pub fn get_folder_default_or<'a>(&'a self, default: &'a str) -> &'a str {
         self.folder_default
             .as_ref()
             .map(String::as_str)
             .unwrap_or(default)
     }
+    #[inline(always)]
     pub fn get_extension_default_or<'a>(&'a self, default: &'a str) -> &'a str {
         self.extension_default
             .as_ref()
             .map(String::as_str)
             .unwrap_or(default)
     }
+    #[inline(always)]
     pub fn set_folder_default(&mut self, default: String) {
         self.folder_default = Some(default);
     }
+    #[inline(always)]
     pub fn set_extension_default(&mut self, default: String) {
         self.extension_default = Some(default);
     }
@@ -209,16 +213,19 @@ impl Host {
     }
 
     #[cfg(feature = "https")]
+    #[inline(always)]
     pub fn is_secure(&self) -> bool {
         self.certificate.is_some()
     }
     #[cfg(not(feature = "https"))]
+    #[inline(always)]
     pub(crate) fn is_secure(&self) -> bool {
         false
     }
 }
 impl Debug for Host {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        todo!("change to f.debug_struct");
         write!(
             f,
             "Host {{ certificate, path: {:?}, extensions, fs_cache, folder_default: {:?}, extension_default: {:?} }}",
@@ -230,10 +237,12 @@ impl Debug for Host {
 #[derive(Debug)]
 pub struct HostDataBuilder(HostData);
 impl HostDataBuilder {
+    #[inline]
     pub fn add_host(mut self, host_data: Host) -> Self {
         self.0.add_host(host_data.host_name, host_data);
         self
     }
+    #[inline]
     pub fn build(self) -> Arc<HostData> {
         Arc::new(self.0)
     }
@@ -245,6 +254,7 @@ pub struct HostData {
     has_secure: bool,
 }
 impl HostData {
+    #[inline]
     pub fn builder(default_host: Host) -> HostDataBuilder {
         HostDataBuilder(Self {
             has_secure: default_host.is_secure(),
@@ -252,6 +262,7 @@ impl HostData {
             by_name: HashMap::new(),
         })
     }
+    #[inline]
     pub fn new(default_host: Host) -> Self {
         Self {
             has_secure: default_host.is_secure(),
@@ -260,6 +271,7 @@ impl HostData {
         }
     }
     /// Creates a `Host` without certification, using the directories `./public` and `./templates`.
+    #[inline]
     pub fn simple(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
             default: Host::no_certification(default_host_name, ".".into(), extensions),
@@ -267,6 +279,7 @@ impl HostData {
             has_secure: false,
         }
     }
+    #[inline]
     pub fn add_host(&mut self, host_name: &'static str, host_data: Host) {
         if host_data.is_secure() {
             self.has_secure = true;
@@ -274,21 +287,26 @@ impl HostData {
         self.by_name.insert(host_name, host_data);
     }
 
+    #[inline(always)]
     pub fn get_default(&self) -> &Host {
         &self.default
     }
+    #[inline(always)]
     pub fn get_host(&self, host: &str) -> Option<&Host> {
         self.by_name.get(host)
     }
+    #[inline(always)]
     pub fn get_or_default(&self, host: &str) -> &Host {
         self.get_host(host).unwrap_or(&self.get_default())
     }
+    #[inline(always)]
     pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> &Host {
         match maybe_host {
             Some(host) => self.get_or_default(host),
             None => &self.get_default(),
         }
     }
+    #[inline]
     pub fn smart_get<'a>(
         &'a self,
         request: &Request<Body>,
@@ -307,11 +325,13 @@ impl HostData {
         self.maybe_get_or_default(host)
     }
 
+    #[inline(always)]
     pub fn has_secure(&self) -> bool {
         self.has_secure
     }
 
     #[cfg(feature = "https")]
+    #[inline(always)]
     pub fn make_config(arc: &Arc<Self>) -> ServerConfig {
         let mut config = ServerConfig::new(NoClientAuth::new());
         let arc = Arc::clone(arc);
@@ -319,6 +339,7 @@ impl HostData {
         config
     }
 
+    #[inline(always)]
     pub async fn clear_response_caches(&self) {
         // Handle default host
         self.default.response_cache.lock().await.clear();
@@ -354,6 +375,7 @@ impl HostData {
         }
         (found, cleared)
     }
+    #[inline]
     pub async fn clear_file_caches(&self) {
         self.default.file_cache.lock().await.clear();
         for (_, host) in self.by_name.iter() {
@@ -390,6 +412,7 @@ impl HostData {
 }
 #[cfg(feature = "https")]
 impl ResolvesServerCert for HostData {
+    #[inline]
     fn resolve(&self, client_hello: ClientHello) -> Option<sign::CertifiedKey> {
         // Mostly returns true, since we have a default
         // Will however return false if certificate is not present in host
@@ -415,6 +438,7 @@ pub enum ServerConfigError {
     InvalidPrivateKey,
 }
 impl From<io::Error> for ServerConfigError {
+    #[inline]
     fn from(error: io::Error) -> Self {
         Self::IO(error)
     }

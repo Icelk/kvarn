@@ -3,6 +3,7 @@ use crate::prelude::*;
 use threading::*;
 
 #[cfg(feature = "limiting")]
+#[inline]
 pub fn get_too_many_requests() -> Response<Bytes> {
     let body = Bytes::from_static(b"<html>\
     <head>\
@@ -90,6 +91,7 @@ impl LimitManager {
 }
 #[cfg(feature = "limiting")]
 impl Default for LimitManager {
+    #[inline]
     fn default() -> Self {
         Self::new(10, 10, 10)
     }
@@ -102,16 +104,19 @@ pub struct LimitWrapper {
 }
 impl LimitWrapper {
     #[cfg(feature = "limiting")]
+    #[inline(always)]
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
         Self {
             limiter: LimitManager::new(max_requests, check_every, reset_seconds),
         }
     }
     #[cfg(not(feature = "limiting"))]
+    #[inline(always)]
     pub fn new() -> Self {
         Self {}
     }
     #[allow(unused_variables)]
+    #[inline(always)]
     pub async fn register(&mut self, addr: SocketAddr) -> LimitStrength {
         #[cfg(feature = "limiting")]
         {
@@ -124,6 +129,7 @@ impl LimitWrapper {
     }
 }
 impl Default for LimitWrapper {
+    #[inline(always)]
     fn default() -> Self {
         Self {
             #[cfg(feature = "limiting")]

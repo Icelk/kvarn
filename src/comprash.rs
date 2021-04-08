@@ -27,9 +27,11 @@ impl PathQuery {
             },
         }
     }
+    #[inline]
     pub fn path(&self) -> &str {
         &self.string[..self.query_start]
     }
+    #[inline]
     pub fn query(&self) -> Option<&str> {
         if self.query_start == self.string.len() {
             None
@@ -37,6 +39,7 @@ impl PathQuery {
             Some(&self.string[self.query_start..])
         }
     }
+    #[inline]
     pub fn into_path(mut self) -> String {
         self.string.truncate(self.query_start);
         self.string
@@ -49,12 +52,14 @@ pub enum UriKey {
     PathQuery(PathQuery),
 }
 impl UriKey {
+    #[inline]
     pub fn path_and_query(uri: &Uri) -> Self {
         Self::PathQuery(PathQuery::from_uri(uri))
     }
 
     /// Tries to get type `T` from `callback` using current variant and other variants with fewer data.
     /// Returns `Self` which got a result from `callback`, or if none, `Self::Path`.
+    #[inline]
     pub fn call_all<T>(self, mut callback: impl FnMut(&Self) -> Option<T>) -> (Self, Option<T>) {
         match callback(&self) {
             Some(t) => (self, Some(t)),
@@ -119,6 +124,7 @@ impl CompressedResponse {
             compress,
         }
     }
+    #[inline(always)]
     pub fn get_identity(&self) -> &Response<Bytes> {
         &self.identity
     }
@@ -228,10 +234,12 @@ impl CompressedResponse {
         ))
     }
 
+    #[inline(always)]
     fn add_server_header(headers: &mut HeaderMap) {
         headers.insert("server", HeaderValue::from_static(SERVER_HEADER));
     }
 
+    #[inline(always)]
     fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
         if let Some(header) = preference.as_header() {
             utility::replace_header(headers, "cache-control", header)
@@ -376,6 +384,7 @@ pub enum ServerCachePreference {
     Full,
 }
 impl ServerCachePreference {
+    #[inline]
     pub fn cache(&self) -> bool {
         #[cfg(not(feature = "no-response-cache"))]
         match self {
@@ -385,6 +394,7 @@ impl ServerCachePreference {
         #[cfg(feature = "no-response-cache")]
         false
     }
+    #[inline]
     pub fn query_matters(&self) -> bool {
         match self {
             Self::None | Self::Full => false,
@@ -405,6 +415,7 @@ pub enum ClientCachePreference {
     Undefined,
 }
 impl ClientCachePreference {
+    #[inline]
     pub fn as_header(&self) -> Option<HeaderValue> {
         match self {
             Self::None => Some(HeaderValue::from_static(
@@ -469,6 +480,7 @@ pub enum CacheOut<V> {
     NotInserted(V),
 }
 impl<V> CacheOut<V> {
+    #[inline(always)]
     pub fn to_option(self) -> Option<V> {
         match self {
             Self::None => None,
@@ -485,6 +497,7 @@ pub struct Cache<K, V> {
     inserts: usize,
 }
 impl<K, V> Cache<K, V> {
+    #[inline(always)]
     fn _new(max_items: usize, size_limit: usize) -> Self {
         Self {
             map: HashMap::new(),
@@ -493,12 +506,15 @@ impl<K, V> Cache<K, V> {
             inserts: 0,
         }
     }
+    #[inline(always)]
     pub fn new() -> Self {
         Self::_new(1024, 4 * 1024 * 1024) // 4MiB
     }
+    #[inline(always)]
     pub fn with_size_limit(size_limit: usize) -> Self {
         Self::_new(1024, size_limit)
     }
+    #[inline(always)]
     pub fn clear(&mut self) {
         self.map.clear()
     }

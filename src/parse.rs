@@ -9,15 +9,18 @@ pub enum ParseError {
 
 #[derive(Debug)]
 pub struct ValueQualitySet<'a> {
+    #[inline]
     pub value: &'a str,
     pub quality: f32,
 }
 impl PartialEq for ValueQualitySet<'_> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
     }
 }
 impl PartialEq<str> for ValueQualitySet<'_> {
+    #[inline]
     fn eq(&self, other: &str) -> bool {
         self.value == other
     }
@@ -138,30 +141,22 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
     map
 }
 
-/// Will convert an `&str` path to a `PathBuf` using other paramaters.
+/// Will convert an `&str` path to a `PathBuf` using other parameters.
 ///
 /// `base_path` corresponds to the the first segment(s) of the path.
-/// `folder_default` sets the file if pointed to a folder
-/// `extension_default` sets the file extension if pointed to a file with no extension (e.g. `index.`)
 ///
-/// The returned path will be formatted as follows `<base_path>/public/<path>[.<extension_default>][/<folder_default>]`
+/// The returned path will be formatted as follows `<base_path>/public/<path>`
 ///
 /// # Panics
-/// // Will panic if `path.is_empty()`, since it checks the last byte
-/// This is checked before trying to access bytes, and returns `None` if the assert fails.
-pub fn convert_uri(
-    path: &str,
-    base_path: &Path,
-    folder_default: &str,
-    extension_default: &str,
-) -> PathBuf {
+/// Will panic if `path.is_empty()`. It checks the first byte.
+#[inline]
+pub fn convert_uri(path: &str, base_path: &Path) -> PathBuf {
     assert_eq!(path.as_bytes()[0], FORWARD_SLASH);
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
-    let mut buf = PathBuf::with_capacity(
-        base_path.as_os_str().len() + 6 /* "public".len() */ + path.len() + cmp::max(folder_default.len(), extension_default.len()),
-    );
+    let mut buf =
+        PathBuf::with_capacity(base_path.as_os_str().len() + 6 /* "public".len() */ + path.len());
     buf.push(base_path);
     buf.push("public");
     buf.push(stripped_path);
@@ -169,6 +164,7 @@ pub fn convert_uri(
     buf
 }
 
+#[inline]
 pub fn parse_version(bytes: &[u8]) -> Option<Version> {
     Some(match &bytes[..] {
         b"HTTP/0.9" => Version::HTTP_09,
@@ -188,6 +184,7 @@ enum RequestParseStage {
     HeaderValue(i32),
 }
 impl RequestParseStage {
+    #[inline]
     fn next(&mut self) {
         *self = match self {
             RequestParseStage::Method => RequestParseStage::Path,

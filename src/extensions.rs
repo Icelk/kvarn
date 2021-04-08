@@ -130,6 +130,7 @@ macro_rules! impl_get_unsafe {
                 Self(data)
             }
             /// See [module level documentation](crate::extensions).
+            #[inline(always)]
             pub unsafe fn get_inner(&self) -> &$return {
                 &*self.0
             }
@@ -146,6 +147,7 @@ macro_rules! impl_get_unsafe_mut {
                 Self(data)
             }
             /// See [module level documentation](crate::extensions).
+            #[inline(always)]
             pub unsafe fn get_inner(&mut self) -> &mut $return {
                 &mut *self.0
             }
@@ -171,6 +173,7 @@ impl PresentDataWrapper {
     /// Else, the data will have been dropped.
     ///
     /// You **must** not store this type.
+    #[inline(always)]
     pub unsafe fn get_inner(&mut self) -> &mut PresentData {
         &mut self.0
     }
@@ -196,30 +199,39 @@ pub struct PresentData {
     args: PresentArguments,
 }
 impl PresentData {
+    #[inline(always)]
     pub fn address(&self) -> SocketAddr {
         self.address
     }
+    #[inline(always)]
     pub fn request(&mut self) -> &mut LazyRequestBody {
         unsafe { &mut *self.request }
     }
+    #[inline(always)]
     pub fn host(&self) -> &Host {
         unsafe { &*self.host }
     }
+    #[inline(always)]
     pub fn path(&self) -> &Path {
         unsafe { &*self.path }
     }
+    #[inline(always)]
     pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
         &mut self.server_cache_preference
     }
+    #[inline(always)]
     pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
         &mut self.client_cache_preference
     }
+    #[inline(always)]
     pub fn response_mut(&mut self) -> &mut Response<Bytes> {
         unsafe { &mut *self.response }
     }
+    #[inline(always)]
     pub fn response(&self) -> &Response<Bytes> {
         unsafe { &*self.response }
     }
+    #[inline(always)]
     pub fn args(&self) -> &PresentArguments {
         &self.args
     }
@@ -246,6 +258,7 @@ impl Extensions {
     /// Creates a empty [`Extensions`].
     ///
     /// It is strongly recommended to use [`Extensions::new()`] instead.
+    #[inline]
     pub fn empty() -> Self {
         Self {
             prime: Vec::new(),
@@ -335,34 +348,42 @@ impl Extensions {
         new
     }
     /// Adds a prime extension.
+    #[inline(always)]
     pub fn add_prime(&mut self, extension: Prime) {
         self.prime.push(extension);
     }
     /// Adds a pre extension.
+    #[inline(always)]
     pub fn add_pre(&mut self, path: String, extension: Pre) {
         self.pre.insert(path, extension);
     }
     /// Adds a prepare extension for a single URI.
+    #[inline(always)]
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
         self.prepare_single.insert(path, extension);
     }
     /// Adds a prepare extension run if `function` return `true`.
+    #[inline(always)]
     pub fn add_prepare_fn(&mut self, function: If, extension: Prepare) {
         self.prepare_fn.push((function, extension));
     }
     /// Adds a present internal extension, called with files starting with `!> `.
+    #[inline(always)]
     pub fn add_present_internal(&mut self, name: String, extension: Present) {
         self.present_internal.insert(name, extension);
     }
     /// Adds a present file extension, called with file extensions matching `name`.
+    #[inline(always)]
     pub fn add_present_file(&mut self, name: String, extension: Present) {
         self.present_file.insert(name, extension);
     }
     /// Adds a package extension, used to make last-minute changes to response.
+    #[inline(always)]
     pub fn add_package(&mut self, extension: Package) {
         self.package.push(extension);
     }
     /// Adds a post extension, used for HTTP/2 push
+    #[inline(always)]
     pub fn add_post(&mut self, extension: Post) {
         self.post.push(extension);
     }
@@ -543,12 +564,14 @@ pub struct LazyRequestBody {
     result: Option<Request<Bytes>>,
 }
 impl LazyRequestBody {
+    #[inline(always)]
     pub(crate) fn new(request: &mut FatRequest) -> Self {
         Self {
             request,
             result: None,
         }
     }
+    #[inline]
     pub async unsafe fn get(&mut self) -> io::Result<&Request<Bytes>> {
         match self.result {
             Some(ref result) => Ok(result),
@@ -636,12 +659,14 @@ impl PresentExtensions {
             data_start: 0,
         }
     }
+    #[inline]
     pub fn iter(&self) -> PresentExtensionsIter {
         PresentExtensionsIter {
             data: Self::clone(&self),
             index: 0,
         }
     }
+    #[inline]
     pub fn data_start(&self) -> usize {
         self.data_start
     }
@@ -653,6 +678,7 @@ pub struct PresentExtensionsIter {
 }
 impl Iterator for PresentExtensionsIter {
     type Item = PresentArguments;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.index;
         if start == self.data.extensions.len() {
@@ -686,6 +712,7 @@ pub struct PresentArguments {
     len: usize,
 }
 impl PresentArguments {
+    #[inline]
     pub fn empty() -> Self {
         Self {
             data: PresentExtensions::empty(),
@@ -693,12 +720,14 @@ impl PresentArguments {
             len: 0,
         }
     }
+    #[inline]
     pub fn name(&self) -> &str {
         // .1 and .0 should be the same; the name of (usize, usize) should have the same name as it's first argument.
         let (start, len) = self.data.extensions[self.data_index].0;
         // safe, because we checked for str in creation of [`PresentExtensions`].
         unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) }
     }
+    #[inline]
     pub fn iter(&self) -> PresentArgumentsIter {
         PresentArgumentsIter {
             data: &self.data,
@@ -718,6 +747,7 @@ pub struct PresentArgumentsIter<'a> {
 }
 impl<'a> Iterator for PresentArgumentsIter<'a> {
     type Item = &'a str;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.index == self.back_index {
             return None;
@@ -729,8 +759,8 @@ impl<'a> Iterator for PresentArgumentsIter<'a> {
     }
 }
 impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
+    #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
-        // todo!("wrong?");
         if self.index == self.back_index {
             return None;
         }

@@ -48,17 +48,20 @@ pub struct WriteableBytes {
     len: usize,
 }
 impl WriteableBytes {
+    #[inline]
     pub fn new(mut bytes: BytesMut) -> Self {
         let len = bytes.len();
         unsafe { bytes.set_len(bytes.capacity()) };
         Self { len, bytes }
     }
+    #[inline]
     pub fn into_inner(mut self) -> BytesMut {
         unsafe { self.bytes.set_len(self.len) };
         self.bytes
     }
 }
 impl Write for WriteableBytes {
+    #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if self.len + buf.len() > self.bytes.capacity() {
             self.bytes.reserve(buf.len() + 512);
@@ -74,6 +77,7 @@ impl Write for WriteableBytes {
 }
 
 /// ToDo: optimize!
+#[inline(always)]
 pub async fn read_to_end<R: AsyncRead + Unpin>(
     buffer: &mut BytesMut,
     mut reader: R,
@@ -98,6 +102,7 @@ pub async fn read_to_end<R: AsyncRead + Unpin>(
 
 /// Should only be used when a file is typically access several times or from several requests.
 #[cfg(not(feature = "no-fs-cache"))]
+#[inline]
 pub async fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Bytes> {
     if let Some(file) = cache.lock().await.get(path.as_ref()) {
         return Some(Bytes::clone(file));
@@ -113,8 +118,9 @@ pub async fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Op
         .cache(path.as_ref().to_path_buf(), Bytes::clone(&buffer));
     Some(buffer)
 }
-#[cfg(feature = "no-fs-cache")]
 /// Should only be used when a file is typically access several times or from several requests.
+#[cfg(feature = "no-fs-cache")]
+#[inline]
 pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
     let file = File::open(path).await.ok()?;
     let mut buffer = BytesMut::with_capacity(4096);
@@ -126,6 +132,7 @@ pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option
 ///
 /// It can prevent one `clone` if only used once, else results in several system calls.
 #[cfg(not(feature = "no-fs-cache"))]
+#[inline]
 pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Bytes> {
     if let Some(cached) = cache.lock().await.get(path.as_ref()) {
         return Some(Bytes::clone(cached));
@@ -138,6 +145,7 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<By
 }
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 #[cfg(feature = "no-fs-cache")]
+#[inline]
 pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes> {
     let file = File::open(path).await.ok()?;
     let mut buffer = BytesMut::with_capacity(4096);
@@ -174,6 +182,7 @@ pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
     body.freeze()
 }
 
+#[inline]
 pub async fn default_error(code: StatusCode, cache: Option<&FileCache>) -> Response<Bytes> {
     // Error files will be used several times.
     let body = match cache {
@@ -193,6 +202,7 @@ pub async fn default_error(code: StatusCode, cache: Option<&FileCache>) -> Respo
         .unwrap()
 }
 
+#[inline(always)]
 pub async fn default_error_response(code: StatusCode, host: &Host) -> FatResponse {
     (
         default_error(code, Some(&host.file_cache)).await,
@@ -202,6 +212,7 @@ pub async fn default_error_response(code: StatusCode, host: &Host) -> FatRespons
     )
 }
 
+#[inline]
 pub fn empty_clone_response<T>(response: &Response<T>) -> Response<()> {
     let mut builder = Response::builder()
         .version(response.version())
@@ -210,6 +221,7 @@ pub fn empty_clone_response<T>(response: &Response<T>) -> Response<()> {
     *builder.headers_mut().unwrap() = response.headers().clone();
     builder.body(()).unwrap()
 }
+#[inline]
 pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
     let mut builder = Request::builder()
         .method(request.method())
@@ -218,6 +230,7 @@ pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
     *builder.headers_mut().unwrap() = request.headers().clone();
     builder.body(()).unwrap()
 }
+#[inline]
 pub fn extract_body<T>(response: Response<T>) -> (Response<()>, T) {
     let mut body = None;
     let response = response.map(|t| body = Some(t));
@@ -225,6 +238,7 @@ pub fn extract_body<T>(response: Response<T>) -> (Response<()>, T) {
     (response, body.unwrap())
 }
 
+#[inline]
 pub fn replace_header<K: header::IntoHeaderName + Copy>(
     headers: &mut HeaderMap,
     name: K,
@@ -240,6 +254,7 @@ pub fn replace_header<K: header::IntoHeaderName + Copy>(
         }
     }
 }
+#[inline]
 pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
     headers: &mut HeaderMap,
     name: K,
@@ -260,6 +275,7 @@ pub fn valid_method(bytes: &[u8]) -> bool {
         || bytes.starts_with(b"CONNECT")
         || bytes.starts_with(b"PATCH")
 }
+#[inline]
 pub fn get_content_length<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
     match method_has_request_body(request.method()) {
@@ -274,6 +290,7 @@ pub fn get_content_length<T>(request: &Request<T>) -> usize {
         false => 0,
     }
 }
+#[inline]
 pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
     // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
     utility::replace_header(
@@ -282,9 +299,11 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
         HeaderValue::from_str(len.to_string().as_str()).unwrap(),
     )
 }
+#[inline]
 pub fn method_has_request_body(method: &Method) -> bool {
     matches!(*method, Method::POST | Method::PUT | Method::DELETE)
 }
+#[inline]
 pub fn method_has_response_body(method: &Method) -> bool {
     matches!(
         *method,
@@ -299,16 +318,19 @@ pub fn method_has_response_body(method: &Method) -> bool {
 
 pub struct CleanDebug<'a, T: ?Sized + Display>(&'a T);
 impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
+    #[inline]
     pub fn new(value: &'a T) -> Self {
         Self(value)
     }
 }
 impl<'a, T: ?Sized + Display> Debug for CleanDebug<'a, T> {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
     }
 }
 impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
     }

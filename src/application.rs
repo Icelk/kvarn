@@ -16,17 +16,20 @@ pub enum Error {
     HeaderTooLong,
 }
 impl From<http::Error> for Error {
+    #[inline(always)]
     fn from(err: http::Error) -> Self {
         Self::Http(err)
     }
 }
 impl From<io::Error> for Error {
+    #[inline(always)]
     fn from(err: io::Error) -> Self {
         Self::Io(err)
     }
 }
 #[cfg(feature = "h2")]
 impl From<h2::Error> for Error {
+    #[inline(always)]
     fn from(err: h2::Error) -> Self {
         Self::H2(err)
     }
@@ -140,6 +143,7 @@ impl HttpConnection {
 mod request {
     use super::*;
 
+    #[inline]
     pub async fn parse_http_1(
         stream: Arc<Mutex<Encryption>>,
         max_len: usize,
@@ -155,6 +159,7 @@ mod request {
     }
 
     impl Body {
+        #[inline]
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
             match self {
                 Self::Empty => Ok(Bytes::new()),
@@ -213,6 +218,7 @@ mod response {
         content_length: usize,
     }
     impl<R: AsyncRead + Unpin> Http1Body<R> {
+        #[inline(always)]
         pub fn new(reader: Arc<Mutex<R>>, bytes: Bytes, content_length: usize) -> Self {
             Self {
                 reader,
@@ -222,11 +228,12 @@ mod response {
                 content_length,
             }
         }
+        #[inline]
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
             let mut buffer = BytesMut::with_capacity(self.bytes.len() + 512);
             buffer.extend(&self.bytes);
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_millis(250),
+            let _ = timeout(
+                Duration::from_millis(250),
                 utility::read_to_end(&mut buffer, &mut *self),
             )
             .await;
@@ -280,6 +287,7 @@ mod response {
     impl ResponsePipe {
         /// You must ensure the [`Response::version()`] is correct before calling this function. It can be guaranteed by first calling [`Self::ensure_version_and_length()`]
         /// It is critical to call [`AsyncWriteExt::flush()`] on [`ResponseBodyPipe`], else the message won't be seen as fully transmitted.
+        #[inline]
         pub async fn send_response(
             &mut self,
             mut response: Response<()>,
@@ -310,6 +318,7 @@ mod response {
                 },
             }
         }
+        #[inline]
         pub fn push_request(
             &mut self,
             #[allow(unused_variables)] request: Request<()>,
@@ -323,6 +332,7 @@ mod response {
                 },
             }
         }
+        #[inline]
         pub fn ensure_version_and_length<T>(
             &self,
             response: &mut Response<T>,
@@ -345,6 +355,7 @@ mod response {
     }
     #[allow(unused_variables)]
     impl PushedResponsePipe {
+        #[inline]
         pub fn send_response(
             &mut self,
             response: Response<()>,
@@ -365,6 +376,7 @@ mod response {
                 _ => unreachable!(),
             }
         }
+        #[inline]
         #[allow(unused_variables)]
         pub fn ensure_version<T>(&self, response: &mut Response<T>) {
             match self {
@@ -412,6 +424,7 @@ mod response {
         writer.write_all(b"\r\n").await
     }
     impl ResponseBodyPipe {
+        #[inline]
         pub async fn send(&mut self, data: Bytes, end_of_stream: bool) -> Result<(), Error> {
             match self {
                 Self::Http1(h1) => {
@@ -426,6 +439,7 @@ mod response {
             }
             Ok(())
         }
+        #[inline]
         pub async fn close(&mut self) -> Result<(), Error> {
             match self {
                 Self::Http1(h1) => h1.lock().await.flush().await.map_err(Error::from),

@@ -40,12 +40,14 @@ impl Encryption {
 }
 impl Encryption {
     #[cfg(feature = "https")]
+    #[inline]
     pub fn get_peer_certificates(&self) -> Option<Vec<rustls::Certificate>> {
         match self {
             Self::TcpTls(s) => s.session.get_peer_certificates(),
             Self::Tcp(_) => None,
         }
     }
+    #[inline]
     pub fn get_alpn_protocol(&self) -> Option<&[u8]> {
         match self {
             #[cfg(feature = "https")]
@@ -54,12 +56,14 @@ impl Encryption {
         }
     }
     #[cfg(feature = "https")]
+    #[inline]
     pub fn get_protocol_version(&self) -> Option<rustls::ProtocolVersion> {
         match self {
             Self::TcpTls(s) => s.session.get_protocol_version(),
             Self::Tcp(_) => None,
         }
     }
+    #[inline]
     pub fn get_sni_hostname(&self) -> Option<&str> {
         match self {
             #[cfg(feature = "https")]
@@ -318,6 +322,7 @@ mod tokio_tls {
     }
 
     impl<'a, IO: AsyncRead + AsyncWrite + Unpin, S: Session> Stream<'a, IO, S> {
+        #[inline]
         pub fn new(io: &'a mut IO, session: &'a mut S) -> Self {
             Stream {
                 io,
@@ -328,11 +333,13 @@ mod tokio_tls {
             }
         }
 
+        #[inline]
         pub fn set_eof(mut self, eof: bool) -> Self {
             self.eof = eof;
             self
         }
 
+        #[inline]
         pub fn as_mut_pin(&mut self) -> Pin<&mut Self> {
             Pin::new(self)
         }

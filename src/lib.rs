@@ -25,6 +25,8 @@ pub type FatResponse = (
     ServerCachePreference,
     CompressPreference,
 );
+
+#[inline(always)]
 pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
     Box::pin(core::future::ready(value))
 }
@@ -39,6 +41,7 @@ pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (Linux)";
 pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (unknown OS)";
 pub const SERVER_NAME: &str = "Kvarn";
 
+#[inline(always)]
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]
     let mut vec = Vec::with_capacity(4);
@@ -61,7 +64,16 @@ macro_rules! ret_log_app_error {
     };
 }
 
-pub(crate) async fn handle_connection(
+/// Handles a single connection. This includes encrypting it, extracting the HTTP header information,
+/// optionally (HTTP/2 & HTTP/3) decompressing them, and passing the request to [`handle_cache()`].
+/// It will also recognise which host should handle the connection.
+///
+///
+/// # Errors
+///
+/// Will pass any errors from reading the request, making a TLS handshake, and writing the response.
+/// See [`handle_cache()`] and [`handle_request()`]; errors from them are passed up, through this fn.
+pub async fn handle_connection(
     stream: TcpStream,
     address: SocketAddr,
     host_descriptors: Arc<HostDescriptor>,
@@ -137,6 +149,7 @@ pub enum SendKind<'a> {
     Push(&'a mut application::PushedResponsePipe),
 }
 impl<'a> SendKind<'a> {
+    #[inline(always)]
     pub fn ensure_version_and_length<T>(
         &self,
         response: &mut Response<T>,
@@ -150,6 +163,15 @@ impl<'a> SendKind<'a> {
     }
 }
 
+/// Will handle a single request, check the cache, process if needed, and caches it.
+/// This is where the response is sent.
+///
+///
+/// # Errors
+///
+/// Errors are passed from writing the response.
+///
+///
 /// LAYER 4
 pub async fn handle_cache(
     mut request: Request<application::Body>,
@@ -224,12 +246,7 @@ pub async fn handle_cache(
                 false => match host.extensions.resolve_pre(&mut request, host).await {
                     Some((response, future)) => (response, Some(future)),
                     None => {
-                        let path = parse::convert_uri(
-                            request.uri().path(),
-                            host.path.as_path(),
-                            host.get_folder_default_or("index.html"),
-                            host.get_extension_default_or("html"),
-                        );
+                        let path = parse::convert_uri(request.uri().path(), host.path.as_path());
                         let (mut resp, client_cache, server_cache, compress) =
                             handle_request(&mut request, address, host, &path).await?;
 
@@ -337,8 +354,16 @@ pub async fn handle_cache(
     Ok(())
 }
 
+/// Handles a single request and returns response with cache and compress preference.
+///
+///  
+/// # Errors
+///
+/// ~~Will return any errors from reading from the body of `request`.~~ Currently, does not return any errors.
+///
+///  
 /// LAYER 5.1
-pub(crate) async fn handle_request(
+pub async fn handle_request(
     request: &mut Request<application::Body>,
     address: net::SocketAddr,
     host: &Host,
@@ -401,6 +426,7 @@ pub struct HostDescriptor {
     host_data: Arc<HostData>,
 }
 impl HostDescriptor {
+    #[inline(always)]
     pub fn http(host: Arc<HostData>) -> Self {
         Self {
             port: 80,
@@ -410,6 +436,7 @@ impl HostDescriptor {
         }
     }
     #[cfg(feature = "https")]
+    #[inline(always)]
     pub fn https(host: Arc<HostData>, server_config: Arc<rustls::ServerConfig>) -> Self {
         Self {
             port: 443,
@@ -418,6 +445,7 @@ impl HostDescriptor {
         }
     }
     #[cfg(feature = "https")]
+    #[inline(always)]
     pub fn new(
         port: u16,
         host_data: Arc<HostData>,
@@ -430,6 +458,7 @@ impl HostDescriptor {
         }
     }
     #[cfg(not(feature = "https"))]
+    #[inline(always)]
     pub fn new(port: u16, host_data: Arc<HostData>) -> Self {
         Self { port, host_data }
     }
@@ -457,6 +486,7 @@ pub struct Config {
     descriptors: Vec<HostDescriptor>,
 }
 impl Config {
+    #[inline(always)]
     pub fn new(descriptors: Vec<HostDescriptor>) -> Self {
         Config { descriptors }
     }

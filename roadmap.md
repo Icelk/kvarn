@@ -35,7 +35,7 @@ architecture more *transparent*, even for non-programmers. It should make it eas
 - [x] limiting
 - [x] HEAD
 - [x] check routing and extensions.md plan
-- [ ] more #[inline]
+- [x] more #[inline]
 - [x] Referrer header in `Extensions::new()`
 - [x] cfg (https, multithreading, http2)
 
