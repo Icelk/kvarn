@@ -21,6 +21,10 @@ This is a *real* performance uplift. It's essentially a complete rewrite of Kvar
 [extensions.md](extensions.md) and [routing.md](routing.md) are documents designed to make the server's
 architecture more *transparent*, even for non-programmers. It should make it easier to integrate with Kvarn.
 
+> One other big thing is HTTP/2 Push, which makes loading web sites more than 2 times faster.
+> Without doing anything from your part, you can expect automatic push to work, resulting in the
+> described benefits. Soon, Smart Push will be part of Kvarn, further increasing performance.
+
 ## Left to do
 
 - [x] limiting
@@ -43,6 +47,7 @@ Name comes from the current plan to move core stuff into it's own crate.
 - [ ] Implement an easy-to-configure proxy extension in kvarn_extensions
 - [ ] If-Modified-Since header to increase client cache performance
 - [ ] Move core stuff
+- [ ] Smart push with id (so all other data isn't pushed on every request)
 
 
 # v0.4.0 WebSockets & Auth
@@ -74,7 +79,7 @@ This is where Kvarn becomes cutting-edge.
 
 # v0.6.0 DynLan
 
-This is where ***dyn***amic ***lan***guages are introduces to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
+This is where ***dyn***amic ***lan***guages are introduced to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
 because `Wren` seems very fast and interesting, while `Lua` is simply a classic, with JIT support in Rust.
 
 Also, I'll maybe crate bindings for the Zend engine (PHP) and make a PHP crate. It would allow to run the PHP interpreter
