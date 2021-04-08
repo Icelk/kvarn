@@ -349,6 +349,7 @@ pub(crate) async fn handle_request(
     let mut server_cache = None;
     let mut compress = None;
 
+    #[allow(unused_mut)]
     let mut status = None;
 
     {

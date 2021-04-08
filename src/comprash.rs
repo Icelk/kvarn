@@ -139,6 +139,7 @@ impl CompressedResponse {
             .position(|v| v.value == "identity" && v.quality == 0.0)
             .is_some();
 
+        #[cfg(all(feature = "gzip", feature = "br"))]
         let prefer_br = values
             .iter()
             .find(|v| v.value == "gzip")
@@ -162,6 +163,7 @@ impl CompressedResponse {
             ));
         }
 
+        #[cfg(any(feature = "gzip", feature = "br"))]
         let contains = |name| {
             values
                 .iter()
