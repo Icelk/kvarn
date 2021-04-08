@@ -19,23 +19,27 @@ use crate::prelude::{internals::*, *};
 pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
 pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
 
-pub type Prime = &'static (dyn Fn(RequestWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync);
-pub type Pre = &'static (dyn Fn(RequestWrapperMut, HostWrapper) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
-              + Sync);
-pub type Prepare = &'static (dyn Fn(RequestWrapperMut, HostWrapper, PathWrapper, SocketAddr) -> RetFut<FatResponse>
-              + Sync);
+pub type Prime = Box<(dyn Fn(RequestWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
+pub type Pre = Box<
+    (dyn Fn(RequestWrapperMut, HostWrapper) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
+         + Sync
+         + Send),
+>;
+pub type Prepare = Box<
+    (dyn Fn(RequestWrapperMut, HostWrapper, PathWrapper, SocketAddr) -> RetFut<FatResponse>
+         + Sync
+         + Send),
+>;
 
-pub type Present = &'static (dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync);
-pub type Package = &'static (dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync);
-pub type Post = &'static (dyn Fn(
-    RequestWrapper,
-    Bytes,
-    ResponsePipeWrapperMut,
-    SocketAddr,
-    HostWrapper,
-) -> RetFut<()>
-              + Sync);
-pub type If = &'static (dyn Fn(&FatRequest) -> bool + Sync);
+pub type Present = Box<(dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync + Send)>;
+pub type Package =
+    Box<(dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync + Send)>;
+pub type Post = Box<
+    (dyn Fn(RequestWrapper, Bytes, ResponsePipeWrapperMut, SocketAddr, HostWrapper) -> RetFut<()>
+         + Sync
+         + Send),
+>;
+pub type If = Box<(dyn Fn(&FatRequest) -> bool + Sync + Send)>;
 
 pub fn invalid_method(
     _: RequestWrapper,
@@ -65,7 +69,47 @@ macro_rules! ext {
         Box::pin(async move { $($item)* })
     };
 }
-// ToDo: Add macro to declare whole extension functions. Perhaps one per extension type? That can then also get_inner on types.
+/// Will make a prepare extension.
+///
+/// See example bellow. Where `times_called` is defined in the arguments of the macro, you can enter several `Arc`s to capture from the environment.
+/// They will be cloned before being moved to the future, mitigating the error `cannot move out of 'times_called', a captured variable in an 'Fn' closure`.
+/// **Only `Arc`s** will work, since the variable has to be `Send` and `Sync`.
+///
+/// You have to have kvarn imported as `kvarn`.
+///
+/// # Examples
+/// ```rust
+/// use std::sync::{Arc, atomic};
+///
+/// let times_called = Arc::new(atomic::AtomicUsize::new(0));
+///
+/// prepare!(req, host, path, addr, times_called, {
+///     let times_called = times_called.fetch_add(1, atomic::Ordering::Relaxed);
+///     println!("Called {} time(s). Request {:?}", times_called, req);
+///
+///     utility::default_error_response(StatusCode::NOT_FOUND, host).await
+/// });
+/// ```
+#[macro_export]
+macro_rules! prepare {
+    ($req:ident, $host:ident, $path:ident, $addr:ident, $($clone:ident)*, $($code:tt)*) => {
+        std::boxed::Box::new(move |
+            mut $req: extensions::RequestWrapperMut,
+            mut $host: extensions::HostWrapper,
+            mut $path: extensions::PathWrapper,
+            mut $addr: SocketAddr,
+        | {
+            $(let $clone = Arc::clone(&$clone);)*
+            Box::pin(async move {
+                let $req = unsafe { $req.get_inner() };
+                let $host = unsafe { $host.get_inner() };
+                let $path = unsafe { $path.get_inner() };
+
+                $($code)*
+            })
+        })
+    };
+}
 
 macro_rules! impl_get_unsafe {
     ($main:ident, $return:ty) => {
@@ -176,7 +220,7 @@ unsafe impl Sync for PresentData {}
 /// See [extensions.md](../extensions.md) for more info.
 ///
 /// ToDo: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
-#[derive(Clone)]
+// #[derive(Clone)]
 pub struct Extensions {
     prime: Vec<Prime>,
     pre: HashMap<String, Pre>,
@@ -368,7 +412,11 @@ impl Extensions {
         addr: SocketAddr,
         host: &Host,
     ) {
-        for extension in self.post.iter().take(self.post.len() - 1) {
+        for extension in self
+            .post
+            .iter()
+            .take(self.post.len().checked_sub(1).unwrap_or(0))
+        {
             extension(
                 RequestWrapper::new(request),
                 Bytes::clone(&bytes),

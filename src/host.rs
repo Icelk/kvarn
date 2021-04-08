@@ -128,9 +128,10 @@ impl Host {
     #[cfg(feature = "https")]
     pub fn set_http_redirect_to_https(&mut self) {
         const SPECIAL_PATH: &'static str = "/../to_https";
-        self.extensions
-            .add_prepare_single(SPECIAL_PATH.to_string(), &|mut request, _, _, _| {
-                // "/../ path" is special; it will not be accepted from outside.
+        self.extensions.add_prepare_single(
+            SPECIAL_PATH.to_string(),
+            Box::new(|mut request, _, _, _| {
+                ext!(// "/../ path" is special; it will not be accepted from outside.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
                 let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = request.uri();
@@ -152,14 +153,16 @@ impl Host {
                     .status(StatusCode::TEMPORARY_REDIRECT)
                     .header("location", uri);
                 // Unwrap is ok; we know this is valid.
-                ready((
-                    response.body(Bytes::new()).unwrap(),
+                // ready((
+                    (response.body(Bytes::new()).unwrap(),
                     ClientCachePreference::Full,
                     ServerCachePreference::None,
-                    CompressPreference::None,
-                ))
-            });
-        self.extensions.add_prime(&|request, _| {
+                    CompressPreference::None,)
+                // ))
+                )
+            }),
+        );
+        self.extensions.add_prime(Box::new(|request, _| {
             let request: &FatRequest = unsafe { request.get_inner() };
             let uri = match request.uri().scheme_str() == Some("http")
                 && request.uri().port().is_none()
@@ -190,25 +193,26 @@ impl Host {
                 false => None,
             };
             ready(uri)
-        });
+        }));
     }
 
     #[cfg(feature = "https")]
     pub fn enable_hsts(&mut self) {
-        self.extensions.add_package(&|mut response, request| {
-            let response: &mut Response<_> = unsafe { response.get_inner() };
-            let request: &FatRequest = unsafe { request.get_inner() };
-            if request.uri().scheme_str() == Some("https") {
-                response
-                    .headers_mut()
-                    .entry("strict-transport-security")
-                    .or_insert(HeaderValue::from_static(
-                        "max-age=63072000; includeSubDomains; preload",
-                    ));
-            }
+        self.extensions
+            .add_package(Box::new(|mut response, request| {
+                let response: &mut Response<_> = unsafe { response.get_inner() };
+                let request: &FatRequest = unsafe { request.get_inner() };
+                if request.uri().scheme_str() == Some("https") {
+                    response
+                        .headers_mut()
+                        .entry("strict-transport-security")
+                        .or_insert(HeaderValue::from_static(
+                            "max-age=63072000; includeSubDomains; preload",
+                        ));
+                }
 
-            ready(())
-        })
+                ready(())
+            }))
     }
 
     #[cfg(feature = "https")]
