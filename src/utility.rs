@@ -29,6 +29,22 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
+#[macro_export]
+macro_rules! build_bytes {
+    () => (
+        $crate::prelude::Bytes::new()
+    );
+    ($($bytes:expr),+ $(,)?) => {
+        {
+            let mut b = $crate::prelude::BytesMut::with_capacity($($bytes.len() +)* 0);
+
+        $(b.extend($bytes.iter());)*
+
+        b.freeze()
+    }
+    };
+}
+
 pub struct WriteableBytes {
     bytes: BytesMut,
     len: usize,
