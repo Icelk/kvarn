@@ -33,12 +33,6 @@ impl Host {
         extensions: Extensions,
     ) -> Result<Self, (ServerConfigError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
-        // ToDo: redirect path which ends with . or / to it's index.html
-        // extensions.add_prime(&|request, _| {
-        //     let uri = unsafe { request.get_inner().uri() };
-
-        //     ready()
-        // });
         match cert {
             Ok(cert) => Ok(Self {
                 host_name,
@@ -131,7 +125,7 @@ impl Host {
         self.extensions.add_prepare_single(
             SPECIAL_PATH.to_string(),
             Box::new(|mut request, _, _, _| {
-                ext!(// "/../ path" is special; it will not be accepted from outside.
+                // "/../ path" is special; it will not be accepted from outside.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
                 let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = request.uri();
@@ -153,16 +147,15 @@ impl Host {
                     .status(StatusCode::TEMPORARY_REDIRECT)
                     .header("location", uri);
                 // Unwrap is ok; we know this is valid.
-                // ready((
-                    (response.body(Bytes::new()).unwrap(),
+                ready((
+                    response.body(Bytes::new()).unwrap(),
                     ClientCachePreference::Full,
                     ServerCachePreference::None,
-                    CompressPreference::None,)
-                // ))
-                )
+                    CompressPreference::None,
+                ))
             }),
         );
-        self.extensions.add_prime(Box::new(|request, _| {
+        self.extensions.add_prime(Box::new(|request, _, _| {
             let request: &FatRequest = unsafe { request.get_inner() };
             let uri = match request.uri().scheme_str() == Some("http")
                 && request.uri().port().is_none()

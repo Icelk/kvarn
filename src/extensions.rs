@@ -19,7 +19,8 @@ use crate::prelude::{internals::*, *};
 pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
 pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
 
-pub type Prime = Box<(dyn Fn(RequestWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
+pub type Prime =
+    Box<(dyn Fn(RequestWrapper, HostWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
 pub type Pre = Box<
     (dyn Fn(RequestWrapperMut, HostWrapper) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
          + Sync
@@ -232,7 +233,10 @@ pub struct Extensions {
     post: Vec<Post>,
 }
 impl Extensions {
-    pub fn new() -> Self {
+    /// Creates a empty [`Extensions`].
+    ///
+    /// It is strongly recommended to use [`Extensions::new()`] instead.
+    pub fn empty() -> Self {
         Self {
             prime: Vec::new(),
             pre: HashMap::new(),
@@ -244,7 +248,69 @@ impl Extensions {
             post: Vec::new(),
         }
     }
+    /// Creates a new [`Extensions`] and adds a few essential extensions.
+    ///
+    /// For now, only a Prime extension redirecting the user from `<path>/` to `<path>/index.html` and
+    /// `<path>.` to `<path>.html` is included.
+    /// This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
+    pub fn new() -> Self {
+        let mut new = Self::empty();
 
+        new.add_prime(Box::new(|request, host, _| {
+            enum Ending {
+                Dot,
+                Slash,
+                Other,
+            }
+            impl Ending {
+                pub fn from_uri(uri: &Uri) -> Self {
+                    if uri.path().ends_with(".") {
+                        Self::Dot
+                    } else if uri.path().ends_with("/") {
+                        Self::Slash
+                    } else {
+                        Self::Other
+                    }
+                }
+            }
+            let uri: &Uri = unsafe { request.get_inner() }.uri();
+            let host: &Host = unsafe { host.get_inner() };
+            let append = match Ending::from_uri(uri) {
+                Ending::Other => return ready(None),
+                Ending::Dot => host.get_extension_default_or("html"),
+                Ending::Slash => host.get_folder_default_or("index.html"),
+            };
+
+            let mut uri = uri.clone().into_parts();
+
+            let path = uri
+                .path_and_query
+                .as_ref()
+                .map(http::uri::PathAndQuery::path)
+                .unwrap_or("/");
+            let query = uri
+                .path_and_query
+                .as_ref()
+                .map(http::uri::PathAndQuery::query)
+                .flatten();
+            let path_and_query = build_bytes!(
+                path.as_bytes(),
+                append.as_bytes(),
+                if query.is_none() { "" } else { "?" }.as_bytes(),
+                query.unwrap_or("").as_bytes()
+            );
+
+            // This is ok, we only added bytes from a String, which are guaranteed to be valid for a URI path
+            uri.path_and_query =
+                Some(http::uri::PathAndQuery::from_maybe_shared(path_and_query).unwrap());
+
+            // Again ok, see ↑
+            let uri = Uri::from_parts(uri).unwrap();
+
+            ready(Some(uri))
+        }));
+        new
+    }
     /// Adds a prime extension.
     pub fn add_prime(&mut self, extension: Prime) {
         self.prime.push(extension);
@@ -278,9 +344,20 @@ impl Extensions {
         self.post.push(extension);
     }
 
-    pub async fn resolve_prime(&self, request: &FatRequest, address: SocketAddr) -> Option<Uri> {
+    pub async fn resolve_prime(
+        &self,
+        request: &FatRequest,
+        host: &Host,
+        address: SocketAddr,
+    ) -> Option<Uri> {
         for prime in self.prime.iter() {
-            if let Some(prime) = prime(RequestWrapper::new(request), address).await {
+            if let Some(prime) = prime(
+                RequestWrapper::new(request),
+                HostWrapper::new(host),
+                address,
+            )
+            .await
+            {
                 return Some(prime);
             }
         }

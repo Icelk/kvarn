@@ -166,14 +166,6 @@ pub fn convert_uri(
     buf.push("public");
     buf.push(stripped_path);
 
-    // The path is guaranteed to be at least one byte long
-    let last_byte = path.as_bytes()[path.len() - 1];
-
-    if last_byte == FORWARD_SLASH {
-        buf.push(folder_default);
-    } else if last_byte == PERIOD {
-        buf.set_extension(extension_default);
-    };
     buf
 }
 

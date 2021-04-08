@@ -14,6 +14,15 @@ use kvarn::{
     prelude::{internals::*, *},
 };
 
+/// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
+///
+/// See [`mount_all()`] for more information.
+pub fn new() -> Extensions {
+    let mut e = Extensions::new();
+    mount_all(&mut e);
+    e
+}
+
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
 /// The current defaults are [`download`], [`cache`], [`php`], and [`templates`]

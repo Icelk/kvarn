@@ -155,7 +155,7 @@ pub async fn handle_cache(
     let bad_path = request.uri().path().is_empty()
         || request.uri().path().contains("./")
         || request.uri().path().starts_with("//");
-    match host.extensions.resolve_prime(&request, address).await {
+    match host.extensions.resolve_prime(&request, host, address).await {
         Some(uri) => *request.uri_mut() = uri,
         None => {}
     }
