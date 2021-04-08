@@ -20,17 +20,20 @@ use kvarn::{
 ///
 /// They will *always* get included in your server after calling this function.
 pub fn mount_all(extensions: &mut Extensions) {
-    extensions.add_present_internal("download".to_string(), &download);
-    extensions.add_present_internal("cache".to_string(), &cache);
-    extensions.add_present_internal("hide".to_string(), &hide);
-    extensions.add_present_file("private".to_string(), &hide);
-    extensions.add_present_internal("allow-ips".to_string(), &ip_allow);
+    extensions.add_present_internal("download".to_string(), Box::new(download));
+    extensions.add_present_internal("cache".to_string(), Box::new(cache));
+    extensions.add_present_internal("hide".to_string(), Box::new(hide));
+    extensions.add_present_file("private".to_string(), Box::new(hide));
+    extensions.add_present_internal("allow-ips".to_string(), Box::new(ip_allow));
     #[cfg(feature = "php")]
-    extensions.add_prepare_fn(&|req| req.uri().path().ends_with(".php"), &php);
+    extensions.add_prepare_fn(
+        Box::new(|req| req.uri().path().ends_with(".php")),
+        Box::new(php),
+    );
     #[cfg(feature = "templates")]
-    extensions.add_present_internal("tmpl".to_string(), &templates);
+    extensions.add_present_internal("tmpl".to_string(), Box::new(templates));
     #[cfg(feature = "push")]
-    extensions.add_post(&push);
+    extensions.add_post(Box::new(push));
 }
 
 #[cfg(feature = "push")]
