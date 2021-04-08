@@ -77,6 +77,9 @@ This is where Kvarn becomes cutting-edge.
 This is where ***dyn***amic ***lan***guages are introduces to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
 because `Wren` seems very fast and interesting, while `Lua` is simply a classic, with JIT support in Rust.
 
+Also, I'll maybe crate bindings for the Zend engine (PHP) and make a PHP crate. It would allow to run the PHP interpreter
+from within Kvarn, possibly improving performance.
+
 ## To do
 
 - [ ] Make a good API in `kvarn_extensions` to add dynamic languages
@@ -85,3 +88,6 @@ because `Wren` seems very fast and interesting, while `Lua` is simply a classic,
 - [ ] Wren
 - [ ] Lua
 - [ ] cfg
+- [ ] PHP bindings
+- [ ] PHP crate
+- [ ] isolating PHP requests while keeping VM alive.
