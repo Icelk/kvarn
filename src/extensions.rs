@@ -260,9 +260,12 @@ impl Extensions {
     }
     /// Creates a new [`Extensions`] and adds a few essential extensions.
     ///
-    /// For now, only a Prime extension redirecting the user from `<path>/` to `<path>/index.html` and
-    /// `<path>.` to `<path>.html` is included.
-    /// This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
+    /// For now the following extensions are added.
+    /// - a Prime extension redirecting the user from `<path>/` to `<path>/index.html` and
+    ///   `<path>.` to `<path>.html` is included.
+    ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
+    /// - Package extension to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
+    ///   This is only done when no other `Referrer-Policy` header has been set earlier in the response.
     pub fn new() -> Self {
         let mut new = Self::empty();
 
@@ -319,6 +322,16 @@ impl Extensions {
 
             ready(Some(uri))
         }));
+        new.add_package(Box::new(|mut response, _| {
+            let response: &mut Response<()> = unsafe { response.get_inner() };
+            response
+                .headers_mut()
+                .entry("referrer-policy")
+                .or_insert(HeaderValue::from_static("no-referrer"));
+
+            ready(())
+        }));
+
         new
     }
     /// Adds a prime extension.
