@@ -166,7 +166,11 @@ pub async fn handle_cache(
     let future = match cached {
         Some(resp) => {
             info!("Found in cache!");
-            let (mut response, body) = utility::extract_body(resp.clone_preferred());
+            let (mut response, body) =
+                utility::extract_body(match resp.clone_preferred(&request) {
+                    Err(code) => utility::default_error(code, Some(&host.file_cache)).await,
+                    Ok(response) => response,
+                });
             let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
 
@@ -181,8 +185,10 @@ pub async fn handle_cache(
                     let mut body_pipe =
                         ret_log_app_error!(response_pipe.send_response(response, false).await);
 
-                    // Send body
-                    ret_log_app_error!(body_pipe.send(body, false).await);
+                    if utility::method_has_body(request.method()) {
+                        // Send body
+                        ret_log_app_error!(body_pipe.send(body, false).await);
+                    }
 
                     // Process post extensions
                     host.extensions
@@ -193,12 +199,14 @@ pub async fn handle_cache(
                     ret_log_app_error!(body_pipe.close().await);
                 }
                 SendKind::Push(push_pipe) => {
+                    let send_body = utility::method_has_body(request.method());
                     // Send response
                     let mut body_pipe =
-                        ret_log_app_error!(push_pipe.send_response(response, false));
-
-                    // Send body
-                    ret_log_app_error!(body_pipe.send(body, true).await);
+                        ret_log_app_error!(push_pipe.send_response(response, !send_body));
+                    if send_body {
+                        // Send body
+                        ret_log_app_error!(body_pipe.send(body, true).await);
+                    }
                 }
             }
             None
@@ -253,7 +261,11 @@ pub async fn handle_cache(
             let compressed_response =
                 comprash::CompressedResponse::new(resp, compress, client_cache, extension);
 
-            let (mut response, body) = utility::extract_body(compressed_response.clone_preferred());
+            let (mut response, body) =
+                utility::extract_body(match compressed_response.clone_preferred(&request) {
+                    Err(code) => utility::default_error(code, Some(&host.file_cache)).await,
+                    Ok(response) => response,
+                });
 
             pipe.ensure_version_and_length(&mut response, body.len());
             host.extensions
@@ -288,7 +300,9 @@ pub async fn handle_cache(
                 SendKind::Send(response_pipe) => {
                     let mut pipe =
                         ret_log_app_error!(response_pipe.send_response(response, false).await);
-                    ret_log_app_error!(pipe.send(body, false).await);
+                    if utility::method_has_body(request.method()) {
+                        ret_log_app_error!(pipe.send(body, false).await);
+                    }
 
                     maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
 
@@ -299,8 +313,12 @@ pub async fn handle_cache(
                     ret_log_app_error!(pipe.close().await);
                 }
                 SendKind::Push(push_pipe) => {
-                    let mut pipe = ret_log_app_error!(push_pipe.send_response(response, false));
-                    ret_log_app_error!(pipe.send(body, true).await);
+                    let send_body = utility::method_has_body(request.method());
+                    let mut pipe =
+                        ret_log_app_error!(push_pipe.send_response(response, !send_body));
+                    if send_body {
+                        ret_log_app_error!(pipe.send(body, true).await);
+                    }
 
                     maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
                 }
@@ -326,6 +344,8 @@ pub(crate) async fn handle_request(
     let mut server_cache = None;
     let mut compress = None;
 
+    let mut status = None;
+
     {
         if let Some(resp) = host
             .extensions
@@ -341,15 +361,20 @@ pub(crate) async fn handle_request(
 
     #[cfg(feature = "fs")]
     if response.is_none() {
-        if let Some(content) = utility::read_file(&path, &host.file_cache).await {
-            response = Some(Response::new(content));
+        match request.method() {
+            &Method::GET | &Method::HEAD => {
+                if let Some(content) = utility::read_file(&path, &host.file_cache).await {
+                    response = Some(Response::new(content));
+                }
+            }
+            _ => status = Some(StatusCode::METHOD_NOT_ALLOWED),
         }
     }
 
     let response = match response {
         Some(r) => r,
         None => {
-            utility::default_error_response(StatusCode::NOT_FOUND, host)
+            utility::default_error_response(status.unwrap_or(StatusCode::NOT_FOUND), host)
                 .await
                 .0
         }

@@ -123,7 +123,52 @@ impl CompressedResponse {
         &self.identity
     }
 
-    pub fn clone_preferred(&self) -> Response<Bytes> {
+    pub fn clone_preferred(&self, request: &FatRequest) -> Result<Response<Bytes>, StatusCode> {
+        let values = match request
+            .headers()
+            .get("accept-encoding")
+            .map(HeaderValue::to_str)
+            .and_then(Result::ok)
+        {
+            Some(header) => parse::format_list_header(header),
+            None => Vec::new(),
+        };
+
+        let disable_identity = values
+            .iter()
+            .position(|v| v.value == "identity" && v.quality == 0.0)
+            .is_some();
+
+        let prefer_br = values
+            .iter()
+            .find(|v| v.value == "gzip")
+            .map(|v| v.quality)
+            .unwrap_or(1.0)
+            <= 0.5
+            && values.iter().find(|v| v.value == "br").map(|v| v.quality) == Some(1.0);
+
+        let only_identity = values.len() == 1
+            && values[0]
+                == parse::ValueQualitySet {
+                    value: "identity",
+                    quality: 1.0,
+                };
+
+        // Only identity makes sure identity quality is `1.0`; identity encoding can't be disabled.
+        if only_identity {
+            return Ok(self.clone_identity_set_compression(
+                Bytes::clone(self.get_identity().body()),
+                HeaderValue::from_static("identity"),
+            ));
+        }
+
+        let contains = |name| {
+            values
+                .iter()
+                .position(|v| v.value == name && v.quality != 0.0)
+                .is_some()
+        };
+
         let mime = self
             .get_identity()
             .headers()
@@ -138,17 +183,25 @@ impl CompressedResponse {
                         CompressPreference::None => (self.get_identity().body(), "identity"),
                         CompressPreference::Full => {
                             #[cfg(all(feature = "gzip", feature = "br"))]
-                            match self.br.is_some() && self.gzip.is_none() {
+                            match (self.br.is_some() && self.gzip.is_none()) || prefer_br {
                                 true => (self.get_br(), "br"),
-                                false => (self.get_gzip(), "gzip"),
+                                false if contains("gzip") => (self.get_gzip(), "gzip"),
+                                false if contains("br") => (self.get_br(), "br"),
+                                false => (self.get_identity().body(), "identity"),
                             }
                             #[cfg(all(feature = "gzip", not(feature = "br")))]
                             {
-                                (self.get_gzip(), "gzip")
+                                match contains("gzip") {
+                                    true => (self.get_gzip(), "gzip"),
+                                    false => (self.get_identity().body(), "identity"),
+                                }
                             }
                             #[cfg(all(feature = "br", not(feature = "gzip")))]
                             {
-                                (self.get_br(), "br")
+                                match contains("br") {
+                                    true => (self.get_br(), "br"),
+                                    false => (self.get_identity().body(), "identity"),
+                                }
                             }
                             #[cfg(not(any(feature = "gzip", feature = "br")))]
                             {
@@ -164,10 +217,13 @@ impl CompressedResponse {
             }
             None => (self.get_identity().body(), "identity"),
         };
-        self.clone_identity_set_compression(
+        if disable_identity && compression == "identity" {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        Ok(self.clone_identity_set_compression(
             Bytes::clone(bytes),
             HeaderValue::from_static(compression),
-        )
+        ))
     }
 
     fn add_server_header(headers: &mut HeaderMap) {
