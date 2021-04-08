@@ -392,6 +392,7 @@ mod response {
         writer
             .write_all(response.status().as_str().as_bytes())
             .await?;
+        writer.write_all(b" ").await?;
         writer.write_all(status).await?;
         writer.write_all(b"\r\n").await?;
 
