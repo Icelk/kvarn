@@ -388,12 +388,7 @@ impl Extensions {
         self.post.push(extension);
     }
 
-    pub async fn resolve_prime(
-        &self,
-        request: &FatRequest,
-        host: &Host,
-        address: SocketAddr,
-    ) -> Option<Uri> {
+    pub async fn resolve_prime(&self, request: &mut FatRequest, host: &Host, address: SocketAddr) {
         for prime in self.prime.iter() {
             if let Some(prime) = prime(
                 RequestWrapper::new(request),
@@ -402,10 +397,9 @@ impl Extensions {
             )
             .await
             {
-                return Some(prime);
+                *request.uri_mut() = prime;
             }
         }
-        None
     }
     pub async fn resolve_pre(
         &self,

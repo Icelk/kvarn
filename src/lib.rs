@@ -182,10 +182,10 @@ pub async fn handle_cache(
     let bad_path = request.uri().path().is_empty()
         || request.uri().path().contains("./")
         || request.uri().path().starts_with("//");
-    match host.extensions.resolve_prime(&request, host, address).await {
-        Some(uri) => *request.uri_mut() = uri,
-        None => {}
-    }
+    host.extensions
+        .resolve_prime(&mut request, host, address)
+        .await;
+
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = host.response_cache.lock().await;
