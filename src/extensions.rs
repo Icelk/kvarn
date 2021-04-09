@@ -55,7 +55,10 @@ pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
 macro_rules! get_unsafe_wrapper {
-    ($main:ident, $return:ty) => {
+    ($main:ident, $return:ty, $ret_str:expr) => {
+        #[doc = "A wrapper type for `"]
+        #[doc = $ret_str]
+        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
         pub struct $main(*const $return);
         impl $main {
             pub(crate) fn new(data: &$return) -> Self {
@@ -70,9 +73,15 @@ macro_rules! get_unsafe_wrapper {
         unsafe impl Send for $main {}
         unsafe impl Sync for $main {}
     };
+    ($main:ident, $return:ty) => {
+        get_unsafe_wrapper!($main, $return, stringify!($return));
+    }
 }
 macro_rules! get_unsafe_mut_wrapper {
-    ($main:ident, $return:ty) => {
+    ($main:ident, $return:ty, $ret_str:expr) => {
+        #[doc = "A wrapper type for `"]
+        #[doc = $ret_str]
+        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
         pub struct $main(*mut $return);
         impl $main {
             pub(crate) fn new(data: &mut $return) -> Self {
@@ -86,6 +95,9 @@ macro_rules! get_unsafe_mut_wrapper {
         }
         unsafe impl Send for $main {}
         unsafe impl Sync for $main {}
+    };
+    ($main:ident, $return:ty) => {
+        get_unsafe_mut_wrapper!($main, $return, stringify!($return));
     };
 }
 
@@ -324,7 +336,12 @@ impl Extensions {
         self.post.push(extension);
     }
 
-    pub async fn resolve_prime(&self, request: &mut FatRequest, host: &Host, address: SocketAddr) {
+    pub(crate) async fn resolve_prime(
+        &self,
+        request: &mut FatRequest,
+        host: &Host,
+        address: SocketAddr,
+    ) {
         for prime in self.prime.iter() {
             if let Some(prime) = prime(
                 RequestWrapper::new(request),
@@ -337,7 +354,7 @@ impl Extensions {
             }
         }
     }
-    pub async fn resolve_pre(
+    pub(crate) async fn resolve_pre(
         &self,
         request: &mut FatRequest,
         host: &Host,
@@ -355,7 +372,7 @@ impl Extensions {
             None => None,
         }
     }
-    pub async fn resolve_prepare(
+    pub(crate) async fn resolve_prepare(
         &self,
         request: &mut FatRequest,
         host: &Host,
@@ -393,7 +410,7 @@ impl Extensions {
             }
         }
     }
-    pub async fn resolve_present(
+    pub(crate) async fn resolve_present(
         &self,
         request: &mut Request<Body>,
         response: &mut Response<Bytes>,
@@ -454,7 +471,7 @@ impl Extensions {
         }
         Ok(())
     }
-    pub async fn resolve_package(&self, response: &mut Response<()>, request: &FatRequest) {
+    pub(crate) async fn resolve_package(&self, response: &mut Response<()>, request: &FatRequest) {
         for extension in &self.package {
             extension(
                 EmptyResponseWrapperMut::new(response),
@@ -463,7 +480,7 @@ impl Extensions {
             .await;
         }
     }
-    pub async fn resolve_post(
+    pub(crate) async fn resolve_post(
         &self,
         request: &FatRequest,
         bytes: Bytes,
@@ -668,7 +685,7 @@ impl PresentArguments {
         unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) }
     }
     #[inline]
-    pub fn iter(&self) -> PresentArgumentsIter {
+    pub fn iter(&self) -> PresentArgumentsIter<'_> {
         PresentArgumentsIter {
             data: &self.data,
             data_index: self.data_index,
