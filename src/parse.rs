@@ -26,7 +26,7 @@ impl PartialEq<str> for ValueQualitySet<'_> {
     }
 }
 
-pub fn format_list_header(header: &str) -> Vec<ValueQualitySet> {
+pub fn format_list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     let elements = header
         .chars()
         .fold(1, |acc, byte| if byte == ',' { acc + 1 } else { acc });

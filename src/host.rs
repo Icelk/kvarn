@@ -416,7 +416,7 @@ impl HostData {
 #[cfg(feature = "https")]
 impl ResolvesServerCert for HostData {
     #[inline]
-    fn resolve(&self, client_hello: ClientHello) -> Option<sign::CertifiedKey> {
+    fn resolve(&self, client_hello: ClientHello<'_>) -> Option<sign::CertifiedKey> {
         // Mostly returns true, since we have a default
         // Will however return false if certificate is not present in host
         if let Some(name) = client_hello.server_name() {

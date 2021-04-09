@@ -344,7 +344,7 @@ mod tokio_tls {
             Pin::new(self)
         }
 
-        pub(crate) fn read_io(&mut self, cx: &mut Context) -> Poll<Result<usize, TlsIoError>> {
+        pub(crate) fn read_io(&mut self, cx: &mut Context<'_>) -> Poll<Result<usize, TlsIoError>> {
             struct Reader<'a, 'b, T> {
                 io: &'a mut T,
                 cx: &'a mut Context<'b>,
@@ -382,7 +382,7 @@ mod tokio_tls {
             Poll::Ready(Ok(n))
         }
 
-        pub(crate) fn write_io(&mut self, cx: &mut Context) -> Poll<io::Result<usize>> {
+        pub(crate) fn write_io(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<usize>> {
             struct Writer<'a, 'b, T> {
                 io: &'a mut T,
                 cx: &'a mut Context<'b>,
@@ -427,7 +427,7 @@ mod tokio_tls {
 
         pub(crate) fn handshake(
             &mut self,
-            cx: &mut Context,
+            cx: &mut Context<'_>,
         ) -> Poll<Result<(usize, usize), TlsIoError>> {
             let mut wrlen = 0;
             let mut rdlen = 0;
@@ -538,7 +538,7 @@ mod tokio_tls {
     impl<'a, IO: AsyncRead + AsyncWrite + Unpin, S: Session> AsyncWrite for Stream<'a, IO, S> {
         fn poll_write(
             mut self: Pin<&mut Self>,
-            cx: &mut Context,
+            cx: &mut Context<'_>,
             buf: &[u8],
         ) -> Poll<io::Result<usize>> {
             let mut pos = 0;
@@ -572,7 +572,7 @@ mod tokio_tls {
             Poll::Ready(Ok(pos))
         }
 
-        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
             self.session.flush()?;
             while self.session.wants_write() {
                 match self.write_io(cx) {
