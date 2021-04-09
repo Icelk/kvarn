@@ -418,12 +418,8 @@ impl ClientCachePreference {
     #[inline]
     pub fn as_header(&self) -> Option<HeaderValue> {
         match self {
-            Self::None => Some(HeaderValue::from_static(
-                "public, max-age=604800, immutable",
-            )),
-            Self::Changing => Some(HeaderValue::from_static(
-                "public, max-age=604800, immutable",
-            )),
+            Self::None => Some(HeaderValue::from_static("no-store")),
+            Self::Changing => Some(HeaderValue::from_static("max-age=120")),
             Self::Full => Some(HeaderValue::from_static(
                 "public, max-age=604800, immutable",
             )),
