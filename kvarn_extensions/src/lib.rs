@@ -53,7 +53,7 @@ fn push(
     addr: SocketAddr,
     host: HostWrapper,
 ) -> RetFut<()> {
-    ext!(
+    box_fut!(
         // If it is not HTTP/1
         #[allow(irrefutable_let_patterns)]
         if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
@@ -266,10 +266,10 @@ pub fn php(
     path: PathWrapper,
     address: SocketAddr,
 ) -> RetFut<FatResponse> {
-    ext!(
+    box_fut!(
         let req = unsafe { req.get_inner() };
-        let host = unsafe{host.get_inner()};
-        let path = unsafe{path.get_inner()};
+        let host = unsafe{ host.get_inner() };
+        let path = unsafe{ path.get_inner() };
 
         let body =match req.body_mut().read_to_bytes().await{
             Ok(body) => body,
@@ -299,7 +299,7 @@ pub mod templates {
     use super::*;
 
     pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
-        ext!(
+        box_fut!(
             let data = unsafe { data.get_inner() };
             let bytes = Bytes::copy_from_slice(
                 &handle_template(data.args(), &data.response().body(), data.host()).await,
@@ -489,7 +489,7 @@ pub mod templates {
 
 /// Makes the client download the file.
 pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
-    ext!(
+    box_fut!(
         let data = unsafe { data.get_inner() };
         let headers = data.response_mut().headers_mut();
         kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
@@ -497,7 +497,7 @@ pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
-    ext!(
+    box_fut!(
         let data = unsafe { data.get_inner() };
         if let Some(preference) = data
             .args()
@@ -512,7 +512,7 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
-    ext!(
+    box_fut!(
         let data = unsafe { data.get_inner() };
         let error = default_error(StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
         *data.response_mut() = error;
@@ -520,7 +520,7 @@ pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
-    ext!(
+    box_fut!(
         let data = unsafe { data.get_inner() };
         let mut matched = false;
         // Loop over denied ip in args

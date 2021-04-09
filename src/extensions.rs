@@ -65,10 +65,46 @@ pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
 #[macro_export]
-macro_rules! ext {
+macro_rules! box_fut {
     ($($item:tt)*) => {
         Box::pin(async move { $($item)* })
     };
+}
+
+/// The ultimate extension-creation macro.
+///
+/// This is used in the various other macros which expand to extensions; **use them instead**!
+///
+///
+/// # Examples
+///
+/// This is similar to the `prepare!` macro.
+/// ```
+/// extension!(|
+///     request: RequestWrapperMut,
+///     host: HostWrapper,
+///     path: PathWrapper |
+///     addr: SocketAddr |,
+///     ($clone)*,
+///     ($code)*
+/// );
+/// ```
+#[macro_export]
+macro_rules! extension {
+    (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty)* |, $($clone:ident)*, $($code:tt)*) => {{
+        use $crate::extensions::*;
+        std::boxed::Box::new(move |
+            $(mut $wrapper_param: $wrapper_param_type,)*
+            $(mut $param: $param_type,)*
+        | {
+            $(let $clone = Arc::clone(&$clone);)*
+            Box::pin(async move {
+                $(let $wrapper_param = unsafe { $wrapper_param.get_inner() };)*
+
+                $($code)*
+            })
+        })
+    }}
 }
 
 /// Will make a prepare extension.
@@ -87,7 +123,7 @@ macro_rules! ext {
 ///
 /// let times_called = Arc::new(atomic::AtomicUsize::new(0));
 ///
-/// prepare!(req, host, path, addr, times_called, {
+/// prepare!(req, host, path, addr, move |times_called| {
 ///     let times_called = times_called.fetch_add(1, atomic::Ordering::Relaxed);
 ///     println!("Called {} time(s). Request {:?}", times_called, req);
 ///
@@ -95,34 +131,27 @@ macro_rules! ext {
 /// });
 /// ```
 ///
-/// Here, we capture not variables, and it results in `, ,`.
+/// Here, we capture not variables, and just leave out the move ||`.
 /// ```
-/// prepare!(req, host, path, addr, , {
+/// prepare!(req, host, path, addr, {
 ///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host).await
 /// });
 /// ```
 #[macro_export]
 macro_rules! prepare {
-    ($req:ident, $host:ident, $path:ident, $addr:ident, $($clone:ident)*, $($code:tt)*) => {
-        std::boxed::Box::new(move |
-            mut $req: extensions::RequestWrapperMut,
-            mut $host: extensions::HostWrapper,
-            mut $path: extensions::PathWrapper,
-            mut $addr: SocketAddr,
-        | {
-            $(let $clone = Arc::clone(&$clone);)*
-            Box::pin(async move {
-                let $req = unsafe { $req.get_inner() };
-                let $host = unsafe { $host.get_inner() };
-                let $path = unsafe { $path.get_inner() };
-
-                $($code)*
-            })
-        })
+    ($request:ident, $host:ident, $path:ident, $addr:ident $(, move |  $($clone:ident $(,)?)*|)? $code:block) => {
+        $crate::extension!(|
+            $request: RequestWrapperMut,
+            $host: HostWrapper,
+            $path: PathWrapper |
+            $addr: SocketAddr |,
+            $($($clone)*)*,
+            $code
+        )
     };
 }
 
-macro_rules! impl_get_unsafe {
+macro_rules! get_unsafe_wrapper {
     ($main:ident, $return:ty) => {
         pub struct $main(*const $return);
         impl $main {
@@ -139,7 +168,7 @@ macro_rules! impl_get_unsafe {
         unsafe impl Sync for $main {}
     };
 }
-macro_rules! impl_get_unsafe_mut {
+macro_rules! get_unsafe_mut_wrapper {
     ($main:ident, $return:ty) => {
         pub struct $main(*mut $return);
         impl $main {
@@ -157,12 +186,12 @@ macro_rules! impl_get_unsafe_mut {
     };
 }
 
-impl_get_unsafe!(RequestWrapper, FatRequest);
-impl_get_unsafe_mut!(RequestWrapperMut, FatRequest);
-impl_get_unsafe_mut!(EmptyResponseWrapperMut, Response<()>);
-impl_get_unsafe_mut!(ResponsePipeWrapperMut, application::ResponsePipe);
-impl_get_unsafe!(HostWrapper, Host);
-impl_get_unsafe!(PathWrapper, Path);
+get_unsafe_wrapper!(RequestWrapper, FatRequest);
+get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
+get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
+get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, application::ResponsePipe);
+get_unsafe_wrapper!(HostWrapper, Host);
+get_unsafe_wrapper!(PathWrapper, Path);
 
 pub struct PresentDataWrapper(PresentData);
 impl PresentDataWrapper {
@@ -243,7 +272,6 @@ unsafe impl Sync for PresentData {}
 /// See [extensions.md](../extensions.md) for more info.
 ///
 /// ToDo: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
-// #[derive(Clone)]
 pub struct Extensions {
     prime: Vec<Prime>,
     pre: HashMap<String, Pre>,
