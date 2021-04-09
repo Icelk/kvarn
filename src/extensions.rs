@@ -1,15 +1,20 @@
-//! # Extensions framework for Kvarn.
-//!
 //! Here, all extensions code is housed
+//!
 //!
 //! ## Unsafe pointers
 //!
+//! This modules contains extensive usage of unsafe pointers.
+//!
+//!
 //! ### Background
+//!
 //! In the extension code, I sometimes have to pass references of data to `Futures` to avoid cloning,
 //! which sometimes is not an option (such as when a `TcpStream` is part of said data).
 //! You cannot share references with `Futures`, and so I've opted to go the unsafe route. Literally.
 //!
+//!
 //! ### Implementation
+//!
 //! In this module, there are several `Wrapper` types. They ***must not*** be stored.
 //! It's safe to get the underlying type is you are inside the extension which received the data;
 //! I'm awaiting you, guaranteeing the data isn't touched by anyone but the single extension.
@@ -46,114 +51,8 @@ pub type Post = Box<
 >;
 pub type If = Box<(dyn Fn(&FatRequest) -> bool + Sync + Send)>;
 
-pub fn invalid_method(
-    _: RequestWrapper,
-    cache: HostWrapper,
-    _: PathWrapper,
-) -> RetFut<FatResponse> {
-    Box::pin(async move {
-        (
-            utility::default_error(
-                StatusCode::METHOD_NOT_ALLOWED,
-                Some(unsafe { &cache.get_inner().file_cache }),
-            )
-            .await,
-            ClientCachePreference::Full,
-            ServerCachePreference::Full,
-            CompressPreference::Full,
-        )
-    })
-}
-
 pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
-
-#[macro_export]
-macro_rules! box_fut {
-    ($($item:tt)*) => {
-        Box::pin(async move { $($item)* })
-    };
-}
-
-/// The ultimate extension-creation macro.
-///
-/// This is used in the various other macros which expand to extensions; **use them instead**!
-///
-///
-/// # Examples
-///
-/// This is similar to the `prepare!` macro.
-/// ```
-/// extension!(|
-///     request: RequestWrapperMut,
-///     host: HostWrapper,
-///     path: PathWrapper |
-///     addr: SocketAddr |,
-///     ($clone)*,
-///     ($code)*
-/// );
-/// ```
-#[macro_export]
-macro_rules! extension {
-    (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty)* |, $($clone:ident)*, $($code:tt)*) => {{
-        use $crate::extensions::*;
-        std::boxed::Box::new(move |
-            $(mut $wrapper_param: $wrapper_param_type,)*
-            $(mut $param: $param_type,)*
-        | {
-            $(let $clone = Arc::clone(&$clone);)*
-            Box::pin(async move {
-                $(let $wrapper_param = unsafe { $wrapper_param.get_inner() };)*
-
-                $($code)*
-            })
-        })
-    }}
-}
-
-/// Will make a prepare extension.
-///
-/// See example bellow. Where `times_called` is defined in the arguments of the macro, you can enter several `Arc`s to capture from the environment.
-/// They will be cloned before being moved to the future, mitigating the error `cannot move out of 'times_called', a captured variable in an 'Fn' closure`.
-/// **Only `Arc`s** will work, since the variable has to be `Send` and `Sync`.
-///
-/// You have to have kvarn imported as `kvarn`.
-///
-///
-/// # Examples
-///
-/// ```
-/// use std::sync::{Arc, atomic};
-///
-/// let times_called = Arc::new(atomic::AtomicUsize::new(0));
-///
-/// prepare!(req, host, path, addr, move |times_called| {
-///     let times_called = times_called.fetch_add(1, atomic::Ordering::Relaxed);
-///     println!("Called {} time(s). Request {:?}", times_called, req);
-///
-///     utility::default_error_response(StatusCode::NOT_FOUND, host).await
-/// });
-/// ```
-///
-/// Here, we capture not variables, and just leave out the move ||`.
-/// ```
-/// prepare!(req, host, path, addr, {
-///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host).await
-/// });
-/// ```
-#[macro_export]
-macro_rules! prepare {
-    ($request:ident, $host:ident, $path:ident, $addr:ident $(, move |  $($clone:ident $(,)?)*|)? $code:block) => {
-        $crate::extension!(|
-            $request: RequestWrapperMut,
-            $host: HostWrapper,
-            $path: PathWrapper |
-            $addr: SocketAddr |,
-            $($($clone)*)*,
-            $code
-        )
-    };
-}
 
 macro_rules! get_unsafe_wrapper {
     ($main:ident, $return:ty) => {
@@ -221,7 +120,8 @@ impl PresentDataWrapper {
 pub struct PresentData {
     // Regarding request
     address: SocketAddr,
-    request: *mut LazyRequestBody,
+    request: *const FatRequest,
+    body: *mut LazyRequestBody,
     host: *const Host,
     path: *const Path,
     // Regarding response
@@ -237,8 +137,12 @@ impl PresentData {
         self.address
     }
     #[inline(always)]
-    pub fn request(&mut self) -> &mut LazyRequestBody {
-        unsafe { &mut *self.request }
+    pub fn request(&self) -> &FatRequest {
+        unsafe { &*self.request }
+    }
+    #[inline(always)]
+    pub fn body(&mut self) -> &mut LazyRequestBody {
+        unsafe { &mut *self.body }
     }
     #[inline(always)]
     pub fn host(&self) -> &Host {
@@ -437,10 +341,16 @@ impl Extensions {
         &self,
         request: &mut FatRequest,
         host: &Host,
+        address: SocketAddr,
     ) -> Option<(FatResponse, RetSyncFut<()>)> {
         match self.pre.get(request.uri().path()) {
             Some(extension) => {
-                extension(RequestWrapperMut::new(request), HostWrapper::new(host)).await
+                extension(
+                    RequestWrapperMut::new(request),
+                    HostWrapper::new(host),
+                    address,
+                )
+                .await
             }
             None => None,
         }
@@ -493,8 +403,8 @@ impl Extensions {
         address: SocketAddr,
         path: &Path,
     ) -> io::Result<()> {
-        let mut request = LazyRequestBody::new(request);
-        let request = &mut request;
+        let mut body = LazyRequestBody::new(request.body_mut());
+        let body = &mut body;
 
         if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());
@@ -504,6 +414,7 @@ impl Extensions {
                         let data = PresentData {
                             address,
                             request,
+                            body,
                             host,
                             path,
                             server_cache_preference,
@@ -528,6 +439,7 @@ impl Extensions {
                 let data = PresentData {
                     address,
                     request,
+                    body,
                     host,
                     path,
                     server_cache_preference,
@@ -585,26 +497,28 @@ impl Extensions {
         }
     }
 }
+#[derive(Debug)]
 pub struct LazyRequestBody {
-    request: *mut FatRequest,
-    result: Option<Request<Bytes>>,
+    body: *mut application::Body,
+    result: Option<Bytes>,
 }
 impl LazyRequestBody {
+    /// This struct must be `Dropped` before `body` or Undefined Behaviour occurs.
+    ///
+    /// The `body` is converted to a `*mut` which can be dereferenced safely, as long as we wait for this to be dropped.
+    /// It can also not be referenced in any other way while this is not dropped.
     #[inline(always)]
-    pub(crate) fn new(request: &mut FatRequest) -> Self {
-        Self {
-            request,
-            result: None,
-        }
+    pub(crate) fn new(body: &mut application::Body) -> Self {
+        Self { body, result: None }
     }
+    /// Reads the `Bytes` from the request body.
     #[inline]
-    pub async unsafe fn get(&mut self) -> io::Result<&Request<Bytes>> {
+    pub async fn get(&mut self) -> io::Result<&Bytes> {
         match self.result {
             Some(ref result) => Ok(result),
             None => {
-                let buffer = (&mut *self.request).body_mut().read_to_bytes().await?;
-                let request = utility::empty_clone_request(&*self.request).map(|()| buffer);
-                self.result.replace(request);
+                let buffer = unsafe { &mut *self.body }.read_to_bytes().await?;
+                self.result.replace(buffer);
                 Ok(self.result.as_ref().unwrap())
             }
         }
@@ -794,5 +708,196 @@ impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
         self.back_index -= 1;
         // Again, safe because we checked for str in creation of [`PresentExtensions`].
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
+    }
+}
+mod macros {
+    #[macro_export]
+    macro_rules! box_fut {
+    ($($item:tt)*) => {
+            Box::pin(async move { $($item)* })
+        };
+    }
+
+    /// The ultimate extension-creation macro.
+    ///
+    /// This is used in the various other macros which expand to extensions; **use them instead**!
+    ///
+    ///
+    /// # Examples
+    ///
+    /// This is similar to the `prepare!` macro.
+    /// ```
+    /// # use kvarn::*;
+    /// extension!(|
+    ///     request: RequestWrapperMut,
+    ///     host: HostWrapper,
+    ///     path: PathWrapper |
+    ///     addr: SocketAddr |,
+    ///     ,
+    ///     { println!("Hello world, from extension macro!"); }
+    /// );
+    /// ```
+    #[macro_export]
+    macro_rules! extension {
+        (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $($code:tt)*) => {{
+            use $crate::extensions::*;
+            use $crate::prelude::*;
+            std::boxed::Box::new(move |
+                $(mut $wrapper_param: $wrapper_param_type,)*
+                $(mut $param: $param_type,)*
+            | {
+                $(let $clone = Arc::clone(&$clone);)*
+                Box::pin(async move {
+                    $(let $wrapper_param = unsafe { $wrapper_param.get_inner() };)*
+
+                    $($code)*
+                })
+            })
+        }}
+    }
+
+    /// Will make a prime extension.
+    ///
+    /// See [`prepare!`] for usage and useful examples.
+    ///
+    /// # Examples
+    /// ```
+    /// # use kvarn::*;
+    /// let extension = prime!(req, host, addr {
+    ///     utility::default_error_response(StatusCode::BAD_REQUEST, host).await
+    /// });
+    /// ```
+    #[macro_export]
+    macro_rules! prime {
+        ($request:ident, $host:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$request: RequestWrapper, $host: HostWrapper | $addr: SocketAddr|, $($($clone)*)*, $code)
+        }
+    }
+    /// Will make a pre extension.
+    ///
+    /// See [`prepare!`] for usage and useful examples.
+    ///
+    /// # Examples
+    /// ```
+    /// # use kvarn::*;
+    /// let extension = pre!(req, host, addr {
+    ///     Some((utility::default_error_response(StatusCode::BAD_REQUEST, host).await, ready(())))
+    /// });
+    /// ```
+    #[macro_export]
+    macro_rules! pre {
+        ($request:ident, $host:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$request: RequestWrapperMut, $host: HostWrapper | $addr: SocketAddr|, $($($clone)*)*, $code)
+        }
+    }
+
+    /// Will make a prepare extension.
+    ///
+    /// See example bellow. Where `times_called` is defined in the arguments of the macro, you can enter several `Arc`s to capture from the environment.
+    /// They will be cloned before being moved to the future, mitigating the error `cannot move out of 'times_called', a captured variable in an 'Fn' closure`.
+    /// **Only `Arc`s** will work, since the variable has to be `Send` and `Sync`.
+    ///
+    /// You have to have kvarn imported as `kvarn`.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// > **These examples are applicable to all other extension-creation macros,
+    /// > but with different parameters. See their respective documentation.**
+    ///
+    /// ```
+    /// # use kvarn::*;
+    /// use std::sync::{Arc, atomic};
+    ///
+    /// let times_called = Arc::new(atomic::AtomicUsize::new(0));
+    ///
+    /// prepare!(req, host, path, addr, move |times_called| {
+    ///     let times_called = times_called.fetch_add(1, atomic::Ordering::Relaxed);
+    ///     println!("Called {} time(s). Request {:?}", times_called, req);
+    ///
+    ///     utility::default_error_response(StatusCode::NOT_FOUND, host).await
+    /// });
+    /// ```
+    ///
+    /// To capture no variables, just leave out the `move ||`.
+    /// ```
+    /// # use kvarn::*;
+    /// prepare!(req, host, path, addr {
+    ///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host).await
+    /// });
+    /// ```
+    #[macro_export]
+    macro_rules! prepare {
+        ($request:ident, $host:ident, $path:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            $crate::extension!(|
+                $request: RequestWrapperMut,
+                $host: HostWrapper,
+                $path: PathWrapper |
+                $addr: SocketAddr |,
+                $($($clone)*)*,
+                $code
+            )
+        }
+    }
+    /// Will make a present extension.
+    ///
+    /// See [`prepare!`] for usage and useful examples.
+    ///
+    /// # Examples
+    /// ```
+    /// # use kvarn::*;
+    /// let extension = present!(data {
+    ///     println!("Calling uri {}", data.request().uri());
+    /// });
+    /// ```
+    #[macro_export]
+    macro_rules! present {
+        ($data:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$data: PresentDataWrapper | |, $($($clone)*)*, $code)
+        }
+    }
+    /// Will make a package extension.
+    ///
+    /// See [`prepare!`] for usage and useful examples.
+    ///
+    /// # Examples
+    /// ```
+    /// # use kvarn::*;
+    /// let extension = package!(response, request {
+    ///     response.headers_mut().insert("x-author", HeaderValue::from_static("Icelk"));
+    ///     println!("Response headers {:#?}", response.headers());
+    /// });
+    /// ```
+    #[macro_export]
+    macro_rules! package {
+        ($response:ident, $request:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$response: EmptyResponseWrapperMut, $request: RequestWrapper | |, $($($clone)*)*, $code)
+        }
+    }
+    /// Will make a post extension.
+    ///
+    /// See [`prepare!`] for usage and useful examples.
+    ///
+    /// # Examples
+    /// ```
+    /// # use kvarn::*;
+    /// let extension = post!(request, bytes, response, address, host {
+    ///     let valid_utf8 = response.headers().get("content-type").map(HeaderValue::to_str)
+    ///         .and_then(Result::ok).map(|s| s.contains("utf8")).unwrap_or(false);
+    ///     
+    ///     match valid_utf8 {
+    ///         true => match str::from_utf8(&bytes) {
+    ///             Ok(s) => println!("Sent response in cleartext: '{}'", s),
+    ///             Err(_) => println!("Response is UTF-8, but the bytes are not. Probably compressed."),
+    ///         },
+    ///         false => println!("Response is not UTF-8."),
+    ///     }
+    /// });
+    /// ```
+    #[macro_export]
+    macro_rules! post {
+        ($request:ident, $bytes:ident, $response:ident, $addr:ident, $host:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$request: RequestWrapper, $response: EmptyResponseWrapperMut, $host: HostWrapper | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
+        }
     }
 }
