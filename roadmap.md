@@ -8,7 +8,7 @@ This is the roadmap for future development of Kvarn.
 
 # v0.1.0
 
-This milestone is reached. It was the first working state of the web server, and is currently running [icelk.dev](https://icelk.dev) and [kvarn.org](https://kvarn.org).
+This milestone is reached. It was the first working state of the web server.
 
 It's slow, not having async IO except for requests; FS is utterly slow and
 making any other async requests to a database or to proxy another server does not work
@@ -17,9 +17,12 @@ making any other async requests to a database or to proxy another server does no
 
 # v0.2.0 Tokio
 
+We have now reached this milestone, with HTTP/2, fast async IO, a new superior extension system, and nearly no code left from v0.1.0!
+This release is now currently running [icelk.dev](https://icelk.dev) and [kvarn.org](https://kvarn.org).
+
 This is a *real* performance uplift. It's essentially a complete rewrite of Kvarn.
 [extensions.md](extensions.md) and [routing.md](routing.md) are documents designed to make the server's
-architecture more *transparent*, even for non-programmers. It should make it easier to integrate with Kvarn.
+architecture more *transparent*. It should be understandable even for non-programmers. It should make it easier to integrate with Kvarn.
 
 > One other big thing is HTTP/2 Push, which makes loading web sites more than 2 times faster.
 > Without doing anything from your part, you can expect automatic push to work, resulting in the
@@ -42,7 +45,7 @@ architecture more *transparent*, even for non-programmers. It should make it eas
 
 # v0.3.0 Core
 
-This is a smaller release, fixing several bugs, increasing performance, and adding small future necessary for a good web server.
+This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small future necessary for a good web server.
 
 Name comes from the current plan to move core stuff into it's own crate.
 

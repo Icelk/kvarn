@@ -1,6 +1,6 @@
 [package]
 name = "kvarn"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2018"
 homepage = "https://icelk.dev/kvarn/"
