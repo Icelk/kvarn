@@ -236,7 +236,7 @@ impl CompressedResponse {
 
     #[inline(always)]
     fn add_server_header(headers: &mut HeaderMap) {
-        headers.insert("server", HeaderValue::from_static(SERVER_HEADER));
+        headers.insert("server", HeaderValue::from_static(SERVER));
     }
 
     #[inline(always)]

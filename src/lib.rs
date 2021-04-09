@@ -32,14 +32,20 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
 }
 
 #[cfg(target_os = "windows")]
-pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (Windows)";
+pub const SERVER: &str = "Kvarn/0.2.0 (Windows)";
 #[cfg(target_os = "macos")]
-pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (macOS)";
+pub const SERVER: &str = "Kvarn/0.2.0 (macOS)";
 #[cfg(target_os = "linux")]
-pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (Linux)";
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-pub const SERVER_HEADER: &str = "Kvarn/0.1.0 (unknown OS)";
-pub const SERVER_NAME: &str = "Kvarn";
+pub const SERVER: &str = "Kvarn/0.2.0 (Linux)";
+#[cfg(target_os = "freebsd")]
+pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd"
+)))]
+pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
 
 #[inline(always)]
 pub fn alpn() -> Vec<Vec<u8>> {

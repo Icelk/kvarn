@@ -177,7 +177,7 @@ pub mod cgi {
             .set_remote_port(&remote_port)
             .set_server_addr("0.0.0.0")
             .set_server_port("")
-            .set_server_name(kvarn::SERVER_NAME)
+            .set_server_name(kvarn::SERVER)
             .set_content_type("")
             .set_content_length(&len);
 
