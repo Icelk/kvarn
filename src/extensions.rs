@@ -22,7 +22,11 @@ pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
 pub type Prime =
     Box<(dyn Fn(RequestWrapper, HostWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
 pub type Pre = Box<
-    (dyn Fn(RequestWrapperMut, HostWrapper) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
+    (dyn Fn(
+        RequestWrapperMut,
+        HostWrapper,
+        SocketAddr,
+    ) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
          + Sync
          + Send),
 >;

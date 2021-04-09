@@ -249,7 +249,11 @@ pub async fn handle_cache(
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
             let ((resp, client_cache, server_cache, compress), future) = match bad_path {
-                false => match host.extensions.resolve_pre(&mut request, host).await {
+                false => match host
+                    .extensions
+                    .resolve_pre(&mut request, host, address)
+                    .await
+                {
                     Some((response, future)) => (response, Some(future)),
                     None => {
                         let path = parse::convert_uri(request.uri().path(), host.path.as_path());
