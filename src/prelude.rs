@@ -1,33 +1,30 @@
-//! ## **The Kvarn Prelude**
+//! ## The Kvarn Prelude
 //!
-//! The purpose of this module is to *simplify*, *make modules dependencies obvious*, and *keep consistency* in the development of the *Kvarn web server*.
+//! The purpose of this module is to *simplify*, *make modules dependencies obvious*,
+//! and *keep consistency* in the development of the Kvarn web server.
 //!
-//! Other niche preludes can be found as submodules, including
-//! * a FS prelude
-//! * a networking prelude
-//! * a internal prelude
-//! * a threading prelude
-//! * a connection-struct prelude
-//! * and a Rustls prelude
+//! Other specialised preludes can be found as modules, including
+//! - a fs prelude
+//! - a networking prelude
+//! - an internals prelude
+//! - a threading prelude
 
-// External commonly used dependencies
+// Commonly used external dependencies
 pub use bytes::{Bytes, BytesMut};
-pub use http;
 pub use http::{
-    header, header::HeaderName, HeaderMap, HeaderValue, Method, Request, Response, StatusCode, Uri,
-    Version,
+    self, header, header::HeaderName, uri, HeaderMap, HeaderValue, Method, Request, Response,
+    StatusCode, Uri, Version,
 };
 pub use log::*;
 pub use mime::Mime;
 pub use mime_guess;
-pub use std::cmp;
 pub use std::collections::HashMap;
 pub use std::fmt::{self, Debug, Display, Formatter};
 pub use std::io::{self, prelude::*};
 pub use std::net::{self, IpAddr, SocketAddr};
 pub use std::path::{Path, PathBuf};
 pub use std::str;
-pub use std::sync::{self, Arc};
+pub use std::sync::Arc;
 pub use std::time;
 pub use std::{
     future::Future,
@@ -36,7 +33,6 @@ pub use std::{
 };
 pub use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 pub use tokio::sync::Mutex;
-pub use tokio::task;
 
 // Modules
 pub use crate::application;
@@ -48,7 +44,7 @@ pub use crate::limiting;
 pub use crate::parse;
 pub use crate::utility;
 
-// Crate types
+// Crate exports
 pub use crate::Config;
 pub use crate::*;
 pub use comprash::UriKey;
@@ -57,7 +53,7 @@ pub use host::{Host, HostData};
 pub use utility::chars::*;
 pub use utility::{read_file, read_file_cached};
 
-/// ## **The Kvarn *File System* Prelude**
+/// File System prelude.
 ///
 /// The purpose of this module is to expose common file system operations.
 pub mod fs {
@@ -66,18 +62,18 @@ pub mod fs {
     pub use utility::{read_file, read_file_cached};
 }
 
-/// ## **The Kvarn *Networking* Prelude**
+/// Networking prelude.
 ///
 /// The purpose of this module is to expose Tokio network types used in Kvarn.
 pub mod networking {
     pub use tokio::net::{TcpListener, TcpStream};
 }
 
-/// ## **The Kvarn *Internal* Prelude**
+/// Internal prelude.
 ///
 /// The purpose of this module is to expose the commonly used internals of Kvarn.
 ///
-/// **This is not intended to be user-facing and may change rapidly**
+/// **This is not part of the public API and may change rapidly**
 pub mod internals {
     use super::*;
     pub use application::*;
@@ -89,7 +85,7 @@ pub mod internals {
     pub use utility::default_error;
 }
 
-/// ## **The Kvarn *Threading* Prelude**
+/// Threading prelude.
 ///
 /// The purpose of this module is to expose common threading types.
 pub mod threading {

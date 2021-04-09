@@ -312,12 +312,12 @@ impl Extensions {
             let path = uri
                 .path_and_query
                 .as_ref()
-                .map(http::uri::PathAndQuery::path)
+                .map(uri::PathAndQuery::path)
                 .unwrap_or("/");
             let query = uri
                 .path_and_query
                 .as_ref()
-                .map(http::uri::PathAndQuery::query)
+                .map(uri::PathAndQuery::query)
                 .flatten();
             let path_and_query = build_bytes!(
                 path.as_bytes(),
@@ -328,7 +328,7 @@ impl Extensions {
 
             // This is ok, we only added bytes from a String, which are guaranteed to be valid for a URI path
             uri.path_and_query =
-                Some(http::uri::PathAndQuery::from_maybe_shared(path_and_query).unwrap());
+                Some(uri::PathAndQuery::from_maybe_shared(path_and_query).unwrap());
 
             // Again ok, see ↑
             let uri = Uri::from_parts(uri).unwrap();

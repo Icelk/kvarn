@@ -81,11 +81,11 @@ fn push(
                 for url in urls {
                     unsafe {
                         let mut uri = request.get_inner().uri().clone().into_parts();
-                        match http::uri::PathAndQuery::from_maybe_shared(url.into_bytes())
+                        match uri::PathAndQuery::from_maybe_shared(url.into_bytes())
                             .ok()
                             .and_then(|path| {
                                 uri.path_and_query = Some(path);
-                                http::Uri::from_parts(uri).ok()
+                                Uri::from_parts(uri).ok()
                             }) {
                             Some(url) => {
                                 let mut request = utility::empty_clone_request(request.get_inner());
@@ -514,7 +514,7 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
     ext!(
         let data = unsafe { data.get_inner() };
-        let error = default_error(http::StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
+        let error = default_error(StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
         *data.response_mut() = error;
     )
 }
@@ -538,7 +538,7 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
         if !matched {
             // If it does not match, set the response to 404
             let error =
-                default_error(http::StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
+                default_error(StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
             *data.response_mut() = error;
         }
         *data.server_cache_preference() = kvarn::comprash::ServerCachePreference::None;

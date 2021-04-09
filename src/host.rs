@@ -134,10 +134,7 @@ impl Host {
                 let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = request.uri();
                 let uri = {
-                    let authority = uri
-                        .authority()
-                        .map(http::uri::Authority::as_str)
-                        .unwrap_or("");
+                    let authority = uri.authority().map(uri::Authority::as_str).unwrap_or("");
                     let path = uri.query().unwrap_or("");
                     let mut bytes = BytesMut::with_capacity(8 + authority.len() + path.len());
                     bytes.extend(b"https://");
@@ -183,7 +180,7 @@ impl Host {
                     }
                     // it must be a valid Uri
                     uri.path_and_query =
-                        Some(http::uri::PathAndQuery::from_maybe_shared(bytes.freeze()).unwrap());
+                        Some(uri::PathAndQuery::from_maybe_shared(bytes.freeze()).unwrap());
                     let uri = Uri::from_parts(uri).unwrap();
                     Some(uri)
                 }
