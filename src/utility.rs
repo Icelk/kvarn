@@ -49,15 +49,32 @@ pub struct WriteableBytes {
 }
 impl WriteableBytes {
     #[inline]
-    pub fn new(mut bytes: BytesMut) -> Self {
-        let len = bytes.len();
-        unsafe { bytes.set_len(bytes.capacity()) };
-        Self { len, bytes }
+    pub fn new() -> Self {
+        Self {
+            bytes: BytesMut::new(),
+            len: 0,
     }
+    }
+    /// Crates a new writeable buffer with a specified capacity.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            bytes: BytesMut::with_capacity(capacity),
+            len: 0,
+        }
+    }
+    /// Turns `self` into `BytesMut` when you are done writing.
     #[inline]
     pub fn into_inner(mut self) -> BytesMut {
         unsafe { self.bytes.set_len(self.len) };
         self.bytes
+    }
+}
+impl From<BytesMut> for WriteableBytes {
+    fn from(mut bytes: BytesMut) -> Self {
+        let len = bytes.len();
+        unsafe { bytes.set_len(bytes.capacity()) };
+        Self { bytes, len }
     }
 }
 impl Write for WriteableBytes {

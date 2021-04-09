@@ -321,8 +321,7 @@ impl CompressedResponse {
         if self.gzip.is_none() {
             let bytes = self.identity.body().as_ref();
 
-            let mut buffer =
-                utility::WriteableBytes::new(bytes::BytesMut::with_capacity(bytes.len() / 2 + 64));
+            let mut buffer = utility::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
 
             let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::fast());
             c.write_all(bytes).expect("Failed to compress using gzip!");
@@ -345,8 +344,7 @@ impl CompressedResponse {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();
 
-            let mut buffer =
-                utility::WriteableBytes::new(bytes::BytesMut::with_capacity(bytes.len() / 2 + 64));
+            let mut buffer = utility::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
 
             let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, 8, 21);
             c.write_all(bytes)
