@@ -144,7 +144,7 @@ mod request {
     use super::*;
 
     #[inline]
-    pub async fn parse_http_1(
+    pub(crate) async fn parse_http_1(
         stream: Arc<Mutex<Encryption>>,
         max_len: usize,
         default_host: &[u8],
@@ -389,7 +389,7 @@ mod response {
     }
 
     /// Writer **must** be buffered!
-    pub async fn write_http_1_response<W: AsyncWrite + Unpin>(
+    pub(crate) async fn write_http_1_response<W: AsyncWrite + Unpin>(
         mut writer: W,
         response: Response<()>,
     ) -> io::Result<()> {

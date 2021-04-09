@@ -1,4 +1,5 @@
 // #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
+#![warn(unreachable_pub)]
 
 // Module declaration
 pub mod application;

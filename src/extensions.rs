@@ -225,7 +225,7 @@ impl Extensions {
                 Other,
             }
             impl Ending {
-                pub fn from_uri(uri: &Uri) -> Self {
+                fn from_uri(uri: &Uri) -> Self {
                     if uri.path().ends_with(".") {
                         Self::Dot
                     } else if uri.path().ends_with("/") {

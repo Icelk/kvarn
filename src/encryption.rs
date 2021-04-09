@@ -172,7 +172,7 @@ mod tokio_tls {
     use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
     #[derive(Debug)]
-    pub enum TlsState {
+    pub(crate) enum TlsState {
         Stream,
         ReadShutdown,
         WriteShutdown,
@@ -181,7 +181,7 @@ mod tokio_tls {
 
     impl TlsState {
         #[inline]
-        pub fn shutdown_read(&mut self) {
+        pub(crate) fn shutdown_read(&mut self) {
             match *self {
                 TlsState::WriteShutdown | TlsState::FullyShutdown => {
                     *self = TlsState::FullyShutdown
@@ -191,7 +191,7 @@ mod tokio_tls {
         }
 
         #[inline]
-        pub fn shutdown_write(&mut self) {
+        pub(crate) fn shutdown_write(&mut self) {
             match *self {
                 TlsState::ReadShutdown | TlsState::FullyShutdown => *self = TlsState::FullyShutdown,
                 _ => *self = TlsState::WriteShutdown,
@@ -199,12 +199,12 @@ mod tokio_tls {
         }
 
         #[inline]
-        pub fn writeable(&self) -> bool {
+        pub(crate) fn writeable(&self) -> bool {
             !matches!(*self, TlsState::WriteShutdown | TlsState::FullyShutdown)
         }
 
         #[inline]
-        pub fn readable(&self) -> bool {
+        pub(crate) fn readable(&self) -> bool {
             !matches!(*self, TlsState::ReadShutdown | TlsState::FullyShutdown)
         }
     }
@@ -315,15 +315,15 @@ mod tokio_tls {
         }
     }
 
-    pub struct Stream<'a, IO, S> {
-        pub io: &'a mut IO,
-        pub session: &'a mut S,
-        pub eof: bool,
+    pub(crate) struct Stream<'a, IO, S> {
+        io: &'a mut IO,
+        session: &'a mut S,
+        eof: bool,
     }
 
     impl<'a, IO: AsyncRead + AsyncWrite + Unpin, S: Session> Stream<'a, IO, S> {
         #[inline]
-        pub fn new(io: &'a mut IO, session: &'a mut S) -> Self {
+        pub(crate) fn new(io: &'a mut IO, session: &'a mut S) -> Self {
             Stream {
                 io,
                 session,
@@ -334,17 +334,17 @@ mod tokio_tls {
         }
 
         #[inline]
-        pub fn set_eof(mut self, eof: bool) -> Self {
+        pub(crate) fn set_eof(mut self, eof: bool) -> Self {
             self.eof = eof;
             self
         }
 
         #[inline]
-        pub fn as_mut_pin(&mut self) -> Pin<&mut Self> {
+        pub(crate) fn as_mut_pin(&mut self) -> Pin<&mut Self> {
             Pin::new(self)
         }
 
-        pub fn read_io(&mut self, cx: &mut Context) -> Poll<Result<usize, TlsIoError>> {
+        pub(crate) fn read_io(&mut self, cx: &mut Context) -> Poll<Result<usize, TlsIoError>> {
             struct Reader<'a, 'b, T> {
                 io: &'a mut T,
                 cx: &'a mut Context<'b>,
@@ -382,7 +382,7 @@ mod tokio_tls {
             Poll::Ready(Ok(n))
         }
 
-        pub fn write_io(&mut self, cx: &mut Context) -> Poll<io::Result<usize>> {
+        pub(crate) fn write_io(&mut self, cx: &mut Context) -> Poll<io::Result<usize>> {
             struct Writer<'a, 'b, T> {
                 io: &'a mut T,
                 cx: &'a mut Context<'b>,
@@ -425,7 +425,10 @@ mod tokio_tls {
             }
         }
 
-        pub fn handshake(&mut self, cx: &mut Context) -> Poll<Result<(usize, usize), TlsIoError>> {
+        pub(crate) fn handshake(
+            &mut self,
+            cx: &mut Context,
+        ) -> Poll<Result<(usize, usize), TlsIoError>> {
             let mut wrlen = 0;
             let mut rdlen = 0;
 
