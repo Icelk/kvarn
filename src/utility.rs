@@ -52,6 +52,7 @@ macro_rules! build_bytes {
 /// A writeable `Bytes`.
 ///
 /// Has a special allocation method for optimized usage in Kvarn.
+#[derive(Debug)]
 #[must_use]
 pub struct WriteableBytes {
     bytes: BytesMut,

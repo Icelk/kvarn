@@ -1,5 +1,5 @@
 #![warn(unreachable_pub)]
-// #![warn(missing_debug_implementations)]
+#![warn(missing_debug_implementations)]
 // #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::inline_always, clippy::too_many_lines)]
@@ -154,6 +154,7 @@ pub async fn handle_connection(
     Ok(())
 }
 
+#[derive(Debug)]
 pub enum SendKind<'a> {
     Send(&'a mut application::ResponsePipe),
     Push(&'a mut application::PushedResponsePipe),

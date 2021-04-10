@@ -59,6 +59,7 @@ macro_rules! get_unsafe_wrapper {
         #[doc = "A wrapper type for `"]
         #[doc = $ret_str]
         #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[allow(missing_debug_implementations)]
         #[must_use]
         pub struct $main(*const $return);
         impl $main {
@@ -86,6 +87,7 @@ macro_rules! get_unsafe_mut_wrapper {
         #[doc = "A wrapper type for `"]
         #[doc = $ret_str]
         #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[allow(missing_debug_implementations)]
         #[must_use]
         pub struct $main(*mut $return);
         impl $main {
@@ -116,6 +118,7 @@ get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, application::ResponsePipe);
 get_unsafe_wrapper!(HostWrapper, Host);
 get_unsafe_wrapper!(PathWrapper, Path);
 
+#[allow(missing_debug_implementations)]
 pub struct PresentDataWrapper(PresentData);
 impl PresentDataWrapper {
     /// # Safety
@@ -137,7 +140,7 @@ impl PresentDataWrapper {
 /// Can be acquired from [`PresentDataWrapper`].
 ///
 /// See [module level documentation](crate::extensions).
-#[derive(Debug)]
+#[allow(missing_debug_implementations)]
 pub struct PresentData {
     // Regarding request
     address: SocketAddr,
@@ -202,6 +205,7 @@ unsafe impl Sync for PresentData {}
 /// See [extensions.md](../extensions.md) for more info.
 ///
 /// `ToDo`: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
+#[allow(missing_debug_implementations)]
 #[must_use]
 pub struct Extensions {
     prime: Vec<Prime>,

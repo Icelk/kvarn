@@ -66,6 +66,7 @@ impl Into<io::Error> for Error {
     }
 }
 
+#[derive(Debug)]
 pub enum HttpConnection {
     Http1(Arc<Mutex<Encryption>>),
     #[cfg(feature = "h2")]
@@ -81,17 +82,20 @@ pub enum Body {
     Http2(h2::RecvStream),
 }
 
+#[derive(Debug)]
 #[must_use]
 pub enum ResponsePipe {
     Http1(Arc<Mutex<Encryption>>),
     #[cfg(feature = "h2")]
     Http2(h2::server::SendResponse<Bytes>),
 }
+#[derive(Debug)]
 pub enum ResponseBodyPipe {
     Http1(Arc<Mutex<Encryption>>),
     #[cfg(feature = "h2")]
     Http2(h2::SendStream<Bytes>),
 }
+#[derive(Debug)]
 #[must_use]
 pub enum PushedResponsePipe {
     #[cfg(feature = "h2")]
