@@ -451,6 +451,7 @@ pub enum ClientCachePreference {
     Undefined,
 }
 impl ClientCachePreference {
+    #[cfg(not(feature = "no-cache"))]
     #[inline]
     #[must_use]
     pub fn as_header(self) -> Option<HeaderValue> {
@@ -462,6 +463,13 @@ impl ClientCachePreference {
             )),
             Self::Undefined => None,
         }
+    }
+    #[cfg(feature = "no-cache")]
+    #[must_use]
+    // For consistency between features
+    #[allow(clippy::unused_self)]
+    pub fn as_header(self) -> Option<HeaderValue> {
+        Some(HeaderValue::from_static("no-store"))
     }
 }
 impl str::FromStr for ClientCachePreference {

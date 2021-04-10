@@ -45,8 +45,7 @@ limiting = []
 # Disables the cache
 no-fs-cache = []
 no-response-cache = []
-no-template-cache = []
-no-cache = ["no-fs-cache", "no-response-cache", "no-template-cache"]
+no-cache = ["no-fs-cache", "no-response-cache"]
 
 # Compressing
 compression = ["br", "gzip"]
