@@ -381,6 +381,13 @@ pub enum CompressPreference {
     /// Will automatically compress and send compressed versions of the response
     Full,
 }
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum CachePreferenceError {
+    Empty,
+    Invalid,
+}
+
 /// The preference for caching the item on the server.
 ///
 /// Note: It's only a preference. Disabling the cache in compile-time will
@@ -398,6 +405,7 @@ pub enum ServerCachePreference {
 impl ServerCachePreference {
     #[inline]
     #[must_use]
+    #[allow(clippy::unused_self)]
     pub fn cache(self) -> bool {
         #[cfg(not(feature = "no-response-cache"))]
         match self {
@@ -414,6 +422,20 @@ impl ServerCachePreference {
             Self::None | Self::Full => false,
             Self::QueryMatters => true,
         }
+    }
+}
+impl str::FromStr for ServerCachePreference {
+    type Err = CachePreferenceError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "full" => ServerCachePreference::Full,
+            "query_matters" | "query-matters" | "QueryMatters" | "queryMatters" => {
+                ServerCachePreference::QueryMatters
+            }
+            "none" => ServerCachePreference::None,
+            "" => return Err(CachePreferenceError::Empty),
+            _ => return Err(CachePreferenceError::Invalid),
+        })
     }
 }
 /// Automatically add `cache-control` header to response
@@ -442,45 +464,16 @@ impl ClientCachePreference {
         }
     }
 }
-
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct CombinedCachePreference(pub ServerCachePreference, pub ClientCachePreference);
-
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub enum ParseCachedErr {
-    StringEmpty,
-    UndefinedKeyword,
-    ContainsSpace,
-    FailedToParse,
-}
-impl str::FromStr for CombinedCachePreference {
-    type Err = ParseCachedErr;
-
+impl str::FromStr for ClientCachePreference {
+    type Err = CachePreferenceError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.contains(' ') {
-            Err(Self::Err::ContainsSpace)
-        } else {
-            match s.to_ascii_lowercase().as_str() {
-                "false" | "no-cache" | "dynamic" => Ok(Self(
-                    ServerCachePreference::None,
-                    ClientCachePreference::None,
-                )),
-                "changing" | "may-change" => Ok(Self(
-                    ServerCachePreference::None,
-                    ClientCachePreference::Changing,
-                )),
-                "per-query" | "query" => Ok(Self(
-                    ServerCachePreference::QueryMatters,
-                    ClientCachePreference::Full,
-                )),
-                "true" | "static" | "immutable" => Ok(Self(
-                    ServerCachePreference::Full,
-                    ClientCachePreference::Full,
-                )),
-                "" => Err(Self::Err::StringEmpty),
-                _ => Err(Self::Err::UndefinedKeyword),
-            }
-        }
+        Ok(match s {
+            "full" => ClientCachePreference::Full,
+            "changing" => ClientCachePreference::Changing,
+            "none" => ClientCachePreference::None,
+            "" => return Err(CachePreferenceError::Empty),
+            _ => return Err(CachePreferenceError::Invalid),
+        })
     }
 }
 

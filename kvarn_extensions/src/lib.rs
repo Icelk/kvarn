@@ -9,7 +9,6 @@
 //! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it.
 
 use kvarn::{
-    comprash::CombinedCachePreference,
     extensions::*,
     prelude::{internals::*, *},
 };
@@ -73,7 +72,7 @@ fn push(
                             .map(|url| url.starts_with(host.host_name))
                             .unwrap_or(false)
                     };
-                    url.starts_with("/") || correct_host
+                    url.starts_with('/') || correct_host
                 });
 
                 info!("Pushing urls {:?}", urls);
@@ -81,13 +80,13 @@ fn push(
                 for url in urls {
                     unsafe {
                         let mut uri = request.get_inner().uri().clone().into_parts();
-                        match uri::PathAndQuery::from_maybe_shared(url.into_bytes())
+                        if let Some(url)
+                        = uri::PathAndQuery::from_maybe_shared(url.into_bytes())
                             .ok()
                             .and_then(|path| {
                                 uri.path_and_query = Some(path);
                                 Uri::from_parts(uri).ok()
                             }) {
-                            Some(url) => {
                                 let mut request = utility::empty_clone_request(request.get_inner());
                                 *request.uri_mut() = url;
 
@@ -111,8 +110,6 @@ fn push(
                                 {
                                     error!("Error occurred when pushing request. {:?}", err);
                                 };
-                            }
-                            None => {}
                         }
                     }
                 }
@@ -439,12 +436,10 @@ pub mod templates {
                         // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
                         let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
                             newline_size
+                        } else if file.get(name_end) == Some(&SPACE) {
+                            1
                         } else {
-                            if file.get(name_end) == Some(&SPACE) {
-                                1
-                            } else {
-                                0
-                            }
+                            0
                         };
                         // Then insert template; name we got from previous step, then bytes from where the previous template definition ended, then our current position, just before the start of the next template
                         // Returns a byte-slice of the file
@@ -470,12 +465,10 @@ pub mod templates {
                 // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
                 let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
                     newline_size
+                } else if file.get(name_end) == Some(&SPACE) {
+                    1
                 } else {
-                    if file.get(name_end) == Some(&SPACE) {
-                        1
-                    } else {
-                        0
-                    }
+                    0
                 };
                 templates.insert(
                     name.to_owned(),
@@ -497,16 +490,43 @@ pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
+    fn parse<'a, I: Iterator<Item = &'a str>>(
+        iter: I,
+    ) -> (Option<ClientCachePreference>, Option<ServerCachePreference>) {
+        let mut c = None;
+        let mut s = None;
+        for arg in iter {
+            let mut parts = arg.split(':');
+            let domain = parts.next();
+            let cache = parts.next();
+            if let (Some(domain), Some(cache)) = (domain, cache) {
+                match domain {
+                    "client" => {
+                        if let Ok(preference) = cache.parse() {
+                            c = Some(preference)
+                        }
+                    }
+                    "server" => {
+                        if let Ok(preference) = cache.parse() {
+                            s = Some(preference)
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (c, s)
+    }
     box_fut!(
         let data = unsafe { data.get_inner() };
-        if let Some(preference) = data
+        let preference = parse( data
             .args()
-            .iter()
-            .next()
-            .and_then(|arg| arg.parse::<CombinedCachePreference>().ok())
-        {
-            *data.server_cache_preference() = preference.0;
-            *data.client_cache_preference() = preference.1;
+            .iter());
+        if let Some(c) = preference.0{
+            *data.client_cache_preference() = c;
+        }
+        if let Some(s) = preference.1 {
+            *data.server_cache_preference() = s;
         }
     )
 }
