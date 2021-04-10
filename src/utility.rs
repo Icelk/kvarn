@@ -71,10 +71,9 @@ impl WriteableBytes {
     /// Crates a new writeable buffer with a specified capacity.
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            bytes: BytesMut::with_capacity(capacity),
-            len: 0,
-        }
+        let mut bytes = BytesMut::with_capacity(capacity);
+        unsafe { bytes.set_len(bytes.capacity()) };
+        Self { bytes, len: 0 }
     }
     /// Turns `self` into `BytesMut` when you are done writing.
     #[inline]
