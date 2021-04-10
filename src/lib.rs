@@ -493,21 +493,11 @@ impl Debug for HostDescriptor {
     }
 }
 
-#[derive(Debug)]
-#[must_use]
-pub struct Config {
-    descriptors: Vec<HostDescriptor>,
-}
-impl Config {
-    pub fn new(descriptors: Vec<HostDescriptor>) -> Self {
-        Config { descriptors }
-    }
-
-    pub async fn run(self) {
+pub async fn run(ports: Vec<PortDescriptor>) {
         trace!("Running from config");
 
-        let len = self.descriptors.len();
-        for (pos, descriptor) in self.descriptors.into_iter().enumerate() {
+    let len = ports.len();
+    for (pos, descriptor) in ports.into_iter().enumerate() {
             let listener = TcpListener::bind(net::SocketAddrV4::new(
                 net::Ipv4Addr::UNSPECIFIED,
                 descriptor.port,
@@ -516,7 +506,7 @@ impl Config {
             .expect("Failed to bind to port");
 
             let future = async move {
-                Self::accept(listener, descriptor)
+            accept(listener, descriptor)
                     .await
                     .expect("Failed to accept message!")
             };
@@ -529,7 +519,7 @@ impl Config {
         }
     }
 
-    async fn accept(listener: TcpListener, host: HostDescriptor) -> Result<(), io::Error> {
+async fn accept(listener: TcpListener, host: PortDescriptor) -> Result<(), io::Error> {
         trace!("Started listening on {:?}", listener.local_addr());
         let host = Arc::new(host);
 
@@ -568,4 +558,3 @@ impl Config {
             }
         }
     }
-}

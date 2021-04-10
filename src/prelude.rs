@@ -45,7 +45,6 @@ pub use crate::parse;
 pub use crate::utility;
 
 // Crate exports
-pub use crate::Config;
 pub use crate::*;
 pub use comprash::UriKey;
 pub use extensions::{Package, Post, Pre, Prepare, Present, Prime};
