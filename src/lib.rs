@@ -1,5 +1,7 @@
-// #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
 #![warn(unreachable_pub)]
+// #![warn(missing_debug_implementations)]
+// #![warn(missing_docs)]
+// #![warn(clippy::pedantic)]
 
 // Module declaration
 pub mod application;
@@ -143,7 +145,7 @@ pub async fn handle_connection(
         }
         let host = host_descriptors
             .host_data
-            .smart_get(&request, hostname.as_ref().map(String::as_str));
+            .smart_get(&request, hostname.as_deref());
         // fn to handle getting from cache, generating response and sending it
         handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await?;
     }
@@ -258,15 +260,15 @@ pub async fn handle_cache(
                     Some((response, future)) => (response, Some(future)),
                     None => {
                         let path = parse::convert_uri(request.uri().path(), host.path.as_path());
-                        let (mut resp, client_cache, server_cache, compress) =
+                        let (mut resp, mut client_cache, mut server_cache, compress) =
                             handle_request(&mut request, address, host, &path).await?;
 
                         host.extensions
                             .resolve_present(
                                 &mut request,
                                 &mut resp,
-                                client_cache,
-                                server_cache,
+                                &mut client_cache,
+                                &mut server_cache,
                                 host,
                                 address,
                                 path.as_path(),

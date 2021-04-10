@@ -1,5 +1,6 @@
 use crate::prelude::{fs::*, *};
 
+/// Common characters expressed as a single byte each, according to UTF-8.
 pub mod chars {
     /// Tab
     pub const TAB: u8 = 9;
@@ -29,6 +30,11 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
+/// Conveniency macro to create a [`Bytes`] from multiple `&[u8]` sources.
+///
+/// Allocates only once; capacity is calculated before any allocation.
+///
+/// Works like the [`vec!`] macro, but takes byte slices and concatenates them together.
 #[macro_export]
 macro_rules! build_bytes {
     () => (
@@ -43,17 +49,22 @@ macro_rules! build_bytes {
     }};
 }
 
+/// A writeable `Bytes`.
+///
+/// Has a special allocation method for optimized usage in Kvarn.
 pub struct WriteableBytes {
     bytes: BytesMut,
     len: usize,
 }
 impl WriteableBytes {
+    /// Creates a new writeable buffer. Consider using
+    /// [`Self::with_capacity()`] if you can estimate the capacity needed.
     #[inline]
     pub fn new() -> Self {
         Self {
             bytes: BytesMut::new(),
             len: 0,
-    }
+        }
     }
     /// Crates a new writeable buffer with a specified capacity.
     #[inline]
@@ -68,6 +79,11 @@ impl WriteableBytes {
     pub fn into_inner(mut self) -> BytesMut {
         unsafe { self.bytes.set_len(self.len) };
         self.bytes
+    }
+}
+impl Default for WriteableBytes {
+    fn default() -> Self {
+        Self::new()
     }
 }
 impl From<BytesMut> for WriteableBytes {
@@ -88,6 +104,7 @@ impl Write for WriteableBytes {
         self.len += buf.len();
         Ok(buf.len())
     }
+    #[inline(always)]
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -117,6 +134,9 @@ pub async fn read_to_end<R: AsyncRead + Unpin>(
     Ok(())
 }
 
+/// Reads a file using a `cache`.
+/// Should be used instead of [`fs::File::open()`].
+///
 /// Should only be used when a file is typically access several times or from several requests.
 #[cfg(not(feature = "no-fs-cache"))]
 #[inline]
@@ -135,6 +155,9 @@ pub async fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Op
         .cache(path.as_ref().to_path_buf(), Bytes::clone(&buffer));
     Some(buffer)
 }
+/// Reads a file using a `cache`.
+/// Should be used instead of [`fs::File::open()`].
+///
 /// Should only be used when a file is typically access several times or from several requests.
 #[cfg(feature = "no-fs-cache")]
 #[inline]
@@ -145,9 +168,10 @@ pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option
     Some(buffer.freeze())
 }
 
-/// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
+/// Reads a file using a `cache`.
+/// Should be used instead of [`fs::File::open()`].
 ///
-/// It can prevent one `clone` if only used once, else results in several system calls.
+/// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 #[cfg(not(feature = "no-fs-cache"))]
 #[inline]
 pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Bytes> {
@@ -160,6 +184,9 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<By
     read_to_end(&mut buffer, file).await.ok()?;
     Some(buffer.freeze())
 }
+/// Reads a file using a `cache`.
+/// Should be used instead of [`fs::File::open()`].
+///
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 #[cfg(feature = "no-fs-cache")]
 #[inline]
@@ -172,29 +199,25 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes>
 
 pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
     let mut body = BytesMut::with_capacity(1024);
-    match code {
-        _ => {
-            // Get code and reason!
-            let reason = code.canonical_reason();
+    // Get code and reason!
+    let reason = code.canonical_reason();
 
-            body.extend(b"<html><head><title>");
-            // Code and reason
-            body.extend(code.as_str().as_bytes());
-            body.extend(b" ");
-            if let Some(reason) = reason {
-                body.extend(reason.as_bytes());
-            }
-
-            body.extend(&b"</title></head><body><center><h1>"[..]);
-            // Code and reason
-            body.extend(code.as_str().as_bytes());
-            body.extend(b" ");
-            if let Some(reason) = reason {
-                body.extend(reason.as_bytes());
-            }
-            body.extend(&b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>"[..]);
-        }
+    body.extend(b"<html><head><title>");
+    // Code and reason
+    body.extend(code.as_str().as_bytes());
+    body.extend(b" ");
+    if let Some(reason) = reason {
+        body.extend(reason.as_bytes());
     }
+
+    body.extend(&b"</title></head><body><center><h1>"[..]);
+    // Code and reason
+    body.extend(code.as_str().as_bytes());
+    body.extend(b" ");
+    if let Some(reason) = reason {
+        body.extend(reason.as_bytes());
+    }
+    body.extend(&b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>"[..]);
 
     body.freeze()
 }

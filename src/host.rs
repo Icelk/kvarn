@@ -102,17 +102,11 @@ impl Host {
 
     #[inline(always)]
     pub fn get_folder_default_or<'a>(&'a self, default: &'a str) -> &'a str {
-        self.folder_default
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or(default)
+        self.folder_default.as_deref().unwrap_or(default)
     }
     #[inline(always)]
     pub fn get_extension_default_or<'a>(&'a self, default: &'a str) -> &'a str {
-        self.extension_default
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or(default)
+        self.extension_default.as_deref().unwrap_or(default)
     }
     #[inline(always)]
     pub fn set_folder_default(&mut self, default: String) {
@@ -125,7 +119,7 @@ impl Host {
 
     #[cfg(feature = "https")]
     pub fn set_http_redirect_to_https(&mut self) {
-        const SPECIAL_PATH: &'static str = "/../to_https";
+        const SPECIAL_PATH: &str = "/../to_https";
         self.extensions.add_prepare_single(
             SPECIAL_PATH.to_string(),
             Box::new(|mut request, _, _, _| {
@@ -358,22 +352,25 @@ impl HostData {
 
         let mut found = false;
         let mut cleared = false;
-        if host == "" || host == "default" {
+        if host.is_empty() || host == "default" {
             found = true;
             let mut lock = self.default.response_cache.lock().await;
-            if key.call_all(|key| lock.remove(key).to_option()).1.is_some() {
+            if key
+                .call_all(|key| lock.remove(key).into_option())
+                .1
+                .is_some()
+            {
                 cleared = true;
             }
-        } else {
-            match self.by_name.get(host) {
-                Some(host) => {
-                    found = true;
-                    let mut lock = host.response_cache.lock().await;
-                    if key.call_all(|key| lock.remove(key).to_option()).1.is_some() {
-                        cleared = true;
-                    }
-                }
-                None => {}
+        } else if let Some(host) = self.by_name.get(host) {
+            found = true;
+            let mut lock = host.response_cache.lock().await;
+            if key
+                .call_all(|key| lock.remove(key).into_option())
+                .1
+                .is_some()
+            {
+                cleared = true;
             }
         }
         (found, cleared)
@@ -393,7 +390,7 @@ impl HostData {
             .lock()
             .await
             .remove(path.as_ref())
-            .to_option()
+            .into_option()
             .is_some()
         {
             found = true;
@@ -404,7 +401,7 @@ impl HostData {
                 .lock()
                 .await
                 .remove(path.as_ref())
-                .to_option()
+                .into_option()
                 .is_some()
             {
                 found = true;

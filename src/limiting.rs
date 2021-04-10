@@ -78,12 +78,10 @@ impl LimitManager {
                     .or_insert(1);
                 if requests <= self.max_requests {
                     LimitStrength::Passed
+                } else if requests <= self.max_requests * 10 {
+                    LimitStrength::Send
                 } else {
-                    if requests <= self.max_requests * 10 {
-                        LimitStrength::Send
-                    } else {
-                        LimitStrength::Drop
-                    }
+                    LimitStrength::Drop
                 }
             }
         }

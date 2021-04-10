@@ -69,7 +69,7 @@ impl Into<io::Error> for Error {
 pub enum HttpConnection {
     Http1(Arc<Mutex<Encryption>>),
     #[cfg(feature = "h2")]
-    Http2(h2::server::Connection<Encryption, bytes::Bytes>),
+    Http2(Box<h2::server::Connection<Encryption, bytes::Bytes>>),
 }
 
 /// ToDo: trailers
@@ -104,7 +104,7 @@ impl HttpConnection {
             }
             #[cfg(feature = "h2")]
             Version::HTTP_2 => match h2::server::handshake(stream).await {
-                Ok(connection) => Ok(HttpConnection::Http2(connection)),
+                Ok(connection) => Ok(HttpConnection::Http2(Box::new(connection))),
                 Err(err) => Err(Error::H2(err)),
             },
             #[cfg(not(feature = "h2"))]
@@ -128,10 +128,9 @@ impl HttpConnection {
             #[cfg(feature = "h2")]
             Self::Http2(connection) => match connection.accept().await {
                 Some(connection) => match connection {
-                    Ok((request, response)) => Ok((
-                        request.map(|s| Body::Http2(s)),
-                        ResponsePipe::Http2(response),
-                    )),
+                    Ok((request, response)) => {
+                        Ok((request.map(Body::Http2), ResponsePipe::Http2(response)))
+                    }
                     Err(err) => Err(Error::H2(err)),
                 },
                 None => Err(Error::Done),
@@ -167,7 +166,7 @@ mod request {
                 #[cfg(feature = "h2")]
                 Self::Http2(h2) => futures::future::poll_fn(|cx| h2.poll_data(cx))
                     .await
-                    .unwrap_or(Ok(Bytes::new()))
+                    .unwrap_or_else(|| Ok(Bytes::new()))
                     .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
             }
         }

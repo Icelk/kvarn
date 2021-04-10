@@ -59,23 +59,21 @@ pub fn format_list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
             if byte == '=' && previous_was_q {
                 quality_start_byte = position + 1;
             }
-            previous_was_q = if byte == 'q' { true } else { false }
+            previous_was_q = byte == 'q';
         }
 
         if byte == ',' {
-            let quality = match header
+            let quality = header
                 .get(quality_start_byte..position)
                 .and_then(|quality| quality.parse().ok())
+                .unwrap_or(1.0);
+            if let Some(accept) =
+                header.get(start_byte..if end_byte == 0 { position } else { end_byte })
             {
-                Some(quality) => quality,
-                None => 1.0,
-            };
-            match header.get(start_byte..if end_byte == 0 { position } else { end_byte }) {
-                Some(accept) => list.push(ValueQualitySet {
+                list.push(ValueQualitySet {
                     value: accept,
                     quality,
-                }),
-                None => {}
+                });
             }
             quality_start_byte = 0;
             end_byte = 0;
@@ -88,19 +86,15 @@ pub fn format_list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
         }
     }
     // Last, when reaches EOF
-    let quality = match header
+    let quality = header
         .get(quality_start_byte..)
         .and_then(|quality| quality.parse().ok())
-    {
-        Some(quality) => quality,
-        None => 1.0,
-    };
-    match header.get(start_byte..) {
-        Some(accept) => list.push(ValueQualitySet {
+        .unwrap_or(1.0);
+    if let Some(accept) = header.get(start_byte..) {
+        list.push(ValueQualitySet {
             value: accept,
             quality,
-        }),
-        None => {}
+        });
     }
     list
 }
@@ -121,8 +115,8 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
                 let key = query.get(pair_start..value_start);
                 let value = query.get(value_start + 1..position);
 
-                if key.is_some() && value.is_some() {
-                    map.insert(key.unwrap(), value.unwrap());
+                if let (Some(key), Some(value)) = (key, value) {
+                    map.insert(key, value);
                 }
 
                 pair_start = position + 1;
@@ -134,8 +128,8 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
         let key = query.get(pair_start..value_start);
         let value = query.get(value_start + 1..);
 
-        if key.is_some() && value.is_some() {
-            map.insert(key.unwrap(), value.unwrap());
+        if let (Some(key), Some(value)) = (key, value) {
+            map.insert(key, value);
         }
     }
     map
@@ -239,11 +233,11 @@ pub fn headers(bytes: &Bytes) -> (HeaderMap, usize) {
                     let name = HeaderName::from_bytes(&bytes[header_name_start..header_name_end]);
                     let value =
                         HeaderValue::from_maybe_shared(bytes.slice(header_value_start..pos - 1));
-                    if name.is_ok() && value.is_ok() {
-                        // Ok, because of ↑
-                        headers.insert(name.unwrap(), value.unwrap());
-                    } else {
-                        error!("error in parsing headers");
+                    match (name, value) {
+                        (Ok(name), Ok(value)) => {
+                            headers.insert(name, value);
+                        }
+                        _ => warn!("error in parsing headers"),
                     }
                     parse_stage.next();
                     header_name_start = pos + 1;

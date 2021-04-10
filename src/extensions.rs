@@ -64,6 +64,8 @@ macro_rules! get_unsafe_wrapper {
             pub(crate) fn new(data: &$return) -> Self {
                 Self(data)
             }
+            /// # Safety
+            ///
             /// See [module level documentation](crate::extensions).
             #[inline(always)]
             pub unsafe fn get_inner(&self) -> &$return {
@@ -87,6 +89,8 @@ macro_rules! get_unsafe_mut_wrapper {
             pub(crate) fn new(data: &mut $return) -> Self {
                 Self(data)
             }
+            /// # Safety
+            ///
             /// See [module level documentation](crate::extensions).
             #[inline(always)]
             pub unsafe fn get_inner(&mut self) -> &mut $return {
@@ -137,12 +141,13 @@ pub struct PresentData {
     host: *const Host,
     path: *const Path,
     // Regarding response
-    server_cache_preference: ServerCachePreference,
-    client_cache_preference: ClientCachePreference,
+    server_cache_preference: *mut ServerCachePreference,
+    client_cache_preference: *mut ClientCachePreference,
     response: *mut Response<Bytes>,
     // Regarding extension
     args: PresentArguments,
 }
+#[allow(missing_docs)]
 impl PresentData {
     #[inline(always)]
     pub fn address(&self) -> SocketAddr {
@@ -166,11 +171,11 @@ impl PresentData {
     }
     #[inline(always)]
     pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
-        &mut self.server_cache_preference
+        unsafe { &mut *self.server_cache_preference }
     }
     #[inline(always)]
     pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
-        &mut self.client_cache_preference
+        unsafe { &mut *self.client_cache_preference }
     }
     #[inline(always)]
     pub fn response_mut(&mut self) -> &mut Response<Bytes> {
@@ -238,9 +243,9 @@ impl Extensions {
             }
             impl Ending {
                 fn from_uri(uri: &Uri) -> Self {
-                    if uri.path().ends_with(".") {
+                    if uri.path().ends_with('.') {
                         Self::Dot
-                    } else if uri.path().ends_with("/") {
+                    } else if uri.path().ends_with('/') {
                         Self::Slash
                     } else {
                         Self::Other
@@ -410,12 +415,14 @@ impl Extensions {
             }
         }
     }
+    // It's an internal function, which should be the same style as all the other `resolve_*` functions.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn resolve_present(
         &self,
         request: &mut Request<Body>,
         response: &mut Response<Bytes>,
-        client_cache_preference: ClientCachePreference,
-        server_cache_preference: ServerCachePreference,
+        client_cache_preference: &mut ClientCachePreference,
+        server_cache_preference: &mut ServerCachePreference,
         host: &Host,
         address: SocketAddr,
         path: &Path,
@@ -426,48 +433,41 @@ impl Extensions {
         if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());
             for extension_name_args in extensions.iter() {
-                match self.present_internal.get(extension_name_args.name()) {
-                    Some(extension) => {
-                        let data = PresentData {
-                            address,
-                            request,
-                            body,
-                            host,
-                            path,
-                            server_cache_preference,
-                            client_cache_preference,
-                            response,
-                            args: extension_name_args,
-                        };
-                        let data = PresentDataWrapper(data);
-                        extension(data).await;
-                    }
-                    // No extension, do nothing.
-                    None => {}
+                if let Some(extension) = self.present_internal.get(extension_name_args.name()) {
+                    let data = PresentData {
+                        address,
+                        request,
+                        body,
+                        host,
+                        path,
+                        server_cache_preference,
+                        client_cache_preference,
+                        response,
+                        args: extension_name_args,
+                    };
+                    let data = PresentDataWrapper(data);
+                    extension(data).await;
                 }
             }
         }
-        match path
+        if let Some(extension) = path
             .extension()
             .and_then(|s| s.to_str())
             .and_then(|s| self.present_file.get(s))
         {
-            Some(extension) => {
-                let data = PresentData {
-                    address,
-                    request,
-                    body,
-                    host,
-                    path,
-                    server_cache_preference,
-                    client_cache_preference,
-                    response,
-                    args: PresentArguments::empty(),
-                };
-                let data = PresentDataWrapper(data);
-                extension(data).await;
-            }
-            None => {}
+            let data = PresentData {
+                address,
+                request,
+                body,
+                host,
+                path,
+                server_cache_preference,
+                client_cache_preference,
+                response,
+                args: PresentArguments::empty(),
+            };
+            let data = PresentDataWrapper(data);
+            extension(data).await;
         }
         Ok(())
     }
@@ -488,11 +488,7 @@ impl Extensions {
         addr: SocketAddr,
         host: &Host,
     ) {
-        for extension in self
-            .post
-            .iter()
-            .take(self.post.len().checked_sub(1).unwrap_or(0))
-        {
+        for extension in self.post.iter().take(self.post.len().saturating_sub(1)) {
             extension(
                 RequestWrapper::new(request),
                 Bytes::clone(&bytes),
@@ -514,6 +510,13 @@ impl Extensions {
         }
     }
 }
+
+impl Default for Extensions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub struct LazyRequestBody {
     body: *mut application::Body,
@@ -544,13 +547,38 @@ impl LazyRequestBody {
 unsafe impl Send for LazyRequestBody {}
 unsafe impl Sync for LazyRequestBody {}
 
+#[derive(Debug)]
+struct PresentExtensionPosData {
+    name_start: usize,
+    name_len: usize,
+
+    arg_start: usize,
+    arg_len: usize,
+}
+impl PresentExtensionPosData {
+    fn from_name_and_arg(name: (usize, usize), arg: (usize, usize)) -> Self {
+        Self {
+            name_start: name.0,
+            name_len: name.1,
+            arg_start: arg.0,
+            arg_len: arg.1,
+        }
+    }
+    fn get_name(&self) -> (usize, usize) {
+        (self.name_start, self.name_len)
+    }
+    fn get_arg(&self) -> (usize, usize) {
+        (self.arg_start, self.arg_len)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PresentExtensions {
     data: Bytes,
     // Will have the start and end of name of extensions as first tuple,
     // then the name/argument start and length as second.
     // There wil be several names starting on same position.
-    extensions: Arc<Vec<((usize, usize), (usize, usize))>>,
+    extensions: Arc<Vec<PresentExtensionPosData>>,
     data_start: usize,
 }
 impl PresentExtensions {
@@ -582,10 +610,12 @@ impl PresentExtensions {
                 let len = pos - start;
                 let span = (start, len);
                 match last_name {
-                    Some(name) => extensions_args.push((name, span)),
+                    Some(name) => {
+                        extensions_args.push(PresentExtensionPosData::from_name_and_arg(name, span))
+                    }
                     None => {
                         last_name = Some((start, len));
-                        extensions_args.push((span, span))
+                        extensions_args.push(PresentExtensionPosData::from_name_and_arg(span, span))
                     }
                 }
                 if byte == CR {
@@ -641,13 +671,13 @@ impl Iterator for PresentExtensionsIter {
         if start == self.data.extensions.len() {
             return None;
         }
-        let name = self.data.extensions[start].0;
+        let name = self.data.extensions[start].get_name();
 
-        let mut iter = self.data.extensions[start + 1..].iter();
+        let iter = self.data.extensions[start + 1..].iter();
 
-        while let Some(current) = iter.next() {
+        for current in iter {
             self.index += 1;
-            if current.0 != name {
+            if current.get_name() != name {
                 break;
             }
         }
@@ -680,7 +710,7 @@ impl PresentArguments {
     #[inline]
     pub fn name(&self) -> &str {
         // .1 and .0 should be the same; the name of (usize, usize) should have the same name as it's first argument.
-        let (start, len) = self.data.extensions[self.data_index].0;
+        let (start, len) = self.data.extensions[self.data_index].get_name();
         // safe, because we checked for str in creation of [`PresentExtensions`].
         unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) }
     }
@@ -709,7 +739,7 @@ impl<'a> Iterator for PresentArgumentsIter<'a> {
         if self.index == self.back_index {
             return None;
         }
-        let (start, len) = self.data.extensions[self.data_index + self.index].1;
+        let (start, len) = self.data.extensions[self.data_index + self.index].get_arg();
         self.index += 1;
         // Again, safe because we checked for str in creation of [`PresentExtensions`].
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
@@ -721,7 +751,7 @@ impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
         if self.index == self.back_index {
             return None;
         }
-        let (start, len) = self.data.extensions[self.data_index + self.back_index - 1].1;
+        let (start, len) = self.data.extensions[self.data_index + self.back_index - 1].get_arg();
         self.back_index -= 1;
         // Again, safe because we checked for str in creation of [`PresentExtensions`].
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })

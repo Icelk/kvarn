@@ -23,7 +23,7 @@ impl Encryption {
                 let session = ServerSession::new(config);
                 let stream = TlsStream {
                     io: stream,
-                    session: session,
+                    session,
                     state: TlsState::Stream,
                 };
                 let acceptor = MidHandshake::Handshaking(stream);

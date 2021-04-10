@@ -3,7 +3,13 @@ name = "kvarn"
 version = "0.2.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2018"
-homepage = "https://icelk.dev/kvarn/"
+description = "An extensible and forward-thinking web server for the future."
+homepage = "https://kvarn.org/"
+repository = "https://github.com/Iselk/kvarn/"
+license = "Apache-2.0"
+keywords = ["web", "web-server", "web-application", "web-framework"]
+categories = ["web-programming", "web-programming::http-server"]
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

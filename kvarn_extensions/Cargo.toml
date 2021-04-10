@@ -3,6 +3,11 @@ name = "kvarn_extensions"
 version = "0.2.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2018"
+description = "Extensions for the Kvarn web server. Features HTTP/2 automatic push and a templating engine."
+repository = "https://github.com/Iselk/kvarn/tree/main/kvarn_extensions/"
+license = "Apache-2.0"
+keywords = ["http-push", "template", "php"]
+categories = ["template-engine"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

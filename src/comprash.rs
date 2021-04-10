@@ -142,8 +142,7 @@ impl CompressedResponse {
 
         let disable_identity = values
             .iter()
-            .position(|v| v.value == "identity" && v.quality == 0.0)
-            .is_some();
+            .any(|v| v.value == "identity" && v.quality == 0.0);
 
         #[cfg(all(feature = "gzip", feature = "br"))]
         let prefer_br = values
@@ -170,12 +169,7 @@ impl CompressedResponse {
         }
 
         #[cfg(any(feature = "gzip", feature = "br"))]
-        let contains = |name| {
-            values
-                .iter()
-                .position(|v| v.value == name && v.quality != 0.0)
-                .is_some()
-        };
+        let contains = |name| values.iter().any(|v| v.value == name && v.quality != 0.0);
 
         let mime = self
             .get_identity()
@@ -248,12 +242,12 @@ impl CompressedResponse {
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
         match response.headers().get("content-type") {
-            Some(content_type) => match content_type
-                .to_str()
-                .ok()
-                .and_then(|s| s.parse::<Mime>().ok())
-            {
-                Some(mime_type) => {
+            Some(content_type) => {
+                if let Some(mime_type) = content_type
+                    .to_str()
+                    .ok()
+                    .and_then(|s| s.parse::<Mime>().ok())
+                {
                     match mime_type.get_param("charset") {
                         // Has charset attribute.
                         Some(_) => {}
@@ -272,13 +266,12 @@ impl CompressedResponse {
                                 content_type,
                             );
                         }
-                        // We should not add charset parameter
-                        None => {}
+                        None => {
+                            // We should not add charset parameter
+                        }
                     }
                 }
-                // Mime type is not recognised, not touching.
-                None => {}
-            },
+            }
             None => {
                 let mime = match utf_8 {
                     true => mime::TEXT_HTML_UTF_8,
@@ -475,7 +468,7 @@ pub enum CacheOut<V> {
 }
 impl<V> CacheOut<V> {
     #[inline(always)]
-    pub fn to_option(self) -> Option<V> {
+    pub fn into_option(self) -> Option<V> {
         match self {
             Self::None => None,
             Self::Present(v) | Self::NotInserted(v) => Some(v),
@@ -555,6 +548,11 @@ impl<K: Eq + Hash, V> Cache<K, V> {
             current_position += 1;
             result
         });
+    }
+}
+impl<K, V> Default for Cache<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 impl<K: Eq + Hash> Cache<K, CompressedResponse> {
