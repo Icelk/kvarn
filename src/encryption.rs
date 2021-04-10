@@ -3,7 +3,7 @@ use crate::prelude::{networking::*, *};
 use rustls::{ServerConfig, ServerSession, Session};
 
 #[cfg(feature = "https")]
-use tokio_tls::*;
+use tokio_tls::{MidHandshake, TlsState, TlsStream};
 
 #[derive(Debug)]
 pub enum Encryption {
@@ -12,6 +12,12 @@ pub enum Encryption {
     Tcp(TcpStream),
 }
 impl Encryption {
+    /// Creates a new [`Encryption`] from a `tcp` connection.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// Will return an error if the TLS handshake failed, if `certificate.is_some()`.
     #[cfg(feature = "https")]
     pub async fn new_tcp(
         stream: TcpStream,
@@ -517,9 +523,8 @@ mod tokio_tls {
 
                         if self.eof || would_block {
                             break;
-                        } else {
-                            continue;
                         }
+                        continue;
                     }
                     Err(ref err)
                         if err.kind() == io::ErrorKind::ConnectionAborted

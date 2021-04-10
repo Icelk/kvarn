@@ -5,6 +5,7 @@ pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
 pub type ResponseCache = Mutex<Cache<UriKey, CompressedResponse>>;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[must_use]
 pub struct PathQuery {
     string: String,
     query_start: usize,
@@ -28,10 +29,12 @@ impl PathQuery {
         }
     }
     #[inline]
+    #[must_use]
     pub fn path(&self) -> &str {
         &self.string[..self.query_start]
     }
     #[inline]
+    #[must_use]
     pub fn query(&self) -> Option<&str> {
         if self.query_start == self.string.len() {
             None
@@ -40,6 +43,7 @@ impl PathQuery {
         }
     }
     #[inline]
+    #[must_use]
     pub fn into_path(mut self) -> String {
         self.string.truncate(self.query_start);
         self.string
@@ -75,7 +79,7 @@ impl UriKey {
     }
 }
 
-pub fn do_compress<F: Fn() -> bool>(mime: Mime, check_utf8: F) -> bool {
+pub fn do_compress<F: Fn() -> bool>(mime: &Mime, check_utf8: F) -> bool {
     // IMAGE first, because it is the most likely
     mime.type_() != mime::IMAGE
         && mime.type_() != mime::FONT
@@ -83,7 +87,7 @@ pub fn do_compress<F: Fn() -> bool>(mime: Mime, check_utf8: F) -> bool {
         && mime.type_() != mime::AUDIO
         && mime.type_() != mime::STAR
         // compressed applications
-        && mime != mime::APPLICATION_PDF
+        && mime != &mime::APPLICATION_PDF
         && mime.subtype() != "zip"
         && mime.subtype() != "zstd"
         // all applications which are not js, graphql, json, xml, or valid utf-8
@@ -98,6 +102,7 @@ pub fn do_compress<F: Fn() -> bool>(mime: Mime, check_utf8: F) -> bool {
 // for when no compression is compiled in
 #[allow(dead_code)]
 #[derive(Debug)]
+#[must_use]
 pub struct CompressedResponse {
     identity: Response<Bytes>,
     gzip: Option<Bytes>,
@@ -124,12 +129,18 @@ impl CompressedResponse {
             compress,
         }
     }
-    #[inline(always)]
+    #[inline]
     pub fn get_identity(&self) -> &Response<Bytes> {
         &self.identity
     }
 
-    pub fn clone_preferred(&self, request: &FatRequest) -> Result<Response<Bytes>, StatusCode> {
+    /// Clones the preferred compression type based on `accept-encoding` header in `request`.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// May return a [`StatusCode`] to signal which HTTP error occurred in content negotiation.
+    pub fn clone_preferred<T>(&self, request: &Request<T>) -> Result<Response<Bytes>, StatusCode> {
         let values = match request
             .headers()
             .get("accept-encoding")
@@ -148,10 +159,15 @@ impl CompressedResponse {
         let prefer_br = values
             .iter()
             .find(|v| v.value == "gzip")
-            .map(|v| v.quality)
-            .unwrap_or(1.0)
+            .map_or(0.0, |v| v.quality)
             <= 0.5
-            && values.iter().find(|v| v.value == "br").map(|v| v.quality) == Some(1.0);
+            && values.iter().find_map(|v| {
+                if v.value == "br" {
+                    Some(v.quality)
+                } else {
+                    None
+                }
+            }) == Some(1.0);
 
         let only_identity = values.len() == 1
             && values[0]
@@ -177,11 +193,13 @@ impl CompressedResponse {
             .get("content-type")
             .and_then(|header| header.to_str().ok())
             .and_then(|header| header.parse().ok());
-        debug!("Recognised mime {:?}", mime);
-        let (bytes, compression) = match mime {
+        debug!("Recognised mime {:?}", &mime);
+        let (bytes, compression) = match &mime {
             Some(mime) => {
-                match do_compress(mime, || str::from_utf8(self.get_identity().body()).is_ok()) {
-                    true => match self.compress {
+                if do_compress(mime, || str::from_utf8(self.get_identity().body()).is_ok()) {
+                    // You are wrong. We have `true if ...`.
+                    #[allow(clippy::match_bool)]
+                    match self.compress {
                         CompressPreference::None => (self.get_identity().body(), "identity"),
                         CompressPreference::Full => {
                             #[cfg(all(feature = "gzip", feature = "br"))]
@@ -211,17 +229,16 @@ impl CompressedResponse {
                                 (self.get_identity().body(), "identity")
                             }
                         }
-                    },
-                    false => {
-                        debug!("Not compressing; filtered out.");
-                        (self.get_identity().body(), "identity")
                     }
+                } else {
+                    debug!("Not compressing; filtered out.");
+                    (self.get_identity().body(), "identity")
                 }
             }
             None => (self.get_identity().body(), "identity"),
         };
         if disable_identity && compression == "identity" {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(StatusCode::NOT_ACCEPTABLE);
         }
         Ok(self.clone_identity_set_compression(
             Bytes::clone(bytes),
@@ -229,12 +246,12 @@ impl CompressedResponse {
         ))
     }
 
-    #[inline(always)]
+    #[inline]
     fn add_server_header(headers: &mut HeaderMap) {
         headers.insert("server", HeaderValue::from_static(SERVER));
     }
 
-    #[inline(always)]
+    #[inline]
     fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
         if let Some(header) = preference.as_header() {
             utility::replace_header(headers, "cache-control", header)
@@ -242,41 +259,39 @@ impl CompressedResponse {
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
-        match response.headers().get("content-type") {
-            Some(content_type) => {
-                if let Some(mime_type) = content_type
-                    .to_str()
-                    .ok()
-                    .and_then(|s| s.parse::<Mime>().ok())
-                {
-                    match mime_type.get_param("charset") {
-                        // Has charset attribute.
-                        Some(_) => {}
-                        None if utf_8 => {
-                            // Unsafe if ok; we know the added bytes are safe for a http::HeaderValue
-                            // and unwrap is ok; we checked same thing  just above
-                            let content_type = unsafe {
-                                HeaderValue::from_maybe_shared_unchecked(
-                                    format!("{}; charset=utf-8", content_type.to_str().unwrap())
-                                        .into_bytes(),
-                                )
-                            };
-                            utility::replace_header(
-                                response.headers_mut(),
-                                "content-type",
-                                content_type,
-                            );
-                        }
-                        None => {
-                            // We should not add charset parameter
-                        }
+        if let Some(content_type) = response.headers().get("content-type") {
+            if let Some(mime_type) = content_type
+                .to_str()
+                .ok()
+                .and_then(|s| s.parse::<Mime>().ok())
+            {
+                match mime_type.get_param("charset") {
+                    // Has charset attribute.
+                    Some(_) => {}
+                    None if utf_8 => {
+                        // Unsafe if ok; we know the added bytes are safe for a http::HeaderValue
+                        // and unwrap is ok; we checked same thing  just above
+                        let content_type = unsafe {
+                            HeaderValue::from_maybe_shared_unchecked(
+                                format!("{}; charset=utf-8", content_type.to_str().unwrap())
+                                    .into_bytes(),
+                            )
+                        };
+                        utility::replace_header(
+                            response.headers_mut(),
+                            "content-type",
+                            content_type,
+                        );
+                    }
+                    None => {
+                        // We should not add charset parameter
                     }
                 }
-            }
-            None => {
-                let mime = match utf_8 {
-                    true => mime::TEXT_HTML_UTF_8,
-                    false => mime::APPLICATION_OCTET_STREAM,
+            } else {
+                let mime = if utf_8 {
+                    mime::TEXT_HTML_UTF_8
+                } else {
+                    mime::APPLICATION_OCTET_STREAM
                 };
                 let mime_type = mime_guess::from_ext(extension).first_or(mime);
                 // Is ok; Mime will only contain ok bytes.
@@ -366,6 +381,11 @@ pub enum CompressPreference {
     /// Will automatically compress and send compressed versions of the response
     Full,
 }
+/// The preference for caching the item on the server.
+///
+/// Note: It's only a preference. Disabling the cache in compile-time will
+/// disable this behaviour. Some other factors also play a role, such as number of cached
+/// `Vary` responses on a page.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum ServerCachePreference {
     /// Will not cache response
@@ -377,7 +397,8 @@ pub enum ServerCachePreference {
 }
 impl ServerCachePreference {
     #[inline]
-    pub fn cache(&self) -> bool {
+    #[must_use]
+    pub fn cache(self) -> bool {
         #[cfg(not(feature = "no-response-cache"))]
         match self {
             Self::None => false,
@@ -387,7 +408,8 @@ impl ServerCachePreference {
         false
     }
     #[inline]
-    pub fn query_matters(&self) -> bool {
+    #[must_use]
+    pub fn query_matters(self) -> bool {
         match self {
             Self::None | Self::Full => false,
             Self::QueryMatters => true,
@@ -403,12 +425,13 @@ pub enum ClientCachePreference {
     Changing,
     /// Will cache for 1 year
     Full,
-    /// Will not add or remove any header
+    /// Will not add nor remove any header
     Undefined,
 }
 impl ClientCachePreference {
     #[inline]
-    pub fn as_header(&self) -> Option<HeaderValue> {
+    #[must_use]
+    pub fn as_header(self) -> Option<HeaderValue> {
         match self {
             Self::None => Some(HeaderValue::from_static("no-store")),
             Self::Changing => Some(HeaderValue::from_static("max-age=120")),
@@ -468,7 +491,7 @@ pub enum CacheOut<V> {
     NotInserted(V),
 }
 impl<V> CacheOut<V> {
-    #[inline(always)]
+    #[inline]
     pub fn into_option(self) -> Option<V> {
         match self {
             Self::None => None,
@@ -478,6 +501,7 @@ impl<V> CacheOut<V> {
 }
 
 #[derive(Debug)]
+#[must_use]
 pub struct Cache<K, V> {
     map: HashMap<K, V>,
     max_items: usize,
@@ -485,7 +509,7 @@ pub struct Cache<K, V> {
     inserts: usize,
 }
 impl<K, V> Cache<K, V> {
-    #[inline(always)]
+    #[inline]
     fn _new(max_items: usize, size_limit: usize) -> Self {
         Self {
             map: HashMap::new(),
@@ -494,15 +518,15 @@ impl<K, V> Cache<K, V> {
             inserts: 0,
         }
     }
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         Self::_new(1024, 4 * 1024 * 1024) // 4MiB
     }
-    #[inline(always)]
+    #[inline]
     pub fn with_size_limit(size_limit: usize) -> Self {
         Self::_new(1024, size_limit)
     }
-    #[inline(always)]
+    #[inline]
     pub fn clear(&mut self) {
         self.map.clear()
     }
@@ -541,6 +565,7 @@ impl<K: Eq + Hash, V> Cache<K, V> {
 
         // I don't care about normalized distribution
         // also, it's safe to cast, modulo logic...
+        #[allow(clippy::cast_possible_truncation)]
         let position = (pseudo_random % self.map.len() as u64) as usize;
 
         let mut current_position = 0;

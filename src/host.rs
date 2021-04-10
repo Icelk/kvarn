@@ -3,6 +3,8 @@ use crate::prelude::{internals::*, *};
 use rustls::{
     internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
 };
+
+#[must_use]
 pub struct Host {
     pub host_name: &'static str,
     #[cfg(feature = "https")]
@@ -24,6 +26,14 @@ pub struct Host {
     pub extension_default: Option<String>,
 }
 impl Host {
+    /// Creates a new [`Host`].
+    /// Will read certificates in the specified locations
+    /// and return an non-secure host if parsing fails.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// Will return any error from [`get_certified_key()`] with a [`Host`] with no certificates.
     #[cfg(feature = "https")]
     pub fn new<P: AsRef<Path>>(
         host_name: &'static str,
@@ -108,11 +118,11 @@ impl Host {
     pub fn get_extension_default_or<'a>(&'a self, default: &'a str) -> &'a str {
         self.extension_default.as_deref().unwrap_or(default)
     }
-    #[inline(always)]
+    #[inline]
     pub fn set_folder_default(&mut self, default: String) {
         self.folder_default = Some(default);
     }
-    #[inline(always)]
+    #[inline]
     pub fn set_extension_default(&mut self, default: String) {
         self.extension_default = Some(default);
     }
@@ -128,7 +138,7 @@ impl Host {
                 let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = request.uri();
                 let uri = {
-                    let authority = uri.authority().map(uri::Authority::as_str).unwrap_or("");
+                    let authority = uri.authority().map_or("", uri::Authority::as_str);
                     let path = uri.query().unwrap_or("");
                     let mut bytes = BytesMut::with_capacity(8 + authority.len() + path.len());
                     bytes.extend(b"https://");
@@ -152,18 +162,16 @@ impl Host {
         );
         self.extensions.add_prime(Box::new(|request, _, _| {
             let request: &FatRequest = unsafe { request.get_inner() };
-            let uri = match request.uri().scheme_str() == Some("http")
-                && request.uri().port().is_none()
-            {
-                // redirect
-                true => {
+            let uri =
+                if request.uri().scheme_str() == Some("http") && request.uri().port().is_none() {
+                    // redirect
                     let mut uri = request.uri().clone().into_parts();
 
                     let mut bytes = BytesMut::with_capacity(
                         SPECIAL_PATH.len()
                             + 1
                             + request.uri().path().len()
-                            + request.uri().query().map(|s| s.len() + 1).unwrap_or(0),
+                            + request.uri().query().map_or(0, |s| s.len() + 1),
                     );
                     bytes.extend(SPECIAL_PATH.as_bytes());
                     bytes.extend(b"?");
@@ -177,9 +185,9 @@ impl Host {
                         Some(uri::PathAndQuery::from_maybe_shared(bytes.freeze()).unwrap());
                     let uri = Uri::from_parts(uri).unwrap();
                     Some(uri)
-                }
-                false => None,
-            };
+                } else {
+                    None
+                };
             ready(uri)
         }));
     }
@@ -204,12 +212,12 @@ impl Host {
     }
 
     #[cfg(feature = "https")]
-    #[inline(always)]
+    #[inline]
     pub fn is_secure(&self) -> bool {
         self.certificate.is_some()
     }
     #[cfg(not(feature = "https"))]
-    #[inline(always)]
+    #[inline]
     pub(crate) fn is_secure(&self) -> bool {
         false
     }
@@ -232,28 +240,30 @@ impl Debug for Host {
 }
 
 #[derive(Debug)]
-pub struct HostDataBuilder(HostData);
-impl HostDataBuilder {
+#[must_use]
+pub struct DataBuilder(Data);
+impl DataBuilder {
     #[inline]
     pub fn add_host(mut self, host_data: Host) -> Self {
         self.0.add_host(host_data.host_name, host_data);
         self
     }
     #[inline]
-    pub fn build(self) -> Arc<HostData> {
+    pub fn build(self) -> Arc<Data> {
         Arc::new(self.0)
     }
 }
 #[derive(Debug)]
-pub struct HostData {
+#[must_use]
+pub struct Data {
     default: Host,
     by_name: HashMap<&'static str, Host>,
     has_secure: bool,
 }
-impl HostData {
+impl Data {
     #[inline]
-    pub fn builder(default_host: Host) -> HostDataBuilder {
-        HostDataBuilder(Self {
+    pub fn builder(default_host: Host) -> DataBuilder {
+        DataBuilder(Self {
             has_secure: default_host.is_secure(),
             default: default_host,
             by_name: HashMap::new(),
@@ -284,19 +294,19 @@ impl HostData {
         self.by_name.insert(host_name, host_data);
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get_default(&self) -> &Host {
         &self.default
     }
-    #[inline(always)]
+    #[inline]
     pub fn get_host(&self, host: &str) -> Option<&Host> {
         self.by_name.get(host)
     }
-    #[inline(always)]
+    #[inline]
     pub fn get_or_default(&self, host: &str) -> &Host {
         self.get_host(host).unwrap_or(&self.get_default())
     }
-    #[inline(always)]
+    #[inline]
     pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> &Host {
         match maybe_host {
             Some(host) => self.get_or_default(host),
@@ -313,8 +323,7 @@ impl HostData {
             headers
                 .get(header::HOST)
                 .map(HeaderValue::to_str)
-                .map(Result::ok)
-                .flatten()
+                .and_then(Result::ok)
         }
 
         let host = sni_hostname.or_else(|| get_header(request.headers()));
@@ -328,7 +337,8 @@ impl HostData {
     }
 
     #[cfg(feature = "https")]
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn make_config(arc: &Arc<Self>) -> ServerConfig {
         let mut config = ServerConfig::new(NoClientAuth::new());
         let arc = Arc::clone(arc);
@@ -336,12 +346,12 @@ impl HostData {
         config
     }
 
-    #[inline(always)]
+    #[inline]
     pub async fn clear_response_caches(&self) {
         // Handle default host
         self.default.response_cache.lock().await.clear();
         // All other
-        for (_, host) in self.by_name.iter() {
+        for host in self.by_name.values() {
             host.response_cache.lock().await.clear();
         }
     }
@@ -378,7 +388,7 @@ impl HostData {
     #[inline]
     pub async fn clear_file_caches(&self) {
         self.default.file_cache.lock().await.clear();
-        for (_, host) in self.by_name.iter() {
+        for host in self.by_name.values() {
             host.file_cache.lock().await.clear();
         }
     }
@@ -395,7 +405,7 @@ impl HostData {
         {
             found = true;
         }
-        for (_, host) in self.by_name.iter() {
+        for host in self.by_name.values() {
             if host
                 .file_cache
                 .lock()
@@ -411,21 +421,24 @@ impl HostData {
     }
 }
 #[cfg(feature = "https")]
-impl ResolvesServerCert for HostData {
+impl ResolvesServerCert for Data {
     #[inline]
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<sign::CertifiedKey> {
         // Mostly returns true, since we have a default
         // Will however return false if certificate is not present in host
-        if let Some(name) = client_hello.server_name() {
-            self.by_name
-                .get(name.into())
-                .unwrap_or(&self.default)
-                .certificate
-                .clone()
-        } else {
-            // Else, get default certificate
-            self.default.certificate.clone()
-        }
+        client_hello.server_name().map_or_else(
+            || {
+                // Else, get default certificate
+                self.default.certificate.clone()
+            },
+            |name| {
+                self.by_name
+                    .get(name.into())
+                    .unwrap_or(&self.default)
+                    .certificate
+                    .clone()
+            },
+        )
     }
 }
 
@@ -445,6 +458,11 @@ impl From<io::Error> for ServerConfigError {
 }
 
 /// Get a certified key to use (maybe) when adding domain certificates to the server
+///
+///
+/// # Errors
+///
+/// Will return any errors while reading the files, or any parsing errors.
 #[cfg(feature = "https")]
 pub fn get_certified_key<P: AsRef<Path>>(
     cert_path: P,

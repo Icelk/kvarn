@@ -52,6 +52,7 @@ macro_rules! build_bytes {
 /// A writeable `Bytes`.
 ///
 /// Has a special allocation method for optimized usage in Kvarn.
+#[must_use]
 pub struct WriteableBytes {
     bytes: BytesMut,
     len: usize,
@@ -76,6 +77,7 @@ impl WriteableBytes {
     }
     /// Turns `self` into `BytesMut` when you are done writing.
     #[inline]
+    #[must_use]
     pub fn into_inner(mut self) -> BytesMut {
         unsafe { self.bytes.set_len(self.len) };
         self.bytes
@@ -104,14 +106,18 @@ impl Write for WriteableBytes {
         self.len += buf.len();
         Ok(buf.len())
     }
-    #[inline(always)]
+    #[inline]
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
 
-/// ToDo: optimize!
-#[inline(always)]
+/// `ToDo`: optimize!
+///
+///
+/// # Errors
+///
+/// This function will return any errors emitted from `reader`.
 pub async fn read_to_end<R: AsyncRead + Unpin>(
     buffer: &mut BytesMut,
     mut reader: R,
@@ -197,8 +203,10 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes>
     Some(buffer.freeze())
 }
 
+#[must_use]
 pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
-    let mut body = BytesMut::with_capacity(1024);
+    // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
+    let mut body = BytesMut::with_capacity(200);
     // Get code and reason!
     let reason = code.canonical_reason();
 
@@ -242,7 +250,7 @@ pub async fn default_error(code: StatusCode, cache: Option<&FileCache>) -> Respo
         .unwrap()
 }
 
-#[inline(always)]
+#[inline]
 pub async fn default_error_response(code: StatusCode, host: &Host) -> FatResponse {
     (
         default_error(code, Some(&host.file_cache)).await,
@@ -302,8 +310,8 @@ pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
 ) {
     replace_header(headers, name, HeaderValue::from_static(new))
 }
-// pub fn maybe
 
+#[must_use]
 pub fn valid_method(bytes: &[u8]) -> bool {
     bytes.starts_with(b"GET")
         || bytes.starts_with(b"HEAD")
@@ -318,16 +326,17 @@ pub fn valid_method(bytes: &[u8]) -> bool {
 #[inline]
 pub fn get_content_length<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
-    match method_has_request_body(request.method()) {
-        true => request
+    if method_has_request_body(request.method()) {
+        request
             .headers()
             .get("content-length")
             .map(HeaderValue::to_str)
             .and_then(Result::ok)
             .map(usize::from_str)
             .and_then(Result::ok)
-            .unwrap_or(0),
-        false => 0,
+            .unwrap_or(0)
+    } else {
+        0
     }
 }
 #[inline]
@@ -340,10 +349,12 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
     )
 }
 #[inline]
+#[must_use]
 pub fn method_has_request_body(method: &Method) -> bool {
     matches!(*method, Method::POST | Method::PUT | Method::DELETE)
 }
 #[inline]
+#[must_use]
 pub fn method_has_response_body(method: &Method) -> bool {
     matches!(
         *method,

@@ -16,20 +16,20 @@ pub enum Error {
     HeaderTooLong,
 }
 impl From<http::Error> for Error {
-    #[inline(always)]
+    #[inline]
     fn from(err: http::Error) -> Self {
         Self::Http(err)
     }
 }
 impl From<io::Error> for Error {
-    #[inline(always)]
+    #[inline]
     fn from(err: io::Error) -> Self {
         Self::Io(err)
     }
 }
 #[cfg(feature = "h2")]
 impl From<h2::Error> for Error {
-    #[inline(always)]
+    #[inline]
     fn from(err: h2::Error) -> Self {
         Self::H2(err)
     }
@@ -72,7 +72,7 @@ pub enum HttpConnection {
     Http2(Box<h2::server::Connection<Encryption, bytes::Bytes>>),
 }
 
-/// ToDo: trailers
+/// `ToDo`: trailers
 #[derive(Debug)]
 pub enum Body {
     Empty,
@@ -81,6 +81,7 @@ pub enum Body {
     Http2(h2::RecvStream),
 }
 
+#[must_use]
 pub enum ResponsePipe {
     Http1(Arc<Mutex<Encryption>>),
     #[cfg(feature = "h2")]
@@ -91,12 +92,21 @@ pub enum ResponseBodyPipe {
     #[cfg(feature = "h2")]
     Http2(h2::SendStream<Bytes>),
 }
+#[must_use]
 pub enum PushedResponsePipe {
     #[cfg(feature = "h2")]
     Http2(h2::server::SendPushedResponse<Bytes>),
 }
 
 impl HttpConnection {
+    /// Creates a new [`HttpConnection`] from an [`Encryption`] stream.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::VersionNotSupported`] when a unsupported version is passed.
+    ///
+    /// Also passes errors from [`h2::server::handshake`].
     pub async fn new(stream: Encryption, version: Version) -> Result<Self, Error> {
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
@@ -109,11 +119,18 @@ impl HttpConnection {
             },
             #[cfg(not(feature = "h2"))]
             Version::HTTP_2 => Err(Error::VersionNotSupported),
-            Version::HTTP_3 => Err(Error::VersionNotSupported),
             _ => Err(Error::VersionNotSupported),
         }
     }
 
+    /// Accept a single request.
+    /// `default_host` will be used if the `Host` header is not
+    /// present on a HTTP/1.x request.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// Returns any errors emitted from [`h2::server::Connection::accept()`].
     pub async fn accept(
         &mut self,
         default_host: &[u8],
@@ -139,8 +156,11 @@ impl HttpConnection {
     }
 }
 
-mod request {
-    use super::*;
+pub mod request {
+    use super::{
+        io, parse, response, utility, Arc, AsyncRead, Body, Bytes, Context, Encryption, Error,
+        Mutex, Pin, Poll, ReadBuf, Request,
+    };
 
     #[inline]
     pub(crate) async fn parse_http_1(
@@ -158,6 +178,13 @@ mod request {
     }
 
     impl Body {
+        /// Reads all bytes from [`Body`] to a [`Bytes`].
+        ///
+        ///
+        /// # Errors
+        ///
+        /// Passes any errors returned from the inner reader.
+        /// See [`response::Http1Body::read_to_bytes()`] and [`h2::RecvStream::poll_data()`] for more info.
         #[inline]
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
             match self {
@@ -204,11 +231,16 @@ mod request {
     }
 }
 
-mod response {
+pub mod response {
     use tokio::io::AsyncWriteExt;
 
-    use super::*;
+    use super::{
+        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWrite, Bytes, BytesMut, Context, Debug,
+        Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe, ReadBuf, Request,
+        Response, ResponseBodyPipe, ResponsePipe, Version,
+    };
 
+    #[must_use]
     pub struct Http1Body<R: AsyncRead + Unpin> {
         reader: Arc<Mutex<R>>,
         bytes: Bytes,
@@ -217,7 +249,7 @@ mod response {
         content_length: usize,
     }
     impl<R: AsyncRead + Unpin> Http1Body<R> {
-        #[inline(always)]
+        #[inline]
         pub fn new(reader: Arc<Mutex<R>>, bytes: Bytes, content_length: usize) -> Self {
             Self {
                 reader,
@@ -227,6 +259,12 @@ mod response {
                 content_length,
             }
         }
+        /// Reads all bytes from `self` to a [`Bytes`].
+        ///
+        ///
+        /// # Errors
+        ///
+        /// Returns any errors from the underlying reader.
         #[inline]
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
             let mut buffer = BytesMut::with_capacity(self.bytes.len() + 512);
@@ -284,8 +322,16 @@ mod response {
     }
 
     impl ResponsePipe {
-        /// You must ensure the [`Response::version()`] is correct before calling this function. It can be guaranteed by first calling [`Self::ensure_version_and_length()`]
-        /// It is critical to call [`AsyncWriteExt::flush()`] on [`ResponseBodyPipe`], else the message won't be seen as fully transmitted.
+        /// You must ensure the [`Response::version()`] is correct before calling this function.
+        /// It can be guaranteed by first calling [`Self::ensure_version_and_length()`].
+        ///
+        /// It is critical to [`ResponseBodyPipe::close()`], else the message won't be seen as fully transmitted.
+        ///
+        ///
+        /// # Errors
+        ///
+        /// Passes any errors from writing to the stream. see [`AsyncWriteExt::write()`] and
+        /// [`h2::server::SendResponse::send_response()`] for more info.
         #[inline]
         pub async fn send_response(
             &mut self,
@@ -317,6 +363,13 @@ mod response {
                 },
             }
         }
+        /// Pushes `request` to client.
+        ///
+        ///
+        /// # Errors
+        ///
+        /// If you try to push if `self` is [`ResponsePipe::Http1`], an [`Error::PushOnHttp1`] is returned.
+        /// Returns errors from [`h2::server::SendResponse::push_request()`].
         #[inline]
         pub fn push_request(
             &mut self,
@@ -354,6 +407,13 @@ mod response {
     }
     #[allow(unused_variables)]
     impl PushedResponsePipe {
+        /// Sends a single push response.
+        ///
+        ///
+        /// # Errors
+        ///
+        /// Errors are passed from the HTTP libraries, for now only [`mod@h2`].
+        /// See [`h2::server::SendPushedResponse::send_response()`] for more information.
         #[inline]
         pub fn send_response(
             &mut self,
@@ -375,6 +435,7 @@ mod response {
                 _ => unreachable!(),
             }
         }
+        /// Ensures the version of `response` depending on inner version if [`PushedResponsePipe`].
         #[inline]
         #[allow(unused_variables)]
         pub fn ensure_version<T>(&self, response: &mut Response<T>) {
@@ -387,7 +448,12 @@ mod response {
         }
     }
 
-    /// Writer **must** be buffered!
+    /// Writer should be buffered.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// Will pass any errors emitted from `writer`.
     pub(crate) async fn write_http_1_response<W: AsyncWrite + Unpin>(
         mut writer: W,
         response: Response<()>,
@@ -423,6 +489,13 @@ mod response {
         writer.write_all(b"\r\n").await
     }
     impl ResponseBodyPipe {
+        /// Sends `data` as the body.
+        ///
+        ///
+        /// # Errors
+        ///
+        /// Passes any errors from writing to the stream.
+        /// See [`AsyncWriteExt::write_all()`] and [`h2::SendStream::send_data()`].
         #[inline]
         pub async fn send(&mut self, data: Bytes, end_of_stream: bool) -> Result<(), Error> {
             match self {
@@ -438,6 +511,13 @@ mod response {
             }
             Ok(())
         }
+        /// Closes the pipe.
+        ///
+        ///
+        /// # Errors
+        ///
+        /// Passes any errors emitted when closing the writer.
+        /// See [`AsyncWriteExt::flush()`] and [`h2::SendStream::send_data()`].
         #[inline]
         pub async fn close(&mut self) -> Result<(), Error> {
             match self {

@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 #[derive(Debug)]
-pub enum ParseError {
+pub enum Error {
     NoPath,
     HTTP(http::Error),
     Io(io::Error),
@@ -26,6 +26,7 @@ impl PartialEq<str> for ValueQualitySet<'_> {
     }
 }
 
+#[must_use]
 pub fn format_list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     let elements = header
         .chars()
@@ -98,6 +99,7 @@ pub fn format_list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     }
     list
 }
+#[must_use]
 pub fn format_query(query: &str) -> HashMap<&str, &str> {
     let elements = query
         .chars()
@@ -144,7 +146,8 @@ pub fn format_query(query: &str) -> HashMap<&str, &str> {
 /// # Panics
 /// Will panic if `path.is_empty()`. It checks the first byte.
 #[inline]
-pub fn convert_uri(path: &str, base_path: &Path) -> PathBuf {
+#[must_use]
+pub fn uri(path: &str, base_path: &Path) -> PathBuf {
     assert_eq!(path.as_bytes()[0], FORWARD_SLASH);
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
@@ -159,7 +162,8 @@ pub fn convert_uri(path: &str, base_path: &Path) -> PathBuf {
 }
 
 #[inline]
-pub fn parse_version(bytes: &[u8]) -> Option<Version> {
+#[must_use]
+pub fn version(bytes: &[u8]) -> Option<Version> {
     Some(match &bytes[..] {
         b"HTTP/0.9" => Version::HTTP_09,
         b"HTTP/1.0" => Version::HTTP_10,
@@ -233,11 +237,10 @@ pub fn headers(bytes: &Bytes) -> (HeaderMap, usize) {
                     let name = HeaderName::from_bytes(&bytes[header_name_start..header_name_end]);
                     let value =
                         HeaderValue::from_maybe_shared(bytes.slice(header_value_start..pos - 1));
-                    match (name, value) {
-                        (Ok(name), Ok(value)) => {
-                            headers.insert(name, value);
-                        }
-                        _ => warn!("error in parsing headers"),
+                    if let (Ok(name), Ok(value)) = (name, value) {
+                        headers.insert(name, value);
+                    } else {
+                        warn!("error in parsing headers")
                     }
                     parse_stage.next();
                     header_name_start = pos + 1;
@@ -260,19 +263,29 @@ pub async fn request(
     stream: &Mutex<Encryption>,
     max_len: usize,
     default_host: &[u8],
-) -> Result<(Request<()>, Bytes), Error> {
-    let mut buffer = BytesMut::with_capacity(1024);
-    let mut read = 0;
-    let read = &mut read;
+) -> Result<(Request<()>, Bytes), application::Error> {
+    fn contains_two_newlines(bytes: &[u8]) -> bool {
+        let mut in_row = 0_u8;
+        for byte in bytes.iter().cloned() {
+            match byte {
+                LF if in_row == 0 => in_row += 1,
+                LF => return true,
+                CR => {}
+                _ => in_row = 0,
+            }
+        }
+        false
+    }
+
     async fn read_more(
         buffer: &mut BytesMut,
         reader: &Mutex<Encryption>,
         read: &mut usize,
         max_len: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, application::Error> {
         assert!(buffer.len() == *read);
         if buffer.len() == max_len {
-            return Err(Error::HeaderTooLong);
+            return Err(application::Error::HeaderTooLong);
         }
 
         let mut reader = reader.lock().await;
@@ -292,31 +305,23 @@ pub async fn request(
         )
         .await
         .ok()
-        .ok_or(Error::Done)??;
+        .ok_or(application::Error::Done)??;
         *read += read_now;
         unsafe { buffer.set_len(*read) };
 
         Ok(read_now)
     };
-    fn contains_two_newlines(bytes: &[u8]) -> bool {
-        let mut in_row = 0_u8;
-        for byte in bytes.iter().cloned() {
-            match byte {
-                LF if in_row == 0 => in_row += 1,
-                LF => return true,
-                CR => {}
-                _ => in_row = 0,
-            }
-        }
-        false
-    }
+
+    let mut buffer = BytesMut::with_capacity(1024);
+    let mut read = 0;
+    let read = &mut read;
 
     loop {
         if read_more(&mut buffer, stream, read, max_len).await? == 0 {
             break;
         };
         if !utility::valid_method(&buffer) {
-            return Err(Error::InvalidMethod);
+            return Err(application::Error::InvalidMethod);
         }
 
         if contains_two_newlines(&buffer) {
@@ -355,7 +360,7 @@ pub async fn request(
             RequestParseStage::Method => {
                 if byte == SPACE || method_len == method.len() {
                     if Method::from_bytes(&buffer[..method_len]).is_err() {
-                        return Err(Error::InvalidMethod);
+                        return Err(application::Error::InvalidMethod);
                     }
                     parse_stage.next();
                     continue;
@@ -375,8 +380,8 @@ pub async fn request(
             }
             RequestParseStage::Version => {
                 if byte == LF || version_index == version.len() {
-                    if parse::parse_version(&version[..version_index]).is_none() {
-                        return Err(Error::InvalidVersion);
+                    if parse::version(&version[..version_index]).is_none() {
+                        return Err(application::Error::InvalidVersion);
                     }
                     parse_stage.next();
                     continue;
@@ -399,15 +404,14 @@ pub async fn request(
     }
     if path_end
         .checked_sub(path_start)
-        .map(|len| len == 0)
-        .unwrap_or(true)
+        .map_or(true, |len| len == 0)
     {
-        return Err(Error::NoPath);
+        return Err(application::Error::NoPath);
     }
 
     let host = parsed
         .headers_ref()
-        .and_then(|headers| headers.get(header::HOST).map(|header| header.as_bytes()))
+        .and_then(|headers| headers.get(header::HOST).map(HeaderValue::as_bytes))
         .unwrap_or(default_host);
 
     let uri = {
@@ -431,13 +435,19 @@ pub async fn request(
         .method(
             Method::from_bytes(&method[..method_len])
                 .ok()
-                .ok_or(Error::InvalidMethod)?,
+                .ok_or(application::Error::InvalidMethod)?,
         )
-        .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidHost)?)
-        .version(parse::parse_version(&version[..version_index]).ok_or(Error::InvalidVersion)?)
+        .uri(
+            Uri::from_maybe_shared(uri)
+                .ok()
+                .ok_or(application::Error::InvalidHost)?,
+        )
+        .version(
+            parse::version(&version[..version_index]).ok_or(application::Error::InvalidVersion)?,
+        )
         .body(())
     {
-        Err(err) => Err(Error::Http(err)),
+        Err(err) => Err(application::Error::Http(err)),
         Ok(request) => Ok((request, buffer.slice(header_end - 1..))),
     }
 }

@@ -49,7 +49,7 @@ pub use crate::Config;
 pub use crate::*;
 pub use comprash::UriKey;
 pub use extensions::{Package, Post, Pre, Prepare, Present, Prime};
-pub use host::{Host, HostData};
+pub use host::{Data, Host};
 pub use utility::chars::*;
 pub use utility::{read_file, read_file_cached};
 
@@ -57,7 +57,7 @@ pub use utility::{read_file, read_file_cached};
 ///
 /// The purpose of this module is to expose common file system operations.
 pub mod fs {
-    use super::*;
+    use super::utility;
     pub use tokio::fs::File;
     pub use utility::{read_file, read_file_cached};
 }
@@ -75,7 +75,7 @@ pub mod networking {
 ///
 /// **This is not part of the public API and may change rapidly**
 pub mod internals {
-    use super::*;
+    use super::{application, comprash, encryption, extensions, limiting, utility};
     pub use application::*;
     pub use comprash::{Cache, FileCache, PathQuery, ResponseCache};
     pub use encryption::Encryption;

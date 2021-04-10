@@ -59,6 +59,7 @@ macro_rules! get_unsafe_wrapper {
         #[doc = "A wrapper type for `"]
         #[doc = $ret_str]
         #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[must_use]
         pub struct $main(*const $return);
         impl $main {
             pub(crate) fn new(data: &$return) -> Self {
@@ -67,7 +68,8 @@ macro_rules! get_unsafe_wrapper {
             /// # Safety
             ///
             /// See [module level documentation](crate::extensions).
-            #[inline(always)]
+            #[inline]
+            #[must_use = "must use extracted reference"]
             pub unsafe fn get_inner(&self) -> &$return {
                 &*self.0
             }
@@ -84,6 +86,7 @@ macro_rules! get_unsafe_mut_wrapper {
         #[doc = "A wrapper type for `"]
         #[doc = $ret_str]
         #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[must_use]
         pub struct $main(*mut $return);
         impl $main {
             pub(crate) fn new(data: &mut $return) -> Self {
@@ -92,7 +95,8 @@ macro_rules! get_unsafe_mut_wrapper {
             /// # Safety
             ///
             /// See [module level documentation](crate::extensions).
-            #[inline(always)]
+            #[inline]
+            #[must_use = "must use extracted reference"]
             pub unsafe fn get_inner(&mut self) -> &mut $return {
                 &mut *self.0
             }
@@ -121,7 +125,8 @@ impl PresentDataWrapper {
     /// Else, the data will have been dropped.
     ///
     /// You **must** not store this type.
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub unsafe fn get_inner(&mut self) -> &mut PresentData {
         &mut self.0
     }
@@ -149,43 +154,43 @@ pub struct PresentData {
 }
 #[allow(missing_docs)]
 impl PresentData {
-    #[inline(always)]
+    #[inline]
     pub fn address(&self) -> SocketAddr {
         self.address
     }
-    #[inline(always)]
+    #[inline]
     pub fn request(&self) -> &FatRequest {
         unsafe { &*self.request }
     }
-    #[inline(always)]
+    #[inline]
     pub fn body(&mut self) -> &mut LazyRequestBody {
         unsafe { &mut *self.body }
     }
-    #[inline(always)]
+    #[inline]
     pub fn host(&self) -> &Host {
         unsafe { &*self.host }
     }
-    #[inline(always)]
+    #[inline]
     pub fn path(&self) -> &Path {
         unsafe { &*self.path }
     }
-    #[inline(always)]
+    #[inline]
     pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
         unsafe { &mut *self.server_cache_preference }
     }
-    #[inline(always)]
+    #[inline]
     pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
         unsafe { &mut *self.client_cache_preference }
     }
-    #[inline(always)]
+    #[inline]
     pub fn response_mut(&mut self) -> &mut Response<Bytes> {
         unsafe { &mut *self.response }
     }
-    #[inline(always)]
+    #[inline]
     pub fn response(&self) -> &Response<Bytes> {
         unsafe { &*self.response }
     }
-    #[inline(always)]
+    #[inline]
     pub fn args(&self) -> &PresentArguments {
         &self.args
     }
@@ -196,7 +201,8 @@ unsafe impl Sync for PresentData {}
 /// Contains all extensions.
 /// See [extensions.md](../extensions.md) for more info.
 ///
-/// ToDo: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
+/// `ToDo`: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
+#[must_use]
 pub struct Extensions {
     prime: Vec<Prime>,
     pre: HashMap<String, Pre>,
@@ -265,13 +271,11 @@ impl Extensions {
             let path = uri
                 .path_and_query
                 .as_ref()
-                .map(uri::PathAndQuery::path)
-                .unwrap_or("/");
+                .map_or("/", uri::PathAndQuery::path);
             let query = uri
                 .path_and_query
                 .as_ref()
-                .map(uri::PathAndQuery::query)
-                .flatten();
+                .and_then(uri::PathAndQuery::query);
             let path_and_query = build_bytes!(
                 path.as_bytes(),
                 append.as_bytes(),
@@ -301,42 +305,34 @@ impl Extensions {
         new
     }
     /// Adds a prime extension.
-    #[inline(always)]
     pub fn add_prime(&mut self, extension: Prime) {
         self.prime.push(extension);
     }
     /// Adds a pre extension.
-    #[inline(always)]
     pub fn add_pre(&mut self, path: String, extension: Pre) {
         self.pre.insert(path, extension);
     }
     /// Adds a prepare extension for a single URI.
-    #[inline(always)]
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
         self.prepare_single.insert(path, extension);
     }
     /// Adds a prepare extension run if `function` return `true`.
-    #[inline(always)]
     pub fn add_prepare_fn(&mut self, function: If, extension: Prepare) {
         self.prepare_fn.push((function, extension));
     }
     /// Adds a present internal extension, called with files starting with `!> `.
-    #[inline(always)]
     pub fn add_present_internal(&mut self, name: String, extension: Present) {
         self.present_internal.insert(name, extension);
     }
     /// Adds a present file extension, called with file extensions matching `name`.
-    #[inline(always)]
     pub fn add_present_file(&mut self, name: String, extension: Present) {
         self.present_file.insert(name, extension);
     }
     /// Adds a package extension, used to make last-minute changes to response.
-    #[inline(always)]
     pub fn add_package(&mut self, extension: Package) {
         self.package.push(extension);
     }
     /// Adds a post extension, used for HTTP/2 push
-    #[inline(always)]
     pub fn add_post(&mut self, extension: Post) {
         self.post.push(extension);
     }
@@ -347,7 +343,7 @@ impl Extensions {
         host: &Host,
         address: SocketAddr,
     ) {
-        for prime in self.prime.iter() {
+        for prime in &self.prime {
             if let Some(prime) = prime(
                 RequestWrapper::new(request),
                 HostWrapper::new(host),
@@ -384,8 +380,8 @@ impl Extensions {
         path: &Path,
         address: SocketAddr,
     ) -> Option<FatResponse> {
-        match self.prepare_single.get(request.uri().path()) {
-            Some(extension) => Some(
+        if let Some(extension) = self.prepare_single.get(request.uri().path()) {
+            Some(
                 extension(
                     RequestWrapperMut::new(request),
                     HostWrapper::new(host),
@@ -393,26 +389,22 @@ impl Extensions {
                     address,
                 )
                 .await,
-            ),
-            None => {
-                for (function, extension) in &self.prepare_fn {
-                    match function(request) {
-                        true => {
-                            return Some(
-                                extension(
-                                    RequestWrapperMut::new(request),
-                                    HostWrapper::new(host),
-                                    PathWrapper::new(path),
-                                    address,
-                                )
-                                .await,
-                            );
-                        }
-                        false => continue,
-                    }
+            )
+        } else {
+            for (function, extension) in &self.prepare_fn {
+                if function(request) {
+                    return Some(
+                        extension(
+                            RequestWrapperMut::new(request),
+                            HostWrapper::new(host),
+                            PathWrapper::new(path),
+                            address,
+                        )
+                        .await,
+                    );
                 }
-                None
             }
+            None
         }
     }
     // It's an internal function, which should be the same style as all the other `resolve_*` functions.
@@ -452,7 +444,7 @@ impl Extensions {
         }
         if let Some(extension) = path
             .extension()
-            .and_then(|s| s.to_str())
+            .and_then(std::ffi::OsStr::to_str)
             .and_then(|s| self.present_file.get(s))
         {
             let data = PresentData {
@@ -518,6 +510,7 @@ impl Default for Extensions {
 }
 
 #[derive(Debug)]
+#[must_use]
 pub struct LazyRequestBody {
     body: *mut application::Body,
     result: Option<Bytes>,
@@ -527,20 +520,24 @@ impl LazyRequestBody {
     ///
     /// The `body` is converted to a `*mut` which can be dereferenced safely, as long as we wait for this to be dropped.
     /// It can also not be referenced in any other way while this is not dropped.
-    #[inline(always)]
+    #[inline]
     pub(crate) fn new(body: &mut application::Body) -> Self {
         Self { body, result: None }
     }
     /// Reads the `Bytes` from the request body.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// Returns any errors from reading the inner [`application::Body`].
     #[inline]
     pub async fn get(&mut self) -> io::Result<&Bytes> {
-        match self.result {
-            Some(ref result) => Ok(result),
-            None => {
-                let buffer = unsafe { &mut *self.body }.read_to_bytes().await?;
-                self.result.replace(buffer);
-                Ok(self.result.as_ref().unwrap())
-            }
+        if let Some(ref result) = self.result {
+            Ok(result)
+        } else {
+            let buffer = unsafe { &mut *self.body }.read_to_bytes().await?;
+            self.result.replace(buffer);
+            Ok(self.result.as_ref().unwrap())
         }
     }
 }
@@ -572,7 +569,9 @@ impl PresentExtensionPosData {
     }
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct PresentExtensions {
     data: Bytes,
     // Will have the start and end of name of extensions as first tuple,
@@ -609,14 +608,14 @@ impl PresentExtensions {
                 }
                 let len = pos - start;
                 let span = (start, len);
-                match last_name {
-                    Some(name) => {
-                        extensions_args.push(PresentExtensionPosData::from_name_and_arg(name, span))
-                    }
-                    None => {
-                        last_name = Some((start, len));
-                        extensions_args.push(PresentExtensionPosData::from_name_and_arg(span, span))
-                    }
+
+                // We have to borrow same mutably, which isn't possible in closures.
+                #[allow(clippy::option_if_let_else)]
+                if let Some(name) = last_name {
+                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(name, span))
+                } else {
+                    last_name = Some((start, len));
+                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(span, span))
                 }
                 if byte == CR {
                     has_cr = true;
@@ -693,6 +692,7 @@ impl Iterator for PresentExtensionsIter {
     }
 }
 #[derive(Debug)]
+#[must_use]
 pub struct PresentArguments {
     data: PresentExtensions,
     data_index: usize,

@@ -1,9 +1,10 @@
 use crate::prelude::*;
 #[cfg(feature = "limiting")]
-use threading::*;
+use threading::atomic;
 
 #[cfg(feature = "limiting")]
 #[inline]
+#[must_use]
 pub fn get_too_many_requests() -> Response<Bytes> {
     let body = Bytes::from_static(b"<html>\
     <head>\
@@ -40,6 +41,7 @@ pub enum LimitStrength {
 
 #[cfg(feature = "limiting")]
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct LimitManager {
     connection_map_and_time: Arc<Mutex<(HashMap<IpAddr, usize>, time::Instant)>>,
     max_requests: usize,
@@ -96,20 +98,21 @@ impl Default for LimitManager {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct LimitWrapper {
     #[cfg(feature = "limiting")]
     pub limiter: LimitManager,
 }
 impl LimitWrapper {
     #[cfg(feature = "limiting")]
-    #[inline(always)]
+    #[inline]
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
         Self {
             limiter: LimitManager::new(max_requests, check_every, reset_seconds),
         }
     }
     #[cfg(not(feature = "limiting"))]
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         Self {}
     }
@@ -127,7 +130,7 @@ impl LimitWrapper {
     }
 }
 impl Default for LimitWrapper {
-    #[inline(always)]
+    #[inline]
     fn default() -> Self {
         Self {
             #[cfg(feature = "limiting")]

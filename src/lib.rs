@@ -1,7 +1,8 @@
 #![warn(unreachable_pub)]
 // #![warn(missing_debug_implementations)]
 // #![warn(missing_docs)]
-// #![warn(clippy::pedantic)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::inline_always, clippy::too_many_lines)]
 
 // Module declaration
 pub mod application;
@@ -29,7 +30,7 @@ pub type FatResponse = (
     CompressPreference,
 );
 
-#[inline(always)]
+#[inline]
 pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
     Box::pin(core::future::ready(value))
 }
@@ -50,7 +51,7 @@ pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
 )))]
 pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
 
-#[inline(always)]
+#[must_use]
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]
     let mut vec = Vec::with_capacity(4);
@@ -199,6 +200,7 @@ pub async fn handle_cache(
 
     let lock = host.response_cache.lock().await;
     let cached = path_query.call_all(|path| lock.get(path)).1;
+    #[allow(clippy::single_match_else)]
     let future = match cached {
         Some(resp) => {
             info!("Found in cache!");
@@ -248,44 +250,65 @@ pub async fn handle_cache(
             None
         }
         None => {
+            async fn maybe_cache(
+                host: &Host,
+                server_cache: ServerCachePreference,
+                path_query: PathQuery,
+                response: CompressedResponse,
+                future: &Option<RetSyncFut<()>>,
+            ) {
+                if future.is_none() {
+                    if server_cache.cache() {
+                        let mut lock = host.response_cache.lock().await;
+                        let key = if server_cache.query_matters() {
+                            comprash::UriKey::PathQuery(path_query)
+                        } else {
+                            comprash::UriKey::Path(path_query.into_path())
+                        };
+                        info!("Caching uri {:?}!", &key);
+                        lock.cache(key, response);
+                    }
+                } else {
+                    info!("Not caching; a Pre extension has captured. If we cached, it would not be called again.");
+                }
+            };
+
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let ((resp, client_cache, server_cache, compress), future) = match bad_path {
-                false => match host
-                    .extensions
-                    .resolve_pre(&mut request, host, address)
-                    .await
-                {
-                    Some((response, future)) => (response, Some(future)),
-                    None => {
-                        let path = parse::convert_uri(request.uri().path(), host.path.as_path());
-                        let (mut resp, mut client_cache, mut server_cache, compress) =
-                            handle_request(&mut request, address, host, &path).await?;
-
-                        host.extensions
-                            .resolve_present(
-                                &mut request,
-                                &mut resp,
-                                &mut client_cache,
-                                &mut server_cache,
-                                host,
-                                address,
-                                path.as_path(),
-                            )
-                            .await?;
-                        ((resp, client_cache, server_cache, compress), None)
-                    }
-                },
-                true => (
+            let ((resp, client_cache, server_cache, compress), future) = if bad_path {
+                (
                     utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
                     None,
-                ),
+                )
+            } else if let Some((response, future)) = host
+                .extensions
+                .resolve_pre(&mut request, host, address)
+                .await
+            {
+                (response, Some(future))
+            } else {
+                let path = parse::uri(request.uri().path(), host.path.as_path());
+                let (mut resp, mut client_cache, mut server_cache, compress) =
+                    handle_request(&mut request, address, host, &path).await?;
+
+                host.extensions
+                    .resolve_present(
+                        &mut request,
+                        &mut resp,
+                        &mut client_cache,
+                        &mut server_cache,
+                        host,
+                        address,
+                        path.as_path(),
+                    )
+                    .await?;
+                ((resp, client_cache, server_cache, compress), None)
             };
 
             let extension = match Path::new(request.uri().path())
                 .extension()
-                .and_then(|s| s.to_str())
+                .and_then(std::ffi::OsStr::to_str)
             {
                 Some(ext) => ext,
                 None => match host.extension_default.as_ref() {
@@ -308,28 +331,6 @@ pub async fn handle_cache(
                 .await;
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
-
-            async fn maybe_cache(
-                host: &Host,
-                server_cache: ServerCachePreference,
-                path_query: PathQuery,
-                response: CompressedResponse,
-                future: &Option<RetSyncFut<()>>,
-            ) {
-                if future.is_none() {
-                    if server_cache.cache() {
-                        let mut lock = host.response_cache.lock().await;
-                        let key = match server_cache.query_matters() {
-                            true => comprash::UriKey::PathQuery(path_query),
-                            false => comprash::UriKey::Path(path_query.into_path()),
-                        };
-                        info!("Caching uri {:?}!", &key);
-                        lock.cache(key, response);
-                    }
-                } else {
-                    info!("Not caching; a Pre extension has captured. If we cached, it would not be called again.");
-                }
-            };
 
             match pipe {
                 SendKind::Send(response_pipe) => {
@@ -432,15 +433,15 @@ pub async fn handle_request(
     ))
 }
 
+#[must_use]
 pub struct HostDescriptor {
     port: u16,
     #[cfg(feature = "https")]
     server_config: Option<Arc<rustls::ServerConfig>>,
-    host_data: Arc<HostData>,
+    host_data: Arc<Data>,
 }
 impl HostDescriptor {
-    #[inline(always)]
-    pub fn http(host: Arc<HostData>) -> Self {
+    pub fn http(host: Arc<Data>) -> Self {
         Self {
             port: 80,
             #[cfg(feature = "https")]
@@ -449,8 +450,7 @@ impl HostDescriptor {
         }
     }
     #[cfg(feature = "https")]
-    #[inline(always)]
-    pub fn https(host: Arc<HostData>, server_config: Arc<rustls::ServerConfig>) -> Self {
+    pub fn https(host: Arc<Data>, server_config: Arc<rustls::ServerConfig>) -> Self {
         Self {
             port: 443,
             server_config: Some(server_config),
@@ -458,10 +458,9 @@ impl HostDescriptor {
         }
     }
     #[cfg(feature = "https")]
-    #[inline(always)]
     pub fn new(
         port: u16,
-        host_data: Arc<HostData>,
+        host_data: Arc<Data>,
         server_config: Option<Arc<rustls::ServerConfig>>,
     ) -> Self {
         Self {
@@ -471,7 +470,6 @@ impl HostDescriptor {
         }
     }
     #[cfg(not(feature = "https"))]
-    #[inline(always)]
     pub fn new(port: u16, host_data: Arc<HostData>) -> Self {
         Self { port, host_data }
     }
@@ -495,11 +493,11 @@ impl Debug for HostDescriptor {
 }
 
 #[derive(Debug)]
+#[must_use]
 pub struct Config {
     descriptors: Vec<HostDescriptor>,
 }
 impl Config {
-    #[inline(always)]
     pub fn new(descriptors: Vec<HostDescriptor>) -> Self {
         Config { descriptors }
     }
