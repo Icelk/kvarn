@@ -186,10 +186,11 @@ impl CompressedResponse {
                         CompressPreference::Full => {
                             #[cfg(all(feature = "gzip", feature = "br"))]
                             match (self.br.is_some() && self.gzip.is_none()) || prefer_br {
-                                true => (self.get_br(), "br"),
+                                true if contains("br") => (self.get_br(), "br"),
+                                true if contains("gzip") => (self.get_gzip(), "gzip"),
                                 false if contains("gzip") => (self.get_gzip(), "gzip"),
                                 false if contains("br") => (self.get_br(), "br"),
-                                false => (self.get_identity().body(), "identity"),
+                                _ => (self.get_identity().body(), "identity"),
                             }
                             #[cfg(all(feature = "gzip", not(feature = "br")))]
                             {
