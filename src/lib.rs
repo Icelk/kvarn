@@ -441,25 +441,28 @@ pub struct HostDescriptor {
     server_config: Option<Arc<rustls::ServerConfig>>,
     host_data: Arc<Data>,
 }
-impl HostDescriptor {
-    pub fn http(host: Arc<Data>) -> Self {
+    /// Uses the defaults for non-secure HTTP with `host_data`
+    pub fn http(host_data: Arc<Data>) -> Self {
         Self {
             port: 80,
             #[cfg(feature = "https")]
             server_config: None,
-            host_data: host,
+            host_data,
         }
     }
+    /// Uses the defaults for secure HTTP, HTTPS, with `host_data`.
+    /// Gets a [`rustls::ServerConfig`] from [`Data::make_config()`].
     #[cfg(feature = "https")]
-    pub fn https(host: Arc<Data>, server_config: Arc<rustls::ServerConfig>) -> Self {
+    pub fn https(host_data: Arc<Data>) -> Self {
         Self {
             port: 443,
-            server_config: Some(server_config),
-            host_data: host,
+            server_config: Some(Arc::new(Data::make_config(&host_data))),
+            host_data,
         }
     }
+    /// Creates a new descriptor for `port` with `host_data` and an optional [`rustls::ServerConfig`].
     #[cfg(feature = "https")]
-    pub fn new(
+    pub fn with_server_config(
         port: u16,
         host_data: Arc<Data>,
         server_config: Option<Arc<rustls::ServerConfig>>,
@@ -470,9 +473,15 @@ impl HostDescriptor {
             host_data,
         }
     }
-    #[cfg(not(feature = "https"))]
-    pub fn new(port: u16, host_data: Arc<HostData>) -> Self {
-        Self { port, host_data }
+    /// Creates a new descriptor for `port` with `host_data`.
+    /// If the feature `https` is enabled, a `rustls::ServerConfig` is created
+    /// from the `host_data`.
+    pub fn new(port: u16, host_data: Arc<Data>) -> Self {
+        Self {
+            port,
+            #[cfg(feature = "https")]
+            server_config: Some(Arc::new(Data::make_config(&host_data))),
+            host_data,
     }
 }
 impl Debug for HostDescriptor {
