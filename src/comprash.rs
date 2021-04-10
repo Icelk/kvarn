@@ -259,35 +259,42 @@ impl CompressedResponse {
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
-        if let Some(content_type) = response.headers().get("content-type") {
-            if let Some(mime_type) = content_type
-                .to_str()
-                .ok()
-                .and_then(|s| s.parse::<Mime>().ok())
-            {
-                match mime_type.get_param("charset") {
-                    // Has charset attribute.
-                    Some(_) => {}
-                    None if utf_8 => {
-                        // Unsafe if ok; we know the added bytes are safe for a http::HeaderValue
-                        // and unwrap is ok; we checked same thing  just above
-                        let content_type = unsafe {
-                            HeaderValue::from_maybe_shared_unchecked(
-                                format!("{}; charset=utf-8", content_type.to_str().unwrap())
-                                    .into_bytes(),
-                            )
-                        };
-                        utility::replace_header(
-                            response.headers_mut(),
-                            "content-type",
-                            content_type,
-                        );
-                    }
-                    None => {
-                        // We should not add charset parameter
+
+        // Looks a lot better.
+        #[allow(clippy::single_match_else)]
+        match response.headers().get("content-type") {
+            Some(content_type) => {
+                if let Some(mime_type) = content_type
+                    .to_str()
+                    .ok()
+                    .and_then(|s| s.parse::<Mime>().ok())
+                {
+                    match mime_type.get_param("charset") {
+                        // Has charset attribute.
+                        Some(_) => {}
+                        None if utf_8 => {
+                            // Unsafe if ok; we know the added bytes are safe for a http::HeaderValue
+                            // and unwrap is ok; we checked same thing  just above
+                            let content_type = unsafe {
+                                HeaderValue::from_maybe_shared_unchecked(
+                                    format!("{}; charset=utf-8", content_type.to_str().unwrap())
+                                        .into_bytes(),
+                                )
+                            };
+                            utility::replace_header(
+                                response.headers_mut(),
+                                "content-type",
+                                content_type,
+                            );
+                        }
+
+                        None => {
+                            // We should not add charset parameter
+                        }
                     }
                 }
-            } else {
+            }
+            None => {
                 let mime = if utf_8 {
                     mime::TEXT_HTML_UTF_8
                 } else {
