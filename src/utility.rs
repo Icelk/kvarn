@@ -72,6 +72,8 @@ impl WriteableBytes {
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         let mut bytes = BytesMut::with_capacity(capacity);
+        // This is safe because of the guarantees of `WriteableBytes`; it stores the length internally
+        // and applies it when the inner variable is exposed, through `Self::into_inner()`.
         unsafe { bytes.set_len(bytes.capacity()) };
         Self { bytes, len: 0 }
     }
@@ -91,6 +93,8 @@ impl Default for WriteableBytes {
 impl From<BytesMut> for WriteableBytes {
     fn from(mut bytes: BytesMut) -> Self {
         let len = bytes.len();
+        // This is safe because of the guarantees of `WriteableBytes`; it stores the length internally
+        // and applies it when the inner variable is exposed, through `Self::into_inner()`.
         unsafe { bytes.set_len(bytes.capacity()) };
         Self { bytes, len }
     }
@@ -100,6 +104,8 @@ impl Write for WriteableBytes {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if self.len + buf.len() > self.bytes.capacity() {
             self.bytes.reserve(buf.len() + 512);
+            // This is safe because of the guarantees of `WriteableBytes`; it stores the length internally
+            // and applies it when the inner variable is exposed, through `Self::into_inner()`.
             unsafe { self.bytes.set_len(self.bytes.capacity()) };
         }
         self.bytes[self.len..self.len + buf.len()].copy_from_slice(buf);
@@ -123,6 +129,7 @@ pub async fn read_to_end<R: AsyncRead + Unpin>(
     mut reader: R,
 ) -> io::Result<()> {
     let mut read = buffer.len();
+    // This is safe because of the trailing unsafe block.
     unsafe { buffer.set_len(buffer.capacity()) };
     loop {
         match reader.read(&mut buffer[read..]).await? {
@@ -131,11 +138,13 @@ pub async fn read_to_end<R: AsyncRead + Unpin>(
                 read += len;
                 if read > buffer.len() - 512 {
                     buffer.reserve(2048);
+                    // This is safe because of the trailing unsafe block.
                     unsafe { buffer.set_len(buffer.capacity()) };
                 }
             }
         }
     }
+    // I have counted the length in `read`. It will *not* include uninitiated bytes.
     unsafe { buffer.set_len(read) };
     Ok(())
 }
