@@ -75,11 +75,13 @@ pub mod networking {
 /// **This is not part of the public API and may change rapidly**
 pub mod internals {
     use super::{application, comprash, encryption, extensions, limiting, utility};
-    pub use application::*;
+    pub use application::{
+        Body, HttpConnection, PushedResponsePipe, ResponseBodyPipe, ResponsePipe,
+    };
     pub use comprash::{Cache, FileCache, PathQuery, ResponseCache};
     pub use encryption::Encryption;
     pub use extensions::{ready, RetFut, RetSyncFut};
-    pub use limiting::*;
+    pub use limiting::{LimitStrength, LimitWrapper};
     pub use tokio::time::{timeout, Duration};
     pub use utility::default_error;
 }
