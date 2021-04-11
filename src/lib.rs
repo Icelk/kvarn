@@ -1,8 +1,3 @@
-#![warn(unreachable_pub)]
-#![warn(missing_debug_implementations)]
-#![warn(missing_docs)]
-#![warn(clippy::pedantic)]
-#![allow(clippy::inline_always, clippy::too_many_lines)]
 //! An extensible and efficient forward-thinking web server for the future.
 //!
 //! Kvarn is a rethought web server tailored for the current needs from web application developers.
@@ -30,6 +25,13 @@
 //! # Future plans
 //!
 //! See the [README @ GitHub](https://github.com/Iselk/kvarn/) and [kvarn.org](https://kvarn.org).
+#![deny(
+    unreachable_pub,
+    missing_debug_implementations,
+    // missing_docs,
+    clippy::pedantic
+)]
+#![allow(clippy::too_many_lines)]
 
 // Module declaration
 pub mod application;
@@ -176,14 +178,15 @@ pub async fn handle_connection(
         .await
     {
         #[cfg(feature = "limiting")]
-        match limiter.register(address).await {
+        match limiter.register(address.ip()).await {
             LimitStrength::Drop => return Ok(()),
             LimitStrength::Send => {
                 let version = match response_pipe {
                     ResponsePipe::Http1(_) => Version::HTTP_11,
                     ResponsePipe::Http2(_) => Version::HTTP_2,
                 };
-                let (mut response, body) = utility::extract_body(limiting::get_too_many_requests());
+                let (mut response, body) =
+                    utility::split_response(limiting::get_too_many_requests());
                 *response.version_mut() = version;
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -216,7 +219,7 @@ pub enum SendKind<'a> {
 impl<'a> SendKind<'a> {
     /// Ensures correct version and length (only applicable for HTTP/1 connections)
     /// of a response according to inner enum variants.
-    #[inline(always)]
+    #[inline]
     pub fn ensure_version_and_length<T>(
         &self,
         response: &mut Response<T>,
@@ -262,7 +265,7 @@ pub async fn handle_cache(
         Some(resp) => {
             info!("Found in cache!");
             let (mut response, body) =
-                utility::extract_body(match resp.clone_preferred(&request) {
+                utility::split_response(match resp.clone_preferred(&request) {
                     Err(code) => utility::default_error(code, Some(host)).await,
                     Ok(response) => response,
                 });
@@ -377,7 +380,7 @@ pub async fn handle_cache(
                 comprash::CompressedResponse::new(resp, compress, client_cache, extension);
 
             let (mut response, body) =
-                utility::extract_body(match compressed_response.clone_preferred(&request) {
+                utility::split_response(match compressed_response.clone_preferred(&request) {
                     Err(code) => utility::default_error(code, Some(host)).await,
                     Ok(response) => response,
                 });
@@ -641,7 +644,7 @@ async fn accept(listener: TcpListener, descriptor: PortDescriptor) -> Result<(),
         match listener.accept().await {
             Ok((socket, addr)) => {
                 #[cfg(feature = "limiting")]
-                match limiter.register(addr).await {
+                match limiter.register(addr.ip()).await {
                     LimitStrength::Drop => {
                         drop(socket);
                         return Ok(());

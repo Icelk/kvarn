@@ -13,12 +13,13 @@
 //! You cannot share references with `Futures`, and so I've opted to go the unsafe route. Literally.
 //!
 //!
-//! ### Implementation
+//! ### Safety
 //!
 //! In this module, there are several `Wrapper` types. They ***must not*** be stored.
-//! It's safe to get the underlying type is you are inside the extension which received the data;
-//! I'm awaiting you, guaranteeing the data isn't touched by anyone but the single extension.
-//! If you use it later, I probably have dropped the data.
+//! It's safe to get the underlying type inside the extension which received the data;
+//! the future is awaited and the referenced data is guaranteed to not be touched by
+//! anyone but the receiving extension. If you use it later, the data can be used
+//! or have been dropped.
 use crate::prelude::{internals::*, *};
 
 pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;

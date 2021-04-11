@@ -223,6 +223,11 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes>
     Some(buffer.freeze())
 }
 
+/// Get a hardcoded error message.
+///
+/// It can be useful when you don't have access to the file cache
+/// or if a error html file isn't provided. Is used by the preferred
+/// function [`default_error`].
 #[must_use]
 pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
     // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
@@ -250,6 +255,10 @@ pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
     body.freeze()
 }
 
+/// Default HTTP error used in Kvarn.
+///
+/// Gets the default error based on `code` from the file system
+/// through a cache.
 #[inline]
 pub async fn default_error(code: StatusCode, host: Option<&Host>) -> Response<Bytes> {
     // Error files will be used several times.
@@ -277,6 +286,9 @@ pub async fn default_error(code: StatusCode, host: Option<&Host>) -> Response<By
         .unwrap()
 }
 
+/// Get a error [`FatResponse`].
+///
+/// Can be very useful to return from [`extensions`].
 #[inline]
 pub async fn default_error_response(code: StatusCode, host: &Host) -> FatResponse {
     (
@@ -287,6 +299,9 @@ pub async fn default_error_response(code: StatusCode, host: &Host) -> FatRespons
     )
 }
 
+/// Clones a [`Response`], discarding the body.
+///
+/// Use [`Response::map()`] to add a body.
 #[inline]
 pub fn empty_clone_response<T>(response: &Response<T>) -> Response<()> {
     let mut builder = Response::builder()
@@ -296,6 +311,9 @@ pub fn empty_clone_response<T>(response: &Response<T>) -> Response<()> {
     *builder.headers_mut().unwrap() = response.headers().clone();
     builder.body(()).unwrap()
 }
+/// Clones a [`Request`], discarding the body.
+///
+/// Use [`Request::map()`] to add a body.
 #[inline]
 pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
     let mut builder = Request::builder()
@@ -305,14 +323,18 @@ pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
     *builder.headers_mut().unwrap() = request.headers().clone();
     builder.body(()).unwrap()
 }
+/// Splits a [`Response`] into a empty [`Response`] and it's body.
 #[inline]
-pub fn extract_body<T>(response: Response<T>) -> (Response<()>, T) {
+pub fn split_response<T>(response: Response<T>) -> (Response<()>, T) {
     let mut body = None;
     let response = response.map(|t| body = Some(t));
     // We know it is `Some`.
     (response, body.unwrap())
 }
 
+/// Replaces the header `name` with `new` in `headers`.
+///
+/// Removes all other occurrences of `name`.
 #[inline]
 pub fn replace_header<K: header::IntoHeaderName + Copy>(
     headers: &mut HeaderMap,
@@ -329,6 +351,9 @@ pub fn replace_header<K: header::IntoHeaderName + Copy>(
         }
     }
 }
+/// Replaces header `name` with `new` (a &'static str) in `headers`.
+///
+/// See [`replace_header`] for more info.
 #[inline]
 pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
     headers: &mut HeaderMap,
@@ -338,6 +363,7 @@ pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
     replace_header(headers, name, HeaderValue::from_static(new))
 }
 
+/// Check if `bytes` starts with a valid [`Method`].
 #[must_use]
 pub fn valid_method(bytes: &[u8]) -> bool {
     bytes.starts_with(b"GET")
@@ -350,6 +376,9 @@ pub fn valid_method(bytes: &[u8]) -> bool {
         || bytes.starts_with(b"CONNECT")
         || bytes.starts_with(b"PATCH")
 }
+/// Gets the `content-length` from the [`Request::headers`] of `request`.
+///
+/// If <code>!\[`method_has_request_body`]</code> or the header isn't present, it defaults to `0`.
 #[inline]
 pub fn get_content_length<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
@@ -366,6 +395,9 @@ pub fn get_content_length<T>(request: &Request<T>) -> usize {
         0
     }
 }
+/// Sets the `content-length` of `headers` to `len`.
+///
+/// See [`replace_header`] for details.
 #[inline]
 pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
     // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
@@ -375,11 +407,14 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
         HeaderValue::from_str(len.to_string().as_str()).unwrap(),
     )
 }
+
+/// Does a request of type `method` have a body?
 #[inline]
 #[must_use]
 pub fn method_has_request_body(method: &Method) -> bool {
     matches!(*method, Method::POST | Method::PUT | Method::DELETE)
 }
+/// Does a response of type `method` have a body?
 #[inline]
 #[must_use]
 pub fn method_has_response_body(method: &Method) -> bool {
@@ -394,8 +429,12 @@ pub fn method_has_response_body(method: &Method) -> bool {
     )
 }
 
+/// Implements [`Debug`] from the [`Display`] implementation of `value`.
+///
+/// Can be used to give fields a arbitrary [`str`] without surrounding quotes.
 pub struct CleanDebug<'a, T: ?Sized + Display>(&'a T);
 impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
+    /// Creates a new wrapper around `value` with [`Debug`] implemented as [`Display`].
     #[inline]
     pub fn new(value: &'a T) -> Self {
         Self(value)

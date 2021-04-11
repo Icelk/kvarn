@@ -11,10 +11,17 @@ use rustls::{ServerConfig, ServerSession, Session};
 #[cfg(feature = "https")]
 use tokio_tls::{MidHandshake, TlsState, TlsStream};
 
+/// An encrypted stream.
+///
+/// For now only supports [`TcpStream`]s, which will
+/// change when Kvarn gets HTTP/3 support.
 #[derive(Debug)]
 pub enum Encryption {
+    /// A TLS encrypted TCP stream.
     #[cfg(feature = "https")]
     TcpTls(TlsStream<TcpStream>),
+    /// A unencrypted TCP stream for use with
+    /// non-secure HTTP.
     Tcp(TcpStream),
 }
 impl Encryption {
@@ -45,12 +52,19 @@ impl Encryption {
             }
         }
     }
+    /// Creates a new unencrypted stream from a [`TcpStream`].
     #[cfg(not(feature = "https"))]
     pub fn new_tcp(stream: TcpStream) -> Self {
         Self::Tcp(stream)
     }
 }
 impl Encryption {
+    /// Gets the peer certificates, if any.
+    ///
+    /// If the underlying stream is not TLS, this function returns `None`.
+    ///
+    /// This function is gated behind the feature `https`
+    /// due to a [`rustls`] type in it's definition.
     #[cfg(feature = "https")]
     #[inline]
     pub fn get_peer_certificates(&self) -> Option<Vec<rustls::Certificate>> {
@@ -59,6 +73,11 @@ impl Encryption {
             Self::Tcp(_) => None,
         }
     }
+    /// Gets the agreed upon ALPN protocol.
+    ///
+    /// If the underlying stream is not TLS, this function returns `None`.
+    /// Else, a value of `None` means no protocol was agreed
+    /// (because no protocols were offered or accepted by the peer).
     #[inline]
     pub fn get_alpn_protocol(&self) -> Option<&[u8]> {
         match self {
@@ -67,6 +86,17 @@ impl Encryption {
             Self::Tcp(_) => None,
         }
     }
+    /// Gets the protocol version.
+    ///
+    /// If the stream is `TLS`, it's safe to `unwrap()` the returned value;
+    /// `This returns None until the version is agreed.`, from the [`rustls::Session`]
+    /// docs means that a version must be available post-handshake,
+    /// which [`Encryption`] is guaranteed to be.
+    ///
+    /// If the underlying stream is not TLS, this function returns `None`.
+    ///
+    /// This function is gated behind the feature `https`
+    /// due to a [`rustls`] type in it's definition.
     #[cfg(feature = "https")]
     #[inline]
     pub fn get_protocol_version(&self) -> Option<rustls::ProtocolVersion> {
@@ -75,6 +105,11 @@ impl Encryption {
             Self::Tcp(_) => None,
         }
     }
+    /// Retrieves the SNI hostname, if any, used to select the certificate and private key.
+    ///
+    /// This value will be `Some` if `self` is [`Encryption::TcpTls`]
+    /// and if the client supports SNI hostnames.
+    // change docs for HTTP/3 ↑
     #[inline]
     pub fn get_sni_hostname(&self) -> Option<&str> {
         match self {
@@ -135,9 +170,17 @@ impl AsyncWrite for Encryption {
         }
     }
 }
+/// Generic encryption error.
+///
+/// Returns the [`io::Error`]s from IO during the handshake
+/// and when reading and writing to the underlying stream.
+/// If any [`rustls::TLSError`]s occur during reading and writing,
+/// those are returned.
 #[derive(Debug)]
 pub enum Error {
+    /// An IO error occurred during operation.
     Io(io::Error),
+    /// A TLS error was emitted.
     #[cfg(feature = "https")]
     Tls(rustls::TLSError),
 }

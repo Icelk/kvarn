@@ -14,6 +14,7 @@ use crate::prelude::*;
 #[cfg(feature = "limiting")]
 use threading::atomic;
 
+/// Get a `429 Too Many Requests` response.
 #[cfg(feature = "limiting")]
 #[inline]
 #[must_use]
@@ -44,13 +45,22 @@ pub fn get_too_many_requests() -> Response<Bytes> {
         .unwrap()
 }
 
+/// The strength of limiting.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum LimitStrength {
+    /// Request should continue as normal.
     Passed,
+    /// Send a [`get_too_many_requests`] response.
     Send,
+    /// Drop the connection immediately.
     Drop,
 }
 
+/// Data used to limit requests.
+///
+/// One instance of this is used per `Listener`.
+/// It counts using a [`atomic::AtomicUsize`] and keeps the count of requests per
+/// [`IpAddr`] in a [`Mutex`], for fast access times and cheap cloning.
 #[cfg(feature = "limiting")]
 #[derive(Debug, Clone)]
 #[must_use]
@@ -64,6 +74,12 @@ pub struct LimitManager {
 }
 #[cfg(feature = "limiting")]
 impl LimitManager {
+    /// Creates a new manager.
+    ///
+    /// Use [`LimitManager::default`] for sane defaults.
+    ///
+    /// The number of allowed requests per reset is `max_requests * check_every`.
+    /// After `reset_seconds`, all data is cleared.
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
         Self {
             connection_map_and_time: Arc::new(Mutex::new((HashMap::new(), time::Instant::now()))),
@@ -74,7 +90,14 @@ impl LimitManager {
             iteration: Arc::new(atomic::AtomicUsize::new(0)),
         }
     }
-    pub async fn register(&mut self, addr: SocketAddr) -> LimitStrength {
+    /// Registers a request from `addr`.
+    ///
+    /// This is called twice, once when a new connection is established, and once when a new request is made.
+    ///
+    /// Does not always lock the mutex, only once per `check_every`.
+    /// It only [`atomic::AtomicUsize::fetch_add`] else, with [`atomic::Ordering::Relaxed`].
+    /// This is less reliable, but faster. We do not require this to be to be exact.
+    pub async fn register(&mut self, addr: IpAddr) -> LimitStrength {
         if self.iteration.fetch_add(1, atomic::Ordering::Relaxed) + 1 < self.check_every {
             LimitStrength::Passed
         } else {
@@ -86,10 +109,7 @@ impl LimitManager {
                 map.clear();
                 LimitStrength::Passed
             } else {
-                let requests = *map
-                    .entry(addr.ip())
-                    .and_modify(|count| *count += 1)
-                    .or_insert(1);
+                let requests = *map.entry(addr).and_modify(|count| *count += 1).or_insert(1);
                 if requests <= self.max_requests {
                     LimitStrength::Passed
                 } else if requests <= self.max_requests * 10 {
@@ -109,13 +129,19 @@ impl Default for LimitManager {
     }
 }
 
+/// A wrapper for [`LimitManager`].
+///
+/// This is here to prove a common interface for when the feature `limiting` is disabled.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct LimitWrapper {
     #[cfg(feature = "limiting")]
-    pub limiter: LimitManager,
+    limiter: LimitManager,
 }
 impl LimitWrapper {
+    /// Creates a new [`LimitWrapper`].
+    ///
+    /// See it for more information.
     #[cfg(feature = "limiting")]
     #[inline]
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
@@ -123,14 +149,18 @@ impl LimitWrapper {
             limiter: LimitManager::new(max_requests, check_every, reset_seconds),
         }
     }
+    /// Creates a new, empty, [`LimitWrapper`].
     #[cfg(not(feature = "limiting"))]
     #[inline]
-    pub fn new() -> Self {
+    pub fn new(_: usize, _: usize, _: usize) -> Self {
         Self {}
     }
+    /// Registers a request from `addr`.
+    ///
+    /// Always returns [`LimitStrength::Passed`] if the feature `limiting` is disabled.
     #[allow(unused_variables)]
-    #[inline(always)]
-    pub async fn register(&mut self, addr: SocketAddr) -> LimitStrength {
+    #[inline]
+    pub async fn register(&mut self, addr: IpAddr) -> LimitStrength {
         #[cfg(feature = "limiting")]
         {
             self.limiter.register(addr).await

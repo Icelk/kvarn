@@ -121,11 +121,11 @@ impl Host {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get_folder_default_or<'a>(&'a self, default: &'a str) -> &'a str {
         self.folder_default.as_deref().unwrap_or(default)
     }
-    #[inline(always)]
+    #[inline]
     pub fn get_extension_default_or<'a>(&'a self, default: &'a str) -> &'a str {
         self.extension_default.as_deref().unwrap_or(default)
     }
@@ -342,7 +342,7 @@ impl Data {
         self.maybe_get_or_default(host)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn has_secure(&self) -> bool {
         self.has_secure
     }

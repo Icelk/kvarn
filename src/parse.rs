@@ -8,26 +8,33 @@
 
 use crate::prelude::*;
 
+/// A general error from parsing.
 #[derive(Debug)]
 pub enum Error {
+    /// Failed to create a [`http`] type.
+    ///
+    /// This is often a [`Uri`], [`Request`], [`Method`], or [`Version`].
     Http(http::Error),
-    Io(io::Error),
+    /// No path was parsed as part of a [`Request`]
     NoPath,
+    /// Done reading and processing
     Done,
+    /// The header is too long.
+    ///
+    /// 'header' is the data before `\r\n\r\n`, and
+    /// may be invalid data not containing a `\r\n\r\n`
     HeaderTooLong,
-    InvalidHost,
+    /// The path ([`Uri`]) is invalid and could not be parsed
+    InvalidPath,
+    /// The [`Method`] is invalid
     InvalidMethod,
+    /// The [`Version`] is invalid
     InvalidVersion,
     /// A syntax error in the data.
+    ///
     /// Often means the request isn't what we expect;
     /// maybe it's transmitted over HTTPS.
     Syntax,
-}
-impl From<io::Error> for Error {
-    #[inline]
-    fn from(err: io::Error) -> Self {
-        Self::Io(err)
-    }
 }
 impl From<http::Error> for Error {
     #[inline]
@@ -39,14 +46,13 @@ impl Into<io::Error> for Error {
     fn into(self) -> io::Error {
         match self {
             Self::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
-            Self::Io(io) => io,
             Self::NoPath => io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "no path was supplied in the request",
             ),
             Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, "stream is exhausted"),
             Self::HeaderTooLong => io::Error::new(io::ErrorKind::InvalidData, "header is too long"),
-            Self::InvalidHost => {
+            Self::InvalidPath => {
                 io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
             }
             Self::InvalidMethod => io::Error::new(io::ErrorKind::InvalidData, "method is invalid"),
@@ -61,10 +67,15 @@ impl Into<io::Error> for Error {
         }
     }
 }
+
+/// A pair of a value string and a quality of said value.
+///
+/// Often used in the `accept-*` HTTP headers.
 #[derive(Debug)]
 pub struct ValueQualitySet<'a> {
-    #[inline]
+    /// The value with a quality
     pub value: &'a str,
+    /// The quality of a value
     pub quality: f32,
 }
 impl PartialEq for ValueQualitySet<'_> {
@@ -80,6 +91,9 @@ impl PartialEq<str> for ValueQualitySet<'_> {
     }
 }
 
+/// Parses a header with a value-quality list of pairs.
+///
+/// Very useful to parse `accept-*` HTTP headers.
 #[must_use]
 pub fn list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     let elements = header
@@ -153,6 +167,13 @@ pub fn list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     }
     list
 }
+/// Parses a query to a map between keys and their values, as specified in the query.
+///
+/// `query` should not contains the `?`, but start the byte after.
+///
+/// Both the keys and values can be empty.
+///
+/// > **Note:** if multiple of the same keys only the last will be present.
 #[must_use]
 pub fn query(query: &str) -> HashMap<&str, &str> {
     let elements = query
@@ -165,11 +186,11 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
     for (position, byte) in query.char_indices() {
         match byte {
             '=' => {
-                value_start = position;
+                value_start = position + 1;
             }
             '&' => {
                 let key = query.get(pair_start..value_start);
-                let value = query.get(value_start + 1..position);
+                let value = query.get(value_start..position);
 
                 if let (Some(key), Some(value)) = (key, value) {
                     map.insert(key, value);
@@ -182,7 +203,7 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
     }
     {
         let key = query.get(pair_start..value_start);
-        let value = query.get(value_start + 1..);
+        let value = query.get(value_start..);
 
         if let (Some(key), Some(value)) = (key, value) {
             map.insert(key, value);
@@ -215,6 +236,10 @@ pub fn uri(path: &str, base_path: &Path) -> PathBuf {
     buf
 }
 
+/// Parses a [`Version`].
+///
+/// `bytes` have to be the right length,
+/// 8 bytes for HTTP/0.9-1.1 and 6 bytes for HTTP/2-
 #[inline]
 #[must_use]
 pub fn version(bytes: &[u8]) -> Option<Version> {
@@ -248,7 +273,8 @@ impl RequestParseStage {
     }
 }
 
-/// Formats headers and returns the bytes from the start of `bytes` where the body starts; how many bytes the header occupy.
+/// Formats headers and returns the bytes from the start of `bytes`
+/// where the body starts; how many bytes the header occupy.
 pub fn headers(bytes: &Bytes) -> (HeaderMap, usize) {
     let mut headers = HeaderMap::new();
     let mut parse_stage = RequestParseStage::HeaderName(0);
@@ -359,7 +385,9 @@ pub async fn request(
         )
         .await
         .ok()
-        .ok_or(Error::Done)??;
+        .ok_or(Error::Done)?
+        .ok()
+        .ok_or(Error::Done)?;
         *read += read_now;
         unsafe { buffer.set_len(*read) };
 
@@ -491,7 +519,7 @@ pub async fn request(
                 .ok()
                 .ok_or(Error::InvalidMethod)?,
         )
-        .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidHost)?)
+        .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidPath)?)
         .version(parse::version(&version[..version_index]).ok_or(Error::InvalidVersion)?)
         .body(())
     {
@@ -500,10 +528,8 @@ pub async fn request(
     }
 }
 
+/// Parses a response without the first line, status taken from the headers.
 pub fn response_php(bytes: &Bytes) -> Option<Response<Bytes>> {
-    // let status = bytes.iter().position(|b| *b == SPACE)? + 1;
-    // let status = StatusCode::from_bytes(bytes.get(status..status + 3)?).unwrap();
-    // let header_start = bytes.windows(2).position(|bytes| bytes == b"\r\n")? + 2;
     let header_start = 0;
 
     let (headers, end) = headers(&bytes.slice(header_start..));
