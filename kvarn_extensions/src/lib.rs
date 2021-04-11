@@ -8,10 +8,7 @@
 //! For example, if you mount the extensions [`download`], it binds the *extension declaration* `download`.
 //! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it.
 
-use kvarn::{
-    extensions::*,
-    prelude::{internals::*, *},
-};
+use kvarn::{extensions::*, prelude::*};
 
 /// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
 ///
@@ -52,7 +49,8 @@ fn push(
     addr: SocketAddr,
     host: HostWrapper,
 ) -> RetFut<()> {
-    box_fut!(
+    use internals::*;
+    box_fut!({
         // If it is not HTTP/1
         #[allow(irrefutable_let_patterns)]
         if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
@@ -80,36 +78,36 @@ fn push(
                 for url in urls {
                     unsafe {
                         let mut uri = request.get_inner().uri().clone().into_parts();
-                        if let Some(url)
-                        = uri::PathAndQuery::from_maybe_shared(url.into_bytes())
+                        if let Some(url) = uri::PathAndQuery::from_maybe_shared(url.into_bytes())
                             .ok()
                             .and_then(|path| {
                                 uri.path_and_query = Some(path);
                                 Uri::from_parts(uri).ok()
-                            }) {
-                                let mut request = utility::empty_clone_request(request.get_inner());
-                                *request.uri_mut() = url;
+                            })
+                        {
+                            let mut request = utility::empty_clone_request(request.get_inner());
+                            *request.uri_mut() = url;
 
-                                let empty_request = utility::empty_clone_request(&request);
+                            let empty_request = utility::empty_clone_request(&request);
 
-                                let response = response_pipe.get_inner();
-                                let mut response_pipe = match response.push_request(empty_request) {
-                                    Ok(pipe) => pipe,
-                                    Err(_) => return,
-                                };
+                            let response = response_pipe.get_inner();
+                            let mut response_pipe = match response.push_request(empty_request) {
+                                Ok(pipe) => pipe,
+                                Err(_) => return,
+                            };
 
-                                let request = request.map(|_| kvarn::application::Body::Empty);
+                            let request = request.map(|_| kvarn::application::Body::Empty);
 
-                                if let Err(err) = kvarn::handle_cache(
-                                    request,
-                                    addr,
-                                    kvarn::SendKind::Push(&mut response_pipe),
-                                    host,
-                                )
-                                .await
-                                {
-                                    error!("Error occurred when pushing request. {:?}", err);
-                                };
+                            if let Err(err) = kvarn::handle_cache(
+                                request,
+                                addr,
+                                kvarn::SendKind::Push(&mut response_pipe),
+                                host,
+                            )
+                            .await
+                            {
+                                error!("Error occurred when pushing request. {:?}", err);
+                            };
                         }
                     }
                 }
@@ -117,7 +115,7 @@ fn push(
             // Else, do nothing
             _ => {}
         }
-    )
+    })
 }
 
 #[cfg(feature = "templates")]
@@ -263,36 +261,41 @@ pub fn php(
     path: PathWrapper,
     address: SocketAddr,
 ) -> RetFut<FatResponse> {
-    box_fut!(
+    box_fut!({
         let req = unsafe { req.get_inner() };
-        let host = unsafe{ host.get_inner() };
-        let path = unsafe{ path.get_inner() };
+        let host = unsafe { host.get_inner() };
+        let path = unsafe { path.get_inner() };
 
         if !path.exists() {
             return utility::default_error_response(StatusCode::NOT_FOUND, host).await;
         }
 
-        let body =match req.body_mut().read_to_bytes().await{
+        let body = match req.body_mut().read_to_bytes().await {
             Ok(body) => body,
-            Err(_) => return utility::default_error_response(StatusCode::BAD_REQUEST, host).await
+            Err(_) => return utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
         };
         let output = match cgi::fcgi_from_prepare(req, &body, path, address, 6633).await {
             Ok(vec) => vec,
             Err(err) => {
                 error!("FastCGI failed. {}", err);
-                return utility::default_error_response(StatusCode::INTERNAL_SERVER_ERROR, host).await;
+                return utility::default_error_response(StatusCode::INTERNAL_SERVER_ERROR, host)
+                    .await;
             }
         };
         let output = Bytes::copy_from_slice(&output);
         match kvarn::parse::response_php(&output) {
-            Some(response) =>  (response, ClientCachePreference::Undefined, ServerCachePreference::None, CompressPreference::Full),
+            Some(response) => (
+                response,
+                ClientCachePreference::Undefined,
+                ServerCachePreference::None,
+                CompressPreference::Full,
+            ),
             None => {
                 error!("failed to parse response");
                 utility::default_error_response(StatusCode::NOT_FOUND, host).await
             }
         }
-
-    )
+    })
 }
 
 #[cfg(feature = "templates")]
@@ -300,13 +303,13 @@ pub mod templates {
     use super::*;
 
     pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
-        box_fut!(
+        box_fut!({
             let data = unsafe { data.get_inner() };
             let bytes = Bytes::copy_from_slice(
                 &handle_template(data.args(), &data.response().body(), data.host()).await,
             );
             *data.response_mut().body_mut() = bytes;
-        )
+        })
     }
 
     pub async fn handle_template(
@@ -486,11 +489,10 @@ pub mod templates {
 
 /// Makes the client download the file.
 pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
-    box_fut!(
-        let data = unsafe { data.get_inner() };
-        let headers = data.response_mut().headers_mut();
-        kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
-    )
+    let data = unsafe { data.get_inner() };
+    let headers = data.response_mut().headers_mut();
+    kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
+    ready(())
 }
 
 pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
@@ -521,28 +523,27 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
         }
         (c, s)
     }
-    box_fut!(
-        let data = unsafe { data.get_inner() };
-        let preference = parse(data.args().iter());
-        if let Some(c) = preference.0{
-            *data.client_cache_preference() = c;
-        }
-        if let Some(s) = preference.1 {
-            *data.server_cache_preference() = s;
-        }
-    )
+    let data = unsafe { data.get_inner() };
+    let preference = parse(data.args().iter());
+    if let Some(c) = preference.0 {
+        *data.client_cache_preference() = c;
+    }
+    if let Some(s) = preference.1 {
+        *data.server_cache_preference() = s;
+    }
+    ready(())
 }
 
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
-    box_fut!(
+    box_fut!({
         let data = unsafe { data.get_inner() };
         let error = default_error(StatusCode::NOT_FOUND, Some(data.host())).await;
         *data.response_mut() = error;
-    )
+    })
 }
 
 pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
-    box_fut!(
+    box_fut!({
         let data = unsafe { data.get_inner() };
         let mut matched = false;
         // Loop over denied ip in args
@@ -557,13 +558,13 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
                 }
             }
         }
-        if !matched {
-            // If it does not match, set the response to 404
-            let error =
-                default_error(StatusCode::NOT_FOUND, Some(data.host())).await;
-            *data.response_mut() = error;
-        }
         *data.server_cache_preference() = kvarn::comprash::ServerCachePreference::None;
         *data.client_cache_preference() = kvarn::comprash::ClientCachePreference::Changing;
-    )
+
+        if !matched {
+            // If it does not match, set the response to 404
+            let error = default_error(StatusCode::NOT_FOUND, Some(data.host())).await;
+            *data.response_mut() = error;
+        }
+    })
 }

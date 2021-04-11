@@ -769,8 +769,8 @@ impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
 mod macros {
     #[macro_export]
     macro_rules! box_fut {
-    ($($item:tt)*) => {
-            Box::pin(async move { $($item)* })
+        ($code:block) => {
+            Box::pin(async move { $code })
         };
     }
 
