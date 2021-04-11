@@ -484,6 +484,17 @@ pub struct HostDescriptor {
             host_data,
     }
 }
+    /// Creates a new non-secure descriptor for `port` with `host_data`.
+    /// Does not try to assign a certificate.
+    pub fn non_secure(port: u16, host_data: Arc<Data>) -> Self {
+        Self {
+            port,
+            #[cfg(feature = "https")]
+            server_config: None,
+            host_data,
+        }
+    }
+}
 impl Debug for HostDescriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut s = f.debug_struct("HostDescriptor");
