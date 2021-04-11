@@ -268,11 +268,15 @@ pub fn php(
         let host = unsafe{ host.get_inner() };
         let path = unsafe{ path.get_inner() };
 
+        if !path.exists() {
+            return utility::default_error_response(StatusCode::NOT_FOUND, host).await;
+        }
+
         let body =match req.body_mut().read_to_bytes().await{
             Ok(body) => body,
             Err(_) => return utility::default_error_response(StatusCode::BAD_REQUEST, host).await
         };
-        let output = match cgi::fcgi_from_prepare(req,&body, path, address, 6633).await {
+        let output = match cgi::fcgi_from_prepare(req, &body, path, address, 6633).await {
             Ok(vec) => vec,
             Err(err) => {
                 error!("FastCGI failed. {}", err);
