@@ -207,7 +207,7 @@ pub async fn handle_cache(
             info!("Found in cache!");
             let (mut response, body) =
                 utility::extract_body(match resp.clone_preferred(&request) {
-                    Err(code) => utility::default_error(code, Some(&host.file_cache)).await,
+                    Err(code) => utility::default_error(code, Some(host)).await,
                     Ok(response) => response,
                 });
             let identity_body = Bytes::clone(resp.get_identity().body());
@@ -322,7 +322,7 @@ pub async fn handle_cache(
 
             let (mut response, body) =
                 utility::extract_body(match compressed_response.clone_preferred(&request) {
-                    Err(code) => utility::default_error(code, Some(&host.file_cache)).await,
+                    Err(code) => utility::default_error(code, Some(host)).await,
                     Ok(response) => response,
                 });
 

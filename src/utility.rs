@@ -240,11 +240,18 @@ pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
 }
 
 #[inline]
-pub async fn default_error(code: StatusCode, cache: Option<&FileCache>) -> Response<Bytes> {
+pub async fn default_error(code: StatusCode, host: Option<&Host>) -> Response<Bytes> {
     // Error files will be used several times.
-    let body = match cache {
-        Some(cache) => {
-            match read_file_cached(&PathBuf::from(format!("{}.html", code.as_str())), cache).await {
+    let body = match host {
+        Some(host) => {
+            // path length + "/errors/".len() + three digit status code + ".html".len()
+            let mut path = PathBuf::with_capacity(host.path.as_os_str().len() + 3 + 8 + 5);
+            path.push(&host.path);
+            path.push("errors");
+            path.push(code.as_str());
+            path.set_extension("html");
+
+            match read_file_cached(&path, &host.file_cache).await {
                 Some(file) => file,
                 None => hardcoded_error_body(code),
             }
@@ -262,7 +269,7 @@ pub async fn default_error(code: StatusCode, cache: Option<&FileCache>) -> Respo
 #[inline]
 pub async fn default_error_response(code: StatusCode, host: &Host) -> FatResponse {
     (
-        default_error(code, Some(&host.file_cache)).await,
+        default_error(code, Some(host)).await,
         ClientCachePreference::Full,
         ServerCachePreference::None,
         CompressPreference::Full,

@@ -519,9 +519,7 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
     }
     box_fut!(
         let data = unsafe { data.get_inner() };
-        let preference = parse( data
-            .args()
-            .iter());
+        let preference = parse(data.args().iter());
         if let Some(c) = preference.0{
             *data.client_cache_preference() = c;
         }
@@ -534,7 +532,7 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
     box_fut!(
         let data = unsafe { data.get_inner() };
-        let error = default_error(StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
+        let error = default_error(StatusCode::NOT_FOUND, Some(data.host())).await;
         *data.response_mut() = error;
     )
 }
@@ -558,7 +556,7 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
         if !matched {
             // If it does not match, set the response to 404
             let error =
-                default_error(StatusCode::NOT_FOUND, Some(&data.host().file_cache)).await;
+                default_error(StatusCode::NOT_FOUND, Some(data.host())).await;
             *data.response_mut() = error;
         }
         *data.server_cache_preference() = kvarn::comprash::ServerCachePreference::None;
