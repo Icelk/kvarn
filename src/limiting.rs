@@ -1,3 +1,15 @@
+//! Limits traffic from a ip address to partially mitigate attacks.
+//!
+//! Kvarn's limiting is smart; when a client first makes to many requests,
+//! a hardcoded `429 Too Many Requests` is sent back (taking virtually null resources).
+//! It the spam continues, the current connection and all future streams are blocked.
+//!
+//! The thresholds are configurable and have sensible defaults.
+//!
+//! After `reset_time` is elapsed, all stored request counts are cleared.
+//! Longer `reset_time`s and higher `max_requests` can be less forgiving for clients,
+//! but safer for the server, and vise versa.
+
 use crate::prelude::*;
 #[cfg(feature = "limiting")]
 use threading::atomic;
@@ -6,7 +18,7 @@ use threading::atomic;
 #[inline]
 #[must_use]
 pub fn get_too_many_requests() -> Response<Bytes> {
-    let body = Bytes::from_static(b"<html>\
+    let body = Bytes::from_static("<html>\
     <head>\
         <title>429 Too Many Requests</title>\
     </head>\
@@ -18,7 +30,7 @@ pub fn get_too_many_requests() -> Response<Bytes> {
             <p>Try to access this page again in a minute. If this error persists, please contact the website administrator.</p>\
         </center>\
     </body>\
-</html>");
+</html>".as_bytes());
 
     Response::builder()
         .status(StatusCode::TOO_MANY_REQUESTS)

@@ -1,3 +1,18 @@
+//! Handling of multiple [`Host`]s on one instance of Kvarn.
+//!
+//! A single [`Host`] contains the certificate, caches, and preferences
+//! which are needed to run a domain.
+//!
+//! This also implements the logic needed for [`rustls`] to resolve which [`Host`]
+//! to use for a connection. This is done by having a default and
+//! other defined by their SNI (or `host` header in HTTP/1).
+//!
+//! This tactic might change in the future; if you have two domains pointing
+//! to a single Kvarn server, say `icelk.dev` and `kvarn.org`, but only `kvarn.org`
+//! is set up, the client will get a certificate error when going to `icelk.dev`.
+//! Therefore, I think the user of this library should have a choice to reject connections
+//! to a [`Host`] which isn't explicitly associated with said domain.
+
 use crate::prelude::{internals::*, *};
 #[cfg(feature = "https")]
 use rustls::{
@@ -69,11 +84,7 @@ impl Host {
             )),
         }
     }
-    pub fn no_certification(
-        host_name: &'static str,
-        path: PathBuf,
-        extensions: Extensions,
-    ) -> Self {
+    pub fn non_secure(host_name: &'static str, path: PathBuf, extensions: Extensions) -> Self {
         Self {
             host_name,
             #[cfg(feature = "https")]
@@ -281,7 +292,7 @@ impl Data {
     #[inline]
     pub fn simple(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
-            default: Host::no_certification(default_host_name, ".".into(), extensions),
+            default: Host::non_secure(default_host_name, ".".into(), extensions),
             by_name: HashMap::new(),
             has_secure: false,
         }
@@ -343,6 +354,7 @@ impl Data {
         let mut config = ServerConfig::new(NoClientAuth::new());
         let arc = Arc::clone(arc);
         config.cert_resolver = arc;
+        config.alpn_protocols = alpn();
         config
     }
 
@@ -457,7 +469,7 @@ impl From<io::Error> for ServerConfigError {
     }
 }
 
-/// Get a certified key to use (maybe) when adding domain certificates to the server
+/// Get a certified key to use when adding domain certificates to the server
 ///
 ///
 /// # Errors

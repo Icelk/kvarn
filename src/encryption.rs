@@ -1,3 +1,9 @@
+//! Encryption for incoming and outgoing traffic, implemented through streams.
+//!
+//! Based on [`rustls`]. [`encryption::Encryption`] implements both [`AsyncRead`] and [`AsyncWrite`]
+//! to enable seamless integration with the [`tokio`] runtime.
+//!
+//! Most of the code is a subset of [`tokio-rustls`](https://crates.io/crates/tokio-rustls)
 use crate::prelude::{networking::*, *};
 #[cfg(feature = "https")]
 use rustls::{ServerConfig, ServerSession, Session};
@@ -130,24 +136,24 @@ impl AsyncWrite for Encryption {
     }
 }
 #[derive(Debug)]
-pub enum TlsIoError {
+pub enum Error {
     Io(io::Error),
     #[cfg(feature = "https")]
     Tls(rustls::TLSError),
 }
-impl From<io::Error> for TlsIoError {
+impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
         Self::Io(err)
     }
 }
 #[cfg(feature = "https")]
-impl From<rustls::TLSError> for TlsIoError {
+impl From<rustls::TLSError> for Error {
     fn from(err: rustls::TLSError) -> Self {
         Self::Tls(err)
     }
 }
 
-impl Display for TlsIoError {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(e) => {
@@ -163,12 +169,12 @@ impl Display for TlsIoError {
     }
 }
 
-impl std::error::Error for TlsIoError {}
+impl std::error::Error for Error {}
 
-/// Tokio Rustls glue code
+/// Tokio-Rustls glue code
 #[cfg(feature = "https")]
 mod tokio_tls {
-    use super::TlsIoError;
+    use super::Error;
     use rustls::{ServerSession, Session};
     use std::future::Future;
     use std::io::{self, IoSlice, Read, Write};
@@ -215,8 +221,8 @@ mod tokio_tls {
         }
     }
 
-    /// A wrapper around an underlying raw stream which implements the TLS or SSL
-    /// protocol.
+    /// A wrapper around an underlying raw stream
+    /// which implements the TLS protocol.
     #[derive(Debug)]
     pub struct TlsStream<IO> {
         pub(crate) io: IO,
@@ -350,7 +356,7 @@ mod tokio_tls {
             Pin::new(self)
         }
 
-        pub(crate) fn read_io(&mut self, cx: &mut Context<'_>) -> Poll<Result<usize, TlsIoError>> {
+        pub(crate) fn read_io(&mut self, cx: &mut Context<'_>) -> Poll<Result<usize, Error>> {
             struct Reader<'a, 'b, T> {
                 io: &'a mut T,
                 cx: &'a mut Context<'b>,
@@ -382,7 +388,7 @@ mod tokio_tls {
                 // error.
                 let _ = self.write_io(cx);
 
-                TlsIoError::from(err)
+                Error::from(err)
             })?;
 
             Poll::Ready(Ok(n))
@@ -434,7 +440,7 @@ mod tokio_tls {
         pub(crate) fn handshake(
             &mut self,
             cx: &mut Context<'_>,
-        ) -> Poll<Result<(usize, usize), TlsIoError>> {
+        ) -> Poll<Result<(usize, usize), Error>> {
             let mut wrlen = 0;
             let mut rdlen = 0;
 
@@ -509,8 +515,8 @@ mod tokio_tls {
                         }
                         Poll::Ready(Err(err)) => {
                             return Poll::Ready(Err(match err {
-                                TlsIoError::Io(e) => e,
-                                TlsIoError::Tls(e) => io::Error::new(io::ErrorKind::InvalidData, e),
+                                Error::Io(e) => e,
+                                Error::Tls(e) => io::Error::new(io::ErrorKind::InvalidData, e),
                             }))
                         }
                     }

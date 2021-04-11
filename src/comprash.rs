@@ -1,3 +1,11 @@
+//! ***Compr***ess and c***ach***e.
+//!
+//! Provides the [`Cache`] for Kvarn.
+//! When a response is made cacheable, several important headers are appended.
+//! See [`FatResponse`] for more info.
+//!
+//! The main type in this module is [`CompressedResponse`], a dynamically compressed
+//! response receiving correct headers and [`extensions`].
 use crate::prelude::*;
 use std::{borrow::Borrow, hash::Hash};
 
@@ -147,7 +155,7 @@ impl CompressedResponse {
             .map(HeaderValue::to_str)
             .and_then(Result::ok)
         {
-            Some(header) => parse::format_list_header(header),
+            Some(header) => parse::list_header(header),
             None => Vec::new(),
         };
 

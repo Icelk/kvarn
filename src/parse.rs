@@ -1,12 +1,66 @@
+//! General parsing complying to the HTTP standards.
+//!
+//! Mainly, it can parse [`request`]s, [`headers`], and a [`response_php`];
+//! a response without the first line, giving status in the headers.
+//!
+//! This is also where part of Layer 6 is. The [`list_header`] and [`query`]
+//! are very useful.
+
 use crate::prelude::*;
 
 #[derive(Debug)]
 pub enum Error {
-    NoPath,
-    HTTP(http::Error),
+    Http(http::Error),
     Io(io::Error),
+    NoPath,
+    Done,
+    HeaderTooLong,
+    InvalidHost,
+    InvalidMethod,
+    InvalidVersion,
+    /// A syntax error in the data.
+    /// Often means the request isn't what we expect;
+    /// maybe it's transmitted over HTTPS.
+    Syntax,
 }
-
+impl From<io::Error> for Error {
+    #[inline]
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+impl From<http::Error> for Error {
+    #[inline]
+    fn from(err: http::Error) -> Self {
+        Self::Http(err)
+    }
+}
+impl Into<io::Error> for Error {
+    fn into(self) -> io::Error {
+        match self {
+            Self::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
+            Self::Io(io) => io,
+            Self::NoPath => io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "no path was supplied in the request",
+            ),
+            Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, "stream is exhausted"),
+            Self::HeaderTooLong => io::Error::new(io::ErrorKind::InvalidData, "header is too long"),
+            Self::InvalidHost => {
+                io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
+            }
+            Self::InvalidMethod => io::Error::new(io::ErrorKind::InvalidData, "method is invalid"),
+            Self::InvalidVersion => {
+                io::Error::new(io::ErrorKind::InvalidData, "version is invalid")
+            }
+            Self::Syntax => {
+                io::Error::new(io::ErrorKind::InvalidData,
+                    "invalid syntax of data. The input might unexpectedly be encrypted (HTTPS) or compressed (HTTP/2)"
+                )
+            }
+        }
+    }
+}
 #[derive(Debug)]
 pub struct ValueQualitySet<'a> {
     #[inline]
@@ -27,7 +81,7 @@ impl PartialEq<str> for ValueQualitySet<'_> {
 }
 
 #[must_use]
-pub fn format_list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
+pub fn list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     let elements = header
         .chars()
         .fold(1, |acc, byte| if byte == ',' { acc + 1 } else { acc });
@@ -100,7 +154,7 @@ pub fn format_list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     list
 }
 #[must_use]
-pub fn format_query(query: &str) -> HashMap<&str, &str> {
+pub fn query(query: &str) -> HashMap<&str, &str> {
     let elements = query
         .chars()
         .fold(1, |acc, byte| if byte == '&' { acc + 1 } else { acc });
@@ -263,7 +317,7 @@ pub async fn request(
     stream: &Mutex<Encryption>,
     max_len: usize,
     default_host: &[u8],
-) -> Result<(Request<()>, Bytes), application::Error> {
+) -> Result<(Request<()>, Bytes), Error> {
     fn contains_two_newlines(bytes: &[u8]) -> bool {
         let mut in_row = 0_u8;
         for byte in bytes.iter().cloned() {
@@ -282,10 +336,10 @@ pub async fn request(
         reader: &Mutex<Encryption>,
         read: &mut usize,
         max_len: usize,
-    ) -> Result<usize, application::Error> {
+    ) -> Result<usize, Error> {
         assert!(buffer.len() == *read);
         if buffer.len() == max_len {
-            return Err(application::Error::HeaderTooLong);
+            return Err(Error::HeaderTooLong);
         }
 
         let mut reader = reader.lock().await;
@@ -305,7 +359,7 @@ pub async fn request(
         )
         .await
         .ok()
-        .ok_or(application::Error::Done)??;
+        .ok_or(Error::Done)??;
         *read += read_now;
         unsafe { buffer.set_len(*read) };
 
@@ -321,7 +375,7 @@ pub async fn request(
             break;
         };
         if !utility::valid_method(&buffer) {
-            return Err(application::Error::InvalidMethod);
+            return Err(Error::Syntax);
         }
 
         if contains_two_newlines(&buffer) {
@@ -360,7 +414,7 @@ pub async fn request(
             RequestParseStage::Method => {
                 if byte == SPACE || method_len == method.len() {
                     if Method::from_bytes(&buffer[..method_len]).is_err() {
-                        return Err(application::Error::InvalidMethod);
+                        return Err(Error::InvalidMethod);
                     }
                     parse_stage.next();
                     continue;
@@ -381,7 +435,7 @@ pub async fn request(
             RequestParseStage::Version => {
                 if byte == LF || version_index == version.len() {
                     if parse::version(&version[..version_index]).is_none() {
-                        return Err(application::Error::InvalidVersion);
+                        return Err(Error::InvalidVersion);
                     }
                     parse_stage.next();
                     continue;
@@ -406,7 +460,7 @@ pub async fn request(
         .checked_sub(path_start)
         .map_or(true, |len| len == 0)
     {
-        return Err(application::Error::NoPath);
+        return Err(Error::NoPath);
     }
 
     let host = parsed
@@ -435,19 +489,13 @@ pub async fn request(
         .method(
             Method::from_bytes(&method[..method_len])
                 .ok()
-                .ok_or(application::Error::InvalidMethod)?,
+                .ok_or(Error::InvalidMethod)?,
         )
-        .uri(
-            Uri::from_maybe_shared(uri)
-                .ok()
-                .ok_or(application::Error::InvalidHost)?,
-        )
-        .version(
-            parse::version(&version[..version_index]).ok_or(application::Error::InvalidVersion)?,
-        )
+        .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidHost)?)
+        .version(parse::version(&version[..version_index]).ok_or(Error::InvalidVersion)?)
         .body(())
     {
-        Err(err) => Err(application::Error::Http(err)),
+        Err(err) => Err(Error::Http(err)),
         Ok(request) => Ok((request, buffer.slice(header_end - 1..))),
     }
 }

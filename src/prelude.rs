@@ -15,7 +15,7 @@ pub use http::{
     self, header, header::HeaderName, uri, HeaderMap, HeaderValue, Method, Request, Response,
     StatusCode, Uri, Version,
 };
-pub use log::*;
+pub use log::{debug, error, info, log, trace, warn};
 pub use mime::Mime;
 pub use mime_guess;
 pub use std::collections::HashMap;
@@ -52,7 +52,7 @@ pub use host::{Data, Host};
 pub use utility::chars::*;
 pub use utility::{read_file, read_file_cached};
 
-/// File System prelude.
+/// **Prelude:** file system
 ///
 /// The purpose of this module is to expose common file system operations.
 pub mod fs {
@@ -61,14 +61,14 @@ pub mod fs {
     pub use utility::{read_file, read_file_cached};
 }
 
-/// Networking prelude.
+/// **Prelude:** networking
 ///
 /// The purpose of this module is to expose Tokio network types used in Kvarn.
 pub mod networking {
     pub use tokio::net::{TcpListener, TcpStream};
 }
 
-/// Internal prelude.
+/// **Prelude:** internal
 ///
 /// The purpose of this module is to expose the commonly used internals of Kvarn.
 ///
@@ -78,13 +78,13 @@ pub mod internals {
     pub use application::*;
     pub use comprash::{Cache, FileCache, PathQuery, ResponseCache};
     pub use encryption::Encryption;
-    pub use extensions::{RetFut, RetSyncFut};
+    pub use extensions::{ready, RetFut, RetSyncFut};
     pub use limiting::*;
     pub use tokio::time::{timeout, Duration};
     pub use utility::default_error;
 }
 
-/// Threading prelude.
+/// **Prelude:** internal
 ///
 /// The purpose of this module is to expose common threading types.
 pub mod threading {

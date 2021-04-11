@@ -1,8 +1,35 @@
 #![warn(unreachable_pub)]
 #![warn(missing_debug_implementations)]
-// #![warn(missing_docs)]
+#![warn(missing_docs)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::inline_always, clippy::too_many_lines)]
+//! An extensible and efficient forward-thinking web server for the future.
+//!
+//! Kvarn is a rethought web server tailored for the current needs from web application developers.
+//!
+//! It handles several things for you, including
+//! - Content-Type
+//! - Compression of body
+//! - Correct and performant HTTP/1 and HTTP/2
+//! - Common API across HTTP/1 and HTTP/2
+//! - Easy integration with HTTP/2 push promises
+//! - Six types of extensions, all backed with intuitive macros
+//! - Optional encryption with [`rustls`]
+//! - Several checks for illegal requests
+//!
+//!
+//! # Getting started
+//!
+//! The main function to call is [`run`]. See the example at [`run`]
+//! on how to get a simple web server running.
+//!
+//! A battle-tested reference implementation can be found at [GitHub](https://github.com/Iselk/kvarn-reference/).
+//! It powers my two websites with minimal resource requirements.
+//!
+//!
+//! # Future plans
+//!
+//! See the [README @ GitHub](https://github.com/Iselk/kvarn/) and [kvarn.org](https://kvarn.org).
 
 // Module declaration
 pub mod application;
@@ -22,7 +49,14 @@ pub use comprash::{
 };
 pub use extensions::Extensions;
 pub use utility::{read_file, read_file_cached};
+/// The `Request` used within Kvarn.
 pub type FatRequest = Request<application::Body>;
+/// A `Response` returned by [`handle_request()`].
+///
+/// Contains all preference information to the lower-level
+/// functions. Most things like `content-length`, `content-encoding`,
+/// `content-type`, `cache-control`, and server caching will be
+/// automatically handled.
 pub type FatResponse = (
     Response<Bytes>,
     ClientCachePreference,
@@ -30,19 +64,29 @@ pub type FatResponse = (
     CompressPreference,
 );
 
-#[inline]
-pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
-    Box::pin(core::future::ready(value))
-}
-
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
 #[cfg(target_os = "windows")]
 pub const SERVER: &str = "Kvarn/0.2.0 (Windows)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
 #[cfg(target_os = "macos")]
 pub const SERVER: &str = "Kvarn/0.2.0 (macOS)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
 #[cfg(target_os = "linux")]
 pub const SERVER: &str = "Kvarn/0.2.0 (Linux)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
 #[cfg(target_os = "freebsd")]
 pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
 #[cfg(not(any(
     target_os = "windows",
     target_os = "macos",
@@ -51,6 +95,10 @@ pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
 )))]
 pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
 
+/// All the supported ALPN protocols.
+///
+/// **Note:** this is often not needed, as the ALPN protocols
+/// are set in [`host::Data::make_config()`].
 #[must_use]
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]
@@ -86,7 +134,7 @@ macro_rules! ret_log_app_error {
 pub async fn handle_connection(
     stream: TcpStream,
     address: SocketAddr,
-    host_descriptors: Arc<HostDescriptor>,
+    host_descriptors: Arc<PortDescriptor>,
     #[allow(unused_variables)] limiter: LimitWrapper,
 ) -> io::Result<()> {
     #[cfg(feature = "limiting")]
@@ -154,12 +202,20 @@ pub async fn handle_connection(
     Ok(())
 }
 
+/// How to send data to the client.
+///
+/// Most often, this is `Send`, but when a push promise is created,
+/// this will be `Push`. This can be used by [`extensions::Post`].
 #[derive(Debug)]
 pub enum SendKind<'a> {
+    /// Send the response normally.
     Send(&'a mut application::ResponsePipe),
+    /// Send the response as a HTTP/2 push.
     Push(&'a mut application::PushedResponsePipe),
 }
 impl<'a> SendKind<'a> {
+    /// Ensures correct version and length (only applicable for HTTP/1 connections)
+    /// of a response according to inner enum variants.
     #[inline(always)]
     pub fn ensure_version_and_length<T>(
         &self,
@@ -434,13 +490,17 @@ pub async fn handle_request(
     ))
 }
 
+/// Describes port, certificate, and host data for
+/// a single port to bind.
+#[derive(Clone)]
 #[must_use]
-pub struct HostDescriptor {
+pub struct PortDescriptor {
     port: u16,
     #[cfg(feature = "https")]
     server_config: Option<Arc<rustls::ServerConfig>>,
     host_data: Arc<Data>,
 }
+impl PortDescriptor {
     /// Uses the defaults for non-secure HTTP with `host_data`
     pub fn http(host_data: Arc<Data>) -> Self {
         Self {
@@ -482,8 +542,8 @@ pub struct HostDescriptor {
             #[cfg(feature = "https")]
             server_config: Some(Arc::new(Data::make_config(&host_data))),
             host_data,
+        }
     }
-}
     /// Creates a new non-secure descriptor for `port` with `host_data`.
     /// Does not try to assign a certificate.
     pub fn non_secure(port: u16, host_data: Arc<Data>) -> Self {
@@ -495,7 +555,7 @@ pub struct HostDescriptor {
         }
     }
 }
-impl Debug for HostDescriptor {
+impl Debug for PortDescriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut s = f.debug_struct("HostDescriptor");
         s.field("port", &self.port);
@@ -513,68 +573,99 @@ impl Debug for HostDescriptor {
     }
 }
 
+/// Run the Kvarn web server on `ports`.
+///
+/// Will bind a [`TcpListener`] on every `port` in [`PortDescriptor`].
+///
+/// > This ↑ will change when HTTP/3 support arrives, then Udp will also be used.
+///
+/// This is the last step in getting Kvarn spinning.
+/// You can interact with the caches through the [`Host`] and [`Data`] you created.
+///
+///
+/// # Examples
+///
+/// Will start a bare-bones web server on port `8080`, using the dir `web` to serve files.
+///
+/// > **Note:** it uses `web` to serve files only if the feature `fs` is enabled. Place them in `web/public`
+/// > to access them in your user-agent.
+/// > It's done this way to enable you to have domain-specific files not being public to the web,
+/// > and for a place to store other important files. `kvarn_extensions` template system would in this case
+/// > read the template files from `web/templates`.
+///
+/// ```no_run
+/// use kvarn::prelude::*;
+///
+/// # async move {
+/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default());
+/// let data = Data::builder(host).build();
+/// let port_descriptor = PortDescriptor::new(8080, data);
+///
+/// run(vec![port_descriptor]).await;
+/// # };
+/// ```
 pub async fn run(ports: Vec<PortDescriptor>) {
-        trace!("Running from config");
+    info!("Starting server on {} ports.", ports.len());
 
     let len = ports.len();
     for (pos, descriptor) in ports.into_iter().enumerate() {
-            let listener = TcpListener::bind(net::SocketAddrV4::new(
-                net::Ipv4Addr::UNSPECIFIED,
-                descriptor.port,
-            ))
-            .await
-            .expect("Failed to bind to port");
+        let listener = TcpListener::bind(net::SocketAddrV4::new(
+            net::Ipv4Addr::UNSPECIFIED,
+            descriptor.port,
+        ))
+        .await
+        .expect("Failed to bind to port");
 
-            let future = async move {
+        let future = async move {
             accept(listener, descriptor)
-                    .await
-                    .expect("Failed to accept message!")
-            };
+                .await
+                .expect("Failed to accept message!")
+        };
 
-            if pos + 1 == len {
-                future.await;
-            } else {
-                tokio::spawn(future);
-            }
+        if pos + 1 == len {
+            future.await;
+        } else {
+            tokio::spawn(future);
         }
     }
+}
 
-async fn accept(listener: TcpListener, host: PortDescriptor) -> Result<(), io::Error> {
-        trace!("Started listening on {:?}", listener.local_addr());
-        let host = Arc::new(host);
+async fn accept(listener: TcpListener, descriptor: PortDescriptor) -> Result<(), io::Error> {
+    trace!("Started listening on {:?}", listener.local_addr());
+    let host = Arc::new(descriptor);
 
-        #[allow(unused_mut)]
-        let mut limiter = LimitWrapper::default();
+    #[allow(unused_mut)]
+    let mut limiter = LimitWrapper::default();
 
-        loop {
-            match listener.accept().await {
-                Ok((socket, addr)) => {
-                    #[cfg(feature = "limiting")]
-                    match limiter.register(addr).await {
-                        LimitStrength::Drop => {
-                            drop(socket);
-                            return Ok(());
-                        }
-                        LimitStrength::Send | LimitStrength::Passed => {}
+    loop {
+        match listener.accept().await {
+            Ok((socket, addr)) => {
+                #[cfg(feature = "limiting")]
+                match limiter.register(addr).await {
+                    LimitStrength::Drop => {
+                        drop(socket);
+                        return Ok(());
                     }
-                    let host = Arc::clone(&host);
-                    let limiter = LimitWrapper::clone(&limiter);
-                    tokio::spawn(async move {
-                        if let Err(err) = handle_connection(socket, addr, host, limiter).await {
-                            warn!(
-                                "An error occurred in the main processing function {:?}",
-                                err
-                            );
-                        }
-                    });
-                    continue;
+                    LimitStrength::Send | LimitStrength::Passed => {}
                 }
-                Err(err) => {
-                    // An error occurred
-                    error!("Failed to accept() on listener");
+                let host = Arc::clone(&host);
+                let limiter = LimitWrapper::clone(&limiter);
+                tokio::spawn(async move {
+                    if let Err(err) = handle_connection(socket, addr, host, limiter).await {
+                        warn!(
+                            "An error occurred in the main processing function {:?}",
+                            err
+                        );
+                    }
+                });
+                continue;
+            }
+            Err(err) => {
+                // An error occurred
+                error!("Failed to accept() on listener");
 
-                    return Err(err);
-                }
+                return Err(err);
             }
         }
     }
+}

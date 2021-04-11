@@ -1,24 +1,40 @@
+//! Abstractions for the [application layer](https://en.wikipedia.org/wiki/Application_layer),
+//! providing a common interface for all HTTP versions supported.
+//!
+//! > **You should not have to interface with this module. Use [`handle_connection`] instead.**
+//!
+//! The main types are [`HttpConnection`], representing a single encrypted generic http connection.
+//!
+//! When accepting on the [`HttpConnection`], you get a [`FatRequest`]; a [`http::Request`] with a [`Body`].
+//! The [`Body`] is a stream providing the body of a response if you need it, to avoid unnecessary allocations.
 use crate::prelude::{internals::*, *};
+pub use response::Http1Body;
 
+/// General error for application-level logic.
+///
+/// Mostly, the [`Error::Parse`], [`Error::Io`], and [`Error::H2`]
+/// signal errors with the request emitted from respective library.
 #[derive(Debug)]
 pub enum Error {
-    Http(http::Error),
+    /// A parse error from the module [`parse`].
+    Parse(parse::Error),
+    /// An input-output error was encountered while reading or writing.
     Io(io::Error),
+    /// [`h2`] emitted an error
     #[cfg(feature = "h2")]
     H2(h2::Error),
-    NoPath,
-    Done,
+    /// The HTTP version assumed by the client is not supported.
+    /// Invalid ALPN config is a candidate.
     VersionNotSupported,
+    /// You tried to push a response on a HTTP/1 connection.
+    ///
+    /// *Use HTTP/2 instead, or check if the [`ResponsePipe`] is HTTP/1*.
     PushOnHttp1,
-    InvalidHost,
-    InvalidVersion,
-    InvalidMethod,
-    HeaderTooLong,
 }
-impl From<http::Error> for Error {
+impl From<parse::Error> for Error {
     #[inline]
-    fn from(err: http::Error) -> Self {
-        Self::Http(err)
+    fn from(err: parse::Error) -> Self {
+        Self::Parse(err)
     }
 }
 impl From<io::Error> for Error {
@@ -37,67 +53,104 @@ impl From<h2::Error> for Error {
 impl Into<io::Error> for Error {
     fn into(self) -> io::Error {
         match self {
+            Self::Parse(err) => err.into(),
             Self::Io(io) => io,
-            Self::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
             #[cfg(feature = "h2")]
             Self::H2(h2) => io::Error::new(io::ErrorKind::InvalidData, h2),
-            Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, "stream is exhausted"),
-            Self::NoPath => io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "no path was supplied in the request",
-            ),
+
             Self::VersionNotSupported => io::Error::new(
-                io::ErrorKind::InvalidInput,
+                io::ErrorKind::InvalidData,
                 "http version unsupported. Invalid ALPN config.",
             ),
             Self::PushOnHttp1 => io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "can not push requests on http/1",
             ),
-            Self::InvalidHost => {
-                io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
-            }
-            Self::InvalidVersion => {
-                io::Error::new(io::ErrorKind::InvalidData, "version is invalid")
-            }
-            Self::InvalidMethod => io::Error::new(io::ErrorKind::InvalidData, "method is invalid"),
-            Self::HeaderTooLong => io::Error::new(io::ErrorKind::InvalidData, "header is too long"),
         }
     }
 }
 
+/// A single HTTP connection.
+///
+/// See [`HttpConnection::new`] on how to make one and
+/// [`HttpConnection::accept`] on getting a [`FatRequest`].
 #[derive(Debug)]
 pub enum HttpConnection {
+    /// A HTTP/1 connection
     Http1(Arc<Mutex<Encryption>>),
+    /// A HTTP/2 connection
+    ///
+    /// This is boxed because a [`h2::server::Connection`] takes up
+    /// over 1000 bytes of memory, and an [`Arc`] 8 bytes.
+    /// It will increase performance on servers with both HTTP/1 and HTTP/2
+    /// connections, but slightly hurt exclusively HTTP/2 servers.
+    ///
+    /// We'll see how we move forward once HTTP/3 support lands.
     #[cfg(feature = "h2")]
     Http2(Box<h2::server::Connection<Encryption, bytes::Bytes>>),
 }
 
+/// A body of a [`Request`].
+///
+/// The inner variables are streams. To get the bytes, use [`Body::read_to_bytes()`] when needed.
+///
+/// Also see [`FatRequest`].
+///
 /// `ToDo`: trailers
 #[derive(Debug)]
 pub enum Body {
+    /// An empty body.
+    ///
+    /// Can be used by HTTP/2 push to simulate a GET request.
     Empty,
+    /// A buffered HTTP/1 body.
+    ///
+    /// While the HTTP/1 headers were read, it reads too much
+    /// and some of the body will be read.
+    /// Therefore, the already read bytes are stored.
+    /// [`Body::read_to_bytes`] leverages this and just
+    /// continues writing to the buffer.
     Http1(response::Http1Body<Encryption>),
+    /// A HTTP/2 body provided by [`h2`].
     #[cfg(feature = "h2")]
     Http2(h2::RecvStream),
 }
 
+/// A pipe to send a [`Response`] through.
+///
+/// You may also push requests if the pipe is [`ResponsePipe::Http2`]
+/// by calling [`ResponsePipe::push_request`].
 #[derive(Debug)]
 #[must_use]
 pub enum ResponsePipe {
+    /// A HTTP/1 stream to send a response.
     Http1(Arc<Mutex<Encryption>>),
+    /// A HTTP/2 response pipe.
     #[cfg(feature = "h2")]
     Http2(h2::server::SendResponse<Bytes>),
 }
+/// A pipe to send a body after the [`Response`] is sent by
+/// [`ResponsePipe::send_response`].
 #[derive(Debug)]
 pub enum ResponseBodyPipe {
+    /// HTTP/1 pipe
     Http1(Arc<Mutex<Encryption>>),
+    /// HTTP/2 pipe
     #[cfg(feature = "h2")]
     Http2(h2::SendStream<Bytes>),
 }
+/// A [`ResponsePipe`]-like for a pushed request-response pair.
+///
+/// The only logic difference between this and [`ResponsePipe`] is the
+/// lack of a `push_request` method. If you want to push more than one request,
+/// use the same method on [`ResponsePipe`] more times.
 #[derive(Debug)]
 #[must_use]
 pub enum PushedResponsePipe {
+    /// A HTTP/2 pushed response pipe.
+    ///
+    /// This is the only variant for now, but as HTTP/3
+    /// is implemented, a `Http3` variant will be added.
     #[cfg(feature = "h2")]
     Http2(h2::server::SendPushedResponse<Bytes>),
 }
@@ -154,13 +207,13 @@ impl HttpConnection {
                     }
                     Err(err) => Err(Error::H2(err)),
                 },
-                None => Err(Error::Done),
+                None => Err(parse::Error::Done.into()),
             },
         }
     }
 }
 
-pub mod request {
+mod request {
     use super::{
         io, parse, response, utility, Arc, AsyncRead, Body, Bytes, Context, Encryption, Error,
         Mutex, Pin, Poll, ReadBuf, Request,
@@ -188,7 +241,7 @@ pub mod request {
         /// # Errors
         ///
         /// Passes any errors returned from the inner reader.
-        /// See [`response::Http1Body::read_to_bytes()`] and [`h2::RecvStream::poll_data()`] for more info.
+        /// See [`super::Http1Body::read_to_bytes()`] and [`h2::RecvStream::poll_data()`] for more info.
         #[inline]
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
             match self {
@@ -235,15 +288,16 @@ pub mod request {
     }
 }
 
-pub mod response {
-    use tokio::io::AsyncWriteExt;
-
+mod response {
     use super::{
-        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWrite, Bytes, BytesMut, Context, Debug,
-        Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe, ReadBuf, Request,
-        Response, ResponseBodyPipe, ResponsePipe, Version,
+        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWrite, AsyncWriteExt, Bytes, BytesMut,
+        Context, Debug, Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe,
+        ReadBuf, Request, Response, ResponseBodyPipe, ResponsePipe, Version,
     };
 
+    /// A HTTP/1 body.
+    ///
+    /// The reason of this type and the inner buffer is described in [`super::Body::Http1`]
     #[must_use]
     pub struct Http1Body<R: AsyncRead + Unpin> {
         reader: Arc<Mutex<R>>,
@@ -253,6 +307,9 @@ pub mod response {
         content_length: usize,
     }
     impl<R: AsyncRead + Unpin> Http1Body<R> {
+        /// Creates a new body.
+        ///
+        /// `content_length` should be the total length of the body, found in the [`Request::headers`].
         #[inline]
         pub fn new(reader: Arc<Mutex<R>>, bytes: Bytes, content_length: usize) -> Self {
             Self {
@@ -388,6 +445,7 @@ pub mod response {
                 },
             }
         }
+        /// Ensures the version and length of the `response` using the variant of [`ResponsePipe`].
         #[inline]
         pub fn ensure_version_and_length<T>(
             &self,
