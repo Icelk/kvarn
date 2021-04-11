@@ -63,7 +63,7 @@ impl LimitManager {
         }
     }
     pub async fn register(&mut self, addr: SocketAddr) -> LimitStrength {
-        if self.iteration.fetch_add(1, atomic::Ordering::AcqRel) + 1 < self.check_every {
+        if self.iteration.fetch_add(1, atomic::Ordering::Relaxed) + 1 < self.check_every {
             LimitStrength::Passed
         } else {
             self.iteration.store(0, atomic::Ordering::Release);
