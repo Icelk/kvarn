@@ -54,152 +54,12 @@ pub type If = Box<(dyn Fn(&FatRequest) -> bool + Sync + Send)>;
 pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
 pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
-macro_rules! get_unsafe_wrapper {
-    ($main:ident, $return:ty, $ret_str:expr) => {
-        #[doc = "A wrapper type for `"]
-        #[doc = $ret_str]
-        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
-        #[allow(missing_debug_implementations)]
-        #[must_use]
-        pub struct $main(*const $return);
-        impl $main {
-            pub(crate) fn new(data: &$return) -> Self {
-                Self(data)
-            }
-            /// # Safety
-            ///
-            /// See [module level documentation](crate::extensions).
-            #[inline]
-            #[must_use = "must use extracted reference"]
-            pub unsafe fn get_inner(&self) -> &$return {
-                &*self.0
-            }
-        }
-        unsafe impl Send for $main {}
-        unsafe impl Sync for $main {}
-    };
-    ($main:ident, $return:ty) => {
-        get_unsafe_wrapper!($main, $return, stringify!($return));
-    }
+/// Returns a future accepted by all the [`extensions`]
+/// yielding immediately with `value`.
+#[inline]
+pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
+    Box::pin(core::future::ready(value))
 }
-macro_rules! get_unsafe_mut_wrapper {
-    ($main:ident, $return:ty, $ret_str:expr) => {
-        #[doc = "A wrapper type for `"]
-        #[doc = $ret_str]
-        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
-        #[allow(missing_debug_implementations)]
-        #[must_use]
-        pub struct $main(*mut $return);
-        impl $main {
-            pub(crate) fn new(data: &mut $return) -> Self {
-                Self(data)
-            }
-            /// # Safety
-            ///
-            /// See [module level documentation](crate::extensions).
-            #[inline]
-            #[must_use = "must use extracted reference"]
-            pub unsafe fn get_inner(&mut self) -> &mut $return {
-                &mut *self.0
-            }
-        }
-        unsafe impl Send for $main {}
-        unsafe impl Sync for $main {}
-    };
-    ($main:ident, $return:ty) => {
-        get_unsafe_mut_wrapper!($main, $return, stringify!($return));
-    };
-}
-
-get_unsafe_wrapper!(RequestWrapper, FatRequest);
-get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
-get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
-get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, application::ResponsePipe);
-get_unsafe_wrapper!(HostWrapper, Host);
-get_unsafe_wrapper!(PathWrapper, Path);
-
-#[allow(missing_debug_implementations)]
-pub struct PresentDataWrapper(PresentData);
-impl PresentDataWrapper {
-    /// # Safety
-    /// See [module level documentation](crate::extensions).
-    ///
-    /// It's safe to call this if it's within the future of your extension.
-    /// Else, the data will have been dropped.
-    ///
-    /// You **must** not store this type.
-    #[inline]
-    #[must_use]
-    pub unsafe fn get_inner(&mut self) -> &mut PresentData {
-        &mut self.0
-    }
-}
-
-/// Add data pretending to present state in creating the response.
-///
-/// Can be acquired from [`PresentDataWrapper`].
-///
-/// See [module level documentation](crate::extensions).
-#[allow(missing_debug_implementations)]
-pub struct PresentData {
-    // Regarding request
-    address: SocketAddr,
-    request: *const FatRequest,
-    body: *mut LazyRequestBody,
-    host: *const Host,
-    path: *const Path,
-    // Regarding response
-    server_cache_preference: *mut ServerCachePreference,
-    client_cache_preference: *mut ClientCachePreference,
-    response: *mut Response<Bytes>,
-    // Regarding extension
-    args: PresentArguments,
-}
-#[allow(missing_docs)]
-impl PresentData {
-    #[inline]
-    pub fn address(&self) -> SocketAddr {
-        self.address
-    }
-    #[inline]
-    pub fn request(&self) -> &FatRequest {
-        unsafe { &*self.request }
-    }
-    #[inline]
-    pub fn body(&mut self) -> &mut LazyRequestBody {
-        unsafe { &mut *self.body }
-    }
-    #[inline]
-    pub fn host(&self) -> &Host {
-        unsafe { &*self.host }
-    }
-    #[inline]
-    pub fn path(&self) -> &Path {
-        unsafe { &*self.path }
-    }
-    #[inline]
-    pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
-        unsafe { &mut *self.server_cache_preference }
-    }
-    #[inline]
-    pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
-        unsafe { &mut *self.client_cache_preference }
-    }
-    #[inline]
-    pub fn response_mut(&mut self) -> &mut Response<Bytes> {
-        unsafe { &mut *self.response }
-    }
-    #[inline]
-    pub fn response(&self) -> &Response<Bytes> {
-        unsafe { &*self.response }
-    }
-    #[inline]
-    pub fn args(&self) -> &PresentArguments {
-        &self.args
-    }
-}
-unsafe impl Send for PresentData {}
-unsafe impl Sync for PresentData {}
 
 /// Contains all extensions.
 /// See [extensions.md](../extensions.md) for more info.
@@ -506,13 +366,158 @@ impl Extensions {
         }
     }
 }
-
 impl Default for Extensions {
     fn default() -> Self {
         Self::new()
     }
 }
 
+macro_rules! get_unsafe_wrapper {
+    ($main:ident, $return:ty, $ret_str:expr) => {
+        #[doc = "A wrapper type for `"]
+        #[doc = $ret_str]
+        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[allow(missing_debug_implementations)]
+        #[must_use]
+        pub struct $main(*const $return);
+        impl $main {
+            pub(crate) fn new(data: &$return) -> Self {
+                Self(data)
+            }
+            /// # Safety
+            ///
+            /// See [module level documentation](crate::extensions).
+            #[inline]
+            #[must_use = "must use extracted reference"]
+            pub unsafe fn get_inner(&self) -> &$return {
+                &*self.0
+            }
+        }
+        unsafe impl Send for $main {}
+        unsafe impl Sync for $main {}
+    };
+    ($main:ident, $return:ty) => {
+        get_unsafe_wrapper!($main, $return, stringify!($return));
+    }
+}
+macro_rules! get_unsafe_mut_wrapper {
+    ($main:ident, $return:ty, $ret_str:expr) => {
+        #[doc = "A wrapper type for `"]
+        #[doc = $ret_str]
+        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[allow(missing_debug_implementations)]
+        #[must_use]
+        pub struct $main(*mut $return);
+        impl $main {
+            pub(crate) fn new(data: &mut $return) -> Self {
+                Self(data)
+            }
+            /// # Safety
+            ///
+            /// See [module level documentation](crate::extensions).
+            #[inline]
+            #[must_use = "must use extracted reference"]
+            pub unsafe fn get_inner(&mut self) -> &mut $return {
+                &mut *self.0
+            }
+        }
+        unsafe impl Send for $main {}
+        unsafe impl Sync for $main {}
+    };
+    ($main:ident, $return:ty) => {
+        get_unsafe_mut_wrapper!($main, $return, stringify!($return));
+    };
+}
+
+get_unsafe_wrapper!(RequestWrapper, FatRequest);
+get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
+get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
+get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, application::ResponsePipe);
+get_unsafe_wrapper!(HostWrapper, Host);
+get_unsafe_wrapper!(PathWrapper, Path);
+
+#[allow(missing_debug_implementations)]
+pub struct PresentDataWrapper(PresentData);
+impl PresentDataWrapper {
+    /// # Safety
+    /// See [module level documentation](crate::extensions).
+    ///
+    /// It's safe to call this if it's within the future of your extension.
+    /// Else, the data will have been dropped.
+    ///
+    /// You **must** not store this type.
+    #[inline]
+    #[must_use]
+    pub unsafe fn get_inner(&mut self) -> &mut PresentData {
+        &mut self.0
+    }
+}
+
+/// Add data pretending to present state in creating the response.
+///
+/// Can be acquired from [`PresentDataWrapper`].
+///
+/// See [module level documentation](crate::extensions).
+#[allow(missing_debug_implementations)]
+pub struct PresentData {
+    // Regarding request
+    address: SocketAddr,
+    request: *const FatRequest,
+    body: *mut LazyRequestBody,
+    host: *const Host,
+    path: *const Path,
+    // Regarding response
+    server_cache_preference: *mut ServerCachePreference,
+    client_cache_preference: *mut ClientCachePreference,
+    response: *mut Response<Bytes>,
+    // Regarding extension
+    args: PresentArguments,
+}
+#[allow(missing_docs)]
+impl PresentData {
+    #[inline]
+    pub fn address(&self) -> SocketAddr {
+        self.address
+    }
+    #[inline]
+    pub fn request(&self) -> &FatRequest {
+        unsafe { &*self.request }
+    }
+    #[inline]
+    pub fn body(&mut self) -> &mut LazyRequestBody {
+        unsafe { &mut *self.body }
+    }
+    #[inline]
+    pub fn host(&self) -> &Host {
+        unsafe { &*self.host }
+    }
+    #[inline]
+    pub fn path(&self) -> &Path {
+        unsafe { &*self.path }
+    }
+    #[inline]
+    pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
+        unsafe { &mut *self.server_cache_preference }
+    }
+    #[inline]
+    pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
+        unsafe { &mut *self.client_cache_preference }
+    }
+    #[inline]
+    pub fn response_mut(&mut self) -> &mut Response<Bytes> {
+        unsafe { &mut *self.response }
+    }
+    #[inline]
+    pub fn response(&self) -> &Response<Bytes> {
+        unsafe { &*self.response }
+    }
+    #[inline]
+    pub fn args(&self) -> &PresentArguments {
+        &self.args
+    }
+}
+unsafe impl Send for PresentData {}
+unsafe impl Sync for PresentData {}
 #[derive(Debug)]
 #[must_use]
 pub struct LazyRequestBody {
