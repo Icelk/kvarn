@@ -48,7 +48,7 @@ pub use comprash::{
     ClientCachePreference, CompressPreference, CompressedResponse, ServerCachePreference,
 };
 pub use extensions::Extensions;
-pub use utility::{read_file, read_file_cached};
+pub use utility::{default_error, default_error_response, read_file, read_file_cached};
 /// The `Request` used within Kvarn.
 pub type FatRequest = Request<application::Body>;
 /// A `Response` returned by [`handle_request()`].
