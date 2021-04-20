@@ -227,13 +227,7 @@ pub fn uri(path: &str, base_path: &Path) -> PathBuf {
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
-    let mut buf =
-        PathBuf::with_capacity(base_path.as_os_str().len() + 6 /* "public".len() */ + path.len());
-    buf.push(base_path);
-    buf.push("public");
-    buf.push(stripped_path);
-
-    buf
+    utility::make_path(base_path, "public", stripped_path, None)
 }
 
 /// Parses a [`Version`].
@@ -392,7 +386,7 @@ pub async fn request(
         unsafe { buffer.set_len(*read) };
 
         Ok(read_now)
-    };
+    }
 
     let mut buffer = BytesMut::with_capacity(1024);
     let mut read = 0;

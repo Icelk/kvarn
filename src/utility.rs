@@ -223,6 +223,31 @@ pub async fn read_file<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option<Bytes>
     Some(buffer.freeze())
 }
 
+/// Makes a [`PathBuf`] using one allocation.
+///
+/// Format is `<base_path>/<dir>/<file>(.<extension>)`
+pub fn make_path(
+    base_path: impl AsRef<Path>,
+    dir: impl AsRef<Path>,
+    file: impl AsRef<Path>,
+    extension: Option<&str>,
+) -> PathBuf {
+    let mut path = PathBuf::with_capacity(
+        base_path.as_ref().as_os_str().len()
+            + dir.as_ref().as_os_str().len()
+            + 2
+            + file.as_ref().as_os_str().len()
+            + extension.map_or(0, |e| e.len() + 1),
+    );
+    path.push(base_path);
+    path.push(dir);
+    path.push(file);
+    if let Some(extension) = extension {
+        path.set_extension(extension);
+    }
+    path
+}
+
 /// Get a hardcoded error message.
 ///
 /// It can be useful when you don't have access to the file cache
@@ -264,12 +289,7 @@ pub async fn default_error(code: StatusCode, host: Option<&Host>) -> Response<By
     // Error files will be used several times.
     let body = match host {
         Some(host) => {
-            // path length + "/errors/".len() + three digit status code + ".html".len()
-            let mut path = PathBuf::with_capacity(host.path.as_os_str().len() + 3 + 8 + 5);
-            path.push(&host.path);
-            path.push("errors");
-            path.push(code.as_str());
-            path.set_extension("html");
+            let path = make_path(&host.path, "errors", code.as_str(), Some("html"));
 
             match read_file_cached(&path, &host.file_cache).await {
                 Some(file) => file,
