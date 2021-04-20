@@ -324,7 +324,7 @@ pub mod templates {
         enum Stage {
             Text,
             Placeholder,
-        };
+        }
 
         let mut response = Vec::with_capacity(file.len() * 2);
 
@@ -403,11 +403,10 @@ pub mod templates {
         template_set: &str,
         host: &Host,
     ) -> Option<HashMap<String, Vec<u8>>> {
-        let mut template_dir = host.path.join("templates");
-        template_dir.push(template_set);
+        let path = utility::make_path(&host.path, "templates", template_set, None);
 
         // The template file will be access several times.
-        match read_file_cached(&template_dir, &host.file_cache).await {
+        match read_file_cached(&path, &host.file_cache).await {
             Some(file) => {
                 let templates = extract_templates(&file[..]);
                 return Some(templates);

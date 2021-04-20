@@ -331,7 +331,7 @@ pub async fn handle_cache(
                 } else {
                     info!("Not caching; a Pre extension has captured. If we cached, it would not be called again.");
                 }
-            };
+            }
 
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
