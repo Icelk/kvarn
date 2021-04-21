@@ -477,7 +477,7 @@ pub fn method_has_response_body(method: &Method) -> bool {
 
 /// Implements [`Debug`] from the [`Display`] implementation of `value`.
 ///
-/// Can be used to give fields a arbitrary [`str`] without surrounding quotes.
+/// Can be used to give fields a arbitrary [`mod@str`] without surrounding quotes.
 pub struct CleanDebug<'a, T: ?Sized + Display>(&'a T);
 impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
     /// Creates a new wrapper around `value` with [`Debug`] implemented as [`Display`].
