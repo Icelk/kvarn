@@ -35,6 +35,28 @@ pub enum Error {
     /// Often means the request isn't what we expect;
     /// maybe it's transmitted over HTTPS.
     Syntax,
+    /// There are illegal bytes in a [`HeaderName`]
+    IllegalName,
+    /// There are illegal bytes in a [`HeaderValue`]
+    IllegalValue,
+}
+impl Error {
+    /// Gets a string representation of [`Error`].
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self{
+            Self::Http(_) => "http library parsing error",
+            Self::NoPath => "no path was supplied in the request",
+            Self::Done => "stream is exhausted",
+            Self::HeaderTooLong => "header is too long",
+            Self::InvalidPath => "path is invalid or contains illegal bytes",
+            Self::InvalidMethod => "method is invalid",
+            Self::InvalidVersion => "version is invalid",
+            Self::Syntax => "invalid syntax of data. The input might unexpectedly be encrypted (HTTPS) or compressed (HTTP/2)",
+            Self::IllegalName => "header name invalid",
+            Self::IllegalValue => "header value invalid",
+        }
+    }
 }
 impl From<http::Error> for Error {
     #[inline]
@@ -46,24 +68,15 @@ impl Into<io::Error> for Error {
     fn into(self) -> io::Error {
         match self {
             Self::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
-            Self::NoPath => io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "no path was supplied in the request",
-            ),
-            Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, "stream is exhausted"),
-            Self::HeaderTooLong => io::Error::new(io::ErrorKind::InvalidData, "header is too long"),
-            Self::InvalidPath => {
-                io::Error::new(io::ErrorKind::InvalidData, "host contains illegal bytes")
-            }
-            Self::InvalidMethod => io::Error::new(io::ErrorKind::InvalidData, "method is invalid"),
-            Self::InvalidVersion => {
-                io::Error::new(io::ErrorKind::InvalidData, "version is invalid")
-            }
-            Self::Syntax => {
-                io::Error::new(io::ErrorKind::InvalidData,
-                    "invalid syntax of data. The input might unexpectedly be encrypted (HTTPS) or compressed (HTTP/2)"
-                )
-            }
+            Self::NoPath
+            | Self::HeaderTooLong
+            | Self::InvalidPath
+            | Self::InvalidMethod
+            | Self::InvalidVersion
+            | Self::Syntax
+            | Self::IllegalName
+            | Self::IllegalValue => io::Error::new(io::ErrorKind::InvalidData, self.as_str()),
+            Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, self.as_str()),
         }
     }
 }
@@ -71,19 +84,19 @@ impl Into<io::Error> for Error {
 /// A pair of a value string and a quality of said value.
 ///
 /// Often used in the `accept-*` HTTP headers.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ValueQualitySet<'a> {
     /// The value with a quality
     pub value: &'a str,
     /// The quality of a value
     pub quality: f32,
 }
-impl PartialEq for ValueQualitySet<'_> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
-    }
-}
+// impl PartialEq for ValueQualitySet<'_> {
+//     #[inline]
+//     fn eq(&self, other: &Self) -> bool {
+//         self.value == other.value
+//     }
+// }
 impl PartialEq<str> for ValueQualitySet<'_> {
     #[inline]
     fn eq(&self, other: &str) -> bool {
@@ -159,7 +172,13 @@ pub fn list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
         .get(quality_start_byte..)
         .and_then(|quality| quality.parse().ok())
         .unwrap_or(1.0);
-    if let Some(accept) = header.get(start_byte..) {
+    if let Some(accept) = header.get(
+        start_byte..if end_byte == 0 {
+            header.len()
+        } else {
+            end_byte
+        },
+    ) {
         list.push(ValueQualitySet {
             value: accept,
             quality,
@@ -269,7 +288,12 @@ impl RequestParseStage {
 
 /// Formats headers and returns the bytes from the start of `bytes`
 /// where the body starts; how many bytes the header occupy.
-pub fn headers(bytes: &Bytes) -> (HeaderMap, usize) {
+///
+///
+/// # Errors
+///
+/// Returns an error if parsing a [`HeaderName`] or [`HeaderValue`] failed.
+pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
     let mut headers = HeaderMap::new();
     let mut parse_stage = RequestParseStage::HeaderName(0);
     let mut header_end = 0;
@@ -308,14 +332,14 @@ pub fn headers(bytes: &Bytes) -> (HeaderMap, usize) {
             }
             RequestParseStage::HeaderValue(..) => {
                 if byte == LF {
-                    let name = HeaderName::from_bytes(&bytes[header_name_start..header_name_end]);
+                    let name = HeaderName::from_bytes(&bytes[header_name_start..header_name_end])
+                        .ok()
+                        .ok_or(Error::IllegalName)?;
                     let value =
-                        HeaderValue::from_maybe_shared(bytes.slice(header_value_start..pos - 1));
-                    if let (Ok(name), Ok(value)) = (name, value) {
-                        headers.insert(name, value);
-                    } else {
-                        warn!("error in parsing headers")
-                    }
+                        HeaderValue::from_maybe_shared(bytes.slice(header_value_start..pos - 1))
+                            .ok()
+                            .ok_or(Error::IllegalValue)?;
+                    headers.insert(name, value);
                     parse_stage.next();
                     header_name_start = pos + 1;
                     continue;
@@ -324,14 +348,20 @@ pub fn headers(bytes: &Bytes) -> (HeaderMap, usize) {
             _ => unreachable!(),
         };
     }
-    (headers, header_end)
+    Ok((headers, header_end))
 }
 
+/// Try to parse a request from `stream`
+///
+///
 /// # Errors
+///
 /// Will return error if building the `http::Response` internally failed, if path is empty,
 /// or any errors which occurs while reading from `stream`.
 ///
-/// # Limitation
+///
+/// # Limitations
+///
 /// Request will be cut off at `max_len`.
 pub async fn request(
     stream: &Mutex<Encryption>,
@@ -468,7 +498,7 @@ pub async fn request(
             RequestParseStage::HeaderName(..) | RequestParseStage::HeaderValue(..) => {
                 match parsed.headers_mut() {
                     Some(h) => {
-                        let (headers, end) = headers(&buffer.slice(header_end - 1..));
+                        let (headers, end) = headers(&buffer.slice(header_end - 1..))?;
                         *h = headers;
                         header_end += end;
                     }
@@ -523,10 +553,15 @@ pub async fn request(
 }
 
 /// Parses a response without the first line, status taken from the headers.
-pub fn response_php(bytes: &Bytes) -> Option<Response<Bytes>> {
+///
+///
+/// # Errors
+///
+/// Passes errors from [`headers`] and [`http::response::Builder::body`]
+pub fn response_php(bytes: &Bytes) -> Result<Response<Bytes>, Error> {
     let header_start = 0;
 
-    let (headers, end) = headers(&bytes.slice(header_start..));
+    let (headers, end) = headers(&bytes.slice(header_start..))?;
     let status = headers
         .get("status")
         .and_then(|h| h.as_bytes().get(..3))
@@ -538,5 +573,5 @@ pub fn response_php(bytes: &Bytes) -> Option<Response<Bytes>> {
     let end = header_start + end;
     let mut builder = Response::builder().status(status);
     *builder.headers_mut().expect("wrongly built response") = headers;
-    builder.body(bytes.slice(end..)).ok()
+    builder.body(bytes.slice(end..)).map_err(Error::from)
 }

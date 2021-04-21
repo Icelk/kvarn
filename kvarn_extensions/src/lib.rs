@@ -267,32 +267,48 @@ pub fn php(
         let path = unsafe { path.get_inner() };
 
         if !path.exists() {
-            return utility::default_error_response(StatusCode::NOT_FOUND, host).await;
+            return utility::default_error_response(StatusCode::NOT_FOUND, host, None).await;
         }
 
         let body = match req.body_mut().read_to_bytes().await {
             Ok(body) => body,
-            Err(_) => return utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
+            Err(_) => {
+                return (
+                    utility::default_error(
+                        StatusCode::BAD_REQUEST,
+                        Some(host),
+                        Some("failed to read body".as_bytes()),
+                    )
+                    .await,
+                    ClientCachePreference::Changing,
+                    ServerCachePreference::None,
+                    CompressPreference::None,
+                )
+            }
         };
         let output = match cgi::fcgi_from_prepare(req, &body, path, address, 6633).await {
             Ok(vec) => vec,
             Err(err) => {
                 error!("FastCGI failed. {}", err);
-                return utility::default_error_response(StatusCode::INTERNAL_SERVER_ERROR, host)
-                    .await;
+                return utility::default_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    host,
+                    None,
+                )
+                .await;
             }
         };
         let output = Bytes::copy_from_slice(&output);
         match kvarn::parse::response_php(&output) {
-            Some(response) => (
+            Ok(response) => (
                 response,
                 ClientCachePreference::Undefined,
                 ServerCachePreference::None,
                 CompressPreference::Full,
             ),
-            None => {
-                error!("failed to parse response");
-                utility::default_error_response(StatusCode::NOT_FOUND, host).await
+            Err(err) => {
+                error!("failed to parse response; {}", err.as_str());
+                utility::default_error_response(StatusCode::NOT_FOUND, host, None).await
             }
         }
     })
@@ -536,7 +552,7 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
     box_fut!({
         let data = unsafe { data.get_inner() };
-        let error = default_error(StatusCode::NOT_FOUND, Some(data.host())).await;
+        let error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
         *data.response_mut() = error;
     })
 }
@@ -562,7 +578,7 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
 
         if !matched {
             // If it does not match, set the response to 404
-            let error = default_error(StatusCode::NOT_FOUND, Some(data.host())).await;
+            let error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
             *data.response_mut() = error;
         }
     })

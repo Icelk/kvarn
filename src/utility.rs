@@ -254,7 +254,7 @@ pub fn make_path(
 /// or if a error html file isn't provided. Is used by the preferred
 /// function [`default_error`].
 #[must_use]
-pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
+pub fn hardcoded_error_body(code: StatusCode, message: Option<&[u8]>) -> Bytes {
     // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
     let mut body = BytesMut::with_capacity(200);
     // Get code and reason!
@@ -268,14 +268,22 @@ pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
         body.extend(reason.as_bytes());
     }
 
-    body.extend(&b"</title></head><body><center><h1>"[..]);
+    body.extend(b"</title></head><body><center><h1>".iter());
     // Code and reason
     body.extend(code.as_str().as_bytes());
     body.extend(b" ");
     if let Some(reason) = reason {
         body.extend(reason.as_bytes());
     }
-    body.extend(&b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?</center></body></html>"[..]);
+    body.extend(b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?".iter());
+
+    if let Some(message) = message {
+        body.extend(b"<p>");
+        body.extend(message);
+        body.extend(b"</p>");
+    }
+
+    body.extend(b"</center></body></html>".iter());
 
     body.freeze()
 }
@@ -285,7 +293,11 @@ pub fn hardcoded_error_body(code: StatusCode) -> Bytes {
 /// Gets the default error based on `code` from the file system
 /// through a cache.
 #[inline]
-pub async fn default_error(code: StatusCode, host: Option<&Host>) -> Response<Bytes> {
+pub async fn default_error(
+    code: StatusCode,
+    host: Option<&Host>,
+    message: Option<&[u8]>,
+) -> Response<Bytes> {
     // Error files will be used several times.
     let body = match host {
         Some(host) => {
@@ -293,26 +305,32 @@ pub async fn default_error(code: StatusCode, host: Option<&Host>) -> Response<By
 
             match read_file_cached(&path, &host.file_cache).await {
                 Some(file) => file,
-                None => hardcoded_error_body(code),
+                None => hardcoded_error_body(code, message),
             }
         }
-        None => hardcoded_error_body(code),
+        None => hardcoded_error_body(code, message),
     };
-    Response::builder()
+    let mut builder = Response::builder()
         .status(code)
         .header("content-type", "text/html; charset=utf-8")
-        .header("content-encoding", "identity")
-        .body(body)
-        .unwrap()
+        .header("content-encoding", "identity");
+    if let Some(message) = message.map(HeaderValue::from_bytes).and_then(Result::ok) {
+        builder = builder.header("reason", message);
+    }
+    builder.body(body).unwrap()
 }
 
 /// Get a error [`FatResponse`].
 ///
 /// Can be very useful to return from [`extensions`].
 #[inline]
-pub async fn default_error_response(code: StatusCode, host: &Host) -> FatResponse {
+pub async fn default_error_response(
+    code: StatusCode,
+    host: &Host,
+    message: Option<&str>,
+) -> FatResponse {
     (
-        default_error(code, Some(host)).await,
+        default_error(code, Some(host), message.map(str::as_bytes)).await,
         ClientCachePreference::Full,
         ServerCachePreference::None,
         CompressPreference::Full,

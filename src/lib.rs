@@ -266,7 +266,14 @@ pub async fn handle_cache(
             info!("Found in cache!");
             let (mut response, body) =
                 utility::split_response(match resp.clone_preferred(&request) {
-                    Err(code) => utility::default_error(code, Some(host)).await,
+                    Err(message) => {
+                        utility::default_error(
+                            StatusCode::NOT_ACCEPTABLE,
+                            Some(host),
+                            Some(message.as_bytes()),
+                        )
+                        .await
+                    }
                     Ok(response) => response,
                 });
             let identity_body = Bytes::clone(resp.get_identity().body());
@@ -338,7 +345,12 @@ pub async fn handle_cache(
             // LAYER 5.1
             let ((resp, client_cache, server_cache, compress), future) = if bad_path {
                 (
-                    utility::default_error_response(StatusCode::BAD_REQUEST, host).await,
+                    utility::default_error_response(
+                        StatusCode::BAD_REQUEST,
+                        host,
+                        Some("path contains illegal segments (e.g. `./`)"),
+                    )
+                    .await,
                     None,
                 )
             } else if let Some((response, future)) = host
@@ -381,9 +393,18 @@ pub async fn handle_cache(
 
             let (mut response, body) =
                 utility::split_response(match compressed_response.clone_preferred(&request) {
-                    Err(code) => utility::default_error(code, Some(host)).await,
+                    Err(message) => {
+                        utility::default_error(
+                            StatusCode::NOT_ACCEPTABLE,
+                            Some(host),
+                            Some(message.as_bytes()),
+                        )
+                        .await
+                    }
                     Ok(response) => response,
                 });
+
+            println!("sending {:?}", response);
 
             pipe.ensure_version_and_length(&mut response, body.len(), request.method());
             host.extensions
@@ -479,7 +500,7 @@ pub async fn handle_request(
     let response = match response {
         Some(r) => r,
         None => {
-            utility::default_error_response(status.unwrap_or(StatusCode::NOT_FOUND), host)
+            utility::default_error_response(status.unwrap_or(StatusCode::NOT_FOUND), host, None)
                 .await
                 .0
         }

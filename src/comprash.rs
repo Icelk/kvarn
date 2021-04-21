@@ -144,11 +144,16 @@ impl CompressedResponse {
 
     /// Clones the preferred compression type based on `accept-encoding` header in `request`.
     ///
+    /// If an error occurs, you should response with an `406 Not Acceptable`.
+    ///
     ///
     /// # Errors
     ///
-    /// May return a [`StatusCode`] to signal which HTTP error occurred in content negotiation.
-    pub fn clone_preferred<T>(&self, request: &Request<T>) -> Result<Response<Bytes>, StatusCode> {
+    /// May return a &str to be used to inform the client what error occurred in content negotiation.
+    pub fn clone_preferred<T>(
+        &self,
+        request: &Request<T>,
+    ) -> Result<Response<Bytes>, &'static str> {
         let values = match request
             .headers()
             .get("accept-encoding")
@@ -162,6 +167,8 @@ impl CompressedResponse {
         let disable_identity = values
             .iter()
             .any(|v| v.value == "identity" && v.quality == 0.0);
+
+        println!("values {:?} {}", values, disable_identity);
 
         #[cfg(all(feature = "gzip", feature = "br"))]
         let prefer_br = values
@@ -245,8 +252,11 @@ impl CompressedResponse {
             }
             None => (self.get_identity().body(), "identity"),
         };
+        println!("{}", compression);
         if disable_identity && compression == "identity" {
-            return Err(StatusCode::NOT_ACCEPTABLE);
+            return Err(
+                "identity compression is the only option, but the client refused to accept it",
+            );
         }
         Ok(self.clone_identity_set_compression(
             Bytes::clone(bytes),
