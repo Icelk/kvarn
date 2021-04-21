@@ -404,8 +404,6 @@ pub async fn handle_cache(
                     Ok(response) => response,
                 });
 
-            println!("sending {:?}", response);
-
             pipe.ensure_version_and_length(&mut response, body.len(), request.method());
             host.extensions
                 .resolve_package(&mut response, &request)

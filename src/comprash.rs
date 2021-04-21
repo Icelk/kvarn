@@ -168,8 +168,6 @@ impl CompressedResponse {
             .iter()
             .any(|v| v.value == "identity" && v.quality == 0.0);
 
-        println!("values {:?} {}", values, disable_identity);
-
         #[cfg(all(feature = "gzip", feature = "br"))]
         let prefer_br = values
             .iter()
@@ -252,7 +250,6 @@ impl CompressedResponse {
             }
             None => (self.get_identity().body(), "identity"),
         };
-        println!("{}", compression);
         if disable_identity && compression == "identity" {
             return Err(
                 "identity compression is the only option, but the client refused to accept it",
