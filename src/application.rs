@@ -50,19 +50,19 @@ impl From<h2::Error> for Error {
         Self::H2(err)
     }
 }
-impl Into<io::Error> for Error {
-    fn into(self) -> io::Error {
-        match self {
-            Self::Parse(err) => err.into(),
-            Self::Io(io) => io,
+impl From<Error> for io::Error {
+    fn from(err: Error) -> io::Error {
+        match err {
+            Error::Parse(err) => err.into(),
+            Error::Io(io) => io,
             #[cfg(feature = "h2")]
-            Self::H2(h2) => io::Error::new(io::ErrorKind::InvalidData, h2),
+            Error::H2(h2) => io::Error::new(io::ErrorKind::InvalidData, h2),
 
-            Self::VersionNotSupported => io::Error::new(
+            Error::VersionNotSupported => io::Error::new(
                 io::ErrorKind::InvalidData,
                 "http version unsupported. Invalid ALPN config.",
             ),
-            Self::PushOnHttp1 => io::Error::new(
+            Error::PushOnHttp1 => io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "can not push requests on http/1",
             ),
@@ -410,9 +410,8 @@ mod response {
                     let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
                     write_http_1_response(&mut writer, response)
                         .await
-                        .map_err(Error::Io)
-                        .unwrap();
-                    writer.flush().await.map_err(Error::Io).unwrap();
+                        .map_err(Error::Io)?;
+                    writer.flush().await.map_err(Error::Io)?;
                     writer.into_inner();
 
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))

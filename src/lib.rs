@@ -462,7 +462,7 @@ pub async fn handle_request(
     request: &mut Request<application::Body>,
     address: net::SocketAddr,
     host: &Host,
-    path: &PathBuf,
+    path: &Path,
 ) -> io::Result<FatResponse> {
     let mut response = None;
     let mut client_cache = None;
@@ -475,7 +475,7 @@ pub async fn handle_request(
     {
         if let Some(resp) = host
             .extensions
-            .resolve_prepare(request, &host, path.as_path(), address)
+            .resolve_prepare(request, &host, path, address)
             .await
         {
             response.replace(resp.0);

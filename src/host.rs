@@ -139,6 +139,7 @@ impl Host {
     }
 
     #[cfg(feature = "https")]
+    #[allow(clippy::missing_panics_doc)]
     pub fn set_http_redirect_to_https(&mut self) {
         const SPECIAL_PATH: &str = "/../to_https";
         self.extensions.add_prepare_single(
@@ -456,7 +457,7 @@ impl ResolvesServerCert for Data {
 
 #[derive(Debug)]
 pub enum ServerConfigError {
-    IO(io::Error),
+    Io(io::Error),
     ImproperPrivateKeyFormat,
     ImproperCertificateFormat,
     NoKey,
@@ -465,7 +466,7 @@ pub enum ServerConfigError {
 impl From<io::Error> for ServerConfigError {
     #[inline]
     fn from(error: io::Error) -> Self {
-        Self::IO(error)
+        Self::Io(error)
     }
 }
 

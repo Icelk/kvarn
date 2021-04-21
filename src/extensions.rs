@@ -103,6 +103,7 @@ impl Extensions {
     ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
     /// - Package extension to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `Referrer-Policy` header has been set earlier in the response.
+    #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
         let mut new = Self::empty();
 
@@ -399,7 +400,7 @@ macro_rules! get_unsafe_wrapper {
     };
     ($main:ident, $return:ty) => {
         get_unsafe_wrapper!($main, $return, stringify!($return));
-    }
+    };
 }
 macro_rules! get_unsafe_mut_wrapper {
     ($main:ident, $return:ty, $ret_str:expr) => {
@@ -541,12 +542,14 @@ impl LazyRequestBody {
     ///
     /// Returns any errors from reading the inner [`application::Body`].
     #[inline]
+    #[allow(clippy::missing_panics_doc)]
     pub async fn get(&mut self) -> io::Result<&Bytes> {
         if let Some(ref result) = self.result {
             Ok(result)
         } else {
             let buffer = unsafe { &mut *self.body }.read_to_bytes().await?;
             self.result.replace(buffer);
+            // ok; we've just assigned to it
             Ok(self.result.as_ref().unwrap())
         }
     }

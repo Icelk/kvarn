@@ -64,19 +64,19 @@ impl From<http::Error> for Error {
         Self::Http(err)
     }
 }
-impl Into<io::Error> for Error {
-    fn into(self) -> io::Error {
-        match self {
-            Self::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
-            Self::NoPath
-            | Self::HeaderTooLong
-            | Self::InvalidPath
-            | Self::InvalidMethod
-            | Self::InvalidVersion
-            | Self::Syntax
-            | Self::IllegalName
-            | Self::IllegalValue => io::Error::new(io::ErrorKind::InvalidData, self.as_str()),
-            Self::Done => io::Error::new(io::ErrorKind::BrokenPipe, self.as_str()),
+impl From<Error> for io::Error {
+    fn from(err: Error) -> io::Error {
+        match err {
+            Error::Http(http) => io::Error::new(io::ErrorKind::InvalidData, http),
+            Error::NoPath
+            | Error::HeaderTooLong
+            | Error::InvalidPath
+            | Error::InvalidMethod
+            | Error::InvalidVersion
+            | Error::Syntax
+            | Error::IllegalName
+            | Error::IllegalValue => io::Error::new(io::ErrorKind::InvalidData, err.as_str()),
+            Error::Done => io::Error::new(io::ErrorKind::BrokenPipe, err.as_str()),
         }
     }
 }
@@ -256,7 +256,7 @@ pub fn uri(path: &str, base_path: &Path) -> PathBuf {
 #[inline]
 #[must_use]
 pub fn version(bytes: &[u8]) -> Option<Version> {
-    Some(match &bytes[..] {
+    Some(match bytes {
         b"HTTP/0.9" => Version::HTTP_09,
         b"HTTP/1.0" => Version::HTTP_10,
         b"HTTP/1.1" => Version::HTTP_11,
@@ -293,6 +293,7 @@ impl RequestParseStage {
 /// # Errors
 ///
 /// Returns an error if parsing a [`HeaderName`] or [`HeaderValue`] failed.
+#[allow(clippy::missing_panics_doc)]
 pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
     let mut headers = HeaderMap::new();
     let mut parse_stage = RequestParseStage::HeaderName(0);
@@ -345,6 +346,7 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
                     continue;
                 }
             }
+            // We know this isn't reached.
             _ => unreachable!(),
         };
     }
@@ -502,7 +504,7 @@ pub async fn request(
                         *h = headers;
                         header_end += end;
                     }
-                    None => panic!("request wrongly built"),
+                    None => return Err(Error::Syntax),
                 }
                 break;
             }
