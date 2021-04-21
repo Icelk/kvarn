@@ -16,9 +16,8 @@ pub fn get_urls(html: &str) -> Vec<String> {
     // `<link>` pass
     for node in document.find(Name("link")) {
         // Disabled: Pushing only stylesheets
-        match node.attr("rel") {
-            Some("preconnect") => continue,
-            _ => {}
+        if let Some("preconnect") = node.attr("rel") {
+            continue;
         }
         if let Some(url) = node.attr("href") {
             urls.push(url.to_string());

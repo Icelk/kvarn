@@ -123,7 +123,7 @@ pub(crate) mod filesystem {
                 ErrorKind::NotFound => {
                     exit_with_message("File not found, please check the entered path.")
                 }
-                ErrorKind::PermissionDenied => return Err(err),
+                ErrorKind::PermissionDenied => Err(err),
                 _ => exit_with_message("Encountered an unknown error reading the file specified."),
             },
         }
@@ -178,7 +178,7 @@ pub fn read_continue(message: &str, default: bool) -> bool {
     println!(
         "{} Do you want to continue (y or n)? Press enter to continue with '{}'.",
         message,
-        if default == true { "yes" } else { "no" }
+        if default { "yes" } else { "no" }
     );
     loop {
         let mut buffer = [0; 64];
@@ -216,16 +216,16 @@ pub fn read_continue(message: &str, default: bool) -> bool {
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
 pub enum FileEnding {
-    LF,
-    CRLF,
+    Lf,
+    CrLf,
 }
 impl FileEnding {
     pub fn find(bytes: &[u8]) -> Option<Self> {
         for byte_pair in bytes.windows(2) {
             if byte_pair.get(1) == Some(&parse::LF) {
                 match byte_pair.get(0) {
-                    Some(&parse::CR) => return Some(Self::CRLF),
-                    Some(_) => return Some(Self::LF),
+                    Some(&parse::CR) => return Some(Self::CrLf),
+                    Some(_) => return Some(Self::Lf),
                     None => {}
                 }
             }
@@ -234,8 +234,8 @@ impl FileEnding {
     }
     pub fn as_bytes(&self) -> &'static [u8] {
         match self {
-            Self::LF => b"\n",
-            Self::CRLF => b"\r\n",
+            Self::Lf => b"\n",
+            Self::CrLf => b"\r\n",
         }
     }
 }
@@ -296,16 +296,16 @@ pub fn process_document<P: AsRef<Path>>(
         match position {
             // Write !> in first iteration, &> in the rest!
             0 => {
-                write_file.write(b"!>")?;
+                write_file.write_all(b"!>")?;
                 for arg in extension {
-                    write_file.write(b" ")?;
+                    write_file.write_all(b" ")?;
                     write_file.write_all(arg.as_bytes())?;
                 }
             }
             _ => {
-                write_file.write(b" &>")?;
+                write_file.write_all(b" &>")?;
                 for arg in extension {
-                    write_file.write(b" ")?;
+                    write_file.write_all(b" ")?;
                     write_file.write_all(arg.as_bytes())?;
                 }
             }
@@ -313,12 +313,7 @@ pub fn process_document<P: AsRef<Path>>(
     }
     // Write newline after extensions, ~depending on what file ending is used in the file~.
     // Update, Pulldown-CMark only writes LF, even if input file is CRLF. I will also write LF then ¯\_(ツ)_/¯
-    write_file.write(
-        // FileEnding::find(&buffer[..])
-        //     .unwrap_or(FileEnding::LF)
-        //     .as_bytes(),
-        FileEnding::LF.as_bytes(),
-    )?;
+    write_file.write_all(FileEnding::Lf.as_bytes())?;
 
     // Write rest of header before meta
     write_file.write_all(&header_pre_meta[header_content_starts..])?;

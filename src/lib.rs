@@ -343,40 +343,50 @@ pub async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let ((resp, client_cache, server_cache, compress), future) = if bad_path {
-                (
-                    utility::default_error_response(
-                        StatusCode::BAD_REQUEST,
-                        host,
-                        Some("path contains illegal segments (e.g. `./`)"),
+            let ((mut resp, mut client_cache, mut server_cache, compress), path, future) =
+                if bad_path {
+                    (
+                        utility::default_error_response(
+                            StatusCode::BAD_REQUEST,
+                            host,
+                            Some("path contains illegal segments (e.g. `./`)"),
+                        )
+                        .await,
+                        None,
+                        None,
                     )
-                    .await,
-                    None,
-                )
-            } else if let Some((response, future)) = host
-                .extensions
-                .resolve_pre(&mut request, host, address)
-                .await
-            {
-                (response, Some(future))
-            } else {
-                let path = parse::uri(request.uri().path(), host.path.as_path());
-                let (mut resp, mut client_cache, mut server_cache, compress) =
-                    handle_request(&mut request, address, host, &path).await?;
+                } else if let Some((response, future)) = host
+                    .extensions
+                    .resolve_pre(&mut request, host, address)
+                    .await
+                {
+                    (
+                        response,
+                        Some(parse::uri(request.uri().path(), host.path.as_path())),
+                        Some(future),
+                    )
+                } else {
+                    let path = parse::uri(request.uri().path(), host.path.as_path());
+                    let (resp, client_cache, server_cache, compress) =
+                        handle_request(&mut request, address, host, &path).await?;
 
-                host.extensions
-                    .resolve_present(
-                        &mut request,
-                        &mut resp,
-                        &mut client_cache,
-                        &mut server_cache,
-                        host,
-                        address,
-                        path.as_path(),
+                    (
+                        (resp, client_cache, server_cache, compress),
+                        Some(path),
+                        None,
                     )
-                    .await?;
-                ((resp, client_cache, server_cache, compress), None)
-            };
+                };
+            host.extensions
+                .resolve_present(
+                    &mut request,
+                    &mut resp,
+                    &mut client_cache,
+                    &mut server_cache,
+                    host,
+                    address,
+                    path.as_deref(),
+                )
+                .await?;
 
             let extension = match Path::new(request.uri().path())
                 .extension()

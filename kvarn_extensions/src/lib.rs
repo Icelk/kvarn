@@ -128,7 +128,7 @@ pub mod cgi {
     use super::*;
     use fastcgi_client::{Client, Params};
 
-    pub enum FCGIError {
+    pub enum FastcgiError {
         FailedToConnect(io::Error),
         FailedToDoRequest(fastcgi_client::ClientError),
         NoStdout,
@@ -141,17 +141,17 @@ pub mod cgi {
         uri: &str,
         address: &SocketAddr,
         body: &[u8],
-    ) -> Result<Vec<u8>, FCGIError> {
+    ) -> Result<Vec<u8>, FastcgiError> {
         // Create connection to FastCGI server
         #[cfg(windows)]
         let stream = match networking::TcpStream::connect((net::Ipv4Addr::LOCALHOST, _port)).await {
             Ok(stream) => stream,
-            Err(err) => return Err(FCGIError::FailedToConnect(err)),
+            Err(err) => return Err(FastcgiError::FailedToConnect(err)),
         };
         #[cfg(unix)]
         let stream = match tokio::net::UnixStream::connect("/run/php-fpm/php-fpm.sock").await {
             Ok(stream) => stream,
-            Err(err) => return Err(FCGIError::FailedToConnect(err)),
+            Err(err) => return Err(FastcgiError::FailedToConnect(err)),
         };
         let mut client = Client::new(stream, false);
 
@@ -181,9 +181,9 @@ pub mod cgi {
         match client.execute(request).await {
             Ok(output) => match output.get_stdout() {
                 Some(output) => Ok(output),
-                None => Err(FCGIError::NoStdout),
+                None => Err(FastcgiError::NoStdout),
             },
-            Err(err) => Err(FCGIError::FailedToDoRequest(err)),
+            Err(err) => Err(FastcgiError::FailedToDoRequest(err)),
         }
     }
     pub async fn fcgi_from_prepare<T>(
@@ -226,15 +226,15 @@ pub mod cgi {
         {
             Ok(vec) => Ok(vec),
             Err(err) => match err {
-                FCGIError::FailedToConnect(err) => Err(Cow::Owned(format!(
+                FastcgiError::FailedToConnect(err) => Err(Cow::Owned(format!(
                     "Failed to connect to FastCGI server on port {}. IO Err: {}",
                     fcgi_server_port, err
                 ))),
-                FCGIError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
+                FastcgiError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
                     "Failed to request from FastCGI server! Err: {}",
                     err
                 ))),
-                FCGIError::NoStdout => Err(Cow::Borrowed("No stdout in response from FastCGI!")),
+                FastcgiError::NoStdout => Err(Cow::Borrowed("No stdout in response from FastCGI!")),
             },
         }
     }

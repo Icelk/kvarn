@@ -283,7 +283,7 @@ impl Extensions {
         server_cache_preference: &mut ServerCachePreference,
         host: &Host,
         address: SocketAddr,
-        path: &Path,
+        path: Option<&Path>,
     ) -> io::Result<()> {
         let mut body = LazyRequestBody::new(request.body_mut());
         let body = &mut body;
@@ -297,7 +297,7 @@ impl Extensions {
                         request,
                         body,
                         host,
-                        path,
+                        path: path.map(|p| p as *const _),
                         server_cache_preference,
                         client_cache_preference,
                         response,
@@ -309,7 +309,7 @@ impl Extensions {
             }
         }
         if let Some(extension) = path
-            .extension()
+            .and_then(Path::extension)
             .and_then(std::ffi::OsStr::to_str)
             .and_then(|s| self.present_file.get(s))
         {
@@ -318,7 +318,7 @@ impl Extensions {
                 request,
                 body,
                 host,
-                path,
+                path: path.map(|p| p as *const _),
                 server_cache_preference,
                 client_cache_preference,
                 response,
@@ -467,7 +467,7 @@ pub struct PresentData {
     request: *const FatRequest,
     body: *mut LazyRequestBody,
     host: *const Host,
-    path: *const Path,
+    path: Option<*const Path>,
     // Regarding response
     server_cache_preference: *mut ServerCachePreference,
     client_cache_preference: *mut ClientCachePreference,
@@ -494,8 +494,8 @@ impl PresentData {
         unsafe { &*self.host }
     }
     #[inline]
-    pub fn path(&self) -> &Path {
-        unsafe { &*self.path }
+    pub fn path(&self) -> Option<&Path> {
+        unsafe { self.path.map(|p| &*p) }
     }
     #[inline]
     pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
@@ -527,7 +527,7 @@ pub struct LazyRequestBody {
     result: Option<Bytes>,
 }
 impl LazyRequestBody {
-    /// This struct must be `Dropped` before `body` or Undefined Behaviour occurs.
+    /// This struct must be `dropped` before `body` or Undefined Behaviour occurs.
     ///
     /// The `body` is converted to a `*mut` which can be dereferenced safely, as long as we wait for this to be dropped.
     /// It can also not be referenced in any other way while this is not dropped.
