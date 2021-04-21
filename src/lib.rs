@@ -18,13 +18,13 @@
 //! The main function to call is [`run`]. See the example at [`run`]
 //! on how to get a simple web server running.
 //!
-//! A battle-tested reference implementation can be found at [GitHub](https://github.com/Iselk/kvarn-reference/).
+//! A battle-tested reference implementation can be found at [GitHub](https://github.com/Icelk/kvarn-reference/).
 //! It powers my two websites with minimal resource requirements.
 //!
 //!
 //! # Future plans
 //!
-//! See the [README @ GitHub](https://github.com/Iselk/kvarn/) and [kvarn.org](https://kvarn.org).
+//! See the [README @ GitHub](https://github.com/Icelk/kvarn/) and [kvarn.org](https://kvarn.org).
 #![deny(
     unreachable_pub,
     missing_debug_implementations,

@@ -124,7 +124,7 @@ const HTML: &str = r#"<html lang="en-GB"><head>
     <h1>Welcome!</h1>
     <p>Hello, user. This is my new site I'm developing.</p>
     <p>It is still in heavy development, and might go offline for upgrades any time.</p>
-    <p>To the left is a navbar from my project <a href="https://github.com/Iselk/homepage">homepage</a>. It does not serve any purpose for now.</p>
+    <p>To the left is a navbar from my project <a href="https://github.com/Icelk/homepage">homepage</a>. It does not serve any purpose for now.</p>
     <p>Though, you can navigate to tests through the 'Space' drop-down.</p>
   </div>
 </main>

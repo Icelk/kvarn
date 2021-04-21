@@ -4,7 +4,7 @@ version = "0.2.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2018"
 description = "Extensions for the Kvarn web server. Features HTTP/2 automatic push and a templating engine."
-repository = "https://github.com/Iselk/kvarn/tree/main/kvarn_extensions/"
+repository = "https://github.com/Icelk/kvarn/tree/main/kvarn_extensions/"
 license = "Apache-2.0"
 keywords = ["http-push", "template", "php"]
 categories = ["template-engine"]
@@ -13,7 +13,7 @@ categories = ["template-engine"]
 
 [dependencies]
 kvarn = { path = "../", default-features = false }
-fastcgi-client = { git = "https://github.com/Iselk/fastcgi-client-rs", optional = true }
+fastcgi-client = { git = "https://github.com/Icelk/fastcgi-client-rs", optional = true }
 tokio = { version = "^1", optional = true, features = ["net", "io-util"] }
 url_crawl = { path = "../url_crawl", optional = true }
 
