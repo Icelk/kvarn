@@ -31,7 +31,12 @@
     // missing_docs,
     clippy::pedantic
 )]
-#![allow(clippy::too_many_lines, clippy::missing_panics_doc)]
+#![allow(
+    clippy::too_many_lines,
+    clippy::missing_panics_doc,
+    // when a parameter of a function is prefixed due to cfg in fn
+    clippy::used_underscore_binding
+)]
 
 // Module declaration
 pub mod application;
@@ -328,7 +333,7 @@ pub async fn handle_cache(
                 future: &Option<RetSyncFut<()>>,
             ) {
                 if future.is_none() {
-                    if server_cache.cache() {
+                    if server_cache.cache(response.get_identity()) {
                         let mut lock = host.response_cache.lock().await;
                         let key = if server_cache.query_matters() {
                             comprash::UriKey::PathQuery(path_query)

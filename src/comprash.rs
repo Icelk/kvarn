@@ -371,7 +371,7 @@ impl CompressedResponse {
     }
     /// Gets the Brotli compressed version of [`CompressedResponse::get_identity()`]
     #[cfg(feature = "br")]
-        pub fn get_br(&self) -> &Bytes {
+    pub fn get_br(&self) -> &Bytes {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();
 
@@ -428,11 +428,15 @@ impl ServerCachePreference {
     #[inline]
     #[must_use]
     #[allow(clippy::unused_self)]
-    pub fn cache(self) -> bool {
+    pub fn cache(self, _response: &Response<Bytes>) -> bool {
         #[cfg(not(feature = "no-response-cache"))]
-        match self {
-            Self::None => false,
-            Self::QueryMatters | Self::Full => true,
+        {
+            let of_self = match self {
+                Self::None => false,
+                Self::QueryMatters | Self::Full => true,
+            };
+            let of_response = !matches!(_response.status().as_u16(), 400..=403 | 405..=499);
+            of_self && of_response
         }
         #[cfg(feature = "no-response-cache")]
         false
