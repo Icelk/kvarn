@@ -226,10 +226,21 @@ pub mod cgi {
         {
             Ok(vec) => Ok(vec),
             Err(err) => match err {
-                FastcgiError::FailedToConnect(err) => Err(Cow::Owned(format!(
-                    "Failed to connect to FastCGI server on port {}. IO Err: {}",
-                    fcgi_server_port, err
-                ))),
+                FastcgiError::FailedToConnect(_err) => {
+                    #[cfg(windows)]
+                    {
+                        Err(Cow::Owned(format!(
+                            "Failed to connect to FastCGI server on port {}. IO Err: {}",
+                            fcgi_server_port, _err
+                        )))
+                    }
+                    #[cfg(unix)]
+                    {
+                        Err(Cow::Borrowed(
+                            "Failed to connect to FastCGI on '/run/php-fmp/php-fmp.sock'",
+                        ))
+                    }
+                }
                 FastcgiError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
                     "Failed to request from FastCGI server! Err: {}",
                     err
