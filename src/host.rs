@@ -139,7 +139,6 @@ impl Host {
     }
 
     #[cfg(feature = "https")]
-    #[allow(clippy::missing_panics_doc)]
     pub fn set_http_redirect_to_https(&mut self) {
         const SPECIAL_PATH: &str = "/../to_https";
         self.extensions.add_prepare_single(

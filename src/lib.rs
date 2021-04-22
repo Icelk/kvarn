@@ -31,7 +31,7 @@
     // missing_docs,
     clippy::pedantic
 )]
-#![allow(clippy::too_many_lines)]
+#![allow(clippy::too_many_lines, clippy::missing_panics_doc)]
 
 // Module declaration
 pub mod application;
@@ -249,9 +249,12 @@ pub async fn handle_cache(
     pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
-    let bad_path = request.uri().path().is_empty()
-        || request.uri().path().contains("./")
-        || request.uri().path().starts_with("//");
+    let path_ok = if request.uri().path().contains("./") {
+        false
+    } else {
+        parse::uri(request.uri().path()).map_or(false, Path::is_relative)
+    };
+
     host.extensions
         .resolve_prime(&mut request, host, address)
         .await;
@@ -343,39 +346,37 @@ pub async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let ((mut resp, mut client_cache, mut server_cache, compress), path, future) =
-                if bad_path {
-                    (
-                        utility::default_error_response(
-                            StatusCode::BAD_REQUEST,
-                            host,
-                            Some("path contains illegal segments (e.g. `./`)"),
-                        )
-                        .await,
-                        None,
-                        None,
-                    )
-                } else if let Some((response, future)) = host
+            let ((mut resp, mut client_cache, mut server_cache, compress), future) = if path_ok {
+                if let Some((response, future)) = host
                     .extensions
                     .resolve_pre(&mut request, host, address)
                     .await
                 {
-                    (
-                        response,
-                        Some(parse::uri(request.uri().path(), host.path.as_path())),
-                        Some(future),
-                    )
+                    (response, Some(future))
                 } else {
-                    let path = parse::uri(request.uri().path(), host.path.as_path());
+                    let path = utility::make_path(
+                        &host.path,
+                        "public",
+                        // Ok, since `path.is_some()` above which calls the same function.
+                        parse::uri(request.uri().path()).unwrap(),
+                        None,
+                    );
                     let (resp, client_cache, server_cache, compress) =
                         handle_request(&mut request, address, host, &path).await?;
 
-                    (
-                        (resp, client_cache, server_cache, compress),
-                        Some(path),
-                        None,
+                    ((resp, client_cache, server_cache, compress), None)
+                }
+            } else {
+                (
+                    utility::default_error_response(
+                        StatusCode::BAD_REQUEST,
+                        host,
+                        Some("path contains illegal segments (e.g. `./`)"),
                     )
-                };
+                    .await,
+                    None,
+                )
+            };
             host.extensions
                 .resolve_present(
                     &mut request,
@@ -384,7 +385,6 @@ pub async fn handle_cache(
                     &mut server_cache,
                     host,
                     address,
-                    path.as_deref(),
                 )
                 .await?;
 

@@ -293,7 +293,6 @@ pub fn hardcoded_error_body(code: StatusCode, message: Option<&[u8]>) -> Bytes {
 /// Gets the default error based on `code` from the file system
 /// through a cache.
 #[inline]
-#[allow(clippy::missing_panics_doc)]
 pub async fn default_error(
     code: StatusCode,
     host: Option<&Host>,
@@ -343,7 +342,6 @@ pub async fn default_error_response(
 ///
 /// Use [`Response::map()`] to add a body.
 #[inline]
-#[allow(clippy::missing_panics_doc)]
 pub fn empty_clone_response<T>(response: &Response<T>) -> Response<()> {
     let mut builder = Response::builder()
         .version(response.version())
@@ -357,7 +355,6 @@ pub fn empty_clone_response<T>(response: &Response<T>) -> Response<()> {
 ///
 /// Use [`Request::map()`] to add a body.
 #[inline]
-#[allow(clippy::missing_panics_doc)]
 pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
     let mut builder = Request::builder()
         .method(request.method())
@@ -369,7 +366,6 @@ pub fn empty_clone_request<T>(request: &Request<T>) -> Request<()> {
 }
 /// Splits a [`Response`] into a empty [`Response`] and it's body.
 #[inline]
-#[allow(clippy::missing_panics_doc)]
 pub fn split_response<T>(response: Response<T>) -> (Response<()>, T) {
     let mut body = None;
     let response = response.map(|t| body = Some(t));
@@ -444,7 +440,6 @@ pub fn get_content_length<T>(request: &Request<T>) -> usize {
 ///
 /// See [`replace_header`] for details.
 #[inline]
-#[allow(clippy::missing_panics_doc)]
 pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
     // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
     utility::replace_header(

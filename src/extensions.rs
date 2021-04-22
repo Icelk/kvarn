@@ -103,7 +103,6 @@ impl Extensions {
     ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
     /// - Package extension to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `Referrer-Policy` header has been set earlier in the response.
-    #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
         let mut new = Self::empty();
 
@@ -283,10 +282,10 @@ impl Extensions {
         server_cache_preference: &mut ServerCachePreference,
         host: &Host,
         address: SocketAddr,
-        path: Option<&Path>,
     ) -> io::Result<()> {
         let mut body = LazyRequestBody::new(request.body_mut());
         let body = &mut body;
+        let path = parse::uri(request.uri().path());
 
         if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());
@@ -542,7 +541,6 @@ impl LazyRequestBody {
     ///
     /// Returns any errors from reading the inner [`application::Body`].
     #[inline]
-    #[allow(clippy::missing_panics_doc)]
     pub async fn get(&mut self) -> io::Result<&Bytes> {
         if let Some(ref result) = self.result {
             Ok(result)

@@ -18,7 +18,6 @@ use threading::atomic;
 #[cfg(feature = "limiting")]
 #[inline]
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn get_too_many_requests() -> Response<Bytes> {
     let body = Bytes::from_static("<html>\
     <head>\

@@ -348,7 +348,6 @@ impl CompressedResponse {
 
     /// Gets the gzip compressed version of [`CompressedResponse::get_identity()`]
     #[cfg(feature = "gzip")]
-    #[allow(clippy::missing_panics_doc)]
     pub fn get_gzip(&self) -> &Bytes {
         if self.gzip.is_none() {
             let bytes = self.identity.body().as_ref();
@@ -372,8 +371,7 @@ impl CompressedResponse {
     }
     /// Gets the Brotli compressed version of [`CompressedResponse::get_identity()`]
     #[cfg(feature = "br")]
-    #[allow(clippy::missing_panics_doc)]
-    pub fn get_br(&self) -> &Bytes {
+        pub fn get_br(&self) -> &Bytes {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();
 

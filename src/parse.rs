@@ -237,16 +237,17 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
 ///
 /// The returned path will be formatted as follows `<base_path>/public/<path>`
 ///
-/// # Panics
-/// Will panic if `path.is_empty()`. It checks the first byte.
+/// Will return `None` if `path.is_empty()`. It checks the first byte to be a `/`.
 #[inline]
 #[must_use]
-pub fn uri(path: &str, base_path: &Path) -> PathBuf {
-    assert_eq!(path.as_bytes()[0], FORWARD_SLASH);
+pub fn uri(path: &str) -> Option<&Path> {
+    if path.as_bytes().get(0).copied() == Some(FORWARD_SLASH) {
+        return None;
+    }
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
-    utility::make_path(base_path, "public", stripped_path, None)
+    Some(Path::new(stripped_path))
 }
 
 /// Parses a [`Version`].
@@ -293,7 +294,6 @@ impl RequestParseStage {
 /// # Errors
 ///
 /// Returns an error if parsing a [`HeaderName`] or [`HeaderValue`] failed.
-#[allow(clippy::missing_panics_doc)]
 pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
     let mut headers = HeaderMap::new();
     let mut parse_stage = RequestParseStage::HeaderName(0);
