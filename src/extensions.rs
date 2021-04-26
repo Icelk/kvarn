@@ -832,7 +832,7 @@ mod macros {
     /// ```
     /// # use kvarn::*;
     /// let extension = prime!(req, host, addr {
-    ///     utility::default_error_response(StatusCode::BAD_REQUEST, host).await
+    ///     utility::default_error_response(StatusCode::BAD_REQUEST, host, None).await
     /// });
     /// ```
     #[macro_export]
@@ -849,7 +849,7 @@ mod macros {
     /// ```
     /// # use kvarn::*;
     /// let extension = pre!(req, host, addr {
-    ///     Some((utility::default_error_response(StatusCode::BAD_REQUEST, host).await, ready(())))
+    ///     Some((utility::default_error_response(StatusCode::BAD_REQUEST, host, None).await, ready(())))
     /// });
     /// ```
     #[macro_export]
@@ -883,7 +883,7 @@ mod macros {
     ///     let times_called = times_called.fetch_add(1, atomic::Ordering::Relaxed);
     ///     println!("Called {} time(s). Request {:?}", times_called, req);
     ///
-    ///     utility::default_error_response(StatusCode::NOT_FOUND, host).await
+    ///     utility::default_error_response(StatusCode::NOT_FOUND, host, None).await
     /// });
     /// ```
     ///
@@ -891,7 +891,7 @@ mod macros {
     /// ```
     /// # use kvarn::*;
     /// prepare!(req, host, path, addr {
-    ///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host).await
+    ///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await
     /// });
     /// ```
     #[macro_export]
