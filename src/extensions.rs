@@ -289,7 +289,7 @@ impl Extensions {
 
         if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());
-            for extension_name_args in extensions.iter() {
+            for extension_name_args in extensions {
                 if let Some(extension) = self.present_internal.get(extension_name_args.name()) {
                     let data = PresentData {
                         address,
@@ -666,6 +666,16 @@ impl PresentExtensions {
     #[inline]
     pub fn data_start(&self) -> usize {
         self.data_start
+    }
+}
+impl IntoIterator for PresentExtensions {
+    type Item = PresentArguments;
+    type IntoIter = PresentExtensionsIter;
+    fn into_iter(self) -> Self::IntoIter {
+        PresentExtensionsIter {
+            data: self,
+            index: 0,
+        }
     }
 }
 #[derive(Debug)]
