@@ -131,7 +131,6 @@ impl Write for WriteableBytes {
 
 /// `ToDo`: optimize!
 ///
-///
 /// # Errors
 ///
 /// This function will return any errors emitted from `reader`.

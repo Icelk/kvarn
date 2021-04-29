@@ -12,7 +12,6 @@
 //! - Optional encryption with [`rustls`]
 //! - Several checks for illegal requests
 //!
-//!
 //! # Getting started
 //!
 //! The main function to call is [`run`]. See the example at [`run`]
@@ -21,14 +20,13 @@
 //! A battle-tested reference implementation can be found at [GitHub](https://github.com/Icelk/kvarn-reference/).
 //! It powers my two websites with minimal resource requirements.
 //!
-//!
 //! # Future plans
 //!
 //! See the [README @ GitHub](https://github.com/Icelk/kvarn/) and [kvarn.org](https://kvarn.org).
 #![deny(
     unreachable_pub,
     missing_debug_implementations,
-    // missing_docs,
+    missing_docs,
     clippy::pedantic
 )]
 #![allow(
@@ -133,7 +131,6 @@ macro_rules! ret_log_app_error {
 /// optionally (HTTP/2 & HTTP/3) decompressing them, and passing the request to [`handle_cache()`].
 /// It will also recognise which host should handle the connection.
 ///
-///
 /// # Errors
 ///
 /// Will pass any errors from reading the request, making a TLS handshake, and writing the response.
@@ -141,7 +138,7 @@ macro_rules! ret_log_app_error {
 pub async fn handle_connection(
     stream: TcpStream,
     address: SocketAddr,
-    host_descriptors: Arc<PortDescriptor>,
+    descriptors: Arc<PortDescriptor>,
     #[allow(unused_variables)] limiter: LimitWrapper,
 ) -> io::Result<()> {
     #[cfg(feature = "limiting")]
@@ -150,7 +147,7 @@ pub async fn handle_connection(
     // LAYER 2
     #[cfg(feature = "https")]
     let encrypted =
-        encryption::Encryption::new_tcp(stream, host_descriptors.server_config.as_ref()).await?;
+        encryption::Encryption::new_tcp(stream, descriptors.server_config.as_ref()).await?;
     #[cfg(not(feature = "https"))]
     let encrypted = encryption::Encryption::new_tcp(stream);
 
@@ -167,19 +164,17 @@ pub async fn handle_connection(
         }
     };
     let hostname = encrypted.get_sni_hostname().map(str::to_string);
+    debug!("New connection requesting hostname '{:?}'", hostname);
+
     // LAYER 3
     let mut http = application::HttpConnection::new(encrypted, version)
         .await
         .map_err::<io::Error, _>(application::Error::into)?;
 
+    info!("Accepting requests from {}", address);
+
     while let Ok((request, mut response_pipe)) = http
-        .accept(
-            host_descriptors
-                .host_data
-                .get_default()
-                .host_name
-                .as_bytes(),
-        )
+        .accept(descriptors.data.get_default().name.as_bytes())
         .await
     {
         #[cfg(feature = "limiting")]
@@ -200,9 +195,8 @@ pub async fn handle_connection(
             }
             LimitStrength::Passed => {}
         }
-        let host = host_descriptors
-            .host_data
-            .smart_get(&request, hostname.as_deref());
+        let host = descriptors.data.smart_get(&request, hostname.as_deref());
+        debug!("Accepting new connection from {} on {}", address, host.name);
         // fn to handle getting from cache, generating response and sending it
         handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await?;
     }
@@ -241,11 +235,9 @@ impl<'a> SendKind<'a> {
 /// Will handle a single request, check the cache, process if needed, and caches it.
 /// This is where the response is sent.
 ///
-///
 /// # Errors
 ///
 /// Errors are passed from writing the response.
-///
 ///
 /// LAYER 4
 pub async fn handle_cache(
@@ -267,7 +259,7 @@ pub async fn handle_cache(
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
     let lock = host.response_cache.lock().await;
-    let cached = path_query.call_all(|path| lock.get(path)).1;
+    let cached = path_query.call_all(|path| lock.get(path).into_option()).1;
     #[allow(clippy::single_match_else)]
     let future = match cached {
         Some(resp) => {
@@ -535,7 +527,7 @@ pub struct PortDescriptor {
     port: u16,
     #[cfg(feature = "https")]
     server_config: Option<Arc<rustls::ServerConfig>>,
-    host_data: Arc<Data>,
+    data: Arc<Data>,
 }
 impl PortDescriptor {
     /// Uses the defaults for non-secure HTTP with `host_data`
@@ -544,7 +536,7 @@ impl PortDescriptor {
             port: 80,
             #[cfg(feature = "https")]
             server_config: None,
-            host_data,
+            data: host_data,
         }
     }
     /// Uses the defaults for secure HTTP, HTTPS, with `host_data`.
@@ -554,7 +546,7 @@ impl PortDescriptor {
         Self {
             port: 443,
             server_config: Some(Arc::new(Data::make_config(&host_data))),
-            host_data,
+            data: host_data,
         }
     }
     /// Creates a new descriptor for `port` with `host_data` and an optional [`rustls::ServerConfig`].
@@ -567,7 +559,7 @@ impl PortDescriptor {
         Self {
             port,
             server_config,
-            host_data,
+            data: host_data,
         }
     }
     /// Creates a new descriptor for `port` with `host_data`.
@@ -578,7 +570,7 @@ impl PortDescriptor {
             port,
             #[cfg(feature = "https")]
             server_config: Some(Arc::new(Data::make_config(&host_data))),
-            host_data,
+            data: host_data,
         }
     }
     /// Creates a new non-secure descriptor for `port` with `host_data`.
@@ -588,7 +580,7 @@ impl PortDescriptor {
             port,
             #[cfg(feature = "https")]
             server_config: None,
-            host_data,
+            data: host_data,
         }
     }
 }
@@ -606,7 +598,7 @@ impl Debug for PortDescriptor {
                 .map(|_| utility::CleanDebug::new("certificate")),
         );
 
-        s.field("host_data", &self.host_data).finish()
+        s.field("host_data", &self.data).finish()
     }
 }
 
@@ -618,7 +610,6 @@ impl Debug for PortDescriptor {
 ///
 /// This is the last step in getting Kvarn spinning.
 /// You can interact with the caches through the [`Host`] and [`Data`] you created.
-///
 ///
 /// # Examples
 ///

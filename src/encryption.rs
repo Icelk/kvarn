@@ -27,7 +27,6 @@ pub enum Encryption {
 impl Encryption {
     /// Creates a new [`Encryption`] from a `tcp` connection.
     ///
-    ///
     /// # Errors
     ///
     /// Will return an error if the TLS handshake failed, if `certificate.is_some()`.
@@ -46,7 +45,9 @@ impl Encryption {
                     state: TlsState::Stream,
                 };
                 let acceptor = MidHandshake::Handshaking(stream);
+                info!("Trying to handshake");
                 let connect = acceptor.await.map_err(|(err, _)| err)?;
+                info!("Successful handshake");
 
                 Ok(Self::TcpTls(connect))
             }

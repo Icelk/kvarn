@@ -1,17 +1,16 @@
-//! Here, all extensions code is housed
+//! Here, all extensions code is housed.
 //!
+//! Check out [extensions.md](https://github.com/Icelk/kvarn/tree/main/extensions.md) for more info.
 //!
 //! ## Unsafe pointers
 //!
 //! This modules contains extensive usage of unsafe pointers.
-//!
 //!
 //! ### Background
 //!
 //! In the extension code, I sometimes have to pass references of data to `Futures` to avoid cloning,
 //! which sometimes is not an option (such as when a `TcpStream` is part of said data).
 //! You cannot share references with `Futures`, and so I've opted to go the unsafe route. Literally.
-//!
 //!
 //! ### Safety
 //!
@@ -22,11 +21,24 @@
 //! or have been dropped.
 use crate::prelude::{internals::*, *};
 
+/// A return type for a `dyn` [`Future`].
+///
+/// Used as the return type for all extensions,
+/// so they can be stored.
 pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
+/// Same as [`RetFut`] but also implementing [`Sync`].
+///
+/// Mostly used for extensions used across yield bounds.
 pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
 
+/// A prime extension.
+///
+/// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Prime =
     Box<(dyn Fn(RequestWrapper, HostWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
+/// A pre extension.
+///
+/// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Pre = Box<
     (dyn Fn(
         RequestWrapperMut,
@@ -36,23 +48,44 @@ pub type Pre = Box<
          + Sync
          + Send),
 >;
+/// A prepare extension.
+///
+/// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Prepare = Box<
     (dyn Fn(RequestWrapperMut, HostWrapper, PathWrapper, SocketAddr) -> RetFut<FatResponse>
          + Sync
          + Send),
 >;
 
+/// A present extension.
+///
+/// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Present = Box<(dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync + Send)>;
+/// A package extension.
+///
+/// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Package =
     Box<(dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync + Send)>;
+/// A post extension.
+///
+/// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Post = Box<
     (dyn Fn(RequestWrapper, Bytes, ResponsePipeWrapperMut, SocketAddr, HostWrapper) -> RetFut<()>
          + Sync
          + Send),
 >;
+/// Dynamic function to check if a extension should be ran.
+///
+/// Used with [`Prepare`] extension
 pub type If = Box<(dyn Fn(&FatRequest) -> bool + Sync + Send)>;
 
+/// Magic number for [`Present`] extension.
+///
+/// `!> `
 pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
+/// Separator between [`Present`] extensions.
+///
+/// ` &> `
 pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
 
 /// Returns a future accepted by all the [`extensions`]
@@ -182,8 +215,8 @@ impl Extensions {
         self.prepare_single.insert(path, extension);
     }
     /// Adds a prepare extension run if `function` return `true`.
-    pub fn add_prepare_fn(&mut self, function: If, extension: Prepare) {
-        self.prepare_fn.push((function, extension));
+    pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare) {
+        self.prepare_fn.push((predicate, extension));
     }
     /// Adds a present internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: String, extension: Present) {
@@ -291,7 +324,7 @@ impl Extensions {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());
             for extension_name_args in extensions {
                 if let Some(extension) = self.present_internal.get(extension_name_args.name()) {
-                    let data = PresentData {
+                    let mut data = PresentData {
                         address,
                         request,
                         body,
@@ -302,7 +335,7 @@ impl Extensions {
                         response,
                         args: extension_name_args,
                     };
-                    let data = PresentDataWrapper(data);
+                    let data = PresentDataWrapper::new(&mut data);
                     extension(data).await;
                 }
             }
@@ -312,7 +345,7 @@ impl Extensions {
             .and_then(std::ffi::OsStr::to_str)
             .and_then(|s| self.present_file.get(s))
         {
-            let data = PresentData {
+            let mut data = PresentData {
                 address,
                 request,
                 body,
@@ -323,7 +356,7 @@ impl Extensions {
                 response,
                 args: PresentArguments::empty(),
             };
-            let data = PresentDataWrapper(data);
+            let data = PresentDataWrapper::new(&mut data);
             extension(data).await;
         }
         Ok(())
@@ -436,23 +469,7 @@ get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
 get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, application::ResponsePipe);
 get_unsafe_wrapper!(HostWrapper, Host);
 get_unsafe_wrapper!(PathWrapper, Path);
-
-#[allow(missing_debug_implementations)]
-pub struct PresentDataWrapper(PresentData);
-impl PresentDataWrapper {
-    /// # Safety
-    /// See [module level documentation](crate::extensions).
-    ///
-    /// It's safe to call this if it's within the future of your extension.
-    /// Else, the data will have been dropped.
-    ///
-    /// You **must** not store this type.
-    #[inline]
-    #[must_use]
-    pub unsafe fn get_inner(&mut self) -> &mut PresentData {
-        &mut self.0
-    }
-}
+get_unsafe_mut_wrapper!(PresentDataWrapper, PresentData);
 
 /// Add data pretending to present state in creating the response.
 ///
@@ -519,10 +536,12 @@ impl PresentData {
 }
 unsafe impl Send for PresentData {}
 unsafe impl Sync for PresentData {}
+
+/// A [`Request`] [`Body`] which is lazily read.
 #[derive(Debug)]
 #[must_use]
 pub struct LazyRequestBody {
-    body: *mut application::Body,
+    body: *mut Body,
     result: Option<Bytes>,
 }
 impl LazyRequestBody {
@@ -531,15 +550,14 @@ impl LazyRequestBody {
     /// The `body` is converted to a `*mut` which can be dereferenced safely, as long as we wait for this to be dropped.
     /// It can also not be referenced in any other way while this is not dropped.
     #[inline]
-    pub(crate) fn new(body: &mut application::Body) -> Self {
+    pub(crate) fn new(body: &mut Body) -> Self {
         Self { body, result: None }
     }
     /// Reads the `Bytes` from the request body.
     ///
-    ///
     /// # Errors
     ///
-    /// Returns any errors from reading the inner [`application::Body`].
+    /// Returns any errors from reading the inner [`Body`].
     #[inline]
     pub async fn get(&mut self) -> io::Result<&Bytes> {
         if let Some(ref result) = self.result {
@@ -580,18 +598,19 @@ impl PresentExtensionPosData {
     }
 }
 
+/// The [`Present`] extensions parsed from a file containing them.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct PresentExtensions {
     data: Bytes,
-    // Will have the start and end of name of extensions as first tuple,
-    // then the name/argument start and length as second.
-    // There wil be several names starting on same position.
     extensions: Arc<Vec<PresentExtensionPosData>>,
     data_start: usize,
 }
 impl PresentExtensions {
+    /// Parses a file to create a representation of the [`Present`] extensions in it.
+    ///
+    /// `data` should start with [`PRESENT_INTERNAL_PREFIX`], as all present extension files should.
     pub fn new(data: Bytes) -> Option<Self> {
         let mut extensions_args =
             Vec::with_capacity(
@@ -649,6 +668,7 @@ impl PresentExtensions {
 
         None
     }
+    /// Creates an empty representation of [`Present`] extensions
     pub fn empty() -> Self {
         Self {
             data: Bytes::new(),
@@ -656,6 +676,9 @@ impl PresentExtensions {
             data_start: 0,
         }
     }
+    /// Gets an iterator of self.
+    ///
+    /// Clones the inner data.
     #[inline]
     pub fn iter(&self) -> PresentExtensionsIter {
         PresentExtensionsIter {
@@ -663,6 +686,7 @@ impl PresentExtensions {
             index: 0,
         }
     }
+    /// Returns the start of the document data, after all extensions and their arguments.
     #[inline]
     pub fn data_start(&self) -> usize {
         self.data_start
@@ -678,6 +702,7 @@ impl IntoIterator for PresentExtensions {
         }
     }
 }
+/// An iterator of [`PresentArguments`] from [`PresentExtensions`]
 #[derive(Debug)]
 pub struct PresentExtensionsIter {
     data: PresentExtensions,
@@ -712,6 +737,7 @@ impl Iterator for PresentExtensionsIter {
         })
     }
 }
+/// The arguments and name of a single [`Present`] extension.
 #[derive(Debug)]
 #[must_use]
 pub struct PresentArguments {
@@ -720,6 +746,7 @@ pub struct PresentArguments {
     len: usize,
 }
 impl PresentArguments {
+    /// Creates an empty representation of [`Present`] arguments
     #[inline]
     pub fn empty() -> Self {
         Self {
@@ -728,6 +755,7 @@ impl PresentArguments {
             len: 0,
         }
     }
+    /// Gets the name of the extension.
     #[inline]
     pub fn name(&self) -> &str {
         // .1 and .0 should be the same; the name of (usize, usize) should have the same name as it's first argument.
@@ -735,6 +763,7 @@ impl PresentArguments {
         // safe, because we checked for str in creation of [`PresentExtensions`].
         unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) }
     }
+    /// Returns an iterator of the arguments as [`prim@str`]s.
     #[inline]
     pub fn iter(&self) -> PresentArgumentsIter<'_> {
         PresentArgumentsIter {
@@ -745,7 +774,7 @@ impl PresentArguments {
         }
     }
 }
-
+/// An iterator of [`prim@str`] for the arguments in [`PresentArguments`]
 #[derive(Debug)]
 pub struct PresentArgumentsIter<'a> {
     data: &'a PresentExtensions,
@@ -779,6 +808,20 @@ impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
     }
 }
 mod macros {
+    /// Makes a pinned future, compatible with [`crate::RetFut`] and [`crate::RetSyncFut`]
+    ///
+    /// # Examples
+    ///
+    /// This creates a future which prints `Hello world!` and awaits it.
+    /// ```
+    /// # async {
+    /// # use kvarn::box_fut;
+    /// let fut = box_fut!({
+    ///     println!("Hello world!");
+    /// });
+    /// fut.await;
+    /// # };
+    /// ```
     #[macro_export]
     macro_rules! box_fut {
         ($code:block) => {
@@ -789,7 +832,6 @@ mod macros {
     /// The ultimate extension-creation macro.
     ///
     /// This is used in the various other macros which expand to extensions; **use them instead**!
-    ///
     ///
     /// # Examples
     ///
@@ -866,7 +908,6 @@ mod macros {
     /// **Only `Arc`s** will work, since the variable has to be `Send` and `Sync`.
     ///
     /// You have to have kvarn imported as `kvarn`.
-    ///
     ///
     /// # Examples
     ///

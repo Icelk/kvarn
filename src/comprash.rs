@@ -9,9 +9,14 @@
 use crate::prelude::*;
 use std::{borrow::Borrow, hash::Hash};
 
+/// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
 pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
+/// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a response cache.
 pub type ResponseCache = Mutex<Cache<UriKey, CompressedResponse>>;
 
+/// A path an optional query used in [`UriKey`]
+///
+/// Represented as a [`String`] with a [`usize`] indicating the start of query.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 #[must_use]
 pub struct PathQuery {
@@ -19,6 +24,7 @@ pub struct PathQuery {
     query_start: usize,
 }
 impl PathQuery {
+    /// Converts a [`Uri`] using one allocation.
     pub fn from_uri(uri: &Uri) -> Self {
         match uri.query() {
             Some(query) => {
@@ -36,11 +42,15 @@ impl PathQuery {
             },
         }
     }
+    /// Get the path segment.
     #[inline]
     #[must_use]
     pub fn path(&self) -> &str {
         &self.string[..self.query_start]
     }
+    /// Get the optional query segment. Will never be empty.
+    ///
+    /// `ToDo`: Make test of ↑
     #[inline]
     #[must_use]
     pub fn query(&self) -> Option<&str> {
@@ -50,6 +60,7 @@ impl PathQuery {
             Some(&self.string[self.query_start..])
         }
     }
+    /// Discards any [`Self::query()`] and returns the [`Self::path()`] as a [`String`]
     #[inline]
     #[must_use]
     pub fn into_path(mut self) -> String {
@@ -58,19 +69,52 @@ impl PathQuery {
     }
 }
 
+/// A key for an Uri used in [`ResponseCache`].
+///
+/// This is, for now, an opaque type in it's API.
+/// Though, you can extract the path and query through matching.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum UriKey {
+    /// Uri with only a path component.
+    ///
+    /// Searching the cache with this should be avoided.
+    /// See [`Self::call_all`].
     Path(String),
+    /// Uri with a path and optional query.
+    ///
+    /// See [`PathQuery`].
     PathQuery(PathQuery),
 }
 impl UriKey {
+    /// Constructs a new [`UriKey`] from `uri`.
+    ///
+    /// This variant will math both [`Self::PathQuery`] and [`Self::Path`]
+    /// if [`Self::call_all`] is called on it.
     #[inline]
     pub fn path_and_query(uri: &Uri) -> Self {
         Self::PathQuery(PathQuery::from_uri(uri))
     }
 
     /// Tries to get type `T` from `callback` using current variant and other variants with fewer data.
-    /// Returns `Self` which got a result from `callback`, or if none, `Self::Path`.
+    /// Returns `Self` which got a result from `callback` or, if none, truncated to `Self::Path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kvarn::prelude::*;
+    /// let key = UriKey::path_and_query(&Uri::from_static("https://icelk.dev/status?format=json"));
+    ///
+    /// // First gets called once with key as UriKey::PathQuery("/status?format=json")
+    /// // then, the query gets truncated and we get a key as UriKey::Path("/status").
+    /// let (key, found) = key.call_all(|key| {
+    ///     match key {
+    ///         UriKey::Path(path) if path == "/status" => Some(true),
+    ///         _ => None
+    ///     }
+    /// });
+    ///
+    /// assert_eq!(found, Some(true));
+    /// ```
     #[inline]
     pub fn call_all<T>(self, mut callback: impl FnMut(&Self) -> Option<T>) -> (Self, Option<T>) {
         match callback(&self) {
@@ -87,7 +131,9 @@ impl UriKey {
     }
 }
 
-pub fn do_compress<F: Fn() -> bool>(mime: &Mime, check_utf8: F) -> bool {
+/// Checks `mime` if the content should be compressed;
+/// heuristically checks for compressed formats.
+pub fn do_compress(mime: &Mime, check_utf8: impl Fn() -> bool) -> bool {
     // IMAGE first, because it is the most likely
     mime.type_() != mime::IMAGE
         && mime.type_() != mime::FONT
@@ -107,8 +153,13 @@ pub fn do_compress<F: Fn() -> bool>(mime: &Mime, check_utf8: F) -> bool {
                 || check_utf8()))
 }
 
-// for when no compression is compiled in
-#[allow(dead_code)]
+/// A response with a lazily compressed body.
+///
+/// The compressed body is cached.
+/// It therefore uses `unsafe` to mutate the [`Option`]s containing the compressed data.
+/// This should be fine; we only write once, if the value is [`None].
+///
+/// This should (maybe) be replaced by a more general `vary` header solution soon.
 #[derive(Debug)]
 #[must_use]
 pub struct CompressedResponse {
@@ -137,15 +188,17 @@ impl CompressedResponse {
             compress,
         }
     }
+    /// Gets the response with an uncompressed body.
     #[inline]
     pub fn get_identity(&self) -> &Response<Bytes> {
         &self.identity
     }
 
-    /// Clones the preferred compression type based on `accept-encoding` header in `request`.
+    /// Clones the preferred compression type based on
+    /// `accept-encoding` header in `request`
+    /// and already cached bodies.
     ///
-    /// If an error occurs, you should response with an `406 Not Acceptable`.
-    ///
+    /// If an error occurs, you should respond with an [`StatusCode::NOT_ACCEPTABLE`].
     ///
     /// # Errors
     ///
@@ -347,6 +400,9 @@ impl CompressedResponse {
     }
 
     /// Gets the gzip compressed version of [`CompressedResponse::get_identity()`]
+    ///
+    /// You should use [`Self::clone_preferred`] to get the preferred compression instead,
+    /// as it is available with any set of features
     #[cfg(feature = "gzip")]
     pub fn get_gzip(&self) -> &Bytes {
         if self.gzip.is_none() {
@@ -370,6 +426,9 @@ impl CompressedResponse {
         self.gzip.as_ref().unwrap()
     }
     /// Gets the Brotli compressed version of [`CompressedResponse::get_identity()`]
+    ///
+    /// You should use [`Self::clone_preferred`] to get the preferred compression instead,
+    /// as it is available with any set of features
     #[cfg(feature = "br")]
     pub fn get_br(&self) -> &Bytes {
         if self.br.is_none() {
@@ -396,6 +455,7 @@ impl CompressedResponse {
     }
 }
 
+/// The preference of compression in [`CompressedResponse`].
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum CompressPreference {
     /// Will not auto-compress response body
@@ -404,9 +464,21 @@ pub enum CompressPreference {
     Full,
 }
 
+/// Error in parsing cache preference.
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::{*, comprash::CachePreferenceError};
+/// assert_eq!(Err(CachePreferenceError::Empty), "".parse::<ServerCachePreference>());
+/// assert_eq!(Err(CachePreferenceError::Invalid), "FULL".parse::<ClientCachePreference>());
+/// assert_eq!(Ok(ServerCachePreference::QueryMatters), "query-matters".parse());
+/// ```
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum CachePreferenceError {
+    /// Input string is empty.
     Empty,
+    /// Input string has an invalid syntax.
     Invalid,
 }
 
@@ -425,6 +497,10 @@ pub enum ServerCachePreference {
     Full,
 }
 impl ServerCachePreference {
+    /// If `_response` should be cached.
+    ///
+    /// Checks [`Self`] for preference and [`Response::status()`].
+    /// Will not cache status codes between 400..=403 and 405..=499
     #[inline]
     #[must_use]
     #[allow(clippy::unused_self)]
@@ -441,6 +517,9 @@ impl ServerCachePreference {
         #[cfg(feature = "no-response-cache")]
         false
     }
+    /// If query matters in cache.
+    ///
+    /// Ultimately dictates which variant of [`UriKey`] should be cached.
     #[inline]
     #[must_use]
     pub fn query_matters(self) -> bool {
@@ -477,6 +556,10 @@ pub enum ClientCachePreference {
     Undefined,
 }
 impl ClientCachePreference {
+    /// Gets the [`HeaderValue`] representation of the preference.
+    ///
+    /// You should not insert nor remove any `cache-control` header if this is [`None`].
+    /// See [`ClientCachePreference::Undefined`] for more info.
     #[cfg(not(feature = "no-cache"))]
     #[inline]
     #[must_use]
@@ -490,6 +573,10 @@ impl ClientCachePreference {
             Self::Undefined => None,
         }
     }
+    /// Gets the [`HeaderValue`] representation of the preference.
+    ///
+    /// You should not insert nor remove any `cache-control` header if this is [`None`].
+    /// See [`ClientCachePreference::Undefined`] for more info.
     #[cfg(feature = "no-cache")]
     #[must_use]
     // For consistency between features
@@ -511,13 +598,29 @@ impl str::FromStr for ClientCachePreference {
     }
 }
 
+/// Output of cache operations.
+///
+/// [`CacheOut::None`] and [`CacheOut::Present`] reflects the [`HashMap`] API.
+/// [`CacheOut::NotInserted`] is added to indicate the content to be cached
+/// does not meet the requirements (e.g. it's too big)
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum CacheOut<V> {
+    /// No value.
+    ///
+    /// Returned when no item occupies the input key.
     None,
+    /// Successful cache lookup.
+    ///
+    /// Returned when an item occupies the input key.
     Present(V),
+    /// Error when value failed to get inserted. See [`CacheOut`].
     NotInserted(V),
 }
 impl<V> CacheOut<V> {
+    /// Maps self to an [`Option`].
+    ///
+    /// Variants with a value are turned to [`Some`]
+    /// and [`CacheOut::None`] to [`None`].
     #[inline]
     pub fn into_option(self) -> Option<V> {
         match self {
@@ -527,6 +630,15 @@ impl<V> CacheOut<V> {
     }
 }
 
+/// A general cache with size and item count limits.
+///
+/// When size limit is reached, a pseudo-random element is removed and
+/// the new one inserted. See [`Cache::discard_one`].
+///
+/// The insert method, `Cache::cache`, has type-specific implementations.
+/// This enables clever inserting of data, independently from this struct.
+/// Therefore, the [`Cache::insert`] function should *only* be used in
+/// implementations of this struct.
 #[derive(Debug)]
 #[must_use]
 pub struct Cache<K, V> {
@@ -536,8 +648,10 @@ pub struct Cache<K, V> {
     inserts: usize,
 }
 impl<K, V> Cache<K, V> {
+    /// Creates a new [`Cache`]. See [`Cache`] and [`CacheOut`]
+    /// for more info about what the parameters do.
     #[inline]
-    fn _new(max_items: usize, size_limit: usize) -> Self {
+    pub fn new(max_items: usize, size_limit: usize) -> Self {
         Self {
             map: HashMap::new(),
             max_items,
@@ -545,32 +659,50 @@ impl<K, V> Cache<K, V> {
             inserts: 0,
         }
     }
-    #[inline]
-    pub fn new() -> Self {
-        Self::_new(1024, 4 * 1024 * 1024) // 4MiB
-    }
+    /// Creates a new [`Cache`] with `size_limit` and default `max_items`.
     #[inline]
     pub fn with_size_limit(size_limit: usize) -> Self {
-        Self::_new(1024, size_limit)
+        Self::new(1024, size_limit)
     }
+    /// Clears the cache.
     #[inline]
     pub fn clear(&mut self) {
         self.map.clear()
     }
 }
+impl<K, V> Default for Cache<K, V> {
+    fn default() -> Self {
+        Self::new(1024, 4 * 1024 * 1024) // 4MiB
+    }
+}
 impl<K: Eq + Hash, V> Cache<K, V> {
-    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> Option<&V>
+    /// Get value at `key` from the cache.
+    ///
+    /// See [`HashMap::get`] for more info.
+    #[inline]
+    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> CacheOut<&V>
     where
         K: Borrow<Q>,
     {
-        self.map.get(key)
+        match self.map.get(key) {
+            Some(v) => CacheOut::Present(v),
+            None => CacheOut::None,
+        }
     }
+    /// Returns `true` if the cache contains `key`.
+    ///
+    /// See [`HashMap::contains_key`] for more info.
+    #[inline]
     pub fn contains<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
     {
         self.map.contains_key(key)
     }
+    /// Removes a key-value pair from the cache, returning the value, if present.
+    ///
+    /// See [`HashMap::remove`] and [`CacheOut::Present`].
+    #[inline]
     pub fn remove<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<V>
     where
         K: Borrow<Q>,
@@ -580,9 +712,28 @@ impl<K: Eq + Hash, V> Cache<K, V> {
             None => CacheOut::None,
         }
     }
+    /// Inserts a `value` at `key` into this cache.
+    /// `value_length` should be the size, in bytes, of `value`.
+    ///
+    /// See bottom of [`Cache`] for more info about when to use this.
+    pub fn insert(&mut self, value_length: usize, key: K, value: V) -> CacheOut<V> {
+        if value_length >= self.size_limit {
+            return CacheOut::NotInserted(value);
+        }
+        self.inserts += 1;
+        if self.map.len() >= self.max_items {
+            self.discard_one();
+        }
+        match self.map.insert(key, value) {
+            Some(v) => CacheOut::Present(v),
+            None => CacheOut::None,
+        }
+    }
 }
 impl<K: Eq + Hash, V> Cache<K, V> {
+    /// Discards one key-value pair pseudo-randomly.
     pub fn discard_one(&mut self) {
+        // `ToDo`: optimise. Save hasher in state.
         let pseudo_random = {
             use std::hash::Hasher;
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -603,38 +754,15 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         });
     }
 }
-impl<K, V> Default for Cache<K, V> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 impl<K: Eq + Hash> Cache<K, CompressedResponse> {
+    /// Caches a [`CompressedResponse`] and returns the previous response, if any.
     pub fn cache(&mut self, key: K, response: CompressedResponse) -> CacheOut<CompressedResponse> {
-        if response.identity.body().len() >= self.size_limit {
-            return CacheOut::NotInserted(response);
-        }
-        self.inserts += 1;
-        if self.map.len() >= self.max_items {
-            self.discard_one();
-        }
-        match self.map.insert(key, response) {
-            Some(item) => CacheOut::Present(item),
-            None => CacheOut::None,
-        }
+        self.insert(response.get_identity().body().len(), key, response)
     }
 }
 impl<K: Eq + Hash> Cache<K, Bytes> {
+    /// Caches a [`Bytes`] and returns the previous bytes, if any.
     pub fn cache(&mut self, key: K, contents: Bytes) -> CacheOut<Bytes> {
-        if contents.len() >= self.size_limit {
-            return CacheOut::NotInserted(contents);
-        }
-        self.inserts += 1;
-        if self.map.len() >= self.max_items {
-            self.discard_one();
-        }
-        match self.map.insert(key, contents) {
-            Some(item) => CacheOut::Present(item),
-            None => CacheOut::None,
-        }
+        self.insert(contents.len(), key, contents)
     }
 }

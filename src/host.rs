@@ -21,7 +21,7 @@ use rustls::{
 
 #[must_use]
 pub struct Host {
-    pub host_name: &'static str,
+    pub name: &'static str,
     #[cfg(feature = "https")]
     pub certificate: Option<sign::CertifiedKey>,
     pub path: PathBuf,
@@ -45,7 +45,6 @@ impl Host {
     /// Will read certificates in the specified locations
     /// and return an non-secure host if parsing fails.
     ///
-    ///
     /// # Errors
     ///
     /// Will return any error from [`get_certified_key()`] with a [`Host`] with no certificates.
@@ -60,33 +59,33 @@ impl Host {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
             Ok(cert) => Ok(Self {
-                host_name,
+                name: host_name,
                 certificate: Some(cert),
                 path,
                 extensions,
                 folder_default: None,
                 extension_default: None,
                 file_cache: Mutex::new(Cache::with_size_limit(16 * 1024)), // 16KiB
-                response_cache: Mutex::new(Cache::new()),
+                response_cache: Mutex::new(Cache::default()),
             }),
             Err(err) => Err((
                 err,
                 Self {
-                    host_name,
+                    name: host_name,
                     certificate: None,
                     path,
                     extensions,
                     folder_default: None,
                     extension_default: None,
-                    file_cache: Mutex::new(Cache::new()),
-                    response_cache: Mutex::new(Cache::new()),
+                    file_cache: Mutex::new(Cache::default()),
+                    response_cache: Mutex::new(Cache::default()),
                 },
             )),
         }
     }
     pub fn non_secure(host_name: &'static str, path: PathBuf, extensions: Extensions) -> Self {
         Self {
-            host_name,
+            name: host_name,
             #[cfg(feature = "https")]
             certificate: None,
             path,
@@ -94,7 +93,7 @@ impl Host {
             folder_default: None,
             extension_default: None,
             file_cache: Mutex::new(Cache::with_size_limit(16 * 1024)), // 16KiB
-            response_cache: Mutex::new(Cache::new()),
+            response_cache: Mutex::new(Cache::default()),
         }
     }
 
@@ -237,7 +236,7 @@ impl Debug for Host {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         use utility::CleanDebug;
         let mut d = f.debug_struct("Host");
-        d.field("host_name", &CleanDebug::new(self.host_name));
+        d.field("host_name", &CleanDebug::new(self.name));
         #[cfg(feature = "https")]
         d.field("certificate", &CleanDebug::new("[internal certificate]"));
         d.field("path", &self.path);
@@ -256,7 +255,7 @@ pub struct DataBuilder(Data);
 impl DataBuilder {
     #[inline]
     pub fn add_host(mut self, host_data: Host) -> Self {
-        self.0.add_host(host_data.host_name, host_data);
+        self.0.add_host(host_data.name, host_data);
         self
     }
     #[inline]
@@ -470,7 +469,6 @@ impl From<io::Error> for ServerConfigError {
 }
 
 /// Get a certified key to use when adding domain certificates to the server
-///
 ///
 /// # Errors
 ///

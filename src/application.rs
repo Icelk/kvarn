@@ -158,7 +158,6 @@ pub enum PushedResponsePipe {
 impl HttpConnection {
     /// Creates a new [`HttpConnection`] from an [`Encryption`] stream.
     ///
-    ///
     /// # Errors
     ///
     /// Returns [`Error::VersionNotSupported`] when a unsupported version is passed.
@@ -183,7 +182,6 @@ impl HttpConnection {
     /// Accept a single request.
     /// `default_host` will be used if the `Host` header is not
     /// present on a HTTP/1.x request.
-    ///
     ///
     /// # Errors
     ///
@@ -236,7 +234,6 @@ mod request {
 
     impl Body {
         /// Reads all bytes from [`Body`] to a [`Bytes`].
-        ///
         ///
         /// # Errors
         ///
@@ -322,7 +319,6 @@ mod response {
         }
         /// Reads all bytes from `self` to a [`Bytes`].
         ///
-        ///
         /// # Errors
         ///
         /// Returns any errors from the underlying reader.
@@ -388,7 +384,6 @@ mod response {
         ///
         /// It is critical to [`ResponseBodyPipe::close()`], else the message won't be seen as fully transmitted.
         ///
-        ///
         /// # Errors
         ///
         /// Passes any errors from writing to the stream. see [`AsyncWriteExt::write()`] and
@@ -424,7 +419,6 @@ mod response {
             }
         }
         /// Pushes `request` to client.
-        ///
         ///
         /// # Errors
         ///
@@ -470,7 +464,6 @@ mod response {
     impl PushedResponsePipe {
         /// Sends a single push response.
         ///
-        ///
         /// # Errors
         ///
         /// Errors are passed from the HTTP libraries, for now only [`mod@h2`].
@@ -510,7 +503,6 @@ mod response {
     }
 
     /// Writer should be buffered.
-    ///
     ///
     /// # Errors
     ///
@@ -552,7 +544,6 @@ mod response {
     impl ResponseBodyPipe {
         /// Sends `data` as the body.
         ///
-        ///
         /// # Errors
         ///
         /// Passes any errors from writing to the stream.
@@ -573,7 +564,6 @@ mod response {
             Ok(())
         }
         /// Closes the pipe.
-        ///
         ///
         /// # Errors
         ///

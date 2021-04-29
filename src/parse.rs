@@ -290,7 +290,6 @@ impl RequestParseStage {
 /// Formats headers and returns the bytes from the start of `bytes`
 /// where the body starts; how many bytes the header occupy.
 ///
-///
 /// # Errors
 ///
 /// Returns an error if parsing a [`HeaderName`] or [`HeaderValue`] failed.
@@ -355,12 +354,10 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
 
 /// Try to parse a request from `stream`
 ///
-///
 /// # Errors
 ///
 /// Will return error if building the `http::Response` internally failed, if path is empty,
 /// or any errors which occurs while reading from `stream`.
-///
 ///
 /// # Limitations
 ///
@@ -555,7 +552,6 @@ pub async fn request(
 }
 
 /// Parses a response without the first line, status taken from the headers.
-///
 ///
 /// # Errors
 ///

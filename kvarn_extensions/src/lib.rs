@@ -67,7 +67,7 @@ fn push(
                     let correct_host = {
                         // only push https://; it's eight bytes long
                         url.get(8..)
-                            .map(|url| url.starts_with(host.host_name))
+                            .map(|url| url.starts_with(host.name))
                             .unwrap_or(false)
                     };
                     url.starts_with('/') || correct_host
