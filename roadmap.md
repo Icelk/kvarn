@@ -5,7 +5,6 @@ This is the roadmap for future development of Kvarn.
 > The work will be taking place in branches, named after the target release. The order of these feature releases are not set in stone;
 > the features of 0.4.0 might come out as version 0.3.0
 
-
 # v0.1.0
 
 This milestone is reached. It was the first working state of the web server.
@@ -13,7 +12,6 @@ This milestone is reached. It was the first working state of the web server.
 It's slow, not having async IO except for requests; FS is utterly slow and
 making any other async requests to a database or to proxy another server does not work
 (technically it does, but performance is miserable).
-
 
 # v0.2.0 Tokio
 
@@ -42,15 +40,17 @@ architecture more *transparent*. It should be understandable even for non-progra
 - [x] Referrer header in `Extensions::new()`
 - [x] cfg (https, multithreading, http2)
 
-
 # v0.3.0 Core
 
-This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small future necessary for a good web server.
+This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small features necessary for a *solid* web server.
 
-Name comes from the current plan to move core stuff into it's own crate.
+The name comes from the current plan to move core stuff into it's own crate.
 
 ## To do
 
+- [x] Full doc coverage (this took *way* too long...)
+- [ ] Partial test coverage
+- [x] Extension macros
 - [ ] Cache handling of Vary header (definitely the hardest)
 - [ ] Byte ranges
 - [ ] `read_to_bytes()` performance
@@ -58,7 +58,6 @@ Name comes from the current plan to move core stuff into it's own crate.
 - [ ] If-Modified-Since header to increase client cache performance
 - [ ] Move core stuff
 - [ ] Smart push with id (so all other data isn't pushed on every request)
-
 
 # v0.4.0 WebSockets & Auth
 
@@ -69,7 +68,6 @@ for quickly adding secure and *extremely speedy* authentication.
 
 - [ ] WebSocket integration
 - [ ] Authentication API in Layer 6
-
 
 # v0.5.0 HTTP/3
 
@@ -85,7 +83,6 @@ This is where Kvarn becomes cutting-edge.
 - [ ] HTTP/3 crate
 - [ ] HTTP/3 support in Kvarn
 - [ ] cfg to disable new feature
-
 
 # v0.6.0 DynLan
 

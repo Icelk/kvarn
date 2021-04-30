@@ -102,8 +102,8 @@ pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
 
 /// All the supported ALPN protocols.
 ///
-/// **Note:** this is often not needed, as the ALPN protocols
-/// are set in [`host::Data::make_config()`].
+/// > ***Note:** this is often not needed, as the ALPN protocols
+/// are set in [`host::Data::make_config()`].*
 #[must_use]
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]
@@ -151,18 +151,17 @@ pub async fn handle_connection(
     #[cfg(not(feature = "https"))]
     let encrypted = encryption::Encryption::new_tcp(stream);
 
-    let version = match encrypted.get_alpn_protocol() {
-        Some(b"h2") => Version::HTTP_2,
-        None | Some(b"http/1.1") => Version::HTTP_11,
-        Some(b"http/1.0") => Version::HTTP_10,
-        Some(b"http/0.9") => Version::HTTP_09,
-        _ => {
-            return Err(io::Error::new(
+    let version =
+        match encrypted.get_alpn_protocol() {
+            Some(b"h2") => Version::HTTP_2,
+            None | Some(b"http/1.1") => Version::HTTP_11,
+            Some(b"http/1.0") => Version::HTTP_10,
+            Some(b"http/0.9") => Version::HTTP_09,
+            _ => return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "HTTP version not supported",
-            ))
-        }
-    };
+                "HTTP version not supported. Something is probably wrong with your alpn config.",
+            )),
+        };
     let hostname = encrypted.get_sni_hostname().map(str::to_string);
     debug!("New connection requesting hostname '{:?}'", hostname);
 
@@ -545,7 +544,7 @@ impl PortDescriptor {
     pub fn https(host_data: Arc<Data>) -> Self {
         Self {
             port: 443,
-            server_config: Some(Arc::new(Data::make_config(&host_data))),
+            server_config: Some(Arc::new(host_data.make_config())),
             data: host_data,
         }
     }
@@ -569,7 +568,7 @@ impl PortDescriptor {
         Self {
             port,
             #[cfg(feature = "https")]
-            server_config: Some(Arc::new(Data::make_config(&host_data))),
+            server_config: Some(Arc::new(host_data.make_config())),
             data: host_data,
         }
     }
@@ -618,13 +617,13 @@ impl Debug for PortDescriptor {
 /// > **Note:** it uses `web` to serve files only if the feature `fs` is enabled. Place them in `web/public`
 /// > to access them in your user-agent.
 /// > It's done this way to enable you to have domain-specific files not being public to the web,
-/// > and for a place to store other important files. `kvarn_extensions` template system would in this case
-/// > read the template files from `web/templates`.
+/// > and for a place to store other important files. Kvarn extensions' template system will in this case
+/// > read template files from `web/templates`.
 ///
 /// ```no_run
 /// use kvarn::prelude::*;
 ///
-/// # async move {
+/// # async {
 /// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default());
 /// let data = Data::builder(host).build();
 /// let port_descriptor = PortDescriptor::new(8080, data);

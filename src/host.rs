@@ -19,14 +19,42 @@ use rustls::{
     internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
 };
 
+/// A set of settings for a [virtual host](https://en.wikipedia.org/wiki/Virtual_hosting),
+/// allowing multiple DNS entries (domain names) to share a single IP address.
+///
+/// This is an integral part of Kvarn; the ability to host multiple
+/// webpages on a single instance without crosstalk and with high performance
+/// makes it a viable option.
+///
+/// # Examples
+///
+/// See [`run()`].
 #[must_use]
 pub struct Host {
+    /// The name of the host, will be used in matching the requests [SNI hostname](rustls::ClientHello::server_name())
+    /// and `host` header to get the requested host to handle the request.
     pub name: &'static str,
+    /// The certificate of this host, if any.
     #[cfg(feature = "https")]
     pub certificate: Option<sign::CertifiedKey>,
+    /// Base path of all data for this host.
+    ///
+    /// If you enabled the `fs` feature (enabled by default),
+    /// the public files are in the directory `<path>/public`.
+    ///
+    /// Also, all extensions should use this to access data on disk.
     pub path: PathBuf,
+    /// The extensions of this host.
     pub extensions: Extensions,
+    /// The file cache of this host.
+    ///
+    /// The caches are separated to limit the performance fluctuations of
+    /// multiple hosts on the same instance.
+    ///
+    /// Can be used to clear the cache and to pass to the read functions in [`utility`].
     pub file_cache: FileCache,
+    /// The response cache of this host.
+    /// See [`comprash`] and [`Host::file_cache`] for more info.
     pub response_cache: ResponseCache,
 
     /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
@@ -45,17 +73,22 @@ impl Host {
     /// Will read certificates in the specified locations
     /// and return an non-secure host if parsing fails.
     ///
+    /// To achieve greater safety, use [`Host::with_https_redirect`] and call [`Host::enable_hsts`].
+    ///
+    /// See [`Host::non_secure`] for a non-failing function,
+    /// available regardless of features.
+    ///
     /// # Errors
     ///
-    /// Will return any error from [`get_certified_key()`] with a [`Host`] with no certificates.
+    /// Will return any error from [`get_certified_key()`] with a [`Host`] containing no certificates.
     #[cfg(feature = "https")]
-    pub fn new<P: AsRef<Path>>(
+    pub fn new(
         host_name: &'static str,
-        cert_path: P,
-        private_key_path: P,
+        cert_path: impl AsRef<Path>,
+        private_key_path: impl AsRef<Path>,
         path: PathBuf,
         extensions: Extensions,
-    ) -> Result<Self, (ServerConfigError, Self)> {
+    ) -> Result<Self, (CertificateError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
             Ok(cert) => Ok(Self {
@@ -65,7 +98,7 @@ impl Host {
                 extensions,
                 folder_default: None,
                 extension_default: None,
-                file_cache: Mutex::new(Cache::with_size_limit(16 * 1024)), // 16KiB
+                file_cache: Mutex::new(Cache::default()),
                 response_cache: Mutex::new(Cache::default()),
             }),
             Err(err) => Err((
@@ -83,6 +116,10 @@ impl Host {
             )),
         }
     }
+    /// Creates a new [`Host`] without a certificate.
+    ///
+    /// This host will only support non-encrypted HTTP/1 connections.
+    /// Consider enabling the `https` flag and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
     pub fn non_secure(host_name: &'static str, path: PathBuf, extensions: Extensions) -> Self {
         Self {
             name: host_name,
@@ -92,16 +129,22 @@ impl Host {
             extensions,
             folder_default: None,
             extension_default: None,
-            file_cache: Mutex::new(Cache::with_size_limit(16 * 1024)), // 16KiB
+            file_cache: Mutex::new(Cache::default()),
             response_cache: Mutex::new(Cache::default()),
         }
     }
 
+    /// Same as [`Host::new`] with [`Host::set_http_redirect_to_https`].
+    ///
+    /// If [`Host::new`] returns an error, we log it as an [`Level::Error`]
+    /// and continue without encryption.
+    ///
+    /// Consider [`Host::enable_hsts`] to harden the system.
     #[cfg(feature = "https")]
-    pub fn with_http_redirect<P: AsRef<Path>>(
+    pub fn with_http_redirect(
         host_name: &'static str,
-        cert_path: P,
-        private_key_path: P,
+        cert_path: impl AsRef<Path>,
+        private_key_path: impl AsRef<Path>,
         path: PathBuf,
         extensions: Extensions,
     ) -> Self {
@@ -189,6 +232,14 @@ impl Host {
         }));
     }
 
+    /// Enables [HSTS](https://en.wikipedia.org/wiki/HSTS) on this [`Host`].
+    ///
+    /// You should be careful using this feature.
+    /// If you do not plan to have a certificate for your domain
+    /// for at least the following two years, take a look in the source code,
+    /// copy paste it and lower the `max-age`.
+    ///
+    /// Also see [hstspreload.org](https://hstspreload.org/)
     #[cfg(feature = "https")]
     pub fn enable_hsts(&mut self) {
         self.extensions
@@ -208,11 +259,17 @@ impl Host {
             }))
     }
 
+    /// Whether or not this this host is secured with a certificate.
+    ///
+    /// See [`Host::certificate`].
     #[cfg(feature = "https")]
     #[inline]
     pub fn is_secure(&self) -> bool {
         self.certificate.is_some()
     }
+    /// Whether or not this this host is secured with a certificate.
+    ///
+    /// See [`Host::certificate`].
     #[cfg(not(feature = "https"))]
     #[inline]
     pub(crate) fn is_secure(&self) -> bool {
@@ -236,20 +293,39 @@ impl Debug for Host {
     }
 }
 
+/// A builder of [`Data`]. See [`Data::builder()`].
 #[derive(Debug)]
 #[must_use]
 pub struct DataBuilder(Data);
 impl DataBuilder {
+    /// Adds `host` to the builder. See [`Dat::add_host`], which is called internally.
     #[inline]
-    pub fn add_host(mut self, host_data: Host) -> Self {
-        self.0.add_host(host_data.name, host_data);
+    pub fn add_host(mut self, host: Host) -> Self {
+        self.0.add_host(host.name, host);
         self
     }
+    /// Puts the inner [`Data`] in a [`Arc`] and returns it.
+    ///
+    /// This works great with the overall flow of Kvarn. See [`run()`] for an example.
     #[inline]
     pub fn build(self) -> Arc<Data> {
-        Arc::new(self.0)
+        Arc::new(self.into_inner())
+    }
+    /// Converts `self` to a [`Data`].
+    #[inline]
+    pub fn into_inner(self) -> Data {
+        self.0
     }
 }
+
+/// A collection of [`Host`]s, with exactly one default and
+/// arbitrarily many other, indexed by [`Host.name`].
+///
+/// If only a default is specified, all requests, (e.g. those who lack a `host` header,
+/// have none, or all other values of the header) are channelled to the default.
+///
+/// If the feature `https` is enabled, [`rustls::ResolvesServerCert`] in implemented
+/// using this default and host name pattern.
 #[derive(Debug)]
 #[must_use]
 pub struct Data {
@@ -258,6 +334,7 @@ pub struct Data {
     has_secure: bool,
 }
 impl Data {
+    /// Creates a new [`DataBuilder`] with `default_host` as the default.
     #[inline]
     pub fn builder(default_host: Host) -> DataBuilder {
         DataBuilder(Self {
@@ -266,6 +343,8 @@ impl Data {
             by_name: HashMap::new(),
         })
     }
+    /// Creates a new [`Data`] with `default_host` as the default.
+    /// Consider using [`Data::builder`] for a more ergonomic API.
     #[inline]
     pub fn new(default_host: Host) -> Self {
         Self {
@@ -276,13 +355,16 @@ impl Data {
     }
     /// Creates a `Host` without certification, using the directories `./public` and `./templates`.
     #[inline]
-    pub fn simple(default_host_name: &'static str, extensions: Extensions) -> Self {
+    pub fn simple_non_secure(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
             default: Host::non_secure(default_host_name, ".".into(), extensions),
             by_name: HashMap::new(),
             has_secure: false,
         }
     }
+    /// Adds a [`Host`] to self.
+    ///
+    /// `host_name` should often be [`Host.name`].
     #[inline]
     pub fn add_host(&mut self, host_name: &'static str, host_data: Host) {
         if host_data.is_secure() {
@@ -291,25 +373,33 @@ impl Data {
         self.by_name.insert(host_name, host_data);
     }
 
+    /// Returns a reference to the default [`Host`].
+    ///
+    /// Use [`Data::smart_get`] to get the appropriate host.
     #[inline]
     pub fn get_default(&self) -> &Host {
         &self.default
     }
+    /// Gets a [`Host`] by name.
     #[inline]
     pub fn get_host(&self, host: &str) -> Option<&Host> {
         self.by_name.get(host)
     }
+    /// Gets a [`Host`] by name, and returns the [`default`](Data::get_default) if none were found.
     #[inline]
     pub fn get_or_default(&self, host: &str) -> &Host {
-        self.get_host(host).unwrap_or(&self.get_default())
+        self.get_host(host).unwrap_or_else(|| self.get_default())
     }
+    /// Gets a [`Host`] by name, if any, and returns it or the [`default`](Data::get_default)
+    /// if `maybe_host` is [`None`] or [`Data::get_or_default`] returns [`None`].
     #[inline]
     pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> &Host {
         match maybe_host {
             Some(host) => self.get_or_default(host),
-            None => &self.get_default(),
+            None => self.get_default(),
         }
     }
+    /// Cleverly gets the host depending on [`header::HOST`] and the `sni_hostname`.
     #[inline]
     pub fn smart_get<'a>(
         &'a self,
@@ -328,22 +418,30 @@ impl Data {
         self.maybe_get_or_default(host)
     }
 
+    /// Returns if any [`Host`]s are [`Host::is_secure`].
     #[inline]
     pub fn has_secure(&self) -> bool {
         self.has_secure
     }
 
+    /// Makes a [`rustls::ServerConfig`] from [`Data`].
+    ///
+    /// This takes [`Data`] in an [`Arc`] and clones it.
+    ///
+    /// You should not have to call this, since [`PortDescriptor::new`] and [`PortDescriptor::https`] calls it internally.
+    /// Though, you could use the [`host`] system by itself, without the rest of Kvarn.
     #[cfg(feature = "https")]
     #[inline]
     #[must_use]
-    pub fn make_config(arc: &Arc<Self>) -> ServerConfig {
+    pub fn make_config(self: &Arc<Self>) -> ServerConfig {
         let mut config = ServerConfig::new(NoClientAuth::new());
-        let arc = Arc::clone(arc);
+        let arc = Arc::clone(self);
         config.cert_resolver = arc;
         config.alpn_protocols = alpn();
         config
     }
 
+    /// Clears all response caches.
     #[inline]
     pub async fn clear_response_caches(&self) {
         // Handle default host
@@ -353,8 +451,15 @@ impl Data {
             host.response_cache.lock().await.clear();
         }
     }
+    /// Clears a single `uri` in `host`.
+    ///
     /// # Returns
-    /// (found host, cleared page)
+    ///
+    /// (if host was found, cleared page)
+    ///
+    /// This will probably become a error enum in the future.
+    ///
+    /// It will lever return (false, true).
     pub async fn clear_page(&self, host: &str, uri: &Uri) -> (bool, bool) {
         let key = UriKey::path_and_query(uri);
 
@@ -383,6 +488,7 @@ impl Data {
         }
         (found, cleared)
     }
+    /// Clears all file caches.
     #[inline]
     pub async fn clear_file_caches(&self) {
         self.default.file_cache.lock().await.clear();
@@ -390,6 +496,10 @@ impl Data {
             host.file_cache.lock().await.clear();
         }
     }
+    /// Clears the `path` from all caches.
+    ///
+    /// This iterates over all caches and [locks](Mutex::lock) them, which takes a lot of time.
+    /// Though, it's not blocking.
     pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
         let mut found = false;
         if self
@@ -423,71 +533,70 @@ impl ResolvesServerCert for Data {
     #[inline]
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<sign::CertifiedKey> {
         // Mostly returns true, since we have a default
-        // Will however return false if certificate is not present in host
-        client_hello.server_name().map_or_else(
-            || {
-                // Else, get default certificate
-                self.default.certificate.clone()
-            },
-            |name| {
-                self.by_name
-                    .get(name.into())
-                    .unwrap_or(&self.default)
-                    .certificate
-                    .clone()
-            },
-        )
+        // Will however return false if certificate is not present
+        // in found host or default host.
+        self.maybe_get_or_default(client_hello.server_name().map(|n| n.into()))
+            .certificate
+            .clone()
     }
 }
 
+/// An error regarding creation of a [`rustls::sign::CertifiedKey`].
+#[cfg(feature = "https")]
 #[derive(Debug)]
-pub enum ServerConfigError {
+pub enum CertificateError {
+    /// An error occurred while reading from the fs.
     Io(io::Error),
+    /// The private key is of improper format.
     ImproperPrivateKeyFormat,
+    /// THe certificate (public key) is of improper format.
     ImproperCertificateFormat,
+    /// No key was found.
     NoKey,
+    /// The private key doesn't match the public key.
     InvalidPrivateKey,
 }
-impl From<io::Error> for ServerConfigError {
+#[cfg(feature = "https")]
+impl From<io::Error> for CertificateError {
     #[inline]
     fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
 }
 
-/// Get a certified key to use when adding domain certificates to the server
+/// Extracts a [`sign::CertifiedKey`] from `cert_path` and `private_key_path`.
 ///
 /// # Errors
 ///
 /// Will return any errors while reading the files, or any parsing errors.
 #[cfg(feature = "https")]
-pub fn get_certified_key<P: AsRef<Path>>(
-    cert_path: P,
-    private_key_path: P,
-) -> Result<sign::CertifiedKey, ServerConfigError> {
+pub fn get_certified_key(
+    cert_path: impl AsRef<Path>,
+    private_key_path: impl AsRef<Path>,
+) -> Result<sign::CertifiedKey, CertificateError> {
     let mut chain = io::BufReader::new(std::fs::File::open(&cert_path)?);
     let mut private_key = io::BufReader::new(std::fs::File::open(&private_key_path)?);
 
     let mut private_keys = Vec::with_capacity(4);
     private_keys.extend(match pemfile::pkcs8_private_keys(&mut private_key) {
         Ok(key) => key,
-        Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
+        Err(()) => return Err(CertificateError::ImproperPrivateKeyFormat),
     });
     if private_keys.is_empty() {
         private_keys.extend(match pemfile::rsa_private_keys(&mut private_key) {
             Ok(key) => key,
-            Err(()) => return Err(ServerConfigError::ImproperPrivateKeyFormat),
+            Err(()) => return Err(CertificateError::ImproperPrivateKeyFormat),
         });
     }
     let key = match private_keys.get(0) {
         Some(key) => key,
-        None => return Err(ServerConfigError::NoKey),
+        None => return Err(CertificateError::NoKey),
     };
 
-    let key = sign::any_supported_type(key).map_err(|_| ServerConfigError::InvalidPrivateKey)?;
+    let key = sign::any_supported_type(key).map_err(|_| CertificateError::InvalidPrivateKey)?;
     let chain = match pemfile::certs(&mut chain) {
         Ok(cert) => cert,
-        Err(()) => return Err(ServerConfigError::ImproperCertificateFormat),
+        Err(()) => return Err(CertificateError::ImproperCertificateFormat),
     };
 
     Ok(sign::CertifiedKey::new(chain, Arc::new(key)))
