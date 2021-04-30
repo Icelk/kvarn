@@ -120,30 +120,17 @@ impl Host {
         }
     }
 
-    #[inline]
-    pub fn get_folder_default_or<'a>(&'a self, default: &'a str) -> &'a str {
-        self.folder_default.as_deref().unwrap_or(default)
-    }
-    #[inline]
-    pub fn get_extension_default_or<'a>(&'a self, default: &'a str) -> &'a str {
-        self.extension_default.as_deref().unwrap_or(default)
-    }
-    #[inline]
-    pub fn set_folder_default(&mut self, default: String) {
-        self.folder_default = Some(default);
-    }
-    #[inline]
-    pub fn set_extension_default(&mut self, default: String) {
-        self.extension_default = Some(default);
-    }
-
+    /// Adds a [`Prepare`] and a [`Prime`] extension which redirects requests using HTTP to HTTPS
+    /// with a [`StatusCode::TEMPORARY_REDIRECT`].
+    ///
+    /// For more info about how it works, see the source of this function.
     #[cfg(feature = "https")]
     pub fn set_http_redirect_to_https(&mut self) {
-        const SPECIAL_PATH: &str = "/../to_https";
+        const SPECIAL_PATH: &str = "/./to_https";
         self.extensions.add_prepare_single(
             SPECIAL_PATH.to_string(),
             Box::new(|mut request, _, _, _| {
-                // "/../ path" is special; it will not be accepted from outside.
+                // "/./ path" is special; it will not be accepted from outside; any path containing './' gets rejected.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
                 let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = request.uri();

@@ -241,7 +241,7 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
 #[inline]
 #[must_use]
 pub fn uri(path: &str) -> Option<&Path> {
-    if path.as_bytes().get(0).copied() == Some(FORWARD_SLASH) {
+    if path.as_bytes().get(0).copied() != Some(FORWARD_SLASH) {
         return None;
     }
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
