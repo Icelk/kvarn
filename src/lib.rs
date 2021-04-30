@@ -218,12 +218,8 @@ impl<'a> SendKind<'a> {
     /// Ensures correct version and length (only applicable for HTTP/1 connections)
     /// of a response according to inner enum variants.
     #[inline]
-    pub fn ensure_version_and_length<T>(
-        &self,
-        response: &mut Response<T>,
-        len: usize,
-        method: &Method,
-    ) {
+    pub fn ensure_version_and_length(&self, response: &mut Response<Bytes>, method: &Method) {
+        let len = response.body().len();
         match self {
             Self::Send(p) => p.ensure_version_and_length(response, len, method),
             Self::Push(p) => p.ensure_version(response),
@@ -263,25 +259,26 @@ pub async fn handle_cache(
     let future = match cached {
         Some(resp) => {
             info!("Found in cache!");
-            let (mut response, body) =
-                utility::split_response(match resp.clone_preferred(&request) {
-                    Err(message) => {
-                        utility::default_error(
-                            StatusCode::NOT_ACCEPTABLE,
-                            Some(host),
-                            Some(message.as_bytes()),
-                        )
-                        .await
-                    }
-                    Ok(response) => response,
-                });
+            let mut response = match resp.clone_preferred(&request) {
+                Err(message) => {
+                    utility::default_error(
+                        StatusCode::NOT_ACCEPTABLE,
+                        Some(host),
+                        Some(message.as_bytes()),
+                    )
+                    .await
+                }
+                Ok(response) => response,
+            };
             let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
 
-            pipe.ensure_version_and_length(&mut response, body.len(), request.method());
+            pipe.ensure_version_and_length(&mut response, request.method());
             host.extensions
-                .resolve_package(&mut response, &request)
+                .resolve_package(&mut response, &request, host)
                 .await;
+
+            let (response, body) = utility::split_response(response);
 
             match pipe {
                 SendKind::Send(response_pipe) => {
@@ -397,25 +394,26 @@ pub async fn handle_cache(
             let compressed_response =
                 comprash::CompressedResponse::new(resp, compress, client_cache, extension);
 
-            let (mut response, body) =
-                utility::split_response(match compressed_response.clone_preferred(&request) {
-                    Err(message) => {
-                        utility::default_error(
-                            StatusCode::NOT_ACCEPTABLE,
-                            Some(host),
-                            Some(message.as_bytes()),
-                        )
-                        .await
-                    }
-                    Ok(response) => response,
-                });
+            let mut response = match compressed_response.clone_preferred(&request) {
+                Err(message) => {
+                    utility::default_error(
+                        StatusCode::NOT_ACCEPTABLE,
+                        Some(host),
+                        Some(message.as_bytes()),
+                    )
+                    .await
+                }
+                Ok(response) => response,
+            };
 
-            pipe.ensure_version_and_length(&mut response, body.len(), request.method());
+            pipe.ensure_version_and_length(&mut response, request.method());
             host.extensions
-                .resolve_package(&mut response, &request)
+                .resolve_package(&mut response, &request, host)
                 .await;
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
+
+            let (response, body) = utility::split_response(response);
 
             match pipe {
                 SendKind::Send(response_pipe) => {

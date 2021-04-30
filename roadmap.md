@@ -51,8 +51,9 @@ The name comes from the current plan to move core stuff into it's own crate.
 - [x] Full doc coverage (this took *way* too long...)
 - [ ] Partial test coverage
 - [x] Extension macros
+- [ ] Additional server-side cache options, including parsing `cache-control` header
 - [ ] Cache handling of Vary header (definitely the hardest)
-- [ ] Byte ranges
+- [x] Byte ranges
 - [ ] `read_to_bytes()` performance
 - [ ] Implement an easy-to-configure proxy extension in kvarn_extensions
 - [ ] If-Modified-Since header to increase client cache performance
