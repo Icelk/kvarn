@@ -166,7 +166,7 @@ pub async fn read_to_end<R: AsyncRead + Unpin>(
 #[cfg(not(feature = "no-fs-cache"))]
 #[inline]
 pub async fn read_file_cached<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Bytes> {
-    if let Some(file) = cache.lock().await.get(path.as_ref()) {
+    if let CacheOut::Present(file) = cache.lock().await.get(path.as_ref()) {
         return Some(Bytes::clone(file));
     }
 
@@ -200,7 +200,7 @@ pub async fn read_file_cached<P: AsRef<Path>>(path: &P, _: &FileCache) -> Option
 #[cfg(not(feature = "no-fs-cache"))]
 #[inline]
 pub async fn read_file<P: AsRef<Path>>(path: &P, cache: &FileCache) -> Option<Bytes> {
-    if let Some(cached) = cache.lock().await.get(path.as_ref()) {
+    if let CacheOut::Present(cached) = cache.lock().await.get(path.as_ref()) {
         return Some(Bytes::clone(cached));
     }
 

@@ -78,7 +78,7 @@ pub mod internals {
     pub use application::{
         Body, HttpConnection, PushedResponsePipe, ResponseBodyPipe, ResponsePipe,
     };
-    pub use comprash::{Cache, FileCache, PathQuery, ResponseCache};
+    pub use comprash::{Cache, CacheOut, FileCache, PathQuery, ResponseCache};
     pub use encryption::Encryption;
     pub use extensions::{ready, RetFut, RetSyncFut};
     pub use limiting::{LimitStrength, LimitWrapper};
