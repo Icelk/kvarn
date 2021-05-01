@@ -234,7 +234,7 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
 /// Will convert an [`prim@str`] path component of a [`Uri`] to a [`Path`].
 /// It asserts the first byte is a [`FORWARD_SLASH`] and then chops it off.
 ///
-/// > _Note: you **must** check that the path is safe to read from before using it._
+/// > _Note: you **must** check that the path is safe to read from before using it. See [`sanitize_request`]._
 ///
 /// Will return `None` if `path.is_empty()` or if the first byte isn't a `/`.
 #[inline]
@@ -247,6 +247,121 @@ pub fn uri(path: &str) -> Option<&Path> {
     let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
     Some(Path::new(stripped_path))
+}
+/// Critical components from request to apply to response.
+#[must_use]
+#[derive(Debug)]
+pub struct CriticalRequestComponents {
+    range: Option<(usize, usize)>,
+}
+impl CriticalRequestComponents {
+    /// Applies the critical components' info to the `response`.
+    ///
+    /// For now applies range and replaces the `accept-ranges` header.
+    pub async fn apply_to_response(&self, response: &mut Response<Bytes>) {
+        if let Some((start, mut end)) = self.get_range() {
+            // Clamp to length
+            if end > response.body().len() {
+                end = response.body().len();
+            }
+            let body = response.body().slice(start..end);
+            *response.body_mut() = body;
+
+            let len = response.body().len().to_string();
+            let start = start.to_string();
+            let end = end.to_string();
+            let bytes = build_bytes!(start.as_bytes(), b"-", end.as_bytes(), b"/", len.as_bytes());
+
+            utility::replace_header(
+                response.headers_mut(),
+                "content-range",
+                // We know integers, b"-", and b"/" are OK!
+                HeaderValue::from_maybe_shared(bytes).unwrap(),
+            );
+        } else {
+            utility::replace_header_static(response.headers_mut(), "accept-ranges", "bytes")
+        }
+    }
+    /// Get the range wanted by the request.
+    ///
+    /// The first value is the start and the second is the end.
+    /// Both are relative to the start of the data.
+    #[must_use]
+    pub fn get_range(&self) -> Option<(usize, usize)> {
+        self.range
+    }
+}
+/// An error regarding the sanitization of a request.
+///
+/// See the variants bellow and [`sanitize_request`] for when this happens.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SanitizeError {
+    /// The path is unsafe. Nothing should be read from the FS.
+    ///
+    /// This occurs when the path is absolute or contains `./`.
+    UnsafePath,
+    /// The range is too large or the beginning is greater than the end.
+    RangeNotSatisfiable,
+}
+impl SanitizeError {
+    /// Gets the [`default_error_response`] for `self` and returns it.
+    pub async fn into_response(self, host: &Host) -> FatResponse {
+        utility::default_error_response(
+            match self {
+                Self::UnsafePath => StatusCode::BAD_REQUEST,
+                Self::RangeNotSatisfiable => StatusCode::RANGE_NOT_SATISFIABLE,
+            },
+            host,
+            match self {
+                Self::UnsafePath => Some("path contains illegal segments (e.g. `./`)"),
+                Self::RangeNotSatisfiable => None,
+            },
+        )
+        .await
+    }
+}
+/// Sanitizes `request` for unwanted data and returns critical components.
+///
+/// # Errors
+///
+/// Will alert you when the request's path contains a `./` or [`Path::is_absolute()`].
+/// Also rejects ranges which have a start after the end.
+///
+/// See [`SanitizeError`] for all the variants.
+pub fn sanitize_request<T>(
+    request: &Request<T>,
+) -> Result<CriticalRequestComponents, SanitizeError> {
+    let path_ok = if request.uri().path().contains("./") {
+        false
+    } else {
+        parse::uri(request.uri().path()).map_or(false, Path::is_relative)
+    };
+    if !path_ok {
+        return Err(SanitizeError::UnsafePath);
+    }
+    let range = request.headers().get("range").and_then(|v| {
+        let v = v.to_str().ok()?;
+        if !v.starts_with("bytes=") {
+            return None;
+        }
+        if v.contains(|c| c == ',' || c == ' ') {
+            return None;
+        }
+        let separator = v.find('-')?;
+        let first: usize = v.get(6..separator)?.parse().ok()?;
+        let second: usize = v.get(separator + 1..)?.parse().ok()?;
+        Some((first, second))
+    });
+    let mut data = CriticalRequestComponents { range: None };
+
+    if let Some((start, end)) = range {
+        if start >= end {
+            return Err(SanitizeError::RangeNotSatisfiable);
+        }
+        data.range = Some((start, end))
+    }
+    Ok(data)
 }
 
 /// Parses a [`Version`].

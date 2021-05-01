@@ -218,14 +218,19 @@ impl<'a> SendKind<'a> {
     /// Ensures correct version and length (only applicable for HTTP/1 connections)
     /// of a response according to inner enum variants.
     #[inline]
-    pub fn ensure_version_and_length(&self, response: &mut Response<Bytes>, method: &Method) {
-        let len = response.body().len();
+    pub fn ensure_version_and_length<T>(
+        &self,
+        response: &mut Response<T>,
+        len: usize,
+        method: &Method,
+    ) {
         match self {
             Self::Send(p) => p.ensure_version_and_length(response, len, method),
             Self::Push(p) => p.ensure_version(response),
         }
     }
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn send(
         &mut self,
         mut response: Response<Bytes>,
@@ -234,13 +239,24 @@ impl<'a> SendKind<'a> {
         host: &Host,
         method: &Method,
         address: SocketAddr,
+        data: Option<parse::CriticalRequestComponents>,
     ) -> io::Result<()> {
-        self.ensure_version_and_length(&mut response, method);
-        host.extensions
-            .resolve_package(&mut response, &request, host)
-            .await;
+        if let Some(data) = &data {
+            data.apply_to_response(&mut response).await;
+        }
 
-        let (response, body) = utility::split_response(response);
+        let len = match data.and_then(|d| d.get_range()) {
+            Some((start, end)) => end - start,
+            None => response.body().len(),
+        };
+
+        self.ensure_version_and_length(&mut response, len, method);
+
+        let (mut response, body) = utility::split_response(response);
+
+        host.extensions
+            .resolve_package(&mut response, &request)
+            .await;
 
         match self {
             SendKind::Send(response_pipe) => {
@@ -290,15 +306,11 @@ pub async fn handle_cache(
     mut pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
-    let path_ok = if request.uri().path().contains("./") {
-        false
-    } else {
-        parse::uri(request.uri().path()).map_or(false, Path::is_relative)
-    };
-
     host.extensions
         .resolve_prime(&mut request, host, address)
         .await;
+
+    let sanitize_data = parse::sanitize_request(&request);
 
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
@@ -306,7 +318,7 @@ pub async fn handle_cache(
     let cached = path_query.call_all(|path| lock.get(path).into_option()).1;
     #[allow(clippy::single_match_else)]
     let (response, identity, future) = match cached {
-        Some(resp) => {
+        Some(resp) if sanitize_data.is_ok() => {
             info!("Found in cache!");
             let response = match resp.clone_preferred(&request) {
                 Err(message) => {
@@ -324,7 +336,7 @@ pub async fn handle_cache(
 
             (response, identity_body, None)
         }
-        None => {
+        _ => {
             async fn maybe_cache(
                 host: &Host,
                 server_cache: ServerCachePreference,
@@ -351,37 +363,32 @@ pub async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let ((mut resp, mut client_cache, mut server_cache, compress), future) = if path_ok {
-                if let Some((response, future)) = host
-                    .extensions
-                    .resolve_pre(&mut request, host, address)
-                    .await
-                {
-                    (response, Some(future))
-                } else {
-                    let path = utility::make_path(
-                        &host.path,
-                        "public",
-                        // Ok, since `path.is_some()` above which calls the same function.
-                        parse::uri(request.uri().path()).unwrap(),
-                        None,
-                    );
-                    let (resp, client_cache, server_cache, compress) =
-                        handle_request(&mut request, address, host, &path).await?;
+            let ((mut resp, mut client_cache, mut server_cache, compress), future) =
+                match sanitize_data.as_ref() {
+                    Ok(_) => {
+                        if let Some((response, future)) = host
+                            .extensions
+                            .resolve_pre(&mut request, host, address)
+                            .await
+                        {
+                            (response, Some(future))
+                        } else {
+                            let path = utility::make_path(
+                                &host.path,
+                                "public",
+                                // Ok, since `path.is_some()` above which calls the same function.
+                                parse::uri(request.uri().path()).unwrap(),
+                                None,
+                            );
+                            let (resp, client_cache, server_cache, compress) =
+                                handle_request(&mut request, address, host, &path).await?;
 
-                    ((resp, client_cache, server_cache, compress), None)
-                }
-            } else {
-                (
-                    utility::default_error_response(
-                        StatusCode::BAD_REQUEST,
-                        host,
-                        Some("path contains illegal segments (e.g. `./`)"),
-                    )
-                    .await,
-                    None,
-                )
-            };
+                            ((resp, client_cache, server_cache, compress), None)
+                        }
+                    }
+                    Err(err) => (err.into_response(host).await, None),
+                };
+
             host.extensions
                 .resolve_present(
                     &mut request,
@@ -432,6 +439,7 @@ pub async fn handle_cache(
         host,
         request.method(),
         address,
+        sanitize_data.ok(),
     )
     .await?;
 

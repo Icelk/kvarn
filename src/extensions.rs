@@ -65,7 +65,7 @@ pub type Present = Box<(dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync + Send)>
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Package =
-    Box<(dyn Fn(ResponseWrapperMut, RequestWrapper, HostWrapper) -> RetFut<()> + Sync + Send)>;
+    Box<(dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync + Send)>;
 /// A post extension.
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
@@ -192,8 +192,8 @@ impl Extensions {
 
             ready(Some(uri))
         }));
-        new.add_package(Box::new(|mut response, _, _| {
-            let response: &mut Response<Bytes> = unsafe { response.get_inner() };
+        new.add_package(Box::new(|mut response, _| {
+            let response: &mut Response<()> = unsafe { response.get_inner() };
             response
                 .headers_mut()
                 .entry("referrer-policy")
@@ -201,91 +201,6 @@ impl Extensions {
 
             ready(())
         }));
-        new.add_package(Box::new(
-            |mut response: ResponseWrapperMut, request: RequestWrapper, host: HostWrapper| {
-                box_fut!({
-                    let (response, request, host) =
-                        unsafe { (response.get_inner(), request.get_inner(), host.get_inner()) };
-
-                    let range = request
-                        .headers()
-                        .get("range")
-                        .map(HeaderValue::to_str)
-                        .and_then(Result::ok)
-                        .and_then(|v| {
-                            if !v.starts_with("bytes=") {
-                                return None;
-                            }
-                            if v.contains(|c| c == ',' || c == ' ') {
-                                return None;
-                            }
-                            let separator = v.find('-')?;
-                            let first: usize = v.get(6..separator)?.parse().ok()?;
-                            let second: usize = v.get(separator + 1..)?.parse().ok()?;
-                            Some((first, second))
-                        });
-
-                    match range {
-                        Some((range_start, range_end)) => {
-                            if range_start >= range_end || response.body().len() < range_end {
-                                *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
-                                *response.body_mut() = utility::default_error(
-                                    StatusCode::RANGE_NOT_SATISFIABLE,
-                                    Some(host),
-                                    None,
-                                )
-                                .await
-                                .into_body();
-                                let len = response.body().len();
-                                utility::replace_header(
-                                    response.headers_mut(),
-                                    "content-length",
-                                    // Integers are OK
-                                    HeaderValue::from_maybe_shared(len.to_string().into_bytes())
-                                        .unwrap(),
-                                );
-                                utility::replace_header_static(
-                                    response.headers_mut(),
-                                    "content-encoding",
-                                    "identity",
-                                );
-                                return;
-                            }
-                            let len = response.body().len().to_string();
-                            *response.body_mut() = response.body().slice(range_start..range_end);
-                            // let len = (range_end - range_start).to_string().into_bytes();
-                            let start = range_start.to_string();
-                            let end = range_end.to_string();
-                            let bytes = build_bytes!(
-                                start.as_bytes(),
-                                b"-",
-                                end.as_bytes(),
-                                b"/",
-                                len.as_bytes()
-                            );
-                            let difference = (range_end - range_start).to_string();
-                            utility::replace_header(
-                                response.headers_mut(),
-                                "content-length",
-                                // We know integers are OK.
-                                HeaderValue::from_maybe_shared(difference).unwrap(),
-                            );
-                            utility::replace_header(
-                                response.headers_mut(),
-                                "content-range",
-                                // We know integers, b"-", and b"/" are OK!
-                                HeaderValue::from_maybe_shared(bytes).unwrap(),
-                            );
-                        }
-                        None => utility::replace_header_static(
-                            response.headers_mut(),
-                            "accept-ranges",
-                            "bytes",
-                        ),
-                    }
-                })
-            },
-        ));
 
         new
     }
@@ -448,17 +363,11 @@ impl Extensions {
         }
         Ok(())
     }
-    pub(crate) async fn resolve_package(
-        &self,
-        response: &mut Response<Bytes>,
-        request: &FatRequest,
-        host: &Host,
-    ) {
+    pub(crate) async fn resolve_package(&self, response: &mut Response<()>, request: &FatRequest) {
         for extension in &self.package {
             extension(
-                ResponseWrapperMut::new(response),
+                EmptyResponseWrapperMut::new(response),
                 RequestWrapper::new(request),
-                HostWrapper::new(host),
             )
             .await;
         }
@@ -558,7 +467,7 @@ macro_rules! get_unsafe_mut_wrapper {
 
 get_unsafe_wrapper!(RequestWrapper, FatRequest);
 get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
-get_unsafe_mut_wrapper!(ResponseWrapperMut, Response<Bytes>);
+get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
 get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, application::ResponsePipe);
 get_unsafe_wrapper!(HostWrapper, Host);
 get_unsafe_wrapper!(PathWrapper, Path);
