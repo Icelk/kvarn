@@ -245,11 +245,7 @@ impl<'a> SendKind<'a> {
             data.apply_to_response(&mut response).await;
         }
 
-        let len = match data.and_then(|d| d.get_range()) {
-            Some((start, end)) => end - start,
-            None => response.body().len(),
-        };
-
+        let len = response.body().len();
         self.ensure_version_and_length(&mut response, len, method);
 
         let (mut response, body) = utility::split_response(response);

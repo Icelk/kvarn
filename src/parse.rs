@@ -259,17 +259,15 @@ impl CriticalRequestComponents {
     ///
     /// For now applies range and replaces the `accept-ranges` header.
     pub async fn apply_to_response(&self, response: &mut Response<Bytes>) {
-        if let Some((start, mut end)) = self.get_range() {
+        if let Some((range_start, mut range_end)) = self.get_range() {
             // Clamp to length
-            if end > response.body().len() {
-                end = response.body().len();
+            if range_end >= response.body().len() {
+                range_end = response.body().len();
             }
-            let body = response.body().slice(start..end);
-            *response.body_mut() = body;
 
             let len = response.body().len().to_string();
-            let start = start.to_string();
-            let end = end.to_string();
+            let start = range_start.to_string();
+            let end = (range_end - 1).to_string();
             let bytes = build_bytes!(start.as_bytes(), b"-", end.as_bytes(), b"/", len.as_bytes());
 
             utility::replace_header(
@@ -278,6 +276,12 @@ impl CriticalRequestComponents {
                 // We know integers, b"-", and b"/" are OK!
                 HeaderValue::from_maybe_shared(bytes).unwrap(),
             );
+
+            let body = response.body().slice(range_start..range_end);
+            *response.body_mut() = body;
+            if response.status() == StatusCode::OK {
+                *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+            }
         } else {
             utility::replace_header_static(response.headers_mut(), "accept-ranges", "bytes")
         }
@@ -359,7 +363,7 @@ pub fn sanitize_request<T>(
         if start >= end {
             return Err(SanitizeError::RangeNotSatisfiable);
         }
-        data.range = Some((start, end))
+        data.range = Some((start, end + 1))
     }
     Ok(data)
 }
