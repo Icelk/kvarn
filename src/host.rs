@@ -73,7 +73,7 @@ impl Host {
     /// Will read certificates in the specified locations
     /// and return an non-secure host if parsing fails.
     ///
-    /// To achieve greater safety, use [`Host::with_https_redirect`] and call [`Host::enable_hsts`].
+    /// To achieve greater safety, use [`Host::with_http_redirect`] and call [`Host::enable_hsts`].
     ///
     /// See [`Host::non_secure`] for a non-failing function,
     /// available regardless of features.
@@ -136,7 +136,7 @@ impl Host {
 
     /// Same as [`Host::new`] with [`Host::set_http_redirect_to_https`].
     ///
-    /// If [`Host::new`] returns an error, we log it as an [`Level::Error`]
+    /// If [`Host::new`] returns an error, we log it as an [`log::Level::Error`]
     /// and continue without encryption.
     ///
     /// Consider [`Host::enable_hsts`] to harden the system.
@@ -298,7 +298,7 @@ impl Debug for Host {
 #[must_use]
 pub struct DataBuilder(Data);
 impl DataBuilder {
-    /// Adds `host` to the builder. See [`Dat::add_host`], which is called internally.
+    /// Adds `host` to the builder. See [`Data::add_host`], which is called internally.
     #[inline]
     pub fn add_host(mut self, host: Host) -> Self {
         self.0.add_host(host.name, host);
