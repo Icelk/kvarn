@@ -231,13 +231,12 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
     map
 }
 
-/// Will convert an `&str` path to a `PathBuf` using other parameters.
+/// Will convert an [`prim@str`] path component of a [`Uri`] to a [`Path`].
+/// It asserts the first byte is a [`FORWARD_SLASH`] and then chops it off.
 ///
-/// `base_path` corresponds to the the first segment(s) of the path.
+/// > _Note: you **must** check that the path is safe to read from before using it._
 ///
-/// The returned path will be formatted as follows `<base_path>/public/<path>`
-///
-/// Will return `None` if `path.is_empty()`. It checks the first byte to be a `/`.
+/// Will return `None` if `path.is_empty()` or if the first byte isn't a `/`.
 #[inline]
 #[must_use]
 pub fn uri(path: &str) -> Option<&Path> {
