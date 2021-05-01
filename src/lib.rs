@@ -225,6 +225,55 @@ impl<'a> SendKind<'a> {
             Self::Push(p) => p.ensure_version(response),
         }
     }
+    #[inline]
+    pub(crate) async fn send(
+        &mut self,
+        mut response: Response<Bytes>,
+        identity_body: Bytes,
+        request: &FatRequest,
+        host: &Host,
+        method: &Method,
+        address: SocketAddr,
+    ) -> io::Result<()> {
+        self.ensure_version_and_length(&mut response, method);
+        host.extensions
+            .resolve_package(&mut response, &request, host)
+            .await;
+
+        let (response, body) = utility::split_response(response);
+
+        match self {
+            SendKind::Send(response_pipe) => {
+                // Send response
+                let mut body_pipe =
+                    ret_log_app_error!(response_pipe.send_response(response, false).await);
+
+                if utility::method_has_response_body(request.method()) {
+                    // Send body
+                    ret_log_app_error!(body_pipe.send(body, false).await);
+                }
+
+                // Process post extensions
+                host.extensions
+                    .resolve_post(&request, identity_body, response_pipe, address, host)
+                    .await;
+
+                // Close the pipe.
+                ret_log_app_error!(body_pipe.close().await);
+            }
+            SendKind::Push(push_pipe) => {
+                let send_body = utility::method_has_response_body(request.method());
+                // Send response
+                let mut body_pipe =
+                    ret_log_app_error!(push_pipe.send_response(response, !send_body));
+                if send_body {
+                    // Send body
+                    ret_log_app_error!(body_pipe.send(body, true).await);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Will handle a single request, check the cache, process if needed, and caches it.
@@ -238,7 +287,7 @@ impl<'a> SendKind<'a> {
 pub async fn handle_cache(
     mut request: Request<application::Body>,
     address: SocketAddr,
-    pipe: SendKind<'_>,
+    mut pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
     let path_ok = if request.uri().path().contains("./") {
@@ -256,10 +305,10 @@ pub async fn handle_cache(
     let lock = host.response_cache.lock().await;
     let cached = path_query.call_all(|path| lock.get(path).into_option()).1;
     #[allow(clippy::single_match_else)]
-    let future = match cached {
+    let (response, identity, future) = match cached {
         Some(resp) => {
             info!("Found in cache!");
-            let mut response = match resp.clone_preferred(&request) {
+            let response = match resp.clone_preferred(&request) {
                 Err(message) => {
                     utility::default_error(
                         StatusCode::NOT_ACCEPTABLE,
@@ -273,44 +322,7 @@ pub async fn handle_cache(
             let identity_body = Bytes::clone(resp.get_identity().body());
             drop(lock);
 
-            pipe.ensure_version_and_length(&mut response, request.method());
-            host.extensions
-                .resolve_package(&mut response, &request, host)
-                .await;
-
-            let (response, body) = utility::split_response(response);
-
-            match pipe {
-                SendKind::Send(response_pipe) => {
-                    // Send response
-                    let mut body_pipe =
-                        ret_log_app_error!(response_pipe.send_response(response, false).await);
-
-                    if utility::method_has_response_body(request.method()) {
-                        // Send body
-                        ret_log_app_error!(body_pipe.send(body, false).await);
-                    }
-
-                    // Process post extensions
-                    host.extensions
-                        .resolve_post(&request, identity_body, response_pipe, address, host)
-                        .await;
-
-                    // Close the pipe.
-                    ret_log_app_error!(body_pipe.close().await);
-                }
-                SendKind::Push(push_pipe) => {
-                    let send_body = utility::method_has_response_body(request.method());
-                    // Send response
-                    let mut body_pipe =
-                        ret_log_app_error!(push_pipe.send_response(response, !send_body));
-                    if send_body {
-                        // Send body
-                        ret_log_app_error!(body_pipe.send(body, true).await);
-                    }
-                }
-            }
-            None
+            (response, identity_body, None)
         }
         None => {
             async fn maybe_cache(
@@ -394,7 +406,7 @@ pub async fn handle_cache(
             let compressed_response =
                 comprash::CompressedResponse::new(resp, compress, client_cache, extension);
 
-            let mut response = match compressed_response.clone_preferred(&request) {
+            let response = match compressed_response.clone_preferred(&request) {
                 Err(message) => {
                     utility::default_error(
                         StatusCode::NOT_ACCEPTABLE,
@@ -406,45 +418,23 @@ pub async fn handle_cache(
                 Ok(response) => response,
             };
 
-            pipe.ensure_version_and_length(&mut response, request.method());
-            host.extensions
-                .resolve_package(&mut response, &request, host)
-                .await;
-
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
-            let (response, body) = utility::split_response(response);
+            maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
 
-            match pipe {
-                SendKind::Send(response_pipe) => {
-                    let mut pipe =
-                        ret_log_app_error!(response_pipe.send_response(response, false).await);
-                    if utility::method_has_response_body(request.method()) {
-                        ret_log_app_error!(pipe.send(body, false).await);
-                    }
-
-                    maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
-
-                    // process response push
-                    host.extensions
-                        .resolve_post(&request, identity_body, response_pipe, address, host)
-                        .await;
-                    ret_log_app_error!(pipe.close().await);
-                }
-                SendKind::Push(push_pipe) => {
-                    let send_body = utility::method_has_response_body(request.method());
-                    let mut pipe =
-                        ret_log_app_error!(push_pipe.send_response(response, !send_body));
-                    if send_body {
-                        ret_log_app_error!(pipe.send(body, true).await);
-                    }
-
-                    maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
-                }
-            }
-            future
+            (response, identity_body, future)
         }
     };
+    pipe.send(
+        response,
+        identity,
+        &request,
+        host,
+        request.method(),
+        address,
+    )
+    .await?;
+
     if let Some(future) = future {
         future.await;
     }
