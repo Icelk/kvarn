@@ -851,7 +851,7 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! extension {
-        (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $($code:tt)*) => {{
+        (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $code:block) => {{
             use $crate::extensions::*;
             #[allow(unused_mut)]
             Box::new(move |
@@ -862,7 +862,7 @@ mod macros {
                 Box::pin(async move {
                     $(let $wrapper_param = unsafe { $wrapper_param.get_inner() };)*
 
-                    $($code)*
+                    $code
                 })
             })
         }}

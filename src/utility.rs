@@ -129,14 +129,25 @@ impl Write for WriteableBytes {
     }
 }
 
-/// `ToDo`: optimize!
+/// Reads `reader` to end into `buffer`.
+/// Also see [`read_to_end_or_max()`].
 ///
 /// # Errors
 ///
 /// This function will return any errors emitted from `reader`.
-pub async fn read_to_end<R: AsyncRead + Unpin>(
+pub async fn read_to_end(buffer: &mut BytesMut, reader: impl AsyncRead + Unpin) -> io::Result<()> {
+    read_to_end_or_max(buffer, reader, usize::MAX).await
+}
+/// Reads from `reader` to `buffer` until it returns zero bytes or `max_length`
+/// is reached. [`BytesMut::len`] is used as a starting length of `buffer`.
+///
+/// # Errors
+///
+/// Passes any errors emitted from `reader`.
+pub async fn read_to_end_or_max(
     buffer: &mut BytesMut,
-    mut reader: R,
+    mut reader: impl AsyncRead + Unpin,
+    max_len: usize,
 ) -> io::Result<()> {
     let mut read = buffer.len();
     // This is safe because of the trailing unsafe block.
@@ -146,6 +157,9 @@ pub async fn read_to_end<R: AsyncRead + Unpin>(
             0 => break,
             len => {
                 read += len;
+                if read == max_len {
+                    return Ok(());
+                }
                 if read > buffer.len() - 512 {
                     buffer.reserve(2048);
                     // This is safe because of the trailing unsafe block.
@@ -490,5 +504,92 @@ impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
+    }
+}
+
+/// Writes HTTP/1.1 [`Response`]s and [`Request`]s to a [`AsyncWrite`].
+pub mod write {
+    use super::{io, AsyncWrite, AsyncWriteExt, HeaderMap, Request, Response, Version};
+
+    async fn headers(headers: &HeaderMap, mut writer: impl AsyncWrite + Unpin) -> io::Result<()> {
+        for (name, value) in headers {
+            writer.write_all(name.as_str().as_bytes()).await?;
+            writer.write_all(b": ").await?;
+            writer.write_all(value.as_bytes()).await?;
+            writer.write_all(b"\r\n").await?;
+        }
+        Ok(())
+    }
+    fn version(version: Version) -> &'static [u8] {
+        match version {
+            Version::HTTP_09 => &b"HTTP/0.9"[..],
+            Version::HTTP_10 => &b"HTTP/1.0"[..],
+            Version::HTTP_2 => &b"HTTP/2"[..],
+            Version::HTTP_3 => &b"HTTP/3"[..],
+            _ => &b"HTTP/1.1"[..],
+        }
+    }
+    macro_rules! write_bytes {
+        ($writer:expr, $($bytes:expr $(,)?)+) => {
+            $($writer.write_all($bytes).await?;)*
+        };
+    }
+    /// Writer should be buffered.
+    ///
+    /// # Errors
+    ///
+    /// Will pass any errors emitted from `writer`.
+    pub async fn response<T>(
+        response: &Response<T>,
+        body: &[u8],
+        mut writer: impl AsyncWrite + Unpin,
+    ) -> io::Result<()> {
+        let version = version(response.version());
+        let status = response
+            .status()
+            .canonical_reason()
+            .unwrap_or("")
+            .as_bytes();
+
+        write_bytes!(
+            writer,
+            version,
+            b" ",
+            response.status().as_str().as_bytes(),
+            b" ",
+            status,
+            b"\r\n"
+        );
+
+        headers(response.headers(), &mut writer).await?;
+
+        write_bytes!(writer, b"\r\n", body);
+        Ok(())
+    }
+
+    /// `writer` should be buffered.
+    ///
+    /// # Errors
+    ///
+    /// Passes any errors from writing to `writer`.
+    pub async fn request<T>(
+        request: &Request<T>,
+        body: &[u8],
+        mut writer: impl AsyncWrite + Unpin,
+    ) -> io::Result<()> {
+        let method = request.method().as_str().as_bytes();
+        let path = request
+            .uri()
+            .path_and_query()
+            .map_or(&b"/"[..], |p| p.as_str().as_bytes());
+
+        let version = version(request.version());
+
+        write_bytes!(writer, method, b" ", path, b" ", version, b"\r\n");
+
+        headers(request.headers(), &mut writer).await?;
+
+        write_bytes!(writer, b"\r\n", body);
+        Ok(())
     }
 }

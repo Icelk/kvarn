@@ -223,7 +223,14 @@ mod request {
         max_len: usize,
         default_host: &[u8],
     ) -> Result<Request<Body>, Error> {
-        let (head, bytes) = parse::request(&stream, max_len, default_host).await?;
+        let scheme = match &*stream.lock().await {
+            Encryption::Tcp(_) => "http",
+            #[cfg(feature = "https")]
+            Encryption::TcpTls(_) => "https",
+        };
+        let lock = stream.lock().await;
+
+        let (head, bytes) = parse::request(lock, max_len, default_host, scheme).await?;
         let body = Body::Http1(response::Http1Body::new(
             stream,
             bytes,
@@ -287,9 +294,9 @@ mod request {
 
 mod response {
     use super::{
-        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWrite, AsyncWriteExt, Bytes, BytesMut,
-        Context, Debug, Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe,
-        ReadBuf, Request, Response, ResponseBodyPipe, ResponsePipe, Version,
+        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWriteExt, Bytes, BytesMut, Context, Debug,
+        Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe, ReadBuf, Request,
+        Response, ResponseBodyPipe, ResponsePipe, Version,
     };
 
     /// A HTTP/1 body.
@@ -326,9 +333,10 @@ mod response {
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
             let mut buffer = BytesMut::with_capacity(self.bytes.len() + 512);
             buffer.extend(&self.bytes);
+            let len = self.content_length;
             let _ = timeout(
                 Duration::from_millis(250),
-                utility::read_to_end(&mut buffer, &mut *self),
+                utility::read_to_end_or_max(&mut buffer, &mut *self, len),
             )
             .await;
             Ok(buffer.freeze())
@@ -403,7 +411,7 @@ mod response {
                         "keep-alive",
                     );
                     let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
-                    write_http_1_response(&mut writer, response)
+                    utility::write::response(&response, b"", &mut writer)
                         .await
                         .map_err(Error::Io)?;
                     writer.flush().await.map_err(Error::Io)?;
@@ -502,45 +510,6 @@ mod response {
         }
     }
 
-    /// Writer should be buffered.
-    ///
-    /// # Errors
-    ///
-    /// Will pass any errors emitted from `writer`.
-    pub(crate) async fn write_http_1_response<W: AsyncWrite + Unpin>(
-        mut writer: W,
-        response: Response<()>,
-    ) -> io::Result<()> {
-        let version = match response.version() {
-            Version::HTTP_09 => &b"HTTP/0.9"[..],
-            Version::HTTP_10 => &b"HTTP/1.0"[..],
-            Version::HTTP_2 => &b"HTTP/2"[..],
-            Version::HTTP_3 => &b"HTTP/3"[..],
-            _ => &b"HTTP/1.1"[..],
-        };
-        let status = response
-            .status()
-            .canonical_reason()
-            .unwrap_or("")
-            .as_bytes();
-
-        writer.write_all(version).await?;
-        writer.write_all(b" ").await?;
-        writer
-            .write_all(response.status().as_str().as_bytes())
-            .await?;
-        writer.write_all(b" ").await?;
-        writer.write_all(status).await?;
-        writer.write_all(b"\r\n").await?;
-
-        for (name, value) in response.headers() {
-            writer.write_all(name.as_str().as_bytes()).await?;
-            writer.write_all(b": ").await?;
-            writer.write_all(value.as_bytes()).await?;
-            writer.write_all(b"\r\n").await?;
-        }
-        writer.write_all(b"\r\n").await
-    }
     impl ResponseBodyPipe {
         /// Sends `data` as the body.
         ///

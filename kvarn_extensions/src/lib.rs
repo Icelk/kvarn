@@ -513,6 +513,241 @@ pub mod templates {
     }
 }
 
+pub mod reverse_proxy {
+    use kvarn::prelude::{internals::*, *};
+    use std::net::{Ipv4Addr, SocketAddrV4};
+    use tokio::net::{TcpStream, UdpSocket, UnixStream};
+
+    // use std::net::ToSocketAddr;
+    // pub struct UdpCandidatesIter {
+    //     index: usize,
+    // }
+    // impl UdpCandidatesIter {
+    //     pub fn new() -> UdpCandidatesIter {
+    //         Self { index: 0 }
+    //     }
+    // }
+    // impl Iterator for UdpCandidatesIter {
+    //     type Item = SocketAddr;
+    //     fn next(&mut self) -> Option<Self::Item> {
+    //         const ITEMS: &[u16] = &[
+    //             17448, 64567, 40022, 56654, 52027, 44328, 29973, 27919, 26513, 42327, 64855, 5296,
+    //             52942, 43204, 15322, 13243,
+    //         ];
+    //         let item = ITEMS.get(self.index).copied();
+    //         self.index += 1;
+    //         item.map(|port| SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)))
+    //     }
+    // }
+    // pub struct UdpCandidates();
+    // impl ToSocketAddrs for UdpCandidates {
+    //     type Iter = UdpCandidatesIter;
+    //     fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
+    //         Ok(UdpCandidatesIter::new())
+    //     }
+    // }
+
+    macro_rules! socket_addr_with_port {
+        ($($port:literal $(,)+)*) => {
+            &[
+                $(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, $port)),)*
+            ]
+        };
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Connection {
+        Tcp(SocketAddr),
+        Udp(SocketAddr),
+        #[cfg(unix)]
+        UnixSocket(&'static Path),
+    }
+    impl Connection {
+        pub async fn establish(self) -> io::Result<EstablishedConnection> {
+            match self {
+                Self::Tcp(addr) => TcpStream::connect(addr)
+                    .await
+                    .map(EstablishedConnection::Tcp),
+                Self::Udp(addr) => {
+                    let candidates = &socket_addr_with_port!(
+                        17448, 64567, 40022, 56654, 52027, 44328, 29973, 27919, 26513, 42327,
+                        64855, 5296, 52942, 43204, 15322, 13243,
+                    )[..];
+                    let socket = UdpSocket::bind(candidates).await?;
+                    socket.connect(addr).await?;
+                    /* UdpSocket::connect(&self, UDP_CANDIDATES) */
+                    Ok(EstablishedConnection::Udp(socket))
+                }
+                Self::UnixSocket(path) => UnixStream::connect(path)
+                    .await
+                    .map(EstablishedConnection::UnixSocket),
+            }
+        }
+    }
+    pub enum GatewayError {
+        Io(io::Error),
+        Timeout,
+        Parse(parse::Error),
+    }
+    impl From<io::Error> for GatewayError {
+        fn from(err: io::Error) -> Self {
+            Self::Io(err)
+        }
+    }
+    impl From<parse::Error> for GatewayError {
+        fn from(err: parse::Error) -> Self {
+            Self::Parse(err)
+        }
+    }
+    #[derive(Debug)]
+    pub enum EstablishedConnection {
+        Tcp(TcpStream),
+        Udp(UdpSocket),
+        #[cfg(unix)]
+        UnixSocket(UnixStream),
+    }
+    impl AsyncWrite for EstablishedConnection {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<Result<usize, io::Error>> {
+            match self.get_mut() {
+                Self::Tcp(s) => Pin::new(s).poll_write(cx, buf),
+                Self::Udp(s) => Pin::new(s).poll_send(cx, buf),
+                Self::UnixSocket(s) => Pin::new(s).poll_write(cx, buf),
+            }
+        }
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+            match self.get_mut() {
+                Self::Tcp(s) => Pin::new(s).poll_flush(cx),
+                Self::Udp(_) => Poll::Ready(Ok(())),
+                Self::UnixSocket(s) => Pin::new(s).poll_flush(cx),
+            }
+        }
+        fn poll_shutdown(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Result<(), io::Error>> {
+            match self.get_mut() {
+                Self::Tcp(s) => Pin::new(s).poll_shutdown(cx),
+                Self::Udp(_) => Poll::Ready(Ok(())),
+                Self::UnixSocket(s) => Pin::new(s).poll_shutdown(cx),
+            }
+        }
+    }
+    impl AsyncRead for EstablishedConnection {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            match self.get_mut() {
+                Self::Tcp(s) => Pin::new(s).poll_read(cx, buf),
+                Self::Udp(s) => Pin::new(s).poll_recv(cx, buf),
+                Self::UnixSocket(s) => Pin::new(s).poll_read(cx, buf),
+            }
+        }
+    }
+    impl EstablishedConnection {
+        pub async fn request<T>(
+            &mut self,
+            request: &Request<T>,
+            body: &[u8],
+        ) -> Result<Response<Bytes>, GatewayError> {
+            let buffered = tokio::io::BufWriter::new(&mut *self);
+            utility::write::request(request, body, buffered).await?;
+
+            let response = match timeout(Duration::from_millis(1000), async move {
+                parse::response(self, 16 * 1024).await
+            })
+            .await
+            {
+                Ok(result) => match result {
+                    Err(err) => return Err(err.into()),
+                    Ok(d) => d,
+                },
+                Err(_) => return Err(GatewayError::Timeout),
+            };
+            // let bytes = {
+            //     let content_length = utility::get_content_length(&request);
+            //     let mut buffer = BytesMut::with_capacity(bytes.len() + 512);
+            //     buffer.extend(&bytes);
+            //     let _ = timeout(
+            //         Duration::from_millis(250),
+            //         utility::read_to_end_or_max(&mut buffer, self, content_length),
+            //     )
+            //     .await;
+            //     buffer.freeze()
+            // };
+            Ok(response)
+        }
+    }
+    pub struct Manager {
+        when: kvarn::extensions::If,
+        kind: Connection,
+        modify: Arc<dyn Fn(&mut Request<Bytes>) + Send + Sync>,
+    }
+    impl Manager {
+        pub fn mount(self, extensions: &mut Extensions) {
+            let connection = self.kind;
+            let modify = self.modify;
+
+            macro_rules! return_status {
+                ($result:expr, $status:expr, $host:expr) => {
+                    match $result {
+                        Ok(v) => v,
+                        Err(_) => {
+                            return default_error_response($status, $host, None).await;
+                        }
+                    }
+                };
+            }
+
+            extensions.add_prepare_fn(
+                self.when,
+                prepare!(req, host, path, addr, move |modify| {
+                    let mut connection = return_status!(
+                        connection.establish().await,
+                        StatusCode::GATEWAY_TIMEOUT,
+                        host
+                    );
+
+                    let bytes = return_status!(
+                        req.body_mut().read_to_bytes().await,
+                        StatusCode::BAD_GATEWAY,
+                        host
+                    );
+
+                    todo!("Server cache! And replace request accept-encoding header to identity.");
+
+                    match connection.request(req, &bytes).await {
+                        Ok(response) => (
+                            response,
+                            ClientCachePreference::Undefined,
+                            ServerCachePreference::None,
+                            CompressPreference::Full,
+                        ),
+                        Err(err) => {
+                            default_error_response(
+                                match err {
+                                    GatewayError::Io(_) | GatewayError::Parse(_) => {
+                                        StatusCode::BAD_GATEWAY
+                                    }
+                                    GatewayError::Timeout => StatusCode::GATEWAY_TIMEOUT,
+                                },
+                                host,
+                                None,
+                            )
+                            .await
+                        }
+                    }
+                }),
+            );
+        }
+    }
+}
+
 /// Makes the client download the file.
 pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
     let data = unsafe { data.get_inner() };

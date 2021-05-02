@@ -30,6 +30,8 @@ pub enum Error {
     InvalidMethod,
     /// The [`Version`] is invalid
     InvalidVersion,
+    /// The [`StatusCode`] is invalid
+    InvalidStatusCode,
     /// A syntax error in the data.
     ///
     /// Often means the request isn't what we expect;
@@ -52,6 +54,7 @@ impl Error {
             Self::InvalidPath => "path is invalid or contains illegal bytes",
             Self::InvalidMethod => "method is invalid",
             Self::InvalidVersion => "version is invalid",
+            Self::InvalidStatusCode => "status code in invalid",
             Self::Syntax => "invalid syntax of data. The input might unexpectedly be encrypted (HTTPS) or compressed (HTTP/2)",
             Self::IllegalName => "header name invalid",
             Self::IllegalValue => "header value invalid",
@@ -73,6 +76,7 @@ impl From<Error> for io::Error {
             | Error::InvalidPath
             | Error::InvalidMethod
             | Error::InvalidVersion
+            | Error::InvalidStatusCode
             | Error::Syntax
             | Error::IllegalName
             | Error::IllegalValue => io::Error::new(io::ErrorKind::InvalidData, err.as_str()),
@@ -470,22 +474,22 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
     Ok((headers, header_end))
 }
 
-/// Try to parse a request from `stream`
-///
-/// # Errors
-///
-/// Will return error if building the `http::Response` internally failed, if path is empty,
-/// or any errors which occurs while reading from `stream`.
-///
-/// # Limitations
-///
-/// Request will be cut off at `max_len`.
-pub async fn request(
-    stream: &Mutex<Encryption>,
-    max_len: usize,
-    default_host: &[u8],
-) -> Result<(Request<()>, Bytes), Error> {
-    fn contains_two_newlines(bytes: &[u8]) -> bool {
+// pub trait GetRead<'a, D: std::ops::Deref<Target = T> + 'a, T: AsyncRead + Unpin> {
+//     fn poll_get(&mut self) -> Poll<D>;
+// }
+// impl<'a> GetRead<'a, tokio::sync::MutexGuard<'a, Encryption>, Encryption> for Mutex<Encryption> {
+//     fn poll_get(&mut self) -> Poll<tokio::sync::MutexGuard<Encryption>> {
+//         match self.try_lock() {
+//             Err(_) => Poll::Pending,
+//             Ok(enc) => Poll::Ready(enc),
+//         }
+//     }
+// }
+
+mod read_head {
+    use super::{utility, AsyncRead, AsyncReadExt, Bytes, BytesMut, Error, CR, LF};
+
+    pub(crate) fn contains_two_newlines(bytes: &[u8]) -> bool {
         let mut in_row = 0_u8;
         for byte in bytes.iter().cloned() {
             match byte {
@@ -498,9 +502,9 @@ pub async fn request(
         false
     }
 
-    async fn read_more(
+    pub(crate) async fn read_more(
         buffer: &mut BytesMut,
-        reader: &Mutex<Encryption>,
+        mut reader: impl AsyncRead + Unpin,
         read: &mut usize,
         max_len: usize,
     ) -> Result<usize, Error> {
@@ -509,7 +513,7 @@ pub async fn request(
             return Err(Error::HeaderTooLong);
         }
 
-        let mut reader = reader.lock().await;
+        // let mut reader = reader.lock().await;
 
         if buffer.capacity() < buffer.len() + 512 {
             if buffer.len() + 512 > max_len {
@@ -535,23 +539,56 @@ pub async fn request(
         Ok(read_now)
     }
 
-    let mut buffer = BytesMut::with_capacity(1024);
-    let mut read = 0;
-    let read = &mut read;
+    pub(crate) async fn read_headers(
+        mut reader: impl AsyncRead + Unpin,
+        max_len: usize,
+    ) -> Result<Bytes, Error> {
+        let mut buffer = BytesMut::with_capacity(1024);
+        let mut read = 0;
+        let read = &mut read;
 
-    loop {
-        if read_more(&mut buffer, stream, read, max_len).await? == 0 {
-            break;
-        };
-        if !utility::valid_method(&buffer) {
-            return Err(Error::Syntax);
-        }
+        loop {
+            if read_more(
+                &mut buffer,
+                /* get_stream(stream).await */ &mut reader,
+                read,
+                max_len,
+            )
+            .await?
+                == 0
+            {
+                break;
+            };
+            if !utility::valid_method(&buffer) {
+                return Err(Error::Syntax);
+            }
 
-        if contains_two_newlines(&buffer) {
-            break;
+            if contains_two_newlines(&buffer) {
+                break;
+            }
         }
+        Ok(buffer.freeze())
     }
-    let buffer = buffer.freeze();
+}
+
+/// Try to parse a request from `stream`
+///
+/// # Errors
+///
+/// Will return error if building the `http::Response` internally failed, if path is empty,
+/// or any errors which occurs while reading from `stream`.
+///
+/// # Limitations
+///
+/// Request will be cut off at `max_len`.
+pub async fn request<R: AsyncRead + Unpin>(
+    mut stream: impl std::ops::DerefMut<Target = R>,
+    // get_stream: impl FnMut(&'a mut T) -> F,
+    max_len: usize,
+    default_host: &[u8],
+    scheme: &str,
+) -> Result<(Request<()>, Bytes), Error> {
+    let buffer = read_head::read_headers(&mut *stream, max_len).await?;
 
     let mut parse_stage = RequestParseStage::Method;
     // Method is max 7 bytes long
@@ -559,7 +596,7 @@ pub async fn request(
     let mut method_len = 0;
     let mut path_start = 0;
     let mut path_end = 0;
-    // Version is 8 bytes long
+    // Version is at most 8 bytes long
     let mut version = [0; 8];
     let mut version_index = 0;
     let mut parsed = Request::builder();
@@ -588,6 +625,9 @@ pub async fn request(
                     parse_stage.next();
                     continue;
                 }
+                if method_len == method.len() {
+                    return Err(Error::InvalidMethod);
+                }
                 method[method_len] = byte;
                 method_len += 1;
             }
@@ -608,6 +648,9 @@ pub async fn request(
                     }
                     parse_stage.next();
                     continue;
+                }
+                if version_index == version.len() {
+                    return Err(Error::InvalidVersion);
                 }
                 version[version_index] = byte;
                 version_index += 1;
@@ -638,12 +681,6 @@ pub async fn request(
         .unwrap_or(default_host);
 
     let uri = {
-        let scheme = match &*stream.lock().await {
-            Encryption::Tcp(_) => "http",
-            #[cfg(feature = "https")]
-            Encryption::TcpTls(_) => "https",
-        };
-
         let mut uri =
             BytesMut::with_capacity(scheme.len() + 3 + host.len() + (path_end - path_start));
 
@@ -666,6 +703,88 @@ pub async fn request(
     {
         Err(err) => Err(Error::Http(err)),
         Ok(request) => Ok((request, buffer.slice(header_end - 1..))),
+    }
+}
+
+/// Parses a HTTP [`Response`] in plain bytes.
+///
+/// # Errors
+///
+/// Passes errors from [`headers`] and [`http::response::Builder::body`]
+/// Will also return errors similar to [`request`].
+pub async fn response(
+    mut reader: impl AsyncRead + Unpin,
+    max_len: usize,
+) -> Result<Response<Bytes>, Error> {
+    enum ParseStage {
+        Version,
+        Code,
+        CanonicalReason,
+    }
+
+    let bytes = read_head::read_headers(&mut reader, max_len).await?;
+
+    // Version is at most 8 bytes long
+    let mut version_bytes = [0; 8];
+    let mut version_index = 0;
+
+    // Code is always 3 digits long.
+    let mut code = [0; 3];
+    let mut code_index = 0;
+
+    let mut stage = ParseStage::Version;
+
+    let mut header_and_body = None;
+
+    for (pos, byte) in bytes.iter().copied().enumerate() {
+        match stage {
+            ParseStage::Version => {
+                if byte == SPACE {
+                    stage = ParseStage::Code;
+                    continue;
+                }
+                if version_index == version_bytes.len() {
+                    return Err(Error::InvalidVersion);
+                }
+                version_bytes[version_index] = byte;
+                version_index += 1;
+            }
+            ParseStage::Code => {
+                if byte == SPACE {
+                    stage = ParseStage::CanonicalReason;
+                    continue;
+                }
+                if code_index == code.len() {
+                    return Err(Error::InvalidStatusCode);
+                }
+                code[code_index] = byte;
+                code_index += 1;
+            }
+            ParseStage::CanonicalReason => {
+                if byte == LF {
+                    let header_bytes = bytes.slice(pos + 1..);
+                    let (headers, body_start) = headers(&header_bytes)?;
+                    let body = bytes.slice(pos + 1 + body_start..);
+                    header_and_body = Some((headers, body));
+                }
+            }
+        }
+    }
+
+    match header_and_body {
+        Some((headers, body)) => {
+            let version = version(&version_bytes[..version_index]).ok_or(Error::InvalidVersion)?;
+            let code = StatusCode::from_bytes(&code[..])
+                .ok()
+                .ok_or(Error::InvalidStatusCode)?;
+
+            let mut builder = Response::builder().version(version).status(code);
+            // We know it doesn't have errors.
+            *builder.headers_mut().unwrap() = headers;
+
+            builder.body(body).map_err(Error::from)
+        }
+        None => Err(Error::Syntax),
     }
 }
 
