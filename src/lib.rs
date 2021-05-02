@@ -302,11 +302,11 @@ pub async fn handle_cache(
     mut pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
+    let sanitize_data = parse::sanitize_request(&request);
+
     host.extensions
         .resolve_prime(&mut request, host, address)
         .await;
-
-    let sanitize_data = parse::sanitize_request(&request);
 
     let path_query = comprash::UriKey::path_and_query(request.uri());
 
