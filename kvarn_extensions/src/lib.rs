@@ -518,35 +518,6 @@ pub mod reverse_proxy {
     use std::net::{Ipv4Addr, SocketAddrV4};
     use tokio::net::{TcpStream, UdpSocket, UnixStream};
 
-    // use std::net::ToSocketAddr;
-    // pub struct UdpCandidatesIter {
-    //     index: usize,
-    // }
-    // impl UdpCandidatesIter {
-    //     pub fn new() -> UdpCandidatesIter {
-    //         Self { index: 0 }
-    //     }
-    // }
-    // impl Iterator for UdpCandidatesIter {
-    //     type Item = SocketAddr;
-    //     fn next(&mut self) -> Option<Self::Item> {
-    //         const ITEMS: &[u16] = &[
-    //             17448, 64567, 40022, 56654, 52027, 44328, 29973, 27919, 26513, 42327, 64855, 5296,
-    //             52942, 43204, 15322, 13243,
-    //         ];
-    //         let item = ITEMS.get(self.index).copied();
-    //         self.index += 1;
-    //         item.map(|port| SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)))
-    //     }
-    // }
-    // pub struct UdpCandidates();
-    // impl ToSocketAddrs for UdpCandidates {
-    //     type Iter = UdpCandidatesIter;
-    //     fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
-    //         Ok(UdpCandidatesIter::new())
-    //     }
-    // }
-
     macro_rules! socket_addr_with_port {
         ($($port:literal $(,)+)*) => {
             &[
@@ -669,17 +640,6 @@ pub mod reverse_proxy {
                 },
                 Err(_) => return Err(GatewayError::Timeout),
             };
-            // let bytes = {
-            //     let content_length = utility::get_content_length(&request);
-            //     let mut buffer = BytesMut::with_capacity(bytes.len() + 512);
-            //     buffer.extend(&bytes);
-            //     let _ = timeout(
-            //         Duration::from_millis(250),
-            //         utility::read_to_end_or_max(&mut buffer, self, content_length),
-            //     )
-            //     .await;
-            //     buffer.freeze()
-            // };
             Ok(response)
         }
     }
@@ -719,13 +679,17 @@ pub mod reverse_proxy {
                         host
                     );
 
-                    todo!("Server cache! And replace request accept-encoding header to identity.");
+                    utility::replace_header_static(
+                        req.headers_mut(),
+                        "accept-encoding",
+                        "identity",
+                    );
 
                     match connection.request(req, &bytes).await {
                         Ok(response) => (
                             response,
                             ClientCachePreference::Undefined,
-                            ServerCachePreference::None,
+                            ServerCachePreference::Full,
                             CompressPreference::Full,
                         ),
                         Err(err) => {

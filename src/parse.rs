@@ -474,17 +474,181 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
     Ok((headers, header_end))
 }
 
-// pub trait GetRead<'a, D: std::ops::Deref<Target = T> + 'a, T: AsyncRead + Unpin> {
-//     fn poll_get(&mut self) -> Poll<D>;
-// }
-// impl<'a> GetRead<'a, tokio::sync::MutexGuard<'a, Encryption>, Encryption> for Mutex<Encryption> {
-//     fn poll_get(&mut self) -> Poll<tokio::sync::MutexGuard<Encryption>> {
-//         match self.try_lock() {
-//             Err(_) => Poll::Pending,
-//             Ok(enc) => Poll::Ready(enc),
-//         }
-//     }
-// }
+/// An error with parsing [`CacheControl`].
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum CacheControlError {
+    /// Multiple `max-age` directives were found.
+    ///
+    /// There must only be one; else you can't decide which to honour.
+    MultipleMaxAge,
+    /// Could not parse integer in max-age or Kvarn cache control header.
+    InvalidInteger,
+    /// The unit for the Kvarn cache control header is invalid.
+    ///
+    /// For now, valid units are
+    /// - `s` for seconds
+    /// - `m` for minutes
+    /// - `h` for hours
+    /// - `d` for days
+    InvalidUnit,
+    /// The Kvarn cache control header is a keyword, but it is invalid.
+    ///
+    /// For now, valid keywords are
+    /// - `none` for no caching
+    /// - and `full` for endless caching.
+    InvalidKeyword,
+    /// Could not convert [`HeaderValue::to_str`].
+    InvalidBytes,
+}
+/// Directives to limit cache lifetime, read from `cache-control` and `kvarn-cache-control` headers.
+///
+/// See [`Self::from_cache_control`] and [`Self::from_kvarn_cache_control`] for respective parsing.
+#[derive(Debug, Clone)]
+pub struct CacheControl {
+    max_age: Option<u32>,
+    no_store: bool,
+}
+impl CacheControl {
+    /// Respects `max-age=` and `no-store` parts of `cache-control` header.
+    ///
+    /// Uses the standard syntax.
+    ///
+    /// # Errors
+    ///
+    /// Can return [`CacheControlError::MultipleMaxAge`] and [`CacheControlError::InvalidInteger`].
+    pub fn from_cache_control(header: &str) -> Result<Self, CacheControlError> {
+        let mut max_age = None;
+        let mut no_store = false;
+        for segment in header.split(',') {
+            let trimmed = segment.trim();
+            if trimmed.starts_with("no-store") {
+                no_store = true;
+            } else if let Some(age) = trimmed.strip_prefix("max-age=") {
+                if max_age.is_some() {
+                    return Err(CacheControlError::MultipleMaxAge);
+                }
+                if let Ok(age) = age.parse() {
+                    max_age = Some(age);
+                } else {
+                    return Err(CacheControlError::InvalidInteger);
+                }
+            }
+        }
+
+        Ok(CacheControl { max_age, no_store })
+    }
+    /// Converts a `kvarn-cache-control` header to a [`CacheControl`] directive.
+    ///
+    /// The `kvarn-cache-control` header is used for reverse-proxy servers and other downstream sources to
+    /// signal how Kvarn should cache their content. This header is prioritized over `cache-control`, but serves a
+    /// similar function. This only applies to the server cache, whereas `cache-control` effects both the client
+    /// and the server (if this header isn't available).
+    ///
+    /// # Examples
+    ///
+    /// To limit a response to be in the cache for 10 minutes,
+    /// return `kvarn-cache-control: 10m` as a header in a
+    /// reverse-proxied server or in a extension.
+    ///
+    /// # Errors
+    ///
+    /// Can return [`CacheControlError::InvalidKeyword`], [`CacheControlError::InvalidUnit`],
+    /// and [`CacheControlError::InvalidInteger`].
+    pub fn from_kvarn_cache_control(header: &str) -> Result<Self, CacheControlError> {
+        let header = header.trim();
+        Ok(match header {
+            "none" => Self {
+                max_age: None,
+                no_store: true,
+            },
+            "full" => Self {
+                max_age: None,
+                no_store: false,
+            },
+            _ if header.len() > 1
+                && header.chars().next().map_or(false, char::is_numeric)
+                && header
+                    .chars()
+                    .next_back()
+                    .as_ref()
+                    .map_or(false, char::is_ascii_alphabetic) =>
+            {
+                // This will not panic; the last character is ascii.
+                let integer = &header[..header.len() - 1];
+                let integer: u32 = integer
+                    .parse()
+                    .ok()
+                    .ok_or(CacheControlError::InvalidInteger)?;
+                let multiplier = match header.chars().next_back().unwrap_or('s') {
+                    's' => 1,
+                    'm' => 60,
+                    'h' => 60 * 60,
+                    'd' => 60 * 60 * 24,
+                    _ => return Err(CacheControlError::InvalidUnit),
+                };
+                Self {
+                    max_age: Some(integer * multiplier),
+                    no_store: false,
+                }
+            }
+            _ => return Err(CacheControlError::InvalidKeyword),
+        })
+    }
+    /// Tries to get [`CacheControl`] from a [`HeaderMap`].
+    ///
+    /// See [`Self::from_kvarn_cache_control`] for more info about how the
+    /// server cache directive is decided.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::from_kvarn_cache_control`] and [`Self::from_cache_control`] with
+    /// [`CacheControlError::InvalidBytes`] if [`HeaderValue::to_str`] returns an error.
+    pub fn from_headers(headers: &HeaderMap) -> Result<Self, CacheControlError> {
+        headers.get("kvarn-cache-control").map_or_else(
+            || {
+                headers.get("cache-control").map_or(
+                    Ok(Self {
+                        max_age: None,
+                        no_store: false,
+                    }),
+                    |value| {
+                        if let Ok(s) = value.to_str() {
+                            Self::from_cache_control(s)
+                        } else {
+                            Err(CacheControlError::InvalidBytes)
+                        }
+                    },
+                )
+            },
+            |value| {
+                if let Ok(s) = value.to_str() {
+                    Self::from_kvarn_cache_control(s)
+                } else {
+                    Err(CacheControlError::InvalidBytes)
+                }
+            },
+        )
+    }
+
+    /// Returns if you should cache.
+    #[must_use]
+    pub fn store(&self) -> bool {
+        // Don't store if max_age less than 60s.
+        self.no_store || self.max_age.map_or(false, |age| age <= 60)
+    }
+    /// Converts [`CacheControl`] to a max lifetime [`Duration`].
+    ///
+    /// If the returned value is [`None`], you should let it be in the cache for as long as possible,
+    /// longer than any with a defined lifetime.
+    #[must_use]
+    pub fn to_duration(&self) -> Option<Duration> {
+        if let (true, Some(max_age)) = (self.store(), self.max_age) {
+            Some(Duration::from_secs(max_age.into()))
+        } else {
+            None
+        }
+    }
+}
 
 mod read_head {
     use super::{utility, AsyncRead, AsyncReadExt, Bytes, BytesMut, Error, CR, LF};

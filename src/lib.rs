@@ -11,6 +11,7 @@
 //! - Six types of extensions, all backed with intuitive macros
 //! - Optional encryption with [`rustls`]
 //! - Several checks for illegal requests
+//! - `cache-control` and [`kvarn-cache-control`](parse::CacheControl::from_kvarn_cache_control) header limits server cache lifetimes
 //!
 //! # Getting started
 //!
@@ -308,10 +309,28 @@ pub async fn handle_cache(
         .resolve_prime(&mut request, host, address)
         .await;
 
-    let path_query = comprash::UriKey::path_and_query(request.uri());
+    let mut path_query = comprash::UriKey::path_and_query(request.uri());
 
-    let lock = host.response_cache.lock().await;
-    let cached = path_query.call_all(|path| lock.get(path).into_option()).1;
+    let mut lock = host.response_cache.lock().await;
+    // copy of [`UriKey::call_all`].
+    // I got the message
+    // ```
+    // captured variable cannot escape `FnMut` closure body
+    // `FnMut` closures only have access to their captured variables while they are executing...
+    // ...therefore, they cannot allow references to captured variables to escape
+    // ```
+    // and had to inline it.
+    let cached = match lock.get(&path_query).into_option() {
+        Some(t) => Some(t),
+        None => match &mut path_query {
+            UriKey::Path(_) => None,
+            UriKey::PathQuery(p) => {
+                p.truncate_query();
+                let t = lock.get(&path_query).into_option();
+                t
+            }
+        },
+    };
     #[allow(clippy::single_match_else)]
     let (response, identity, future) = match cached {
         Some(resp) if sanitize_data.is_ok() => {

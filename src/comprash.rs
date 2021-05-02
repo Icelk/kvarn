@@ -7,6 +7,7 @@
 //! The main type in this module is [`CompressedResponse`], a dynamically compressed
 //! response receiving correct headers and [`extensions`].
 use crate::prelude::*;
+use std::time::Instant;
 use std::{borrow::Borrow, hash::Hash};
 
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
@@ -60,11 +61,15 @@ impl PathQuery {
             Some(&self.string[self.query_start..])
         }
     }
+    /// Discards any [`Self::query()`].
+    pub fn truncate_query(&mut self) {
+        self.string.truncate(self.query_start);
+    }
     /// Discards any [`Self::query()`] and returns the [`Self::path()`] as a [`String`]
     #[inline]
     #[must_use]
     pub fn into_path(mut self) -> String {
-        self.string.truncate(self.query_start);
+        self.truncate_query();
         self.string
     }
 }
@@ -116,15 +121,14 @@ impl UriKey {
     /// assert_eq!(found, Some(true));
     /// ```
     #[inline]
-    pub fn call_all<T>(self, mut callback: impl FnMut(&Self) -> Option<T>) -> (Self, Option<T>) {
-        match callback(&self) {
-            Some(t) => (self, Some(t)),
+    pub fn call_all<T>(&mut self, mut callback: impl FnMut(&Self) -> Option<T>) -> Option<T> {
+        match callback(self) {
+            Some(t) => Some(t),
             None => match self {
-                Self::Path(_) => (self, None),
+                Self::Path(_) => None,
                 Self::PathQuery(path_query) => {
-                    let new = Self::Path(path_query.into_path());
-                    let t = callback(&new);
-                    (new, t)
+                    path_query.truncate_query();
+                    callback(self)
                 }
             },
         }
@@ -484,6 +488,8 @@ pub enum CachePreferenceError {
 
 /// The preference for caching the item on the server.
 ///
+/// This can be overridden by the `cache-control` or `kvarn-cache-control` headers.
+///
 /// Note: It's only a preference. Disabling the cache in compile-time will
 /// disable this behaviour. Some other factors also play a role, such as number of cached
 /// `Vary` responses on a page.
@@ -543,7 +549,9 @@ impl str::FromStr for ServerCachePreference {
         })
     }
 }
-/// Automatically add `cache-control` header to response
+/// Automatically add `cache-control` header to response.
+///
+/// If a `cache-control` header is already present, it will be prioritized.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum ClientCachePreference {
     /// Will not cache on client
@@ -642,7 +650,7 @@ impl<V> CacheOut<V> {
 #[derive(Debug)]
 #[must_use]
 pub struct Cache<K, V> {
-    map: HashMap<K, V>,
+    map: HashMap<K, (V, Option<(Instant, Duration)>)>,
     max_items: usize,
     size_limit: usize,
     inserts: usize,
@@ -680,12 +688,24 @@ impl<K: Eq + Hash, V> Cache<K, V> {
     ///
     /// See [`HashMap::get`] for more info.
     #[inline]
-    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> CacheOut<&V>
+    pub fn get<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&V>
     where
         K: Borrow<Q>,
     {
+        // maybe set tokio timers to remove items instead?
         match self.map.get(key) {
-            Some(v) => CacheOut::Present(v),
+            Some((v, expiry))
+                if expiry.map_or(true, |(creation, lifetime)| creation.elapsed() <= lifetime) =>
+            {
+                CacheOut::Present(v)
+            }
+            Some(_) => {
+                // SAFETY: No other have a reference to self; the other branches are just that,
+                // other branches, and their references are returned, so this code isn't ran.
+                #[allow(clippy::cast_ref_to_mut)]
+                unsafe { &mut *(self as *const _ as *mut Cache<K, V>) }.remove(key);
+                CacheOut::None
+            }
             None => CacheOut::None,
         }
     }
@@ -708,7 +728,7 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         K: Borrow<Q>,
     {
         match self.map.remove(key) {
-            Some(item) => CacheOut::Present(item),
+            Some((item, _expiry)) => CacheOut::Present(item),
             None => CacheOut::None,
         }
     }
@@ -716,7 +736,13 @@ impl<K: Eq + Hash, V> Cache<K, V> {
     /// `value_length` should be the size, in bytes, of `value`.
     ///
     /// See bottom of [`Cache`] for more info about when to use this.
-    pub fn insert(&mut self, value_length: usize, key: K, value: V) -> CacheOut<V> {
+    pub fn insert(
+        &mut self,
+        value_length: usize,
+        key: K,
+        value: V,
+        lifetime: Option<Duration>,
+    ) -> CacheOut<V> {
         if value_length >= self.size_limit {
             return CacheOut::NotInserted(value);
         }
@@ -724,8 +750,12 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         if self.map.len() >= self.max_items {
             self.discard_one();
         }
+        let value = match lifetime {
+            Some(lifetime) => (value, Some((Instant::now(), lifetime))),
+            None => (value, None),
+        };
         match self.map.insert(key, value) {
-            Some(v) => CacheOut::Present(v),
+            Some((v, _expiry)) => CacheOut::Present(v),
             None => CacheOut::None,
         }
     }
@@ -757,12 +787,23 @@ impl<K: Eq + Hash, V> Cache<K, V> {
 impl<K: Eq + Hash> Cache<K, CompressedResponse> {
     /// Caches a [`CompressedResponse`] and returns the previous response, if any.
     pub fn cache(&mut self, key: K, response: CompressedResponse) -> CacheOut<CompressedResponse> {
-        self.insert(response.get_identity().body().len(), key, response)
+        let lifetime = parse::CacheControl::from_headers(response.get_identity().headers())
+            .map_or(None, |cc| cc.to_duration());
+
+        debug!("Inserted item to cache with lifetime {:?}", lifetime);
+
+        self.insert(
+            response.get_identity().body().len(),
+            key,
+            response,
+            lifetime,
+        )
     }
 }
 impl<K: Eq + Hash> Cache<K, Bytes> {
     /// Caches a [`Bytes`] and returns the previous bytes, if any.
     pub fn cache(&mut self, key: K, contents: Bytes) -> CacheOut<Bytes> {
-        self.insert(contents.len(), key, contents)
+        // Bytes are not cleared from cache.
+        self.insert(contents.len(), key, contents, None)
     }
 }
