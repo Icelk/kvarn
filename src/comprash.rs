@@ -326,7 +326,7 @@ impl CompressedResponse {
     #[inline]
     fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
         if let Some(header) = preference.as_header() {
-            utility::replace_header(headers, "cache-control", header)
+            headers.entry("cache-control").or_insert(header);
         };
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
