@@ -334,11 +334,14 @@ mod response {
             let mut buffer = BytesMut::with_capacity(self.bytes.len() + 512);
             buffer.extend(&self.bytes);
             let len = self.content_length;
-            let _ = timeout(
+            if let Ok(result) = timeout(
                 Duration::from_millis(250),
                 utility::read_to_end_or_max(&mut buffer, &mut *self, len),
             )
-            .await;
+            .await
+            {
+                result?
+            }
             Ok(buffer.freeze())
         }
     }

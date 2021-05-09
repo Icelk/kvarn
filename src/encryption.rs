@@ -430,7 +430,7 @@ mod tokio_tls {
                 // In case we have an alert to send describing this error,
                 // try a last-gasp write -- but don't predate the primary
                 // error.
-                let _ = self.write_io(cx);
+                drop(self.write_io(cx));
 
                 Error::from(err)
             })?;
