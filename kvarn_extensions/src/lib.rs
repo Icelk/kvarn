@@ -284,16 +284,13 @@ pub fn php(
         let body = match req.body_mut().read_to_bytes().await {
             Ok(body) => body,
             Err(_) => {
-                return (
+                return FatResponse::cache(
                     utility::default_error(
                         StatusCode::BAD_REQUEST,
                         Some(host),
                         Some("failed to read body".as_bytes()),
                     )
                     .await,
-                    ClientCachePreference::Changing,
-                    ServerCachePreference::None,
-                    CompressPreference::None,
                 )
             }
         };
@@ -311,12 +308,7 @@ pub fn php(
         };
         let output = Bytes::copy_from_slice(&output);
         match kvarn::parse::response_php(&output) {
-            Ok(response) => (
-                response,
-                ClientCachePreference::Undefined,
-                ServerCachePreference::None,
-                CompressPreference::Full,
-            ),
+            Ok(response) => FatResponse::cache(response),
             Err(err) => {
                 error!("failed to parse response; {}", err.as_str());
                 utility::default_error_response(StatusCode::NOT_FOUND, host, None).await
@@ -686,12 +678,7 @@ pub mod reverse_proxy {
                     );
 
                     match connection.request(req, &bytes).await {
-                        Ok(response) => (
-                            response,
-                            ClientCachePreference::Undefined,
-                            ServerCachePreference::Full,
-                            CompressPreference::Full,
-                        ),
+                        Ok(response) => FatResponse::cache(response),
                         Err(err) => {
                             default_error_response(
                                 match err {

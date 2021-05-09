@@ -560,8 +560,6 @@ pub enum ClientCachePreference {
     Changing,
     /// Will cache for 1 year
     Full,
-    /// Will not add nor remove any header
-    Undefined,
 }
 impl ClientCachePreference {
     /// Gets the [`HeaderValue`] representation of the preference.
@@ -571,14 +569,13 @@ impl ClientCachePreference {
     #[cfg(not(feature = "no-cache"))]
     #[inline]
     #[must_use]
-    pub fn as_header(self) -> Option<HeaderValue> {
+    pub fn as_header(self) -> HeaderValue {
         match self {
             Self::None => Some(HeaderValue::from_static("no-store")),
             Self::Changing => Some(HeaderValue::from_static("max-age=120")),
             Self::Full => Some(HeaderValue::from_static(
                 "public, max-age=604800, immutable",
             )),
-            Self::Undefined => None,
         }
     }
     /// Gets the [`HeaderValue`] representation of the preference.

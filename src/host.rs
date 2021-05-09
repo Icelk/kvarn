@@ -192,12 +192,11 @@ impl Host {
                     .status(StatusCode::TEMPORARY_REDIRECT)
                     .header("location", uri);
                 // Unwrap is ok; we know this is valid.
-                ready((
-                    response.body(Bytes::new()).unwrap(),
-                    ClientCachePreference::Full,
-                    ServerCachePreference::None,
-                    CompressPreference::None,
-                ))
+                ready(
+                    FatResponse::cache(response.body(Bytes::new()).unwrap())
+                        .with_server_cache(ServerCachePreference::None)
+                        .with_compress(CompressPreference::None),
+                )
             }),
         );
         self.extensions.add_prime(Box::new(|request, _, _| {

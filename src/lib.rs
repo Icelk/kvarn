@@ -63,12 +63,116 @@ pub type FatRequest = Request<application::Body>;
 /// functions. Most things like `content-length`, `content-encoding`,
 /// `content-type`, `cache-control`, and server caching will be
 /// automatically handled.
-pub type FatResponse = (
-    Response<Bytes>,
-    ClientCachePreference,
-    ServerCachePreference,
-    CompressPreference,
-);
+pub struct FatResponse {
+    response: Response<Bytes>,
+    client: ClientCachePreference,
+    server: ServerCachePreference,
+    compress: CompressPreference,
+
+    future: Option<RetSyncFut<()>>,
+}
+impl FatResponse {
+    /// Creates a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
+    ///
+    /// Choose
+    /// - [`ServerCachePreference::Full`] if the page is one regularly accessed,
+    /// - [`ServerCachePreference::None`] if the page is rarely accessed or if the runtime cost of
+    ///   getting the page is minimal.
+    /// - [`ServerCachePreference::QueryMatters`] should be avoided. It should be used when
+    ///   you have a page dictated by the query. Consider using a [`Prime`] extension
+    ///   to make all requests act as only one of a few queries to increase performance
+    ///   by reducing cache size.
+    pub fn new(response: Response<Bytes>, server_cache_preference: ServerCachePreference) -> Self {
+        Self {
+            response,
+            client: ClientCachePreference::Full,
+            server: server_cache_preference,
+            compress: CompressPreference::Full,
+
+            future: None,
+        }
+    }
+    /// Creates a new [`FatResponse`] with all preferences set to `Full` and no `Future`.
+    ///
+    /// Use the `with_*` methods to change the defaults.
+    pub fn cache(response: Response<Bytes>) -> Self {
+        Self::new(response, ServerCachePreference::Full)
+    }
+    /// Creates a new [`FatResponse`] with all cache preferences set to `None`,
+    /// compress preference set to `Full`, and no `Future`.
+    ///
+    /// Use the `with_*` methods to change the defaults.
+    pub fn no_cache(response: Response<Bytes>) -> Self {
+        Self {
+            response,
+            client: ClientCachePreference::None,
+            server: ServerCachePreference::None,
+            compress: CompressPreference::Full,
+            future: None,
+        }
+    }
+    /// Sets the inner [`ClientCachePreference`].
+    pub fn with_client_cache(mut self, preference: ClientCachePreference) -> Self {
+        self.client = preference;
+        self
+    }
+    /// Sets the inner [`ServerCachePreference`].
+    pub fn with_server_cache(mut self, preference: ServerCachePreference) -> Self {
+        self.server = preference;
+        self
+    }
+    /// Sets the inner [`CompressPreference`].
+    pub fn with_compress(mut self, preference: CompressPreference) -> Self {
+        self.compress = preference;
+        self
+    }
+    /// Sets the inner `Future`.
+    pub fn with_future(mut self, future: RetSyncFut<()>) -> Self {
+        self.future = Some(future);
+        self
+    }
+    /// Turns `self` into a tuple of all it's parts.
+    pub fn into_parts(
+        self,
+    ) -> (
+        Response<Bytes>,
+        ClientCachePreference,
+        ServerCachePreference,
+        CompressPreference,
+        Option<RetSyncFut<()>>,
+    ) {
+        (
+            self.response,
+            self.client,
+            self.server,
+            self.compress,
+            self.future,
+        )
+    }
+}
+impl Debug for FatResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        #[derive(Debug)]
+        enum BytesOrStr<'a> {
+            Str(&'a str),
+            Bytes(&'a [u8]),
+        }
+        let response = utility::empty_clone_response(&self.response);
+        let body = if let Ok(s) = str::from_utf8(self.response.body()) {
+            BytesOrStr::Str(s)
+        } else {
+            BytesOrStr::Bytes(self.response.body())
+        };
+        let response = response.map(|()| body);
+        f.debug_struct("FatResponse")
+            .field("resp", &response)
+            .field("client", &self.client)
+            .field("server", &self.server)
+            .field("compress", &self.compress)
+            .field("future", &utility::CleanDebug::new("opaque Future"))
+            .finish()
+    }
+}
 
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
@@ -378,7 +482,7 @@ pub async fn handle_cache(
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
             // LAYER 5.1
-            let ((mut resp, mut client_cache, mut server_cache, compress), future) =
+            let (mut resp, mut client_cache, mut server_cache, compress, future) =
                 match sanitize_data.as_ref() {
                     Ok(_) => {
                         if let Some((response, future)) = host
@@ -388,21 +492,20 @@ pub async fn handle_cache(
                         {
                             (response, Some(future))
                         } else {
-                            let path = utility::make_path(
-                                &host.path,
-                                "public",
-                                // Ok, since `path.is_some()` above which calls the same function.
-                                parse::uri(request.uri().path()).unwrap(),
-                                None,
-                            );
+                        let path = utility::make_path(
+                            &host.path,
+                            "public",
+                            // Ok, since `path.is_some()` above which calls the same function.
+                            parse::uri(request.uri().path()).unwrap(),
+                            None,
+                        );
                             let (resp, client_cache, server_cache, compress) =
                                 handle_request(&mut request, address, host, &path).await?;
 
                             ((resp, client_cache, server_cache, compress), None)
-                        }
                     }
-                    Err(err) => (err.into_response(host).await, None),
-                };
+                }
+                .into_parts();
 
             host.extensions
                 .resolve_present(
@@ -493,6 +596,7 @@ pub async fn handle_request(
             .resolve_prepare(request, &host, path, address)
             .await
         {
+            let resp = resp.into_parts();
             response.replace(resp.0);
             client_cache.replace(resp.1);
             server_cache.replace(resp.2);
@@ -517,16 +621,23 @@ pub async fn handle_request(
         None => {
             utility::default_error_response(status.unwrap_or(StatusCode::NOT_FOUND), host, None)
                 .await
-                .0
+                .response
         }
     };
 
-    Ok((
-        response,
-        client_cache.unwrap_or(ClientCachePreference::Full),
-        server_cache.unwrap_or(ServerCachePreference::Full),
-        compress.unwrap_or(CompressPreference::Full),
-    ))
+    macro_rules! maybe_with {
+        ($response: expr, $option: expr, $method: tt) => {
+            if let Some(t) = $option {
+                $response = $response.$method(t);
+            }
+        };
+    }
+    let mut response = FatResponse::cache(response);
+    maybe_with!(response, client_cache, with_client_cache);
+    maybe_with!(response, server_cache, with_server_cache);
+    maybe_with!(response, compress, with_compress);
+
+    Ok(response)
 }
 
 /// Describes port, certificate, and host data for

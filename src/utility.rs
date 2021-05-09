@@ -343,12 +343,8 @@ pub async fn default_error_response(
     host: &Host,
     message: Option<&str>,
 ) -> FatResponse {
-    (
-        default_error(code, Some(host), message.map(str::as_bytes)).await,
-        ClientCachePreference::Full,
-        ServerCachePreference::None,
-        CompressPreference::Full,
-    )
+    FatResponse::cache(default_error(code, Some(host), message.map(str::as_bytes)).await)
+        .with_server_cache(ServerCachePreference::None)
 }
 
 /// Clones a [`Response`], discarding the body.
