@@ -635,10 +635,114 @@ pub mod reverse_proxy {
             Ok(response)
         }
     }
+
+    macro_rules! return_ready_err {
+        ($poll: expr) => {
+            if let Poll::Ready(Err(e)) = $poll {
+                return Poll::Ready(Err(e));
+            }
+        };
+    }
+    struct OpenBack<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> {
+        front: &'a mut F,
+        back: &'a mut B,
+        front_buffer: Vec<u8>,
+        front_written: usize,
+        back_buffer: Vec<u8>,
+        back_written: usize,
+    }
+    impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> OpenBack<'a, F, B> {
+        pub fn new(front: &'a mut F, back: &'a mut B) -> Self {
+            let front_buffer = Vec::with_capacity(4096);
+            let back_buffer = Vec::with_capacity(4096);
+            // unsafe {
+            //     front_buffer.set_len(front_buffer.capacity());
+            //     back_buffer.set_len(back_buffer.capacity());
+            // }
+            Self {
+                front,
+                back,
+                front_buffer,
+                front_written: 0,
+                back_buffer,
+                back_written: 0,
+            }
+        }
+        pub fn poll_channel(&mut self, cx: &mut Context) -> Poll<io::Result<()>> {
+            macro_rules! impl_for {
+                ($buffer: expr, $written: expr, $stream: expr, $other_stream: expr) => {
+                    if $buffer.len() - $written > 0 {
+                        if let Poll::Ready(r) =
+                            Pin::new($stream).poll_write(cx, &$buffer[$written..])
+                        {
+                            let written = r?;
+                            $written += written;
+                            if $written == $buffer.len() {
+                                $buffer.clear();
+                                $written = 0;
+                                return Poll::Ready(Ok(()));
+                            }
+                        }
+                    } else {
+                        let cap = $buffer.capacity();
+                        let mut front_buf =
+                            ReadBuf::new(unsafe { $buffer.get_unchecked_mut(0..cap) });
+                        return_ready_err!(Pin::new($other_stream).poll_read(cx, &mut front_buf));
+                        let filled = front_buf.filled().len();
+                        unsafe { $buffer.set_len(filled) };
+                    }
+                };
+            }
+
+            impl_for!(
+                self.front_buffer,
+                self.front_written,
+                &mut self.front,
+                &mut self.back
+            );
+            impl_for!(
+                self.back_buffer,
+                self.back_written,
+                &mut self.back,
+                &mut self.front
+            );
+
+            Poll::Pending
+        }
+        pub async fn channel(&mut self) -> io::Result<()> {
+            poll_fn(|cx| self.poll_channel(cx)).await
+        }
+    }
+    fn poll_fn<T, F>(f: F) -> PollFn<F>
+    where
+        F: FnMut(&mut Context<'_>) -> Poll<T>,
+    {
+        PollFn { f }
+    }
+    struct PollFn<F> {
+        f: F,
+    }
+    impl<F> Unpin for PollFn<F> {}
+    impl<F> fmt::Debug for PollFn<F> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("PollFn").finish()
+        }
+    }
+    impl<T, F> Future for PollFn<F>
+    where
+        F: FnMut(&mut Context<'_>) -> Poll<T>,
+    {
+        type Output = T;
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+            (&mut self.f)(cx)
+        }
+    }
+
     pub struct Manager {
         when: kvarn::extensions::If,
         kind: Connection,
-        modify: Arc<dyn Fn(&mut Request<Bytes>) + Send + Sync>,
+        modify: Arc<dyn Fn(&mut FatRequest, &mut Bytes) + Send + Sync>,
     }
     impl Manager {
         pub fn mount(self, extensions: &mut Extensions) {
@@ -665,7 +769,7 @@ pub mod reverse_proxy {
                         host
                     );
 
-                    let bytes = return_status!(
+                    let mut bytes = return_status!(
                         req.body_mut().read_to_bytes().await,
                         StatusCode::BAD_GATEWAY,
                         host
@@ -677,7 +781,9 @@ pub mod reverse_proxy {
                         "identity",
                     );
 
-                    match connection.request(req, &bytes).await {
+                    modify(req, &mut bytes);
+
+                    let mut response = match connection.request(req, &bytes).await {
                         Ok(response) => FatResponse::cache(response),
                         Err(err) => {
                             default_error_response(
@@ -692,7 +798,32 @@ pub mod reverse_proxy {
                             )
                             .await
                         }
-                    }
+                    };
+
+                    let future = box_fut!({
+                        let mut open_back = OpenBack::new(&mut response_pipe, &mut connection);
+
+                        loop {
+                            match timeout(Duration::from_secs(60), open_back.channel()).await {
+                                Err(_) => break,
+                                Ok(r) => {
+                                    if let Err(err) = r {
+                                        if !matches!(
+                                            err.kind(),
+                                            io::ErrorKind::ConnectionAborted
+                                                | io::ErrorKind::ConnectionReset
+                                                | io::ErrorKind::BrokenPipe
+                                        ) {
+                                            warn!("Reverse proxy io error: {}", err);
+                                        }
+                                        break;
+                                    }
+                                }
+                            };
+                        }
+                    });
+
+                    response.with_future(future)
                 }),
             );
         }
