@@ -8,7 +8,7 @@
 //! - Correct and performant HTTP/1 and HTTP/2
 //! - Common API across HTTP/1 and HTTP/2
 //! - Easy integration with HTTP/2 push promises
-//! - Six types of extensions, all backed with intuitive macros
+//! - Five types of extensions, all backed with intuitive macros
 //! - Optional encryption with [`rustls`]
 //! - Several checks for illegal requests
 //! - `cache-control` and [`kvarn-cache-control`](parse::CacheControl::from_kvarn_cache_control) header limits server cache lifetimes
@@ -485,13 +485,6 @@ pub async fn handle_cache(
             let (mut resp, mut client_cache, mut server_cache, compress, future) =
                 match sanitize_data.as_ref() {
                     Ok(_) => {
-                        if let Some((response, future)) = host
-                            .extensions
-                            .resolve_pre(&mut request, host, address)
-                            .await
-                        {
-                            (response, Some(future))
-                        } else {
                         let path = utility::make_path(
                             &host.path,
                             "public",
@@ -499,11 +492,10 @@ pub async fn handle_cache(
                             parse::uri(request.uri().path()).unwrap(),
                             None,
                         );
-                            let (resp, client_cache, server_cache, compress) =
-                                handle_request(&mut request, address, host, &path).await?;
 
-                            ((resp, client_cache, server_cache, compress), None)
+                        handle_request(&mut request, address, host, &path).await?
                     }
+                    Err(err) => err.into_response(host).await,
                 }
                 .into_parts();
 
@@ -586,6 +578,7 @@ pub async fn handle_request(
     let mut client_cache = None;
     let mut server_cache = None;
     let mut compress = None;
+    let mut future = None;
 
     #[allow(unused_mut)]
     let mut status = None;
@@ -601,6 +594,9 @@ pub async fn handle_request(
             client_cache.replace(resp.1);
             server_cache.replace(resp.2);
             compress.replace(resp.3);
+            if let Some(f) = resp.4 {
+                future.replace(f);
+            }
         }
     }
 
@@ -636,6 +632,7 @@ pub async fn handle_request(
     maybe_with!(response, client_cache, with_client_cache);
     maybe_with!(response, server_cache, with_server_cache);
     maybe_with!(response, compress, with_compress);
+    maybe_with!(response, future, with_future);
 
     Ok(response)
 }

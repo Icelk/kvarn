@@ -46,11 +46,12 @@ Then, each time the response is sent, Package extensions are run.
 
 After the response has been sent, Post extensions are resolved.
 
-# Layer 5.1 / Pathing
+# Layer 5 / Pathing
 
-This is where the data of `::http::Request` is interpreted to either read a file, run a Prepare extension, call PHP, or any *path*.
+This is where the data of `::http::Request` is interpreted to either read a file, run a Pre extension, call PHP, or any *path*.
 
-*Prepare* extensions are called inside of this function.
+This whole layer can be customised, to for example implement a proxy. You have complete control over the outgoing data 
+(except for the first response; this is HTTP!), cache method, and suggested compression.
 
 ## Layer 6 / Lib API
 
@@ -58,10 +59,3 @@ Only meant to be used from Layer 5.1.
 
 This translates header values to more helpful structs, such as `Accept*` and `Authentication`
 Can be found using Kvarns public API, through the module `helper`
-
-# Layer 5.2/ Extension: Pre
-
-This whole layer can be customised, to for example implement a proxy. You have complete control over the outgoing data,
-but can return a `::http::Response`, cache method, and suggested compression.
-
-You can inject a function to be run, and if you choose, intercept the request.

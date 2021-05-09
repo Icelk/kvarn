@@ -1,6 +1,6 @@
 Kvarn is very extensible. Therefore, several pluggable interfaces (called *extensions*) exist to make integration fast and seamless.
 
-Here are the six **P**s
+Here are the five **P**s
 chronologically ordered from the request's perspective. 
 
 # Prime
@@ -14,13 +14,7 @@ a special page where a 307 Redirect is created and returned.
 
 # Pre
 
-- [ ] First response can be cached. No other communication will be cached.
-
-This is tied to Layer 5. See [routing](routing.md) for more information
-
-# Prepare
-
-- [x] Cached
+- [x] First response can be cached. The optional `Future` is not.
 
 Called with URI to capture to a function. Will still get all other extensions applied.
 

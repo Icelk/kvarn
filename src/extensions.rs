@@ -103,7 +103,6 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
 #[must_use]
 pub struct Extensions {
     prime: Vec<Prime>,
-    pre: HashMap<String, Pre>,
     prepare_single: HashMap<String, Prepare>,
     prepare_fn: Vec<(If, Prepare)>,
     present_internal: HashMap<String, Present>,
@@ -119,7 +118,6 @@ impl Extensions {
     pub fn empty() -> Self {
         Self {
             prime: Vec::new(),
-            pre: HashMap::new(),
             prepare_single: HashMap::new(),
             prepare_fn: Vec::new(),
             present_internal: HashMap::new(),
@@ -208,10 +206,6 @@ impl Extensions {
     pub fn add_prime(&mut self, extension: Prime) {
         self.prime.push(extension);
     }
-    /// Adds a pre extension.
-    pub fn add_pre(&mut self, path: String, extension: Pre) {
-        self.pre.insert(path, extension);
-    }
     /// Adds a prepare extension for a single URI.
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
         self.prepare_single.insert(path, extension);
@@ -253,24 +247,6 @@ impl Extensions {
             {
                 *request.uri_mut() = prime;
             }
-        }
-    }
-    pub(crate) async fn resolve_pre(
-        &self,
-        request: &mut FatRequest,
-        host: &Host,
-        address: SocketAddr,
-    ) -> Option<(FatResponse, RetSyncFut<()>)> {
-        match self.pre.get(request.uri().path()) {
-            Some(extension) => {
-                extension(
-                    RequestWrapperMut::new(request),
-                    HostWrapper::new(host),
-                    address,
-                )
-                .await
-            }
-            None => None,
         }
     }
     pub(crate) async fn resolve_prepare(
