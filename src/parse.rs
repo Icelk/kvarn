@@ -930,6 +930,7 @@ pub async fn response(
                     let (headers, body_start) = headers(&header_bytes)?;
                     let body = bytes.slice(pos + 1 + body_start..);
                     header_and_body = Some((headers, body));
+                    break;
                 }
             }
         }
