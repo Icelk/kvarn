@@ -839,7 +839,7 @@ mod macros {
                     $(let $wrapper_param = unsafe { $wrapper_param.get_inner() };)*
 
                     $code
-                })
+                }) as RetSyncFut<_>
             })
         }}
     }
