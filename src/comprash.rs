@@ -325,9 +325,8 @@ impl CompressedResponse {
 
     #[inline]
     fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
-        if let Some(header) = preference.as_header() {
-            headers.entry("cache-control").or_insert(header);
-        };
+        let header = preference.as_header();
+        headers.entry("cache-control").or_insert(header);
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
@@ -571,11 +570,9 @@ impl ClientCachePreference {
     #[must_use]
     pub fn as_header(self) -> HeaderValue {
         match self {
-            Self::None => Some(HeaderValue::from_static("no-store")),
-            Self::Changing => Some(HeaderValue::from_static("max-age=120")),
-            Self::Full => Some(HeaderValue::from_static(
-                "public, max-age=604800, immutable",
-            )),
+            Self::None => HeaderValue::from_static("no-store"),
+            Self::Changing => HeaderValue::from_static("max-age=120"),
+            Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
         }
     }
     /// Gets the [`HeaderValue`] representation of the preference.
@@ -586,8 +583,8 @@ impl ClientCachePreference {
     #[must_use]
     // For consistency between features
     #[allow(clippy::unused_self)]
-    pub fn as_header(self) -> Option<HeaderValue> {
-        Some(HeaderValue::from_static("no-store"))
+    pub fn as_header(self) -> HeaderValue {
+        HeaderValue::from_static("no-store")
     }
 }
 impl str::FromStr for ClientCachePreference {
