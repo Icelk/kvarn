@@ -12,7 +12,7 @@ and from there decide to intercept the request.
 It is also here where all http requests are upgraded to HTTPS, by redirecting the request to 
 a special page where a 307 Redirect is created and returned.
 
-# Pre
+# Prepare
 
 - [x] First response can be cached. The optional `Future` is not.
 

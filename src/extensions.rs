@@ -29,25 +29,13 @@ pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
 /// Same as [`RetFut`] but also implementing [`Sync`].
 ///
 /// Mostly used for extensions used across yield bounds.
-pub type RetSyncFut<T> = Pin<Box<(dyn Future<Output = T> + Send + Sync)>>;
+pub type RetSyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
 
 /// A prime extension.
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Prime =
     Box<(dyn Fn(RequestWrapper, HostWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
-/// A pre extension.
-///
-/// See [module level documentation](extensions) and the extensions.md link for more info.
-pub type Pre = Box<
-    (dyn Fn(
-        RequestWrapperMut,
-        HostWrapper,
-        SocketAddr,
-    ) -> RetFut<Option<(FatResponse, RetSyncFut<()>)>>
-         + Sync
-         + Send),
->;
 /// A prepare extension.
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
@@ -56,7 +44,6 @@ pub type Prepare = Box<
          + Sync
          + Send),
 >;
-
 /// A present extension.
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
