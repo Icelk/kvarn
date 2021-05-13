@@ -10,6 +10,8 @@
 
 use kvarn::{extensions::*, prelude::*};
 
+pub use reverse_proxy::{localhost, Connection as ReverseProxyConnection, Manager as ReverseProxy};
+
 /// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
 ///
 /// See [`mount_all()`] for more information.
@@ -613,22 +615,80 @@ pub mod reverse_proxy {
         }
     }
     impl EstablishedConnection {
-        pub async fn request<T>(
+        pub async fn request<T: Debug>(
             &mut self,
             request: &Request<T>,
             body: &[u8],
         ) -> Result<Response<Bytes>, GatewayError> {
-            let buffered = tokio::io::BufWriter::new(&mut *self);
-            utility::write::request(request, body, buffered).await?;
+            pub fn read_to_end(buffer: &mut BytesMut, mut reader: impl Read) -> io::Result<()> {
+                let mut read = buffer.len();
+                // This is safe because of the trailing unsafe block.
+                unsafe { buffer.set_len(buffer.capacity()) };
+                loop {
+                    match reader.read(&mut buffer[read..])? {
+                        0 => break,
+                        len => {
+                            read += len;
+                            if read > buffer.len() - 512 {
+                                buffer.reserve(2048);
+                                // This is safe because of the trailing unsafe block.
+                                unsafe { buffer.set_len(buffer.capacity()) };
+                            }
+                        }
+                    }
+                }
+                // I have counted the length in `read`. It will *not* include uninitiated bytes.
+                unsafe { buffer.set_len(read) };
+                Ok(())
+            }
 
-            let response = match timeout(Duration::from_millis(1000), async move {
-                parse::response(self, 16 * 1024).await
+            let mut buffered = tokio::io::BufWriter::new(&mut *self);
+            utility::write::request(request, body, &mut buffered).await?;
+            info!("Sent {:#?}", request);
+
+            debug!("Sent reverse-proxy bytes.");
+
+            let response = match timeout(Duration::from_millis(1000), async {
+                parse::response(&mut *self, 16 * 1024).await
             })
             .await
             {
                 Ok(result) => match result {
                     Err(err) => return Err(err.into()),
-                    Ok(d) => d,
+                    Ok(response) => {
+                        let len =
+                            utility::get_body_length_response(&response, Some(request.method()));
+
+                        let (mut head, body) = utility::split_response(response);
+
+                        let mut buffer = BytesMut::with_capacity(body.len() + 512);
+                        buffer.extend(&body);
+                        if let Ok(result) = timeout(
+                            Duration::from_millis(250),
+                            utility::read_to_end_or_max(&mut buffer, &mut *self, len),
+                        )
+                        .await
+                        {
+                            result?
+                        }
+
+                        if head.headers().get("transfer-encoding")
+                            == Some(&HeaderValue::from_static("chunked"))
+                        {
+                            let mut new_buffer = BytesMut::with_capacity(buffer.len());
+                            let decoder = chunked_transfer::Decoder::new(&buffer[..]);
+                            read_to_end(&mut new_buffer, decoder)?;
+                            buffer = new_buffer;
+
+                            utility::remove_all_headers(head.headers_mut(), "transfer-encoding");
+                        }
+
+                        info!("Got {:#?}", head);
+
+                        let whole_body = buffer.freeze();
+
+                        head.map(|()| whole_body)
+                    }
                 },
                 Err(_) => return Err(GatewayError::Timeout),
             };
@@ -636,29 +696,30 @@ pub mod reverse_proxy {
         }
     }
 
-    macro_rules! return_ready_err {
-        ($poll: expr) => {
-            if let Poll::Ready(Err(e)) = $poll {
-                return Poll::Ready(Err(e));
-            }
-        };
+    #[derive(Debug)]
+    enum OpenBackError {
+        Front(io::Error),
+        Back(io::Error),
     }
-    struct OpenBack<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> {
-        front: &'a mut F,
+    impl OpenBackError {
+        pub fn get_io(&self) -> &io::Error {
+            match self {
+                Self::Front(e) | Self::Back(e) => e,
+            }
+        }
+    }
+    struct OpenBack<'a, B: AsyncRead + AsyncWrite + Unpin> {
+        front: &'a mut ResponseBodyPipe,
         back: &'a mut B,
         front_buffer: Vec<u8>,
         front_written: usize,
         back_buffer: Vec<u8>,
         back_written: usize,
     }
-    impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> OpenBack<'a, F, B> {
-        pub fn new(front: &'a mut F, back: &'a mut B) -> Self {
+    impl<'a, B: AsyncRead + AsyncWrite + Unpin> OpenBack<'a, B> {
+        pub fn new(front: &'a mut ResponseBodyPipe, back: &'a mut B) -> Self {
             let front_buffer = Vec::with_capacity(4096);
             let back_buffer = Vec::with_capacity(4096);
-            // unsafe {
-            //     front_buffer.set_len(front_buffer.capacity());
-            //     back_buffer.set_len(back_buffer.capacity());
-            // }
             Self {
                 front,
                 back,
@@ -668,14 +729,14 @@ pub mod reverse_proxy {
                 back_written: 0,
             }
         }
-        pub fn poll_channel(&mut self, cx: &mut Context) -> Poll<io::Result<()>> {
+        pub fn poll_channel(&mut self, cx: &mut Context) -> Poll<Result<(), OpenBackError>> {
             macro_rules! impl_for {
-                ($buffer: expr, $written: expr, $stream: expr, $other_stream: expr) => {
+                ($buffer: expr, $written: expr, $stream: expr, $other_stream: expr, $error: expr, $other_error: expr) => {
                     if $buffer.len() - $written > 0 {
                         if let Poll::Ready(r) =
                             Pin::new($stream).poll_write(cx, &$buffer[$written..])
                         {
-                            let written = r?;
+                            let written = r.map_err($error)?;
                             $written += written;
                             if $written == $buffer.len() {
                                 $buffer.clear();
@@ -687,9 +748,18 @@ pub mod reverse_proxy {
                         let cap = $buffer.capacity();
                         let mut front_buf =
                             ReadBuf::new(unsafe { $buffer.get_unchecked_mut(0..cap) });
-                        return_ready_err!(Pin::new($other_stream).poll_read(cx, &mut front_buf));
+                        // Poll is handled; we return Poll::Pending after this.
+                        match Pin::new($other_stream).poll_read(cx, &mut front_buf) {
+                            Poll::Ready(Err(e)) => return Poll::Ready(Err($other_error(e))),
+                            _ => {}
+                        }
                         let filled = front_buf.filled().len();
                         unsafe { $buffer.set_len(filled) };
+                        info!(
+                            "Got {}, {} read!",
+                            filled,
+                            String::from_utf8_lossy(&$buffer)
+                        );
                     }
                 };
             }
@@ -698,18 +768,22 @@ pub mod reverse_proxy {
                 self.front_buffer,
                 self.front_written,
                 &mut self.front,
-                &mut self.back
+                &mut self.back,
+                OpenBackError::Front,
+                OpenBackError::Back
             );
             impl_for!(
                 self.back_buffer,
                 self.back_written,
                 &mut self.back,
-                &mut self.front
+                &mut self.front,
+                OpenBackError::Back,
+                OpenBackError::Front
             );
 
             Poll::Pending
         }
-        pub async fn channel(&mut self) -> io::Result<()> {
+        pub async fn channel(&mut self) -> Result<(), OpenBackError> {
             poll_fn(|cx| self.poll_channel(cx)).await
         }
     }
@@ -739,12 +813,63 @@ pub mod reverse_proxy {
         }
     }
 
+    pub type ModifyRequestFn = Arc<dyn Fn(&mut FatRequest, &mut Bytes) + Send + Sync>;
+
     pub struct Manager {
-        when: kvarn::extensions::If,
+        when: extensions::If,
         kind: Connection,
-        modify: Arc<dyn Fn(&mut FatRequest, &mut Bytes) + Send + Sync>,
+        modify: ModifyRequestFn,
     }
     impl Manager {
+        pub fn new(when: extensions::If, kind: Connection, modify: ModifyRequestFn) -> Self {
+            Self { when, kind, modify }
+        }
+        pub fn base(base_path: &str, kind: Connection) -> Self {
+            assert_eq!(base_path.chars().next(), Some('/'));
+            let path = if base_path.ends_with('/') {
+                base_path.to_owned()
+            } else {
+                let mut s = String::with_capacity(base_path.len() + 1);
+                s.push_str(base_path);
+                s.push('/');
+                s
+            };
+            let path = Arc::new(path);
+
+            let when_path = Arc::clone(&path);
+            let when = Box::new(move |request: &FatRequest| {
+                let path = Arc::clone(&when_path);
+                request.uri().path().starts_with(path.as_str())
+            });
+
+            let modify: Arc<dyn Fn(&mut FatRequest, &mut Bytes) + Send + Sync> = Arc::new(
+                move |request, _| {
+                    let path = Arc::clone(&path)/* &modify_path */;
+
+                    let mut parts = request.uri().clone().into_parts();
+
+                    if let Some(path_and_query) = parts.path_and_query.as_ref() {
+                        if let Some(s) = path_and_query.as_str().get(path.as_str().len() - 1..) {
+                            // We know this is a good path and query; we've just removed the first x bytes.
+                            // The -1 will always be on a char boundary; the last character is always '/'
+                            let short = uri::PathAndQuery::from_maybe_shared(
+                                Bytes::copy_from_slice(s.as_bytes()),
+                            )
+                            .unwrap();
+                            parts.path_and_query = Some(short);
+                            parts.scheme = Some(uri::Scheme::HTTP);
+                            // For unwrap, see ↑
+                            let uri = Uri::from_parts(parts).unwrap();
+                            *request.uri_mut() = uri;
+                        } else {
+                            error!("We didn't get the expected path string from Kvarn. We asked for one which started with `base_path`");
+                        }
+                    }
+                },
+            );
+
+            Self { when, kind, modify }
+        }
         pub fn mount(self, extensions: &mut Extensions) {
             let connection = self.kind;
             let modify = self.modify;
@@ -762,7 +887,7 @@ pub mod reverse_proxy {
 
             extensions.add_prepare_fn(
                 self.when,
-                prepare!(req, host, path, addr, move |modify| {
+                prepare!(req, host, _path, _addr, move |modify| {
                     let mut connection = return_status!(
                         connection.establish().await,
                         StatusCode::GATEWAY_TIMEOUT,
@@ -781,10 +906,28 @@ pub mod reverse_proxy {
                         "identity",
                     );
 
+                    if req.headers().get("connection")
+                        == Some(&HeaderValue::from_static("keep-alive"))
+                    {
+                        utility::replace_header_static(req.headers_mut(), "connection", "close");
+                    }
+
+                    *req.version_mut() = Version::HTTP_11;
+
+                    let wait = matches!(req.method(), &Method::CONNECT)
+                        || req.headers().get("upgrade")
+                            == Some(&HeaderValue::from_static("websocket"));
+
                     modify(req, &mut bytes);
 
                     let mut response = match connection.request(req, &bytes).await {
-                        Ok(response) => FatResponse::cache(response),
+                        Ok(mut response) => {
+                            let headers = response.headers_mut();
+                            utility::remove_all_headers(headers, "connection");
+                            utility::remove_all_headers(headers, "keep-alive");
+
+                            FatResponse::cache(response)
+                        }
                         Err(err) => {
                             default_error_response(
                                 match err {
@@ -800,33 +943,47 @@ pub mod reverse_proxy {
                         }
                     };
 
-                    let future = box_fut!({
-                        let mut open_back = OpenBack::new(&mut response_pipe, &mut connection);
+                    if wait {
+                        info!("Keeping the pipe open!");
+                        let future = response_pipe_fut!(response_pipe, _host {
+                            let mut open_back = OpenBack::new(response_pipe, &mut connection);
+                            debug!("Created open back!");
 
-                        loop {
-                            match timeout(Duration::from_secs(60), open_back.channel()).await {
-                                Err(_) => break,
-                                Ok(r) => {
-                                    if let Err(err) = r {
-                                        if !matches!(
-                                            err.kind(),
-                                            io::ErrorKind::ConnectionAborted
-                                                | io::ErrorKind::ConnectionReset
-                                                | io::ErrorKind::BrokenPipe
-                                        ) {
-                                            warn!("Reverse proxy io error: {}", err);
+                            loop {
+                                debug!("Polling open back");
+                                match timeout(Duration::from_secs(60), open_back.channel())
+                                    .await
+                                {
+                                    Err(_) => break,
+                                    Ok(r) => {
+                                        info!("Open back responded! {:?}", r);
+                                        if let Err(err) = r {
+                                            if !matches!(
+                                                err.get_io().kind(),
+                                                io::ErrorKind::ConnectionAborted
+                                                    | io::ErrorKind::ConnectionReset
+                                                    | io::ErrorKind::BrokenPipe
+                                            ) {
+                                                warn!("Reverse proxy io error: {:?}", err);
+                                            }
+                                            break;
                                         }
-                                        break;
                                     }
-                                }
-                            };
-                        }
-                    });
+                                };
+                            }
+                        });
 
-                    response.with_future(future)
+                        response = response.with_future(future)
+                    }
+
+                    response
                 }),
             );
         }
+    }
+
+    pub fn localhost(port: u16) -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))
     }
 }
 

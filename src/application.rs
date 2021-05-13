@@ -131,6 +131,8 @@ pub enum ResponsePipe {
 }
 /// A pipe to send a body after the [`Response`] is sent by
 /// [`ResponsePipe::send_response`].
+///
+/// The [`AsyncWriteExt::shutdown`] does nothing, and will immediately return with Ok(())
 #[derive(Debug)]
 pub enum ResponseBodyPipe {
     /// HTTP/1 pipe
@@ -234,7 +236,7 @@ mod request {
         let body = Body::Http1(response::Http1Body::new(
             stream,
             bytes,
-            utility::get_content_length(&head),
+            utility::get_body_length_request(&head),
         ));
         Ok(head.map(|()| body))
     }
@@ -294,9 +296,9 @@ mod request {
 
 mod response {
     use super::{
-        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWriteExt, Bytes, BytesMut, Context, Debug,
-        Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe, ReadBuf, Request,
-        Response, ResponseBodyPipe, ResponsePipe, Version,
+        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWrite, AsyncWriteExt, Bytes, BytesMut,
+        Context, Debug, Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe,
+        ReadBuf, Request, Response, ResponseBodyPipe, ResponsePipe, Version,
     };
 
     /// A HTTP/1 body.
@@ -535,6 +537,7 @@ mod response {
             }
             Ok(())
         }
+        // pub(crate)async fn poll_send(&mut self, data: Bytes)
         /// Closes the pipe.
         ///
         /// # Errors
@@ -547,6 +550,61 @@ mod response {
                 Self::Http1(h1) => h1.lock().await.flush().await.map_err(Error::from),
                 #[cfg(feature = "h2")]
                 Self::Http2(h2) => h2.send_data(Bytes::new(), true).map_err(Error::from),
+            }
+        }
+    }
+    impl AsyncRead for ResponseBodyPipe {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            match self.get_mut() {
+                Self::Http1(s) => match s.try_lock() {
+                    Err(_) => Poll::Pending,
+                    Ok(mut s) => Pin::new(&mut *s).poll_read(cx, buf),
+                },
+                Self::Http2(_) => Poll::Ready(Ok(())),
+            }
+        }
+    }
+    impl AsyncWrite for ResponseBodyPipe {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<Result<usize, io::Error>> {
+            match self.get_mut() {
+                Self::Http1(s) => match s.try_lock() {
+                    Err(_) => Poll::Pending,
+                    Ok(mut s) => Pin::new(&mut *s).poll_write(cx, buf),
+                },
+                Self::Http2(s) => Poll::Ready(
+                    s.send_data(Bytes::copy_from_slice(buf), false)
+                        .map_err(|e| {
+                            if e.is_io() {
+                                // This is ok; we just checked it is IO.
+                                e.into_io().unwrap()
+                            } else {
+                                io::Error::new(io::ErrorKind::Other, e.to_string())
+                            }
+                        })
+                        .map(|()| buf.len()),
+                ),
+            }
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+            if let Self::Http1(s) = self.get_mut() {
+                if let Ok(mut s) = s.try_lock() {
+                    Pin::new(&mut *s).poll_flush(cx)
+                } else {
+                    Poll::Pending
+                }
+            } else {
+                Poll::Ready(Ok(()))
             }
         }
     }

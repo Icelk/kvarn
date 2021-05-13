@@ -16,6 +16,7 @@ kvarn = { path = "../", default-features = false }
 fastcgi-client = { git = "https://github.com/Icelk/fastcgi-client-rs", optional = true }
 tokio = { version = "^1", optional = true, features = ["net", "io-util"] }
 url_crawl = { path = "../url_crawl", optional = true }
+chunked_transfer = "1.4.0"
 
 [features]
 default = ["php", "templates", "push"]

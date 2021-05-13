@@ -69,7 +69,7 @@ pub struct FatResponse {
     server: ServerCachePreference,
     compress: CompressPreference,
 
-    future: Option<RetSyncFut<()>>,
+    future: Option<ResponsePipeFuture>,
 }
 impl FatResponse {
     /// Creates a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
@@ -127,7 +127,7 @@ impl FatResponse {
         self
     }
     /// Sets the inner `Future`.
-    pub fn with_future(mut self, future: RetSyncFut<()>) -> Self {
+    pub fn with_future(mut self, future: ResponsePipeFuture) -> Self {
         self.future = Some(future);
         self
     }
@@ -139,7 +139,7 @@ impl FatResponse {
         ClientCachePreference,
         ServerCachePreference,
         CompressPreference,
-        Option<RetSyncFut<()>>,
+        Option<ResponsePipeFuture>,
     ) {
         (
             self.response,
@@ -336,12 +336,15 @@ impl<'a> SendKind<'a> {
     }
     #[inline]
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn send(
+    pub(crate) async fn send<F: Future<Output = ()>>(
         &mut self,
         mut response: Response<Bytes>,
         identity_body: Bytes,
         request: &FatRequest,
         host: &Host,
+        future: Option<
+            impl FnOnce(extensions::ResponseBodyPipeWrapperMut, extensions::HostWrapper) -> F,
+        >,
         method: &Method,
         address: SocketAddr,
         data: Option<parse::CriticalRequestComponents>,
@@ -370,6 +373,14 @@ impl<'a> SendKind<'a> {
                     ret_log_app_error!(body_pipe.send(body, false).await);
                 }
 
+                if let Some(future) = future {
+                    future(
+                        extensions::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
+                        extensions::HostWrapper::new(host),
+                    )
+                    .await;
+                }
+
                 // Process post extensions
                 host.extensions
                     .resolve_post(&request, identity_body, response_pipe, address, host)
@@ -385,7 +396,16 @@ impl<'a> SendKind<'a> {
                     ret_log_app_error!(push_pipe.send_response(response, !send_body));
                 if send_body {
                     // Send body
-                    ret_log_app_error!(body_pipe.send(body, true).await);
+                    ret_log_app_error!(body_pipe.send(body, /* future.is_none() */ true).await);
+                }
+                if let Some(future) = future {
+                    future(
+                        extensions::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
+                        extensions::HostWrapper::new(host),
+                    )
+                    .await;
+
+                    ret_log_app_error!(body_pipe.close().await);
                 }
             }
         }
@@ -456,12 +476,12 @@ pub async fn handle_cache(
             (response, identity_body, None)
         }
         _ => {
-            async fn maybe_cache(
+            async fn maybe_cache<T>(
                 host: &Host,
                 server_cache: ServerCachePreference,
                 path_query: PathQuery,
                 response: CompressedResponse,
-                future: &Option<RetSyncFut<()>>,
+                future: &Option<T>,
             ) {
                 if future.is_none() {
                     if server_cache.cache(response.get_identity()) {
@@ -475,7 +495,7 @@ pub async fn handle_cache(
                         lock.cache(key, response);
                     }
                 } else {
-                    info!("Not caching; a Pre extension has captured. If we cached, it would not be called again.");
+                    info!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
                 }
             }
 
@@ -547,15 +567,13 @@ pub async fn handle_cache(
         identity,
         &request,
         host,
+        future,
         request.method(),
         address,
         sanitize_data.ok(),
     )
     .await?;
 
-    if let Some(future) = future {
-        future.await;
-    }
     Ok(())
 }
 

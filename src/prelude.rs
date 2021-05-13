@@ -47,7 +47,7 @@ pub use crate::utility;
 // Crate exports
 pub use crate::*;
 pub use comprash::UriKey;
-pub use extensions::{Package, Post, Pre, Prepare, Present, Prime};
+pub use extensions::{Package, Post, Prepare, Present, Prime, ResponsePipeFuture};
 pub use host::{Data, Host};
 pub use utility::chars::*;
 pub use utility::{read_file, read_file_cached};

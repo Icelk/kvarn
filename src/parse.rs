@@ -677,8 +677,6 @@ mod read_head {
             return Err(Error::HeaderTooLong);
         }
 
-        // let mut reader = reader.lock().await;
-
         if buffer.capacity() < buffer.len() + 512 {
             if buffer.len() + 512 > max_len {
                 buffer.reserve((buffer.len() + 512) - max_len);
@@ -712,18 +710,10 @@ mod read_head {
         let read = &mut read;
 
         loop {
-            if read_more(
-                &mut buffer,
-                /* get_stream(stream).await */ &mut reader,
-                read,
-                max_len,
-            )
-            .await?
-                == 0
-            {
+            if read_more(&mut buffer, &mut reader, read, max_len).await? == 0 {
                 break;
             };
-            if !utility::valid_method(&buffer) {
+            if !(utility::valid_method(&buffer) || utility::valid_version(&buffer)) {
                 return Err(Error::Syntax);
             }
 

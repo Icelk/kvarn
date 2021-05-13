@@ -63,8 +63,16 @@ pub type Post = Box<
 >;
 /// Dynamic function to check if a extension should be ran.
 ///
-/// Used with [`Prepare`] extension
+/// Used with [`Prepare`] extensions
 pub type If = Box<(dyn Fn(&FatRequest) -> bool + Sync + Send)>;
+/// A [`Future`] for writing to a [`ResponsePipe`] after the response is sent.
+///
+/// Used with [`Prepare`] extensions
+pub type ResponsePipeFuture = Box<
+    dyn FnOnce(extensions::ResponseBodyPipeWrapperMut, extensions::HostWrapper) -> RetSyncFut<()>
+        + Send
+        + Sync,
+>;
 
 /// Magic number for [`Present`] extension.
 ///
@@ -431,10 +439,11 @@ macro_rules! get_unsafe_mut_wrapper {
 get_unsafe_wrapper!(RequestWrapper, FatRequest);
 get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
 get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
-get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, application::ResponsePipe);
+get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, ResponsePipe);
 get_unsafe_wrapper!(HostWrapper, Host);
 get_unsafe_wrapper!(PathWrapper, Path);
 get_unsafe_mut_wrapper!(PresentDataWrapper, PresentData);
+get_unsafe_mut_wrapper!(ResponseBodyPipeWrapperMut, ResponseBodyPipe);
 
 /// Add data pretending to present state in creating the response.
 ///
@@ -972,6 +981,24 @@ mod macros {
     macro_rules! post {
         ($request:ident, $bytes:ident, $response:ident, $addr:ident, $host:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
             extension!(|$request: RequestWrapper, $response: EmptyResponseWrapperMut, $host: HostWrapper | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
+        }
+    }
+    /// Creates a [`ResponsePipeFuture`].
+    ///
+    /// # Examples
+    /// ```
+    /// # use kvarn::*;
+    /// prepare!(req, host, path, addr {
+    ///     let response = utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await;
+    ///     response.with_future(response_pipe_fut!(response_pipe, host {
+    ///         response_pipe.send(Bytes::from_static(b"This will be appended to the body!"))
+    ///     }))
+    /// });
+    /// ```
+    #[macro_export]
+    macro_rules! response_pipe_fut {
+        ($response:ident, $host:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$response: ResponseBodyPipeWrapperMut, $host: HostWrapper| |, $($($clone)*)*, $code)
         }
     }
 }

@@ -157,7 +157,7 @@ pub async fn read_to_end_or_max(
             0 => break,
             len => {
                 read += len;
-                if read == max_len {
+                if read >= max_len {
                     return Ok(());
                 }
                 if read > buffer.len() - 512 {
@@ -412,25 +412,45 @@ pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
 ) {
     replace_header(headers, name, HeaderValue::from_static(new))
 }
+/// Removes all headers from `headers` with `name`.
+#[inline]
+pub fn remove_all_headers<K: header::IntoHeaderName>(headers: &mut HeaderMap, name: K) {
+    if let header::Entry::Occupied(entry) = headers.entry(name) {
+        entry.remove_entry_mult();
+    }
+}
+
+macro_rules! starts_with_any {
+    ($e:expr, $($match:expr $(,)?)*) => {
+        $($e.starts_with($match) || )* false
+    };
+}
 
 /// Check if `bytes` starts with a valid [`Method`].
 #[must_use]
 pub fn valid_method(bytes: &[u8]) -> bool {
-    bytes.starts_with(b"GET")
-        || bytes.starts_with(b"HEAD")
-        || bytes.starts_with(b"POST")
-        || bytes.starts_with(b"PUT")
-        || bytes.starts_with(b"DELETE")
-        || bytes.starts_with(b"TRACE")
-        || bytes.starts_with(b"OPTIONS")
-        || bytes.starts_with(b"CONNECT")
-        || bytes.starts_with(b"PATCH")
+    starts_with_any!(
+        bytes, b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE", b"OPTIONS", b"CONNECT",
+        b"PATCH"
+    )
 }
-/// Gets the `content-length` from the [`Request::headers`] of `request`.
+/// Checks if `bytes` starts with a valid [`Version`]
+#[must_use]
+pub fn valid_version(bytes: &[u8]) -> bool {
+    starts_with_any!(
+        bytes,
+        b"HTTP/0.9",
+        b"HTTP/1.0",
+        b"HTTP/1.1",
+        b"HTTP/2",
+        b"HTTP/3"
+    )
+}
+/// Gets the body len gth from the [`Request::headers`] of `request`.
 ///
-/// If <code>!\[`method_has_request_body`]</code> or the header isn't present, it defaults to `0`.
+/// If [`method_has_request_body`] returns `false` or the header isn't present, it defaults to `0`.
 #[inline]
-pub fn get_content_length<T>(request: &Request<T>) -> usize {
+pub fn get_body_length_request<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
     if method_has_request_body(request.method()) {
         request
@@ -456,6 +476,25 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
         "content-length",
         HeaderValue::from_str(len.to_string().as_str()).unwrap(),
     )
+}
+/// Gets the body length of a `response`.
+///
+/// If `method` is [`Some`] and [`method_has_response_body`] returns true, `0` is
+/// returned. Else the `content-length` header is checked. `usize::MAX` Is otherwise returned.
+pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> usize {
+    use std::str::FromStr;
+    if method.map_or(true, |m| method_has_response_body(m)) {
+        response
+            .headers()
+            .get("content-length")
+            .map(HeaderValue::to_str)
+            .and_then(Result::ok)
+            .map(usize::from_str)
+            .and_then(Result::ok)
+            .unwrap_or(usize::MAX)
+    } else {
+        0
+    }
 }
 
 /// Does a request of type `method` have a body?
@@ -586,6 +625,19 @@ pub mod write {
         headers(request.headers(), &mut writer).await?;
 
         write_bytes!(writer, b"\r\n", body);
+
+        writer.flush().await?;
         Ok(())
     }
 }
+
+// pub fn read_to_async<R: Read>(reader: R) -> ReadToAsync<R> {
+//     ReadToAsync(reader)
+// }
+// pub struct ReadToAsync<R: Read>(R);
+// impl<R> AsyncRead for ReadToAsync<R> {
+//     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+//         buf.put_slice(buf)
+//         self.get_mut().read(buf)
+//     }
+// }
