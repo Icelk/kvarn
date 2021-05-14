@@ -286,7 +286,7 @@ impl CriticalRequestComponents {
             if response.status() == StatusCode::OK {
                 *response.status_mut() = StatusCode::PARTIAL_CONTENT;
             }
-        } else {
+        } else if !response.body().is_empty() {
             utility::replace_header_static(response.headers_mut(), "accept-ranges", "bytes")
         }
     }
