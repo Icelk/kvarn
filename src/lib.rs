@@ -281,6 +281,7 @@ pub async fn handle_connection(
         .accept(descriptors.data.get_default().name.as_bytes())
         .await
     {
+        trace!("Got request {:#?}", request);
         #[cfg(feature = "limiting")]
         match limiter.register(address.ip()).await {
             LimitStrength::Drop => return Ok(()),

@@ -295,11 +295,7 @@ mod request {
 }
 
 mod response {
-    use super::{
-        fmt, io, timeout, utility, Arc, AsyncRead, AsyncWrite, AsyncWriteExt, Bytes, BytesMut,
-        Context, Debug, Duration, Error, Formatter, Method, Mutex, Pin, Poll, PushedResponsePipe,
-        ReadBuf, Request, Response, ResponseBodyPipe, ResponsePipe, Version,
-    };
+    use crate::prelude::{application::*, internals::*, *};
 
     /// A HTTP/1 body.
     ///
@@ -410,11 +406,19 @@ mod response {
             match self {
                 Self::Http1(s) => {
                     let mut writer = s.lock().await;
-                    utility::replace_header_static(
+                    match response
+                        .headers()
+                        .get("connection")
+                        .map(HeaderValue::to_str)
+                        .and_then(Result::ok)
+                    {
+                        Some("close") | None => utility::replace_header_static(
                         response.headers_mut(),
                         "connection",
                         "keep-alive",
-                    );
+                        ),
+                        _ => {}
+                    }
                     let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
                     utility::write::response(&response, b"", &mut writer)
                         .await
