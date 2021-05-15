@@ -528,13 +528,15 @@ pub mod reverse_proxy {
             ($poll: expr) => {
                 match $poll {
                     Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    Poll::Ready(r) => Poll::Ready(r),
                     _ => $poll,
                 }
             };
             ($poll: expr, $map: expr) => {
                 match $poll {
                     Poll::Ready(Err(e)) => return Poll::Ready(Err($map(e))),
-                    _ => $poll,
+                    Poll::Ready(r) => Poll::Ready(r),
+                    _ => Poll::Pending,
                 }
             };
         }
@@ -553,7 +555,7 @@ pub mod reverse_proxy {
                     read_done: false,
                     pos: 0,
                     cap: 0,
-                    buf: vec![0; 2048].into_boxed_slice(),
+                    buf: std::vec::from_elem(0, 2048).into_boxed_slice(),
                 }
             }
             pub fn with_capacity(initialized: usize) -> Self {
@@ -561,16 +563,17 @@ pub mod reverse_proxy {
                     read_done: false,
                     pos: 0,
                     cap: 0,
-                    buf: vec![0; initialized].into_boxed_slice(),
+                    buf: std::vec::from_elem(0, initialized).into_boxed_slice(),
                 }
             }
 
+            /// Returns Ok(true) if it's done reading.
             pub fn poll_copy<R, W>(
                 &mut self,
                 cx: &mut Context<'_>,
                 mut reader: Pin<&mut R>,
                 mut writer: Pin<&mut W>,
-            ) -> Poll<io::Result<()>>
+            ) -> Poll<io::Result<bool>>
             where
                 R: AsyncRead + ?Sized,
                 W: AsyncWrite + ?Sized,
@@ -593,8 +596,9 @@ pub mod reverse_proxy {
 
                     // If our buffer has some data, let's write it out!
                     while self.pos < self.cap {
-                        let me = &mut *self;
-                        let i = ready!(writer.as_mut().poll_write(cx, &me.buf[me.pos..me.cap]))?;
+                        let i = ready!(writer
+                            .as_mut()
+                            .poll_write(cx, &self.buf[self.pos..self.cap]))?;
                         if i == 0 {
                             return Poll::Ready(Err(io::Error::new(
                                 io::ErrorKind::WriteZero,
@@ -603,13 +607,17 @@ pub mod reverse_proxy {
                         } else {
                             self.pos += i;
                         }
+                        if self.pos >= self.cap {
+                            info!("Status update");
+                            return Poll::Ready(Ok(false))
+                        }
                     }
 
                     // If we've written all the data and we've seen EOF, flush out the
                     // data and finish the transfer.
                     if self.pos == self.cap && self.read_done {
                         ready!(writer.as_mut().poll_flush(cx))?;
-                        return Poll::Ready(Ok(()));
+                        return Poll::Ready(Ok(true));
                     }
                 }
             }
@@ -657,6 +665,8 @@ pub mod reverse_proxy {
     #[derive(Debug, Clone, Copy)]
     pub enum Connection {
         Tcp(SocketAddr),
+        /// Keep in mind, this currently has a `60s` timeout.
+        /// Please use [`Self::UnixSocket`]s instead if you are on Unix.
         Udp(SocketAddr),
         #[cfg(unix)]
         UnixSocket(&'static Path),
@@ -844,11 +854,19 @@ pub mod reverse_proxy {
     pub enum OpenBackError {
         Front(io::Error),
         Back(io::Error),
+        Closed,
     }
     impl OpenBackError {
-        pub fn get_io(&self) -> &io::Error {
+        pub fn get_io(&self) -> Option<&io::Error> {
             match self {
-                Self::Front(e) | Self::Back(e) => e,
+                Self::Front(e) | Self::Back(e) => Some(e),
+                Self::Closed => None,
+            }
+        }
+        pub fn get_io_kind(&self) -> io::ErrorKind {
+            match self {
+                Self::Front(e) | Self::Back(e) => e.kind(),
+                Self::Closed => io::ErrorKind::BrokenPipe,
             }
         }
     }
@@ -871,13 +889,14 @@ pub mod reverse_proxy {
         pub fn poll_channel(&mut self, cx: &mut Context) -> Poll<Result<(), OpenBackError>> {
             macro_rules! copy_from_to {
                 ($reader: expr, $error: expr, $buf: expr, $writer: expr) => {
-                    if ret_ready_err!(
-                        $buf.poll_copy(cx, Pin::new($reader), Pin::new($writer)),
-                        $error
-                    )
-                    .is_ready()
-                    {
-                        return Poll::Ready(Ok(()));
+                    if let Poll::Ready(Ok(pipe_closed)) = ret_ready_err!(
+                        $buf.poll_copy(cx, Pin::new($reader), Pin::new($writer)), $error
+                    ) {
+                        if pipe_closed {
+                            return Poll::Ready(Err(OpenBackError::Closed));
+                        } else {
+                            return Poll::Ready(Ok(()));
+                        }
                     };
                 };
             }
@@ -1028,25 +1047,41 @@ pub mod reverse_proxy {
                     if wait {
                         info!("Keeping the pipe open!");
                         let future = response_pipe_fut!(response_pipe, _host {
+                            let udp_connection = matches!(connection, EstablishedConnection::Udp(_));
+
                             let mut open_back = ByteProxy::new(response_pipe, &mut connection);
                             debug!("Created open back!");
 
-                            debug!("Polling open back");
-                            if let Ok(r) = timeout(Duration::from_secs(60), open_back.channel())
-                                .await
-                            {
-                                info!("Open back responded! {:?}", r);
-                                if let Err(err) = r {
-                                    if !matches!(
-                                        err.get_io().kind(),
-                                        io::ErrorKind::ConnectionAborted
-                                            | io::ErrorKind::ConnectionReset
-                                            | io::ErrorKind::BrokenPipe
-                                    ) {
-                                        warn!("Reverse proxy io error: {:?}", err);
+                            loop {
+                                // Add 60 second timeout to UDP connections.
+                                let timeout_result = if udp_connection {
+                                    timeout(Duration::from_secs(90), open_back.channel())
+                                    .await
+                                }else {
+                                    Ok(open_back.channel().await)
+                                };
+
+                                if let Ok(r) = timeout_result
+                                {
+                                    info!("Open back responded! {:?}", r);
+                                    match r {
+                                        Err(err) => {
+                                            if !matches!(
+                                                err.get_io_kind(),
+                                                io::ErrorKind::ConnectionAborted
+                                                    | io::ErrorKind::ConnectionReset
+                                            ) {
+                                                warn!("Reverse proxy io error: {:?}", err);
+                                                
+                                            }
+                                            break;
+                                        },
+                                        Ok(()) => continue,
                                     }
+                                } else {
+                                    break;
                                 }
-                            };
+                            }
                         });
 
                         response = response.with_future(future);
