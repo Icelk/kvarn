@@ -413,9 +413,9 @@ mod response {
                         .and_then(Result::ok)
                     {
                         Some("close") | None => utility::replace_header_static(
-                        response.headers_mut(),
-                        "connection",
-                        "keep-alive",
+                            response.headers_mut(),
+                            "connection",
+                            "keep-alive",
                         ),
                         _ => {}
                     }

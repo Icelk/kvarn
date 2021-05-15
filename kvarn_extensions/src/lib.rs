@@ -549,6 +549,7 @@ pub mod reverse_proxy {
             }
         }
     }
+    #[derive(Debug)]
     pub enum GatewayError {
         Io(io::Error),
         Timeout,
@@ -644,7 +645,6 @@ pub mod reverse_proxy {
 
             let mut buffered = tokio::io::BufWriter::new(&mut *self);
             utility::write::request(request, body, &mut buffered).await?;
-            info!("Sent {:#?}", request);
 
             debug!("Sent reverse-proxy bytes.");
 
@@ -656,43 +656,157 @@ pub mod reverse_proxy {
                 Ok(result) => match result {
                     Err(err) => return Err(err.into()),
                     Ok(response) => {
-                        let len =
-                            utility::get_body_length_response(&response, Some(request.method()));
+                        let chunked = response.headers().get("transfer-encoding")
+                            == Some(&HeaderValue::from_static("chunked"));
+                        let len = if chunked {
+                            usize::MAX
+                        } else {
+                            utility::get_body_length_response(&response, Some(request.method()))
+                        };
 
                         let (mut head, body) = utility::split_response(response);
 
-                        let mut buffer = BytesMut::with_capacity(body.len() + 512);
-                        buffer.extend(&body);
-                        if let Ok(result) = timeout(
-                            Duration::from_millis(250),
-                            utility::read_to_end_or_max(&mut buffer, &mut *self, len),
-                        )
-                        .await
-                        {
-                            result?
-                        }
+                        let body = if len == 0 {
+                            body
+                        } else {
+                            let mut buffer = BytesMut::with_capacity(body.len() + 512);
+                            buffer.extend(&body);
+                            if let Ok(result) = timeout(
+                                Duration::from_millis(250),
+                                utility::read_to_end_or_max(&mut buffer, &mut *self, len),
+                            )
+                            .await
+                            {
+                                result?
+                            } else if !chunked {
+                                unsafe { buffer.set_len(0) };
+                            }
 
-                        if head.headers().get("transfer-encoding")
-                            == Some(&HeaderValue::from_static("chunked"))
-                        {
-                            let mut new_buffer = BytesMut::with_capacity(buffer.len());
-                            let decoder = chunked_transfer::Decoder::new(&buffer[..]);
-                            read_to_end(&mut new_buffer, decoder)?;
-                            buffer = new_buffer;
+                            if chunked {
+                                let mut new_buffer = BytesMut::with_capacity(buffer.len());
+                                let decoder = chunked_transfer::Decoder::new(&buffer[..]);
+                                read_to_end(&mut new_buffer, decoder)?;
+                                buffer = new_buffer;
 
-                            utility::remove_all_headers(head.headers_mut(), "transfer-encoding");
-                        }
+                                utility::remove_all_headers(
+                                    head.headers_mut(),
+                                    "transfer-encoding",
+                                );
+                            }
+                            buffer.freeze()
+                        };
 
-                        info!("Got {:#?}", head);
-
-                        let whole_body = buffer.freeze();
-
-                        head.map(|()| whole_body)
+                        info!("Response {:#?}", head);
+                        head.map(|()| body)
                     }
                 },
                 Err(_) => return Err(GatewayError::Timeout),
             };
             Ok(response)
+        }
+    }
+
+    macro_rules! ready {
+        ($poll: expr) => {
+            match $poll {
+                Poll::Ready(v) => v,
+                Poll::Pending => return Poll::Pending,
+            }
+        };
+    }
+    macro_rules! ret_ready_err {
+        ($poll: expr) => {
+            match $poll {
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                _ => $poll,
+            }
+        };
+        ($poll: expr, $map: expr) => {
+            match $poll {
+                Poll::Ready(Err(e)) => return Poll::Ready(Err($map(e))),
+                _ => $poll,
+            }
+        };
+    }
+
+    #[derive(Debug)]
+    pub struct CopyBuffer {
+        read_done: bool,
+        pos: usize,
+        cap: usize,
+        buf: Box<[u8]>,
+    }
+
+    impl CopyBuffer {
+        pub fn new() -> Self {
+            Self {
+                read_done: false,
+                pos: 0,
+                cap: 0,
+                buf: vec![0; 2048].into_boxed_slice(),
+            }
+        }
+        pub fn with_capacity(initialized: usize) -> Self {
+            Self {
+                read_done: false,
+                pos: 0,
+                cap: 0,
+                buf: vec![0; initialized].into_boxed_slice(),
+            }
+        }
+
+        pub fn poll_copy<R, W>(
+            &mut self,
+            cx: &mut Context<'_>,
+            mut reader: Pin<&mut R>,
+            mut writer: Pin<&mut W>,
+        ) -> Poll<io::Result<()>>
+        where
+            R: AsyncRead + ?Sized,
+            W: AsyncWrite + ?Sized,
+        {
+            loop {
+                // If our buffer is empty, then we need to read some data to
+                // continue.
+                if self.pos == self.cap && !self.read_done {
+                    let me = &mut *self;
+                    let mut buf = ReadBuf::new(&mut me.buf);
+                    ready!(reader.as_mut().poll_read(cx, &mut buf))?;
+                    let n = buf.filled().len();
+                    if n == 0 {
+                        self.read_done = true;
+                    } else {
+                        self.pos = 0;
+                        self.cap = n;
+                    }
+                }
+
+                // If our buffer has some data, let's write it out!
+                while self.pos < self.cap {
+                    let me = &mut *self;
+                    let i = ready!(writer.as_mut().poll_write(cx, &me.buf[me.pos..me.cap]))?;
+                    if i == 0 {
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::WriteZero,
+                            "write zero byte into writer",
+                        )));
+                    } else {
+                        self.pos += i;
+                    }
+                }
+
+                // If we've written all the data and we've seen EOF, flush out the
+                // data and finish the transfer.
+                if self.pos == self.cap && self.read_done {
+                    ready!(writer.as_mut().poll_flush(cx))?;
+                    return Poll::Ready(Ok(()));
+                }
+            }
+        }
+    }
+    impl Default for CopyBuffer {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
@@ -708,78 +822,38 @@ pub mod reverse_proxy {
             }
         }
     }
-    struct OpenBack<'a, B: AsyncRead + AsyncWrite + Unpin> {
-        front: &'a mut ResponseBodyPipe,
+    struct OpenBack<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> {
+        front: &'a mut F,
         back: &'a mut B,
-        front_buffer: Vec<u8>,
-        front_written: usize,
-        back_buffer: Vec<u8>,
-        back_written: usize,
+        // ToDo: Optimize to one buffer!
+        front_buf: CopyBuffer,
+        back_buf: CopyBuffer,
     }
-    impl<'a, B: AsyncRead + AsyncWrite + Unpin> OpenBack<'a, B> {
-        pub fn new(front: &'a mut ResponseBodyPipe, back: &'a mut B) -> Self {
-            let front_buffer = Vec::with_capacity(4096);
-            let back_buffer = Vec::with_capacity(4096);
+    impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> OpenBack<'a, F, B> {
+        pub fn new(front: &'a mut F, back: &'a mut B) -> Self {
             Self {
                 front,
                 back,
-                front_buffer,
-                front_written: 0,
-                back_buffer,
-                back_written: 0,
+                front_buf: CopyBuffer::new(),
+                back_buf: CopyBuffer::new(),
             }
         }
         pub fn poll_channel(&mut self, cx: &mut Context) -> Poll<Result<(), OpenBackError>> {
-            macro_rules! impl_for {
-                ($buffer: expr, $written: expr, $stream: expr, $other_stream: expr, $error: expr, $other_error: expr) => {
-                    if $buffer.len() - $written > 0 {
-                        if let Poll::Ready(r) =
-                            Pin::new($stream).poll_write(cx, &$buffer[$written..])
-                        {
-                            let written = r.map_err($error)?;
-                            $written += written;
-                            if $written == $buffer.len() {
-                                $buffer.clear();
-                                $written = 0;
-                                return Poll::Ready(Ok(()));
-                            }
-                        }
-                    } else {
-                        let cap = $buffer.capacity();
-                        let mut front_buf =
-                            ReadBuf::new(unsafe { $buffer.get_unchecked_mut(0..cap) });
-                        // Poll is handled; we return Poll::Pending after this.
-                        match Pin::new($other_stream).poll_read(cx, &mut front_buf) {
-                            Poll::Ready(Err(e)) => return Poll::Ready(Err($other_error(e))),
-                            _ => {}
-                        }
-                        let filled = front_buf.filled().len();
-                        unsafe { $buffer.set_len(filled) };
-                        info!(
-                            "Got {}, {} read!",
-                            filled,
-                            String::from_utf8_lossy(&$buffer)
-                        );
-                    }
+            macro_rules! copy_from_to {
+                ($reader: expr, $error: expr, $buf: expr, $writer: expr) => {
+                    if ret_ready_err!(
+                        $buf.poll_copy(cx, Pin::new($reader), Pin::new($writer)),
+                        $error
+                    )
+                    .is_ready()
+                    {
+                        return Poll::Ready(Ok(()));
+                    };
                 };
             }
 
-            impl_for!(
-                self.front_buffer,
-                self.front_written,
-                &mut self.front,
-                &mut self.back,
-                OpenBackError::Front,
-                OpenBackError::Back
-            );
-            impl_for!(
-                self.back_buffer,
-                self.back_written,
-                &mut self.back,
-                &mut self.front,
-                OpenBackError::Back,
-                OpenBackError::Front
-            );
+            copy_from_to!(self.back, OpenBackError::Back, self.front_buf, self.front);
+            copy_from_to!(self.front, OpenBackError::Front, self.back_buf, self.back);
 
             Poll::Pending
         }
@@ -923,12 +997,15 @@ pub mod reverse_proxy {
                     let mut response = match connection.request(req, &bytes).await {
                         Ok(mut response) => {
                             let headers = response.headers_mut();
-                            utility::remove_all_headers(headers, "connection");
                             utility::remove_all_headers(headers, "keep-alive");
+                            if !utility::header_eq(headers, "connection", "upgrade") {
+                                utility::remove_all_headers(headers, "connection");
+                            }
 
                             FatResponse::cache(response)
                         }
                         Err(err) => {
+                            warn!("Got error {:?}", err);
                             default_error_response(
                                 match err {
                                     GatewayError::Io(_) | GatewayError::Parse(_) => {
@@ -949,28 +1026,22 @@ pub mod reverse_proxy {
                             let mut open_back = OpenBack::new(response_pipe, &mut connection);
                             debug!("Created open back!");
 
-                            loop {
-                                debug!("Polling open back");
-                                match timeout(Duration::from_secs(60), open_back.channel())
-                                    .await
-                                {
-                                    Err(_) => break,
-                                    Ok(r) => {
-                                        info!("Open back responded! {:?}", r);
-                                        if let Err(err) = r {
-                                            if !matches!(
-                                                err.get_io().kind(),
-                                                io::ErrorKind::ConnectionAborted
-                                                    | io::ErrorKind::ConnectionReset
-                                                    | io::ErrorKind::BrokenPipe
-                                            ) {
-                                                warn!("Reverse proxy io error: {:?}", err);
-                                            }
-                                            break;
-                                        }
+                            debug!("Polling open back");
+                            if let Ok(r) = timeout(Duration::from_secs(60), open_back.channel())
+                                .await
+                            {
+                                info!("Open back responded! {:?}", r);
+                                if let Err(err) = r {
+                                    if !matches!(
+                                        err.get_io().kind(),
+                                        io::ErrorKind::ConnectionAborted
+                                            | io::ErrorKind::ConnectionReset
+                                            | io::ErrorKind::BrokenPipe
+                                    ) {
+                                        warn!("Reverse proxy io error: {:?}", err);
                                     }
-                                };
-                            }
+                                }
+                            };
                         });
 
                         response = response.with_future(future)

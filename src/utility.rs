@@ -425,6 +425,15 @@ macro_rules! starts_with_any {
         $($e.starts_with($match) || )* false
     };
 }
+/// Checks the equality of value of `name` in `headers` and `value`.
+/// Value **must** be all lowercase; the [`HeaderValue`] in `headers` is converted to lowercase.
+pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &str) -> bool {
+    let header_value = headers
+        .get(name)
+        .map(HeaderValue::to_str)
+        .and_then(Result::ok);
+    header_value.map_or(false, |s| s.to_ascii_lowercase() == value)
+}
 
 /// Check if `bytes` starts with a valid [`Method`].
 #[must_use]
@@ -480,7 +489,7 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
 /// Gets the body length of a `response`.
 ///
 /// If `method` is [`Some`] and [`method_has_response_body`] returns true, `0` is
-/// returned. Else the `content-length` header is checked. `usize::MAX` Is otherwise returned.
+/// returned. Else the `content-length` header is checked. `0` is otherwise returned.
 pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> usize {
     use std::str::FromStr;
     if method.map_or(true, |m| method_has_response_body(m)) {
@@ -491,7 +500,7 @@ pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Metho
             .and_then(Result::ok)
             .map(usize::from_str)
             .and_then(Result::ok)
-            .unwrap_or(usize::MAX)
+            .unwrap_or(0)
     } else {
         0
     }
