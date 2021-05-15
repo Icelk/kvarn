@@ -512,6 +512,140 @@ pub mod reverse_proxy {
     use std::net::{Ipv4Addr, SocketAddrV4};
     use tokio::net::{TcpStream, UdpSocket, UnixStream};
 
+    pub use async_bits::{poll_fn, CopyBuffer};
+    #[macro_use]
+    pub mod async_bits {
+        use kvarn::prelude::*;
+        macro_rules! ready {
+            ($poll: expr) => {
+                match $poll {
+                    Poll::Ready(v) => v,
+                    Poll::Pending => return Poll::Pending,
+                }
+            };
+        }
+        macro_rules! ret_ready_err {
+            ($poll: expr) => {
+                match $poll {
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                    _ => $poll,
+                }
+            };
+            ($poll: expr, $map: expr) => {
+                match $poll {
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err($map(e))),
+                    _ => $poll,
+                }
+            };
+        }
+
+        #[derive(Debug)]
+        pub struct CopyBuffer {
+            read_done: bool,
+            pos: usize,
+            cap: usize,
+            buf: Box<[u8]>,
+        }
+
+        impl CopyBuffer {
+            pub fn new() -> Self {
+                Self {
+                    read_done: false,
+                    pos: 0,
+                    cap: 0,
+                    buf: vec![0; 2048].into_boxed_slice(),
+                }
+            }
+            pub fn with_capacity(initialized: usize) -> Self {
+                Self {
+                    read_done: false,
+                    pos: 0,
+                    cap: 0,
+                    buf: vec![0; initialized].into_boxed_slice(),
+                }
+            }
+
+            pub fn poll_copy<R, W>(
+                &mut self,
+                cx: &mut Context<'_>,
+                mut reader: Pin<&mut R>,
+                mut writer: Pin<&mut W>,
+            ) -> Poll<io::Result<()>>
+            where
+                R: AsyncRead + ?Sized,
+                W: AsyncWrite + ?Sized,
+            {
+                loop {
+                    // If our buffer is empty, then we need to read some data to
+                    // continue.
+                    if self.pos == self.cap && !self.read_done {
+                        let me = &mut *self;
+                        let mut buf = ReadBuf::new(&mut me.buf);
+                        ready!(reader.as_mut().poll_read(cx, &mut buf))?;
+                        let n = buf.filled().len();
+                        if n == 0 {
+                            self.read_done = true;
+                        } else {
+                            self.pos = 0;
+                            self.cap = n;
+                        }
+                    }
+
+                    // If our buffer has some data, let's write it out!
+                    while self.pos < self.cap {
+                        let me = &mut *self;
+                        let i = ready!(writer.as_mut().poll_write(cx, &me.buf[me.pos..me.cap]))?;
+                        if i == 0 {
+                            return Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::WriteZero,
+                                "write zero byte into writer",
+                            )));
+                        } else {
+                            self.pos += i;
+                        }
+                    }
+
+                    // If we've written all the data and we've seen EOF, flush out the
+                    // data and finish the transfer.
+                    if self.pos == self.cap && self.read_done {
+                        ready!(writer.as_mut().poll_flush(cx))?;
+                        return Poll::Ready(Ok(()));
+                    }
+                }
+            }
+        }
+        impl Default for CopyBuffer {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+        pub fn poll_fn<T, F>(f: F) -> PollFn<F>
+        where
+            F: FnMut(&mut Context<'_>) -> Poll<T>,
+        {
+            PollFn { f }
+        }
+        pub struct PollFn<F> {
+            f: F,
+        }
+        impl<F> Unpin for PollFn<F> {}
+        impl<F> fmt::Debug for PollFn<F> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct("PollFn").finish()
+            }
+        }
+        impl<T, F> Future for PollFn<F>
+        where
+            F: FnMut(&mut Context<'_>) -> Poll<T>,
+        {
+            type Output = T;
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+                (&mut self.f)(cx)
+            }
+        }
+    }
+
     macro_rules! socket_addr_with_port {
         ($($port:literal $(,)+)*) => {
             &[
@@ -656,8 +790,8 @@ pub mod reverse_proxy {
                 Ok(result) => match result {
                     Err(err) => return Err(err.into()),
                     Ok(response) => {
-                        let chunked = response.headers().get("transfer-encoding")
-                            == Some(&HeaderValue::from_static("chunked"));
+                        let chunked =
+                            utility::header_eq(response.headers(), "transfer-encoding", "chunked");
                         let len = if chunked {
                             usize::MAX
                         } else {
@@ -706,112 +840,8 @@ pub mod reverse_proxy {
         }
     }
 
-    macro_rules! ready {
-        ($poll: expr) => {
-            match $poll {
-                Poll::Ready(v) => v,
-                Poll::Pending => return Poll::Pending,
-            }
-        };
-    }
-    macro_rules! ret_ready_err {
-        ($poll: expr) => {
-            match $poll {
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                _ => $poll,
-            }
-        };
-        ($poll: expr, $map: expr) => {
-            match $poll {
-                Poll::Ready(Err(e)) => return Poll::Ready(Err($map(e))),
-                _ => $poll,
-            }
-        };
-    }
-
     #[derive(Debug)]
-    pub struct CopyBuffer {
-        read_done: bool,
-        pos: usize,
-        cap: usize,
-        buf: Box<[u8]>,
-    }
-
-    impl CopyBuffer {
-        pub fn new() -> Self {
-            Self {
-                read_done: false,
-                pos: 0,
-                cap: 0,
-                buf: vec![0; 2048].into_boxed_slice(),
-            }
-        }
-        pub fn with_capacity(initialized: usize) -> Self {
-            Self {
-                read_done: false,
-                pos: 0,
-                cap: 0,
-                buf: vec![0; initialized].into_boxed_slice(),
-            }
-        }
-
-        pub fn poll_copy<R, W>(
-            &mut self,
-            cx: &mut Context<'_>,
-            mut reader: Pin<&mut R>,
-            mut writer: Pin<&mut W>,
-        ) -> Poll<io::Result<()>>
-        where
-            R: AsyncRead + ?Sized,
-            W: AsyncWrite + ?Sized,
-        {
-            loop {
-                // If our buffer is empty, then we need to read some data to
-                // continue.
-                if self.pos == self.cap && !self.read_done {
-                    let me = &mut *self;
-                    let mut buf = ReadBuf::new(&mut me.buf);
-                    ready!(reader.as_mut().poll_read(cx, &mut buf))?;
-                    let n = buf.filled().len();
-                    if n == 0 {
-                        self.read_done = true;
-                    } else {
-                        self.pos = 0;
-                        self.cap = n;
-                    }
-                }
-
-                // If our buffer has some data, let's write it out!
-                while self.pos < self.cap {
-                    let me = &mut *self;
-                    let i = ready!(writer.as_mut().poll_write(cx, &me.buf[me.pos..me.cap]))?;
-                    if i == 0 {
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::WriteZero,
-                            "write zero byte into writer",
-                        )));
-                    } else {
-                        self.pos += i;
-                    }
-                }
-
-                // If we've written all the data and we've seen EOF, flush out the
-                // data and finish the transfer.
-                if self.pos == self.cap && self.read_done {
-                    ready!(writer.as_mut().poll_flush(cx))?;
-                    return Poll::Ready(Ok(()));
-                }
-            }
-        }
-    }
-    impl Default for CopyBuffer {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    #[derive(Debug)]
-    enum OpenBackError {
+    pub enum OpenBackError {
         Front(io::Error),
         Back(io::Error),
     }
@@ -822,14 +852,14 @@ pub mod reverse_proxy {
             }
         }
     }
-    struct OpenBack<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> {
+    pub struct ByteProxy<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> {
         front: &'a mut F,
         back: &'a mut B,
         // ToDo: Optimize to one buffer!
         front_buf: CopyBuffer,
         back_buf: CopyBuffer,
     }
-    impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> OpenBack<'a, F, B> {
+    impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, F, B> {
         pub fn new(front: &'a mut F, back: &'a mut B) -> Self {
             Self {
                 front,
@@ -859,31 +889,6 @@ pub mod reverse_proxy {
         }
         pub async fn channel(&mut self) -> Result<(), OpenBackError> {
             poll_fn(|cx| self.poll_channel(cx)).await
-        }
-    }
-    fn poll_fn<T, F>(f: F) -> PollFn<F>
-    where
-        F: FnMut(&mut Context<'_>) -> Poll<T>,
-    {
-        PollFn { f }
-    }
-    struct PollFn<F> {
-        f: F,
-    }
-    impl<F> Unpin for PollFn<F> {}
-    impl<F> fmt::Debug for PollFn<F> {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("PollFn").finish()
-        }
-    }
-    impl<T, F> Future for PollFn<F>
-    where
-        F: FnMut(&mut Context<'_>) -> Poll<T>,
-    {
-        type Output = T;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-            (&mut self.f)(cx)
         }
     }
 
@@ -1023,7 +1028,7 @@ pub mod reverse_proxy {
                     if wait {
                         info!("Keeping the pipe open!");
                         let future = response_pipe_fut!(response_pipe, _host {
-                            let mut open_back = OpenBack::new(response_pipe, &mut connection);
+                            let mut open_back = ByteProxy::new(response_pipe, &mut connection);
                             debug!("Created open back!");
 
                             debug!("Polling open back");
@@ -1044,7 +1049,7 @@ pub mod reverse_proxy {
                             };
                         });
 
-                        response = response.with_future(future)
+                        response = response.with_future(future);
                     }
 
                     response
