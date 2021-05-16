@@ -116,6 +116,9 @@ impl Manager {
             }
         }
     }
+    pub fn get_shutdown(&self, order: Ordering) -> bool {
+        self.shutdown.load(order)
+    }
     /// # Safety
     /// We know no other will have mutable access to self by taking `&self`.
     /// We only write to a value in memory. If another thread also does so,

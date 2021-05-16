@@ -250,6 +250,7 @@ pub async fn handle_connection(
     address: SocketAddr,
     descriptors: Arc<PortDescriptor>,
     #[allow(unused_variables)] limiter: LimitWrapper,
+    mut continue_accepting: impl FnMut() -> bool,
 ) -> io::Result<()> {
     #[cfg(feature = "limiting")]
     let mut limiter = limiter;
@@ -309,6 +310,10 @@ pub async fn handle_connection(
         debug!("Accepting new connection from {} on {}", address, host.name);
         // fn to handle getting from cache, generating response and sending it
         handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await?;
+
+        if !continue_accepting() {
+            break;
+        }
     }
 
     Ok(())
@@ -855,7 +860,18 @@ async fn accept(
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.add_connection();
                         info!("new con {}", addr);
-                        if let Err(err) = handle_connection(socket, addr, host, limiter).await {
+                        if let Err(err) = handle_connection(socket, addr, host, limiter, || {
+                            #[cfg(feature = "graceful-shutdown")]
+                            {
+                                !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
+                            }
+                            #[cfg(not(feature = "graceful-shutdown"))]
+                            {
+                                true
+                            }
+                        })
+                        .await
+                        {
                             warn!(
                                 "An error occurred in the main processing function {:?}",
                                 err
