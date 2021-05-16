@@ -27,14 +27,18 @@
 #![deny(
     unreachable_pub,
     missing_debug_implementations,
-    missing_docs,
-    clippy::pedantic
+    // missing_docs,
+    clippy::pedantic,
 )]
 #![allow(
     clippy::too_many_lines,
     clippy::missing_panics_doc,
     // when a parameter of a function is prefixed due to cfg in fn
-    clippy::used_underscore_binding
+    clippy::used_underscore_binding,
+    // same as ↑
+    clippy::unused_self,
+    // When a enum variant has been conditionally compiled away
+    irrefutable_let_patterns,
 )]
 
 // Module declaration
@@ -46,6 +50,7 @@ pub mod host;
 pub mod limiting;
 pub mod parse;
 pub mod prelude;
+pub mod shutdown;
 pub mod utility;
 
 use prelude::{internals::*, networking::*, *};
@@ -295,7 +300,7 @@ pub async fn handle_connection(
                 *response.version_mut() = version;
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
-                ret_log_app_error!(body_pipe.send(body, true).await);
+                ret_log_app_error!(body_pipe.send_with_maybe_close(body, true).await);
                 continue;
             }
             LimitStrength::Passed => {}
@@ -371,7 +376,7 @@ impl<'a> SendKind<'a> {
 
                 if utility::method_has_response_body(request.method()) {
                     // Send body
-                    ret_log_app_error!(body_pipe.send(body, false).await);
+                    ret_log_app_error!(body_pipe.send_with_maybe_close(body, false).await);
                 }
 
                 if let Some(future) = future {
@@ -397,7 +402,11 @@ impl<'a> SendKind<'a> {
                     ret_log_app_error!(push_pipe.send_response(response, !send_body));
                 if send_body {
                     // Send body
-                    ret_log_app_error!(body_pipe.send(body, /* future.is_none() */ true).await);
+                    ret_log_app_error!(
+                        body_pipe
+                            .send_with_maybe_close(body, future.is_none())
+                            .await
+                    );
                 }
                 if let Some(future) = future {
                     future(
@@ -746,7 +755,8 @@ impl Debug for PortDescriptor {
 /// > This ↑ will change when HTTP/3 support arrives, then Udp will also be used.
 ///
 /// This is the last step in getting Kvarn spinning.
-/// You can interact with the caches through the [`Host`] and [`Data`] you created.
+/// You can interact with the caches through the [`Host`] and [`Data`] you created, and
+/// the returned [`shutdown::Manager`], if you have the `graceful-shutdown` feature enabled.
 ///
 /// # Examples
 ///
@@ -762,18 +772,27 @@ impl Debug for PortDescriptor {
 /// use kvarn::prelude::*;
 ///
 /// # async {
+/// // Create a host with hostname "localhost", serving files from directory "./web", and the default extensions.
 /// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default());
+/// // Create a set of virtual hosts (`Data`) with `host` as the default.
 /// let data = Data::builder(host).build();
+/// // Bind port 8080 with `data`.
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
-/// run(vec![port_descriptor]).await;
+/// // Run with the configured ports.
+/// let shutdown_manager = run(vec![port_descriptor]).await;
+/// // Waits for shutdown.
+/// shutdown_manager.wait().await;
 /// # };
 /// ```
-pub async fn run(ports: Vec<PortDescriptor>) {
+pub async fn run(ports: Vec<PortDescriptor>) -> Arc<shutdown::Manager> {
     info!("Starting server on {} ports.", ports.len());
 
     let len = ports.len();
-    for (pos, descriptor) in ports.into_iter().enumerate() {
+    let mut shutdown_manager = shutdown::Manager::new(len);
+
+    let mut listeners = Vec::with_capacity(len);
+    for descriptor in ports {
         let listener = TcpListener::bind(net::SocketAddrV4::new(
             net::Ipv4Addr::UNSPECIFIED,
             descriptor.port,
@@ -781,56 +800,80 @@ pub async fn run(ports: Vec<PortDescriptor>) {
         .await
         .expect("Failed to bind to port");
 
+        let listener = shutdown_manager.add_listener(listener);
+        listeners.push((listener, descriptor));
+    }
+
+    let shutdown_manager = shutdown_manager.build();
+
+    for (listener, descriptor) in listeners {
+        let shutdown_manager = Arc::clone(&shutdown_manager);
         let future = async move {
-            accept(listener, descriptor)
+            accept(listener, descriptor, &shutdown_manager)
                 .await
                 .expect("Failed to accept message!")
         };
 
-        if pos + 1 == len {
-            future.await;
-        } else {
-            tokio::spawn(future);
-        }
+        tokio::spawn(future);
     }
+
+    shutdown_manager
 }
 
-async fn accept(listener: TcpListener, descriptor: PortDescriptor) -> Result<(), io::Error> {
-    trace!("Started listening on {:?}", listener.local_addr());
+async fn accept(
+    mut listener: AcceptManager,
+    descriptor: PortDescriptor,
+    shutdown_manager: &Arc<shutdown::Manager>,
+) -> Result<(), io::Error> {
+    trace!(
+        "Started listening on {:?}",
+        listener.get_inner().local_addr()
+    );
     let host = Arc::new(descriptor);
 
     #[allow(unused_mut)]
     let mut limiter = LimitWrapper::default();
 
     loop {
-        match listener.accept().await {
-            Ok((socket, addr)) => {
-                #[cfg(feature = "limiting")]
-                match limiter.register(addr.ip()).await {
-                    LimitStrength::Drop => {
-                        drop(socket);
-                        return Ok(());
+        match listener.accept(shutdown_manager).await {
+            AcceptAction::Shutdown => return Ok(()),
+            AcceptAction::Accept(result) => match result {
+                Ok((socket, addr)) => {
+                    #[cfg(feature = "limiting")]
+                    match limiter.register(addr.ip()).await {
+                        LimitStrength::Drop => {
+                            drop(socket);
+                            return Ok(());
+                        }
+                        LimitStrength::Send | LimitStrength::Passed => {}
                     }
-                    LimitStrength::Send | LimitStrength::Passed => {}
+                    let host = Arc::clone(&host);
+                    let limiter = LimitWrapper::clone(&limiter);
+                    #[cfg(feature = "graceful-shutdown")]
+                    let shutdown_manager = Arc::clone(shutdown_manager);
+                    tokio::spawn(async move {
+                        #[cfg(feature = "graceful-shutdown")]
+                        shutdown_manager.add_connection();
+                        info!("new con {}", addr);
+                        if let Err(err) = handle_connection(socket, addr, host, limiter).await {
+                            warn!(
+                                "An error occurred in the main processing function {:?}",
+                                err
+                            );
+                        }
+                        info!("Remove con");
+                        #[cfg(feature = "graceful-shutdown")]
+                        shutdown_manager.remove_connection();
+                    });
+                    continue;
                 }
-                let host = Arc::clone(&host);
-                let limiter = LimitWrapper::clone(&limiter);
-                tokio::spawn(async move {
-                    if let Err(err) = handle_connection(socket, addr, host, limiter).await {
-                        warn!(
-                            "An error occurred in the main processing function {:?}",
-                            err
-                        );
-                    }
-                });
-                continue;
-            }
-            Err(err) => {
-                // An error occurred
-                error!("Failed to accept() on listener");
+                Err(err) => {
+                    // An error occurred
+                    error!("Failed to accept() on listener");
 
-                return Err(err);
-            }
+                    return Err(err);
+                }
+            },
         }
     }
 }

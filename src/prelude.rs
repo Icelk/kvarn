@@ -49,6 +49,7 @@ pub use crate::*;
 pub use comprash::UriKey;
 pub use extensions::{Package, Post, Prepare, Present, Prime, ResponsePipeFuture};
 pub use host::{Data, Host};
+pub use shutdown::{AcceptAction, AcceptManager};
 pub use utility::chars::*;
 pub use utility::{read_file, read_file_cached};
 
@@ -90,6 +91,7 @@ pub mod internals {
 ///
 /// The purpose of this module is to expose common threading types.
 pub mod threading {
-    pub use std::sync::atomic;
+    pub use std::sync::atomic::{self, Ordering};
+    pub use std::task::{Context, Wake, Waker};
     pub use tokio::task::{spawn, spawn_blocking, spawn_local};
 }

@@ -811,7 +811,7 @@ mod macros {
     ///
     /// This is similar to the `prepare!` macro.
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// extension!(|
     ///     request: RequestWrapperMut,
     ///     host: HostWrapper,
@@ -846,7 +846,7 @@ mod macros {
     ///
     /// # Examples
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// let extension = prime!(req, host, addr {
     ///     utility::default_error_response(StatusCode::BAD_REQUEST, host, None).await
     /// });
@@ -863,7 +863,7 @@ mod macros {
     ///
     /// # Examples
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// let extension = pre!(req, host, addr {
     ///     Some((utility::default_error_response(StatusCode::BAD_REQUEST, host, None).await, ready(())))
     /// });
@@ -889,7 +889,7 @@ mod macros {
     /// > but with different parameters. See their respective documentation.**
     ///
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// use std::sync::{Arc, atomic};
     ///
     /// let times_called = Arc::new(atomic::AtomicUsize::new(0));
@@ -904,7 +904,7 @@ mod macros {
     ///
     /// To capture no variables, just leave out the `move ||`.
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// prepare!(req, host, path, addr {
     ///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await
     /// });
@@ -928,7 +928,7 @@ mod macros {
     ///
     /// # Examples
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// let extension = present!(data {
     ///     println!("Calling uri {}", data.request().uri());
     /// });
@@ -945,7 +945,7 @@ mod macros {
     ///
     /// # Examples
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// let extension = package!(response, request, host {
     ///     response.headers_mut().insert("x-author", HeaderValue::from_static("Icelk"));
     ///     println!("Response headers {:#?}", response.headers());
@@ -954,7 +954,7 @@ mod macros {
     #[macro_export]
     macro_rules! package {
         ($response:ident, $request:ident, $host:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$response: ResponseWrapperMut, $request: RequestWrapper, $host: HostWrapper | |, $($($clone)*)*, $code)
+            extension!(|$response: EmptyResponseWrapperMut, $request: RequestWrapper, $host: HostWrapper | |, $($($clone)*)*, $code)
         }
     }
     /// Will make a post extension.
@@ -963,7 +963,7 @@ mod macros {
     ///
     /// # Examples
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// let extension = post!(request, bytes, response, address, host {
     ///     let valid_utf8 = response.headers().get("content-type").map(HeaderValue::to_str)
     ///         .and_then(Result::ok).map(|s| s.contains("utf8")).unwrap_or(false);
@@ -987,11 +987,11 @@ mod macros {
     ///
     /// # Examples
     /// ```
-    /// # use kvarn::*;
+    /// # use kvarn::prelude::*;
     /// prepare!(req, host, path, addr {
     ///     let response = utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await;
     ///     response.with_future(response_pipe_fut!(response_pipe, host {
-    ///         response_pipe.send(Bytes::from_static(b"This will be appended to the body!"))
+    ///         response_pipe.send(Bytes::from_static(b"This will be appended to the body!")).await;
     ///     }))
     /// });
     /// ```

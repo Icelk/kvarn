@@ -460,20 +460,28 @@ impl Data {
     ///
     /// It will lever return (false, true).
     pub async fn clear_page(&self, host: &str, uri: &Uri) -> (bool, bool) {
-        let mut key = UriKey::path_and_query(uri);
+        let key = UriKey::path_and_query(uri);
 
         let mut found = false;
         let mut cleared = false;
         if host.is_empty() || host == "default" {
             found = true;
             let mut lock = self.default.response_cache.lock().await;
-            if key.call_all(|key| lock.remove(key).into_option()).is_some() {
+            if key
+                .call_all(|key| lock.remove(key).into_option())
+                .1
+                .is_some()
+            {
                 cleared = true;
             }
         } else if let Some(host) = self.by_name.get(host) {
             found = true;
             let mut lock = host.response_cache.lock().await;
-            if key.call_all(|key| lock.remove(key).into_option()).is_some() {
+            if key
+                .call_all(|key| lock.remove(key).into_option())
+                .1
+                .is_some()
+            {
                 cleared = true;
             }
         }

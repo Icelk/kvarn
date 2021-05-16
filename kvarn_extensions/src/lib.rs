@@ -52,7 +52,7 @@ fn push(
     host: HostWrapper,
 ) -> RetFut<()> {
     use internals::*;
-    box_fut!({
+    Box::pin(async move {
         // If it is not HTTP/1
         #[allow(irrefutable_let_patterns)]
         if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
@@ -610,7 +610,6 @@ pub mod reverse_proxy {
                             self.pos += i;
                         }
                         if self.pos >= self.cap {
-                            info!("Status update");
                             return Poll::Ready(Ok(false))
                         }
                     }
@@ -1065,13 +1064,14 @@ pub mod reverse_proxy {
 
                                 if let Ok(r) = timeout_result
                                 {
-                                    info!("Open back responded! {:?}", r);
+                                    debug!("Open back responded! {:?}", r);
                                     match r {
                                         Err(err) => {
                                             if !matches!(
                                                 err.get_io_kind(),
                                                 io::ErrorKind::ConnectionAborted
                                                     | io::ErrorKind::ConnectionReset
+                                                    | io::ErrorKind::BrokenPipe
                                             ) {
                                                 warn!("Reverse proxy io error: {:?}", err);
                                                 

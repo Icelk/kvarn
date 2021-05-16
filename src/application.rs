@@ -527,7 +527,16 @@ mod response {
         /// Passes any errors from writing to the stream.
         /// See [`AsyncWriteExt::write_all()`] and [`h2::SendStream::send_data()`].
         #[inline]
-        pub async fn send(&mut self, data: Bytes, end_of_stream: bool) -> Result<(), Error> {
+        pub async fn send(&mut self, data: Bytes) -> Result<(), Error> {
+            self.send_with_maybe_close(data, false).await
+        }
+        /// Same as [`Self::send`] but with a `end_of_stream` variable.
+        #[inline]
+        pub(crate) async fn send_with_maybe_close(
+            &mut self,
+            data: Bytes,
+            end_of_stream: bool,
+        ) -> Result<(), Error> {
             match self {
                 Self::Http1(h1) => {
                     let mut lock = h1.lock().await;
@@ -541,7 +550,6 @@ mod response {
             }
             Ok(())
         }
-        // pub(crate)async fn poll_send(&mut self, data: Bytes)
         /// Closes the pipe.
         ///
         /// # Errors
@@ -568,6 +576,7 @@ mod response {
                     Err(_) => Poll::Pending,
                     Ok(mut s) => Pin::new(&mut *s).poll_read(cx, buf),
                 },
+                #[cfg(feature = "http2")]
                 Self::Http2(_) => Poll::Ready(Ok(())),
             }
         }
@@ -583,6 +592,7 @@ mod response {
                     Err(_) => Poll::Pending,
                     Ok(mut s) => Pin::new(&mut *s).poll_write(cx, buf),
                 },
+                #[cfg(feature = "http2")]
                 Self::Http2(s) => Poll::Ready(
                     s.send_data(Bytes::copy_from_slice(buf), false)
                         .map_err(|e| {
