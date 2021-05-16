@@ -66,7 +66,7 @@ pub mod fs {
 ///
 /// The purpose of this module is to expose Tokio network types used in Kvarn.
 pub mod networking {
-    pub use tokio::net::{TcpListener, TcpStream};
+    pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 }
 
 /// **Prelude:** internal

@@ -798,12 +798,20 @@ pub async fn run(ports: Vec<PortDescriptor>) -> Arc<shutdown::Manager> {
 
     let mut listeners = Vec::with_capacity(len);
     for descriptor in ports {
-        let listener = TcpListener::bind(net::SocketAddrV4::new(
-            net::Ipv4Addr::UNSPECIFIED,
-            descriptor.port,
-        ))
-        .await
-        .expect("Failed to bind to port");
+        let socket = TcpSocket::new_v4().expect("Failed to create a new IPv4 socket configuration");
+        #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+        {
+            if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
+                error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.")
+            }
+        }
+        socket
+            .bind(net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into())
+            .expect("Failed to bind address");
+
+        let listener = socket
+            .listen(1024)
+            .expect("Failed to listen on bound address.");
 
         let listener = shutdown_manager.add_listener(listener);
         listeners.push((listener, descriptor));
