@@ -111,7 +111,7 @@ impl UriKey {
     ///
     /// // First gets called once with key as UriKey::PathQuery("/status?format=json")
     /// // then, the query gets truncated and we get a key as UriKey::Path("/status").
-    /// let (key, found) = key.call_all(|key| {
+    /// let (_key, found) = key.call_all(|key| {
     ///     match key {
     ///         UriKey::Path(path) if path == "/status" => Some(true),
     ///         _ => None
@@ -121,14 +121,18 @@ impl UriKey {
     /// assert_eq!(found, Some(true));
     /// ```
     #[inline]
-    pub fn call_all<T>(&mut self, mut callback: impl FnMut(&Self) -> Option<T>) -> Option<T> {
-        match callback(self) {
-            Some(t) => Some(t),
+    pub fn call_all<T>(
+        mut self,
+        mut callback: impl FnMut(&Self) -> Option<T>,
+    ) -> (Self, Option<T>) {
+        match callback(&self) {
+            Some(t) => (self, Some(t)),
             None => match self {
-                Self::Path(_) => None,
+                Self::Path(_) => (self, None),
                 Self::PathQuery(path_query) => {
-                    path_query.truncate_query();
-                    callback(self)
+                    self = Self::Path(path_query.into_path());
+                    let result = callback(&self);
+                    (self, result)
                 }
             },
         }
