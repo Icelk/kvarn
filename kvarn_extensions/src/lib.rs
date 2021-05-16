@@ -59,9 +59,11 @@ fn push(
             return;
         }
 
+        const HTML_START: &str = "<!doctype html>";
+
         match str::from_utf8(&bytes) {
             // If it is HTML
-            Ok(string) if bytes.starts_with(b"<!doctype HTML>") => {
+            Ok(string) if string.get(..HTML_START.len()).map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) => {
                 let mut urls = url_crawl::get_urls(string);
                 let host = unsafe { host.get_inner() };
 
