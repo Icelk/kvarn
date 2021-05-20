@@ -10,6 +10,7 @@
 
 use kvarn::{extensions::*, prelude::*};
 
+#[cfg(feature = "reverse-proxy")]
 pub use reverse_proxy::{localhost, Connection as ReverseProxyConnection, Manager as ReverseProxy};
 
 /// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
@@ -509,6 +510,7 @@ pub mod templates {
     }
 }
 
+#[cfg(feature = "reverse-proxy")]
 pub mod reverse_proxy {
     use kvarn::prelude::{internals::*, *};
     use std::net::{Ipv4Addr, SocketAddrV4};
@@ -817,7 +819,7 @@ pub mod reverse_proxy {
                             let mut buffer = BytesMut::with_capacity(body.len() + 512);
                             buffer.extend(&body);
                             if let Ok(result) = timeout(
-                                Duration::from_millis(250),
+                                Duration::from_millis(5000),
                                 utility::read_to_end_or_max(&mut buffer, &mut *self, len),
                             )
                             .await

@@ -158,6 +158,7 @@ pub async fn read_to_end_or_max(
             len => {
                 read += len;
                 if read >= max_len {
+                    unsafe { buffer.set_len(read) };
                     return Ok(());
                 }
                 if read > buffer.len() - 512 {
