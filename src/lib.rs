@@ -867,7 +867,6 @@ async fn accept(
                     tokio::spawn(async move {
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.add_connection();
-                        info!("new con {}", addr);
                         if let Err(err) = handle_connection(socket, addr, host, limiter, || {
                             #[cfg(feature = "graceful-shutdown")]
                             {
@@ -885,7 +884,6 @@ async fn accept(
                                 err
                             );
                         }
-                        info!("Remove con");
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.remove_connection();
                     });

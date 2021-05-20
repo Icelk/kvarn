@@ -857,24 +857,6 @@ mod macros {
             extension!(|$request: RequestWrapper, $host: HostWrapper | $addr: SocketAddr|, $($($clone)*)*, $code)
         }
     }
-    /// Will make a pre extension.
-    ///
-    /// See [`prepare!`] for usage and useful examples.
-    ///
-    /// # Examples
-    /// ```
-    /// # use kvarn::prelude::*;
-    /// let extension = pre!(req, host, addr {
-    ///     Some((utility::default_error_response(StatusCode::BAD_REQUEST, host, None).await, ready(())))
-    /// });
-    /// ```
-    #[macro_export]
-    macro_rules! pre {
-        ($request:ident, $host:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$request: RequestWrapperMut, $host: HostWrapper | $addr: SocketAddr|, $($($clone)*)*, $code)
-        }
-    }
-
     /// Will make a prepare extension.
     ///
     /// See example bellow. Where `times_called` is defined in the arguments of the macro, you can enter several `Arc`s to capture from the environment.

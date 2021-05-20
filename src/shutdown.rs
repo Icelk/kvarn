@@ -116,6 +116,7 @@ impl Manager {
             }
         }
     }
+    #[cfg(feature = "graceful-shutdown")]
     pub fn get_shutdown(&self, order: Ordering) -> bool {
         self.shutdown.load(order)
     }
