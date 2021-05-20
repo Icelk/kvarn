@@ -11,7 +11,9 @@
 use kvarn::{extensions::*, prelude::*};
 
 #[cfg(feature = "reverse-proxy")]
-pub use reverse_proxy::{localhost, Connection as ReverseProxyConnection, Manager as ReverseProxy};
+pub use reverse_proxy::{
+    localhost, static_connection, Connection as ReverseProxyConnection, Manager as ReverseProxy,
+};
 
 /// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
 ///
@@ -64,7 +66,11 @@ fn push(
 
         match str::from_utf8(&bytes) {
             // If it is HTML
-            Ok(string) if string.get(..HTML_START.len()).map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) => {
+            Ok(string)
+                if string
+                    .get(..HTML_START.len())
+                    .map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) =>
+            {
                 let mut urls = url_crawl::get_urls(string);
                 let host = unsafe { host.get_inner() };
 
@@ -612,7 +618,7 @@ pub mod reverse_proxy {
                             self.pos += i;
                         }
                         if self.pos >= self.cap {
-                            return Poll::Ready(Ok(false))
+                            return Poll::Ready(Ok(false));
                         }
                     }
 
@@ -793,7 +799,7 @@ pub mod reverse_proxy {
             let mut buffered = tokio::io::BufWriter::new(&mut *self);
             utility::write::request(request, body, &mut buffered).await?;
 
-            debug!("Sent reverse-proxy bytes.");
+            debug!("Sent reverse-proxy request.");
 
             let response = match timeout(Duration::from_millis(1000), async {
                 parse::response(&mut *self, 16 * 1024).await
@@ -813,19 +819,20 @@ pub mod reverse_proxy {
 
                         let (mut head, body) = utility::split_response(response);
 
-                        let body = if len == 0 {
+                        let body = if len == 0 || len <= body.len() {
                             body
                         } else {
                             let mut buffer = BytesMut::with_capacity(body.len() + 512);
                             buffer.extend(&body);
                             if let Ok(result) = timeout(
-                                Duration::from_millis(5000),
+                                Duration::from_millis(250),
                                 utility::read_to_end_or_max(&mut buffer, &mut *self, len),
                             )
                             .await
                             {
                                 result?
                             } else if !chunked {
+                                warn!("Remote read timed out.");
                                 unsafe { buffer.set_len(0) };
                             }
 
@@ -839,11 +846,11 @@ pub mod reverse_proxy {
                                     head.headers_mut(),
                                     "transfer-encoding",
                                 );
+                                info!("Decoding chunked transfer-encoding.");
                             }
                             buffer.freeze()
                         };
 
-                        info!("Response {:#?}", head);
                         head.map(|()| body)
                     }
                 },
@@ -893,7 +900,8 @@ pub mod reverse_proxy {
             macro_rules! copy_from_to {
                 ($reader: expr, $error: expr, $buf: expr, $writer: expr) => {
                     if let Poll::Ready(Ok(pipe_closed)) = ret_ready_err!(
-                        $buf.poll_copy(cx, Pin::new($reader), Pin::new($writer)), $error
+                        $buf.poll_copy(cx, Pin::new($reader), Pin::new($writer)),
+                        $error
                     ) {
                         if pipe_closed {
                             return Poll::Ready(Err(OpenBackError::Closed));
@@ -914,18 +922,35 @@ pub mod reverse_proxy {
         }
     }
 
-    pub type ModifyRequestFn = Arc<dyn Fn(&mut FatRequest, &mut Bytes) + Send + Sync>;
+    pub type ModifyRequestFn = Arc<dyn Fn(&mut Request<()>, &mut Bytes) + Send + Sync>;
+    pub type GetConnectionFn =
+        Arc<dyn (Fn(&FatRequest, &Bytes) -> Option<Connection>) + Send + Sync>;
+
+    /// Creates a new [`GetConnectionFn`] which always returns `kind`
+    pub fn static_connection(kind: Connection) -> GetConnectionFn {
+        Arc::new(move |_, _| Some(kind))
+    }
 
     pub struct Manager {
         when: extensions::If,
-        kind: Connection,
+        connection: GetConnectionFn,
         modify: ModifyRequestFn,
     }
     impl Manager {
-        pub fn new(when: extensions::If, kind: Connection, modify: ModifyRequestFn) -> Self {
-            Self { when, kind, modify }
+        /// Consider using [`static_connection`] if your connection type is not dependent of the request.
+        pub fn new(
+            when: extensions::If,
+            connection: GetConnectionFn,
+            modify: ModifyRequestFn,
+        ) -> Self {
+            Self {
+                when,
+                connection,
+                modify,
+            }
         }
-        pub fn base(base_path: &str, kind: Connection) -> Self {
+        /// Consider using [`static_connection`] if your connection type is not dependent of the request.
+        pub fn base(base_path: &str, connection: GetConnectionFn) -> Self {
             assert_eq!(base_path.chars().next(), Some('/'));
             let path = if base_path.ends_with('/') {
                 base_path.to_owned()
@@ -939,47 +964,48 @@ pub mod reverse_proxy {
 
             let when_path = Arc::clone(&path);
             let when = Box::new(move |request: &FatRequest| {
-                let path = Arc::clone(&when_path);
-                request.uri().path().starts_with(path.as_str())
+                request.uri().path().starts_with(when_path.as_str())
             });
 
-            let modify: Arc<dyn Fn(&mut FatRequest, &mut Bytes) + Send + Sync> = Arc::new(
-                move |request, _| {
-                    let path = Arc::clone(&path)/* &modify_path */;
+            let modify: ModifyRequestFn = Arc::new(move |request, _| {
+                let path = Arc::clone(&path);
 
-                    let mut parts = request.uri().clone().into_parts();
+                let mut parts = request.uri().clone().into_parts();
 
-                    if let Some(path_and_query) = parts.path_and_query.as_ref() {
-                        if let Some(s) = path_and_query.as_str().get(path.as_str().len() - 1..) {
-                            // We know this is a good path and query; we've just removed the first x bytes.
-                            // The -1 will always be on a char boundary; the last character is always '/'
-                            let short = uri::PathAndQuery::from_maybe_shared(
-                                Bytes::copy_from_slice(s.as_bytes()),
-                            )
-                            .unwrap();
-                            parts.path_and_query = Some(short);
-                            parts.scheme = Some(uri::Scheme::HTTP);
-                            // For unwrap, see ↑
-                            let uri = Uri::from_parts(parts).unwrap();
-                            *request.uri_mut() = uri;
-                        } else {
-                            error!("We didn't get the expected path string from Kvarn. We asked for one which started with `base_path`");
-                        }
+                if let Some(path_and_query) = parts.path_and_query.as_ref() {
+                    if let Some(s) = path_and_query.as_str().get(path.as_str().len() - 1..) {
+                        // We know this is a good path and query; we've just removed the first x bytes.
+                        // The -1 will always be on a char boundary; the last character is always '/'
+                        let short = uri::PathAndQuery::from_maybe_shared(Bytes::copy_from_slice(
+                            s.as_bytes(),
+                        ))
+                        .unwrap();
+                        parts.path_and_query = Some(short);
+                        parts.scheme = Some(uri::Scheme::HTTP);
+                        // For unwrap, see ↑
+                        let uri = Uri::from_parts(parts).unwrap();
+                        *request.uri_mut() = uri;
+                    } else {
+                        error!("We didn't get the expected path string from Kvarn. We asked for one which started with `base_path`");
                     }
-                },
-            );
+                }
+            });
 
-            Self { when, kind, modify }
+            Self {
+                when,
+                connection,
+                modify,
+            }
         }
         pub fn mount(self, extensions: &mut Extensions) {
-            let connection = self.kind;
+            let connection = self.connection;
             let modify = self.modify;
 
             macro_rules! return_status {
                 ($result:expr, $status:expr, $host:expr) => {
                     match $result {
-                        Ok(v) => v,
-                        Err(_) => {
+                        Some(v) => v,
+                        None => {
                             return default_error_response($status, $host, None).await;
                         }
                     }
@@ -988,40 +1014,41 @@ pub mod reverse_proxy {
 
             extensions.add_prepare_fn(
                 self.when,
-                prepare!(req, host, _path, _addr, move |modify| {
-                    let mut connection = return_status!(
-                        connection.establish().await,
-                        StatusCode::GATEWAY_TIMEOUT,
-                        host
-                    );
-
+                prepare!(req, host, _path, _addr, move |connection, modify| {
+                    let mut empty_req = utility::empty_clone_request(&req);
                     let mut bytes = return_status!(
-                        req.body_mut().read_to_bytes().await,
+                        req.body_mut().read_to_bytes().await.ok(),
                         StatusCode::BAD_GATEWAY,
                         host
                     );
 
+                    let connection = return_status!(connection(req, &bytes), StatusCode::BAD_REQUEST, host);
+                    let mut connection = return_status!(
+                        connection.establish().await.ok(),
+                        StatusCode::GATEWAY_TIMEOUT,
+                        host
+                    );
+
                     utility::replace_header_static(
-                        req.headers_mut(),
+                        empty_req.headers_mut(),
                         "accept-encoding",
                         "identity",
                     );
 
-                    if req.headers().get("connection")
-                        == Some(&HeaderValue::from_static("keep-alive"))
+                    if utility::header_eq(empty_req.headers(), "connection", "keep-alive")
                     {
-                        utility::replace_header_static(req.headers_mut(), "connection", "close");
+                        utility::replace_header_static(empty_req.headers_mut(), "connection", "close");
                     }
 
-                    *req.version_mut() = Version::HTTP_11;
+                    *empty_req.version_mut() = Version::HTTP_11;
 
-                    let wait = matches!(req.method(), &Method::CONNECT)
-                        || req.headers().get("upgrade")
+                    let wait = matches!(empty_req.method(), &Method::CONNECT)
+                        || empty_req.headers().get("upgrade")
                             == Some(&HeaderValue::from_static("websocket"));
 
-                    modify(req, &mut bytes);
+                    modify(&mut empty_req, &mut bytes);
 
-                    let mut response = match connection.request(req, &bytes).await {
+                    let mut response = match connection.request(&empty_req, &bytes).await {
                         Ok(mut response) => {
                             let headers = response.headers_mut();
                             utility::remove_all_headers(headers, "keep-alive");
@@ -1076,7 +1103,6 @@ pub mod reverse_proxy {
                                                     | io::ErrorKind::BrokenPipe
                                             ) {
                                                 warn!("Reverse proxy io error: {:?}", err);
-                                                
                                             }
                                             break;
                                         },
