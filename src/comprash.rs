@@ -333,6 +333,15 @@ impl CompressedResponse {
         headers.entry("cache-control").or_insert(header);
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
+        fn add_utf_8(headers: &mut HeaderMap, mime: &Mime) {
+            // We know the added bytes are safe for a http::HeaderValue
+            // unwrap is ok.
+            let content_type = HeaderValue::from_maybe_shared(Bytes::copy_from_slice(
+                format!("{}; charset=utf-8", mime).as_bytes(),
+            ))
+            .unwrap();
+            utility::replace_header(headers, "content-type", content_type);
+        }
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
 
         // Looks a lot better.
@@ -348,19 +357,7 @@ impl CompressedResponse {
                         // Has charset attribute.
                         Some(_) => {}
                         None if utf_8 => {
-                            // Unsafe if ok; we know the added bytes are safe for a http::HeaderValue
-                            // and unwrap is ok; we checked same thing  just above
-                            let content_type = unsafe {
-                                HeaderValue::from_maybe_shared_unchecked(
-                                    format!("{}; charset=utf-8", content_type.to_str().unwrap())
-                                        .into_bytes(),
-                                )
-                            };
-                            utility::replace_header(
-                                response.headers_mut(),
-                                "content-type",
-                                content_type,
-                            );
+                            add_utf_8(response.headers_mut(), &mime_type);
                         }
 
                         None => {
@@ -376,11 +373,16 @@ impl CompressedResponse {
                     mime::APPLICATION_OCTET_STREAM
                 };
                 let mime_type = mime_guess::from_ext(extension).first_or(mime);
-                // Is ok; Mime will only contain ok bytes.
-                let content_type = unsafe {
-                    HeaderValue::from_maybe_shared_unchecked(mime_type.to_string().into_bytes())
-                };
-                response.headers_mut().insert("content-type", content_type);
+                if utf_8 {
+                    add_utf_8(response.headers_mut(), &mime_type);
+                } else {
+                    // Mime will only contains valid bytes.
+                    let content_type = HeaderValue::from_maybe_shared(Bytes::copy_from_slice(
+                        mime_type.to_string().as_bytes(),
+                    ))
+                    .unwrap();
+                    response.headers_mut().insert("content-type", content_type);
+                }
             }
         }
     }
