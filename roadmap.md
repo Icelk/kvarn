@@ -51,14 +51,15 @@ The name comes from the current plan to move core stuff into it's own crate.
 - [x] Full doc coverage (this took *way* too long...)
 - [ ] Partial test coverage
 - [x] Extension macros
-- [ ] Additional server-side cache options, including parsing `cache-control` header
+- [x] Additional server-side cache options, including parsing `cache-control` header
 - [ ] Cache handling of Vary header (definitely the hardest)
 - [x] Byte ranges
 - [ ] `read_to_bytes()` performance
-- [ ] Implement an easy-to-configure proxy extension in kvarn_extensions
+- [x] Implement an easy-to-configure proxy extension in kvarn_extensions
 - [ ] If-Modified-Since header to increase client cache performance
 - [ ] Move core stuff
 - [ ] Smart push with id (so all other data isn't pushed on every request)
+- [x] Graceful shutdown and handover. Maintenance and updates are now a non-issue!
 
 # v0.4.0 WebSockets & Auth
 

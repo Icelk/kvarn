@@ -635,8 +635,8 @@ pub async fn handle_request(
 
     #[cfg(feature = "fs")]
     if response.is_none() {
-        match request.method() {
-            &Method::GET | &Method::HEAD => {
+        match *request.method() {
+            Method::GET | Method::HEAD => {
                 if let Some(content) = utility::read_file(&path, &host.file_cache).await {
                     response = Some(Response::new(content));
                 }

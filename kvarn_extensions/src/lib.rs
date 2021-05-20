@@ -439,7 +439,7 @@ pub mod templates {
         match read_file_cached(&path, &host.file_cache).await {
             Some(file) => {
                 let templates = extract_templates(&file[..]);
-                return Some(templates);
+                Some(templates)
             }
             None => None,
         }
@@ -693,7 +693,6 @@ pub mod reverse_proxy {
                     )[..];
                     let socket = UdpSocket::bind(candidates).await?;
                     socket.connect(addr).await?;
-                    /* UdpSocket::connect(&self, UDP_CANDIDATES) */
                     Ok(EstablishedConnection::Udp(socket))
                 }
                 Self::UnixSocket(path) => UnixStream::connect(path)

@@ -655,7 +655,7 @@ mod read_head {
 
     pub(crate) fn contains_two_newlines(bytes: &[u8]) -> bool {
         let mut in_row = 0_u8;
-        for byte in bytes.iter().cloned() {
+        for byte in bytes.iter().copied() {
             match byte {
                 LF if in_row == 0 => in_row += 1,
                 LF => return true,
