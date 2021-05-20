@@ -1088,7 +1088,7 @@ pub mod reverse_proxy {
                             }
                         });
 
-                        response = response.with_future(future);
+                        response = response.with_future(future).with_compress(CompressPreference::None);
                     }
 
                     response
