@@ -1,6 +1,7 @@
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
+use std::fmt;
 use std::io::{self, prelude::*};
 use std::path::Path;
 
@@ -342,9 +343,24 @@ pub fn process_document<P: AsRef<Path>>(
     // Write header after meta
     write_file.write_all(header_post_meta)?;
 
-    // Parse CMark
     let input = unsafe { std::str::from_utf8_unchecked(&buffer[file_content_start..]) };
-    let parser = Parser::new_ext(input, Options::all());
+
+    let mut tags: Tags = HashMap::new();
+    #[cfg(feature = "date")]
+    tags.insert(
+        "date".to_owned(),
+        Box::new(|_inner, mut ext| {
+            let date = chrono::Local::now();
+            use fmt::Write;
+            write!(ext, "{}", date.format("%a, %F, %-H:%-M %:z"))
+                .expect("failed to push to string");
+        }),
+    );
+
+    let input = replace_tags(input, tags);
+
+    // Parse CMark
+    let parser = Parser::new_ext(&input, Options::all());
 
     let mut header_ids = HashSet::new();
     let with_tagged_headers = map_peek(parser, |event, next| match (&event, next) {
@@ -389,7 +405,7 @@ fn resolve_id<'a>(next: &str, map: &'a mut HashSet<String>) -> &'a str {
         for _ in 0..to_remove {
             next.pop();
         }
-        use std::fmt::Write;
+        use fmt::Write;
         write!(next, "{}", number).expect("failed to write to string");
     }
     insert_hashset(map, next)
@@ -494,4 +510,54 @@ fn map_peek<T, I: Iterator<Item = T>, F: FnMut(T, Option<&T>) -> T>(
         iter: iter.peekable(),
         func: f,
     }
+}
+
+pub struct Extendible<'a> {
+    inner: &'a mut String,
+}
+impl<'a> Extendible<'a> {
+    pub fn extend(&mut self, string: &str) {
+        self.inner.push_str(string);
+    }
+}
+impl<'a> fmt::Write for Extendible<'a> {
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
+        self.inner.write_fmt(args)
+    }
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.inner.push_str(s);
+        Ok(())
+    }
+}
+
+pub type Tags = HashMap<String, Box<dyn Fn(&str, Extendible)>>;
+
+pub fn replace_tags(text: &str, tags: Tags) -> String {
+    let mut string = String::with_capacity(text.len() + 64);
+
+    let mut wrote_tag = 0;
+
+    for (index, char) in text.char_indices() {
+        let text = unsafe { text.get_unchecked(index..) };
+        for (name, func) in &tags {
+            let tag_len = name.len() + 2 + 1;
+            if wrote_tag == 0
+                && text
+                    .get(..tag_len)
+                    .map_or(false, |text| text.starts_with("${") && text.ends_with('}'))
+            {
+                // For unwrap, see above.
+                let inner = text.get(2..text.len() - 1).unwrap();
+                let ext = Extendible { inner: &mut string };
+                func(inner, ext);
+                wrote_tag = tag_len;
+            }
+            if wrote_tag > 0 {
+                wrote_tag -= 1;
+            } else {
+                string.push(char);
+            }
+        }
+    }
+    string
 }
