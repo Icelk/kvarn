@@ -1,4 +1,5 @@
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::{self, prelude::*};
 use std::path::Path;
@@ -345,8 +346,18 @@ pub fn process_document<P: AsRef<Path>>(
     let input = unsafe { std::str::from_utf8_unchecked(&buffer[file_content_start..]) };
     let parser = Parser::new_ext(input, Options::all());
 
+    let mut header_ids = HashSet::new();
+    let with_tagged_headers = map_peek(parser, |event, next| match (&event, next) {
+        (Event::Start(Tag::Heading(level)), Some(Event::Text(header_text))) => {
+            let id = resolve_id(header_text, &mut header_ids);
+            let html = format!("<h{} id=\"{}\">", level, id);
+            Event::Html(CowStr::Boxed(html.into_boxed_str()))
+        }
+        _ => event,
+    });
+
     // Write HTML from specified file to output file (buffered for performance)
-    html::write_html(&mut write_file, parser)?;
+    html::write_html(&mut write_file, with_tagged_headers)?;
 
     // Writes footer
     write_file.write_all(footer)?;
@@ -358,6 +369,37 @@ pub fn process_document<P: AsRef<Path>>(
     }
 
     Ok(())
+}
+
+fn resolve_id<'a>(next: &str, map: &'a mut HashSet<String>) -> &'a str {
+    let mut next = next.to_lowercase();
+    next = next.replace(' ', "-");
+
+    let mut added_suffix = false;
+    while map.contains(&next) {
+        if !added_suffix {
+            next.push_str("-1");
+            added_suffix = true;
+            continue;
+        }
+        let pos = next.rfind('-').unwrap_or_else(|| next.len());
+        // We know this lies on a valid boundary from the above code.
+        let number: u32 = next.get(pos + 1..).unwrap().parse().unwrap_or(1) + 1;
+        let to_remove = next.len() - pos - 1;
+        for _ in 0..to_remove {
+            next.pop();
+        }
+        use std::fmt::Write;
+        write!(next, "{}", number).expect("failed to write to string");
+    }
+    insert_hashset(map, next)
+}
+fn insert_hashset(map: &mut HashSet<String>, value: String) -> &str {
+    let pointer: *const str = value.as_str();
+    map.insert(value);
+    // Safe because the value is now owned by the map.
+    // Unwrap is ok; we just inserted the value.
+    map.get(unsafe { &*pointer }).unwrap()
 }
 
 /// Will watch the given directory.
@@ -427,4 +469,29 @@ pub fn watch<P: AsRef<Path>>(
 pub fn wait_for(message: &str) {
     println!("{}", message);
     let _ = io::stdin().read(&mut [0; 0]);
+}
+struct MapPeek<T, I: Iterator<Item = T>, F> {
+    iter: std::iter::Peekable<I>,
+    func: F,
+}
+impl<T, I: Iterator<Item = T>, F: FnMut(T, Option<&T>) -> T> Iterator for MapPeek<T, I, F> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.iter.next();
+        if let Some(next) = next {
+            let peek = self.iter.peek();
+            Some((self.func)(next, peek))
+        } else {
+            None
+        }
+    }
+}
+fn map_peek<T, I: Iterator<Item = T>, F: FnMut(T, Option<&T>) -> T>(
+    iter: I,
+    f: F,
+) -> MapPeek<T, I, F> {
+    MapPeek {
+        iter: iter.peekable(),
+        func: f,
+    }
 }
