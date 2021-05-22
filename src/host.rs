@@ -242,7 +242,7 @@ impl Host {
     #[cfg(feature = "https")]
     pub fn enable_hsts(&mut self) {
         self.extensions
-            .add_package(Box::new(|mut response, request| {
+            .add_package(Box::new(|mut response, request, _| {
                 let response: &mut Response<_> = unsafe { response.get_inner() };
                 let request: &FatRequest = unsafe { request.get_inner() };
                 if request.uri().scheme_str() == Some("https") {

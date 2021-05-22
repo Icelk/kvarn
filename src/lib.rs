@@ -370,7 +370,7 @@ impl<'a> SendKind<'a> {
         let (mut response, body) = utility::split_response(response);
 
         host.extensions
-            .resolve_package(&mut response, &request)
+            .resolve_package(&mut response, request, host)
             .await;
 
         match self {

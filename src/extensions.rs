@@ -52,7 +52,7 @@ pub type Present = Box<(dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync + Send)>
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Package =
-    Box<(dyn Fn(EmptyResponseWrapperMut, RequestWrapper) -> RetFut<()> + Sync + Send)>;
+    Box<(dyn Fn(EmptyResponseWrapperMut, RequestWrapper, HostWrapper) -> RetFut<()> + Sync + Send)>;
 /// A post extension.
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
@@ -185,7 +185,7 @@ impl Extensions {
 
             ready(Some(uri))
         }));
-        new.add_package(Box::new(|mut response, _| {
+        new.add_package(Box::new(|mut response, _, _| {
             let response: &mut Response<()> = unsafe { response.get_inner() };
             response
                 .headers_mut()
@@ -334,11 +334,17 @@ impl Extensions {
         }
         Ok(())
     }
-    pub(crate) async fn resolve_package(&self, response: &mut Response<()>, request: &FatRequest) {
+    pub(crate) async fn resolve_package(
+        &self,
+        response: &mut Response<()>,
+        request: &FatRequest,
+        host: &Host,
+    ) {
         for extension in &self.package {
             extension(
                 EmptyResponseWrapperMut::new(response),
                 RequestWrapper::new(request),
+                HostWrapper::new(host),
             )
             .await;
         }
