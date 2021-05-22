@@ -320,22 +320,17 @@ pub fn process_document<P: AsRef<Path>>(
     // Write rest of header before meta
     write_file.write_all(&header_pre_meta[header_content_starts..])?;
 
+    // If we have a head tag
     let file_content_start = if buffer[file_content_start..].starts_with(b"<head>") {
         let buffer = &buffer[file_content_start..];
-        let end = {
-            let mut end = None;
-            for byte in 6..buffer.len() {
-                if buffer.get(byte..byte + 7) == Some(b"</head>") {
-                    end = Some(byte);
-                    break;
-                }
-            }
-            end.unwrap_or(buffer.len())
-        };
+        let end = buffer
+            .windows(7)
+            .position(|slice| slice == b"</head>")
+            .unwrap_or(buffer.len());
 
         write_file.write_all(&buffer[6..end])?;
 
-        end + 7
+        file_content_start + end + 7
     } else {
         file_content_start
     };
@@ -343,7 +338,8 @@ pub fn process_document<P: AsRef<Path>>(
     // Write header after meta
     write_file.write_all(header_post_meta)?;
 
-    let input = unsafe { std::str::from_utf8_unchecked(&buffer[file_content_start..]) };
+    let input = std::str::from_utf8(&buffer[file_content_start..])
+        .expect("we tried to split the beginning of MarkDown on a character boundary, or the input file isn't valid UTF-8");
 
     let mut tags: Tags = HashMap::new();
     #[cfg(feature = "date")]
