@@ -165,3 +165,22 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
         }
     })
 }
+
+/// Forces `file_extensions` to be cached according to their respective preference.
+///
+/// Useful when you have compiled away cache, but still want images and fonts to be cached.
+pub fn force_cache(
+    extensions: &mut Extensions,
+    file_extensions: &'static [(&'static str, ClientCachePreference)],
+) {
+    extensions.add_package(package!(response, req, _host {
+        let extension = req.uri().path().split('.').last();
+        if let Some(extension) = extension {
+            for (extension_candidate, preference) in file_extensions {
+                if *extension_candidate == extension {
+                    utility::replace_header(response.headers_mut(), "cache-control", preference.as_header());
+                }
+            }
+        }
+    }));
+}
