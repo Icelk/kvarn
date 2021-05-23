@@ -82,8 +82,6 @@ pub mod parse {
     }
 }
 
-#[cfg(feature = "templates")]
-
 /// Makes the client download the file.
 pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
     let data = unsafe { data.get_inner() };
