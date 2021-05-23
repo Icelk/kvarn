@@ -555,8 +555,13 @@ pub async fn handle_cache(
                     None => "",
                 },
             };
-            let compressed_response =
-                comprash::CompressedResponse::new(resp, compress, client_cache, extension);
+            let compressed_response = comprash::CompressedResponse::new(
+                resp,
+                compress,
+                client_cache,
+                extension,
+                host.disable_client_cache,
+            );
 
             let response = match compressed_response.clone_preferred(&request) {
                 Err(message) => {

@@ -67,6 +67,10 @@ pub struct Host {
     ///
     /// If no value is passed, `html` is assumed.
     pub extension_default: Option<String>,
+    /// Returns `cache-control` header to be `no-store` by default, if enabled.
+    ///
+    /// Useful if you have a developing site and don't want traditionally static content to be in the client cache.
+    pub disable_client_cache: bool,
 }
 impl Host {
     /// Creates a new [`Host`].
@@ -100,6 +104,7 @@ impl Host {
                 extension_default: None,
                 file_cache: Mutex::new(Cache::default()),
                 response_cache: Mutex::new(Cache::default()),
+                disable_client_cache: false,
             }),
             Err(err) => Err((
                 err,
@@ -112,6 +117,7 @@ impl Host {
                     extension_default: None,
                     file_cache: Mutex::new(Cache::default()),
                     response_cache: Mutex::new(Cache::default()),
+                    disable_client_cache: false,
                 },
             )),
         }
@@ -131,6 +137,7 @@ impl Host {
             extension_default: None,
             file_cache: Mutex::new(Cache::default()),
             response_cache: Mutex::new(Cache::default()),
+            disable_client_cache: false,
         }
     }
 
@@ -168,7 +175,7 @@ impl Host {
     ///
     /// For more info about how it works, see the source of this function.
     #[cfg(feature = "https")]
-    pub fn set_http_redirect_to_https(&mut self) {
+    pub fn set_http_redirect_to_https(&mut self) -> &mut Self {
         const SPECIAL_PATH: &str = "/./to_https";
         self.extensions.add_prepare_single(
             SPECIAL_PATH.to_string(),
@@ -229,6 +236,7 @@ impl Host {
                 };
             ready(uri)
         }));
+        self
     }
 
     /// Enables [HSTS](https://en.wikipedia.org/wiki/HSTS) on this [`Host`].
@@ -240,7 +248,7 @@ impl Host {
     ///
     /// Also see [hstspreload.org](https://hstspreload.org/)
     #[cfg(feature = "https")]
-    pub fn enable_hsts(&mut self) {
+    pub fn enable_hsts(&mut self) -> &mut Self {
         self.extensions
             .add_package(Box::new(|mut response, request, _| {
                 let response: &mut Response<_> = unsafe { response.get_inner() };
@@ -255,7 +263,12 @@ impl Host {
                 }
 
                 ready(())
-            }))
+            }));
+        self
+    }
+    pub fn disable_client_cache(&mut self) -> &mut Self {
+        self.disable_client_cache = true;
+        self
     }
 
     /// Whether or not this this host is secured with a certificate.

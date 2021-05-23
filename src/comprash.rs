@@ -183,9 +183,10 @@ impl CompressedResponse {
         compress: CompressPreference,
         client_cache: ClientCachePreference,
         extension: &str,
+        disable_client_cache: bool,
     ) -> Self {
         let headers = identity.headers_mut();
-        Self::set_client_cache(headers, client_cache);
+        Self::set_client_cache(headers, client_cache, disable_client_cache);
         Self::add_server_header(headers);
         Self::check_content_type(&mut identity, extension);
         Self {
@@ -328,8 +329,16 @@ impl CompressedResponse {
     }
 
     #[inline]
-    fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
-        let header = preference.as_header();
+    fn set_client_cache(
+        headers: &mut HeaderMap,
+        preference: ClientCachePreference,
+        disable_client_cache: bool,
+    ) {
+        let header = if disable_client_cache {
+            HeaderValue::from_static("no-store")
+        } else {
+            preference.as_header()
+        };
         headers.entry("cache-control").or_insert(header);
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
@@ -571,7 +580,6 @@ impl ClientCachePreference {
     ///
     /// You should not insert nor remove any `cache-control` header if this is [`None`].
     /// See [`ClientCachePreference::Undefined`] for more info.
-    #[cfg(not(feature = "no-cache"))]
     #[inline]
     #[must_use]
     pub fn as_header(self) -> HeaderValue {
@@ -580,17 +588,6 @@ impl ClientCachePreference {
             Self::Changing => HeaderValue::from_static("max-age=120"),
             Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
         }
-    }
-    /// Gets the [`HeaderValue`] representation of the preference.
-    ///
-    /// You should not insert nor remove any `cache-control` header if this is [`None`].
-    /// See [`ClientCachePreference::Undefined`] for more info.
-    #[cfg(feature = "no-cache")]
-    #[must_use]
-    // For consistency between features
-    #[allow(clippy::unused_self)]
-    pub fn as_header(self) -> HeaderValue {
-        HeaderValue::from_static("no-store")
     }
 }
 impl str::FromStr for ClientCachePreference {
