@@ -531,28 +531,49 @@ pub type Tags = HashMap<String, Box<dyn Fn(&str, Extendible)>>;
 pub fn replace_tags(text: &str, tags: Tags) -> String {
     let mut string = String::with_capacity(text.len() + 64);
 
-    let mut wrote_tag = 0;
+    let mut in_tag = false;
+    let mut escaped_tag = false;
 
     for (index, char) in text.char_indices() {
         let text = unsafe { text.get_unchecked(index..) };
-        for (name, func) in &tags {
-            let tag_len = name.len() + 2 + 1;
-            if wrote_tag == 0
-                && text
-                    .get(..tag_len)
-                    .map_or(false, |text| text.starts_with("${") && text.ends_with('}'))
-            {
-                // For unwrap, see above.
-                let inner = text.get(2..text.len() - 1).unwrap();
-                let ext = Extendible { inner: &mut string };
-                func(inner, ext);
-                wrote_tag = tag_len;
+        if text.starts_with("${") {
+            if !escaped_tag {
+                for (name, func) in &tags {
+                    let tag_len = name.len() + 2 + 1;
+                    if !in_tag
+                        && text
+                            .get(..tag_len)
+                            .map_or(false, |text| text.ends_with('}'))
+                    {
+                        // For unwrap, see above.
+                        let inner = text.get(2..tag_len - 1).unwrap();
+                        // ~~We are guaranteed to have at least one; if there are no spaces, we still get one~~
+                        // If the string is 0 in length, we return the first word as a empty string.
+                        let first_word = inner.split(' ').next().unwrap_or("");
+                        if first_word == name {
+                            let ext = Extendible { inner: &mut string };
+                            func(inner, ext);
+                            in_tag = true;
+                            break;
+                        }
+                    }
+                }
             }
-            if wrote_tag > 0 {
-                wrote_tag -= 1;
-            } else {
-                string.push(char);
+            if escaped_tag {
+                string.pop();
             }
+        }
+        if in_tag {
+            if char == '}' {
+                in_tag = false;
+            }
+        } else {
+            string.push(char);
+        }
+        if char == '\\' {
+            escaped_tag = !escaped_tag;
+        } else {
+            escaped_tag = false;
         }
     }
     string
