@@ -383,8 +383,7 @@ pub fn process_document<P: AsRef<Path>>(
 }
 
 fn resolve_id<'a>(next: &str, map: &'a mut HashSet<String>) -> &'a str {
-    let mut next = next.to_lowercase();
-    next = next.replace(' ', "-");
+    let mut next = make_anchor(next);
 
     let mut added_suffix = false;
     while map.contains(&next) {
@@ -523,6 +522,19 @@ impl<'a> fmt::Write for Extendible<'a> {
         self.inner.push_str(s);
         Ok(())
     }
+}
+
+pub fn make_anchor(title: &str) -> String {
+    let lowercase = title.to_lowercase();
+    let mut a = String::with_capacity(lowercase.len());
+    for char in lowercase.chars() {
+        match char {
+            ' ' => a.push('-'),
+            _ if char.is_ascii_alphanumeric() => a.push(char),
+            _ => {}
+        }
+    }
+    a
 }
 
 pub type Tags = HashMap<String, Box<dyn Fn(&str, Extendible)>>;
