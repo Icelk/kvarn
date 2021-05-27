@@ -402,9 +402,11 @@ impl<'a> SendKind<'a> {
             }
             SendKind::Push(push_pipe) => {
                 let send_body = utility::method_has_response_body(request.method());
+
                 // Send response
-                let mut body_pipe =
-                    ret_log_app_error!(push_pipe.send_response(response, !send_body));
+                let mut body_pipe = ret_log_app_error!(
+                    push_pipe.send_response(response, !send_body && future.is_none())
+                );
                 if send_body {
                     // Send body
                     ret_log_app_error!(
@@ -419,7 +421,9 @@ impl<'a> SendKind<'a> {
                         extensions::HostWrapper::new(host),
                     )
                     .await;
+                }
 
+                if !send_body {
                     ret_log_app_error!(body_pipe.close().await);
                 }
             }

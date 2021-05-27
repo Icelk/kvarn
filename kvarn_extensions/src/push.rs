@@ -30,9 +30,7 @@ pub fn push(
                 urls.retain(|url| {
                     let correct_host = {
                         // only push https://; it's eight bytes long
-                        url.get(8..)
-                            .map(|url| url.starts_with(host.name))
-                            .unwrap_or(false)
+                        url.get(8..).map_or(false, |url| url.starts_with(host.name))
                     };
                     url.starts_with('/') || correct_host
                 });
@@ -40,39 +38,42 @@ pub fn push(
                 info!("Pushing urls {:?}", urls);
 
                 for url in urls {
-                    unsafe {
-                        let mut uri = request.get_inner().uri().clone().into_parts();
-                        if let Some(url) = uri::PathAndQuery::from_maybe_shared(url.into_bytes())
+                    let request = unsafe { request.get_inner() };
+                    let response_pipe = unsafe { response_pipe.get_inner() };
+
+                    let mut uri = request.uri().clone().into_parts();
+                    if let Some(uri) =
+                        uri::PathAndQuery::from_maybe_shared(Bytes::copy_from_slice(url.as_bytes()))
                             .ok()
                             .and_then(|path| {
                                 uri.path_and_query = Some(path);
                                 Uri::from_parts(uri).ok()
                             })
+                    {
+                        let mut request = utility::empty_clone_request(request);
+                        *request.uri_mut() = uri;
+
+                        let empty_request = utility::empty_clone_request(&request);
+
+                        let mut response_pipe = match response_pipe.push_request(empty_request) {
+                            Ok(pipe) => pipe,
+                            Err(_) => return,
+                        };
+
+                        let request = request.map(|_| kvarn::application::Body::Empty);
+
+                        if let Err(err) = kvarn::handle_cache(
+                            request,
+                            addr,
+                            kvarn::SendKind::Push(&mut response_pipe),
+                            host,
+                        )
+                        .await
                         {
-                            let mut request = utility::empty_clone_request(request.get_inner());
-                            *request.uri_mut() = url;
+                            error!("Error occurred when pushing request. {:?}", err);
+                        };
 
-                            let empty_request = utility::empty_clone_request(&request);
-
-                            let response = response_pipe.get_inner();
-                            let mut response_pipe = match response.push_request(empty_request) {
-                                Ok(pipe) => pipe,
-                                Err(_) => return,
-                            };
-
-                            let request = request.map(|_| kvarn::application::Body::Empty);
-
-                            if let Err(err) = kvarn::handle_cache(
-                                request,
-                                addr,
-                                kvarn::SendKind::Push(&mut response_pipe),
-                                host,
-                            )
-                            .await
-                            {
-                                error!("Error occurred when pushing request. {:?}", err);
-                            };
-                        }
+                        info!("Pushed {}", url);
                     }
                 }
             }
