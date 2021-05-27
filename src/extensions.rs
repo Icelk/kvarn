@@ -90,6 +90,12 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
     Box::pin(core::future::ready(value))
 }
 
+macro_rules! order_reverse_by_first {
+    ($list: expr) => {
+        $list.sort_by(|a, b| b.0.cmp(&a.0));
+    };
+}
+
 /// Contains all extensions.
 /// See [extensions.md](../extensions.md) for more info.
 ///
@@ -97,13 +103,13 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
 #[allow(missing_debug_implementations)]
 #[must_use]
 pub struct Extensions {
-    prime: Vec<Prime>,
+    prime: Vec<(i32, Prime)>,
     prepare_single: HashMap<String, Prepare>,
-    prepare_fn: Vec<(If, Prepare)>,
+    prepare_fn: Vec<(i32, If, Prepare)>,
     present_internal: HashMap<String, Present>,
     present_file: HashMap<String, Present>,
-    package: Vec<Package>,
-    post: Vec<Post>,
+    package: Vec<(i32, Package)>,
+    post: Vec<(i32, Post)>,
 }
 impl Extensions {
     /// Creates a empty [`Extensions`].
@@ -123,91 +129,97 @@ impl Extensions {
     }
     /// Creates a new [`Extensions`] and adds a few essential extensions.
     ///
-    /// For now the following extensions are added.
-    /// - a Prime extension redirecting the user from `<path>/` to `<path>/index.html` and
+    /// For now the following extensions are added. The number in parentheses are the priority.
+    /// - a Prime extension (-64) redirecting the user from `<path>/` to `<path>/index.html` and
     ///   `<path>.` to `<path>.html` is included.
     ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
-    /// - Package extension to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
+    /// - Package extension (8) to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `Referrer-Policy` header has been set earlier in the response.
-    /// - a package extension to enable byte ranges. See [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests).
-    ///   For now only supports `single part ranges`.
     pub fn new() -> Self {
         let mut new = Self::empty();
 
-        new.add_prime(Box::new(|request, host, _| {
-            enum Ending {
-                Dot,
-                Slash,
-                Other,
-            }
-            impl Ending {
-                fn from_uri(uri: &Uri) -> Self {
-                    if uri.path().ends_with('.') {
-                        Self::Dot
-                    } else if uri.path().ends_with('/') {
-                        Self::Slash
-                    } else {
-                        Self::Other
+        new.add_prime(
+            Box::new(|request, host, _| {
+                enum Ending {
+                    Dot,
+                    Slash,
+                    Other,
+                }
+                impl Ending {
+                    fn from_uri(uri: &Uri) -> Self {
+                        if uri.path().ends_with('.') {
+                            Self::Dot
+                        } else if uri.path().ends_with('/') {
+                            Self::Slash
+                        } else {
+                            Self::Other
+                        }
                     }
                 }
-            }
-            let uri: &Uri = unsafe { request.get_inner() }.uri();
-            let host: &Host = unsafe { host.get_inner() };
-            let append = match Ending::from_uri(uri) {
-                Ending::Other => return ready(None),
-                Ending::Dot => host.extension_default.as_deref().unwrap_or("html"),
-                Ending::Slash => host.folder_default.as_deref().unwrap_or("index.html"),
-            };
+                let uri: &Uri = unsafe { request.get_inner() }.uri();
+                let host: &Host = unsafe { host.get_inner() };
+                let append = match Ending::from_uri(uri) {
+                    Ending::Other => return ready(None),
+                    Ending::Dot => host.extension_default.as_deref().unwrap_or("html"),
+                    Ending::Slash => host.folder_default.as_deref().unwrap_or("index.html"),
+                };
 
-            let mut uri = uri.clone().into_parts();
+                let mut uri = uri.clone().into_parts();
 
-            let path = uri
-                .path_and_query
-                .as_ref()
-                .map_or("/", uri::PathAndQuery::path);
-            let query = uri
-                .path_and_query
-                .as_ref()
-                .and_then(uri::PathAndQuery::query);
-            let path_and_query = build_bytes!(
-                path.as_bytes(),
-                append.as_bytes(),
-                if query.is_none() { "" } else { "?" }.as_bytes(),
-                query.unwrap_or("").as_bytes()
-            );
+                let path = uri
+                    .path_and_query
+                    .as_ref()
+                    .map_or("/", uri::PathAndQuery::path);
+                let query = uri
+                    .path_and_query
+                    .as_ref()
+                    .and_then(uri::PathAndQuery::query);
+                let path_and_query = build_bytes!(
+                    path.as_bytes(),
+                    append.as_bytes(),
+                    if query.is_none() { "" } else { "?" }.as_bytes(),
+                    query.unwrap_or("").as_bytes()
+                );
 
-            // This is ok, we only added bytes from a String, which are guaranteed to be valid for a URI path
-            uri.path_and_query =
-                Some(uri::PathAndQuery::from_maybe_shared(path_and_query).unwrap());
+                // This is ok, we only added bytes from a String, which are guaranteed to be valid for a URI path
+                uri.path_and_query =
+                    Some(uri::PathAndQuery::from_maybe_shared(path_and_query).unwrap());
 
-            // Again ok, see ↑
-            let uri = Uri::from_parts(uri).unwrap();
+                // Again ok, see ↑
+                let uri = Uri::from_parts(uri).unwrap();
 
-            ready(Some(uri))
-        }));
-        new.add_package(Box::new(|mut response, _, _| {
-            let response: &mut Response<()> = unsafe { response.get_inner() };
-            response
-                .headers_mut()
-                .entry("referrer-policy")
-                .or_insert(HeaderValue::from_static("no-referrer"));
+                ready(Some(uri))
+            }),
+            -100,
+        );
+        new.add_package(
+            Box::new(|mut response, _, _| {
+                let response: &mut Response<()> = unsafe { response.get_inner() };
+                response
+                    .headers_mut()
+                    .entry("referrer-policy")
+                    .or_insert(HeaderValue::from_static("no-referrer"));
 
-            ready(())
-        }));
+                ready(())
+            }),
+            10,
+        );
 
         new
     }
-    /// Adds a prime extension.
-    pub fn add_prime(&mut self, extension: Prime) {
-        self.prime.push(extension);
+    /// Adds a prime extension. Higher `priority` extensions are ran first.
+    pub fn add_prime(&mut self, extension: Prime, priority: i32) {
+        self.prime.push((priority, extension));
+        order_reverse_by_first!(self.prime);
     }
     /// Adds a prepare extension for a single URI.
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
         self.prepare_single.insert(path, extension);
     }
-    /// Adds a prepare extension run if `function` return `true`.
-    pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare) {
-        self.prepare_fn.push((predicate, extension));
+    /// Adds a prepare extension run if `function` return `true`. Higher `priority` extensions are ran first.
+    pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, priority: i32) {
+        self.prepare_fn.push((priority, predicate, extension));
+        order_reverse_by_first!(self.prepare_fn);
     }
     /// Adds a present internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: String, extension: Present) {
@@ -217,13 +229,15 @@ impl Extensions {
     pub fn add_present_file(&mut self, name: String, extension: Present) {
         self.present_file.insert(name, extension);
     }
-    /// Adds a package extension, used to make last-minute changes to response.
-    pub fn add_package(&mut self, extension: Package) {
-        self.package.push(extension);
+    /// Adds a package extension, used to make last-minute changes to response. Higher `priority` extensions are ran first.
+    pub fn add_package(&mut self, extension: Package, priority: i32) {
+        self.package.push((priority, extension));
+        order_reverse_by_first!(self.package);
     }
-    /// Adds a post extension, used for HTTP/2 push
-    pub fn add_post(&mut self, extension: Post) {
-        self.post.push(extension);
+    /// Adds a post extension, used for HTTP/2 push Higher `priority` extensions are ran first.
+    pub fn add_post(&mut self, extension: Post, priority: i32) {
+        self.post.push((priority, extension));
+        order_reverse_by_first!(self.post);
     }
 
     pub(crate) async fn resolve_prime(
@@ -232,7 +246,7 @@ impl Extensions {
         host: &Host,
         address: SocketAddr,
     ) {
-        for prime in &self.prime {
+        for (_, prime) in &self.prime {
             if let Some(prime) = prime(
                 RequestWrapper::new(request),
                 HostWrapper::new(host),
@@ -262,7 +276,7 @@ impl Extensions {
                 .await,
             )
         } else {
-            for (function, extension) in &self.prepare_fn {
+            for (_, function, extension) in &self.prepare_fn {
                 if function(request) {
                     return Some(
                         extension(
@@ -340,7 +354,7 @@ impl Extensions {
         request: &FatRequest,
         host: &Host,
     ) {
-        for extension in &self.package {
+        for (_, extension) in &self.package {
             extension(
                 EmptyResponseWrapperMut::new(response),
                 RequestWrapper::new(request),
@@ -357,7 +371,7 @@ impl Extensions {
         addr: SocketAddr,
         host: &Host,
     ) {
-        for extension in self.post.iter().take(self.post.len().saturating_sub(1)) {
+        for (_, extension) in self.post.iter().take(self.post.len().saturating_sub(1)) {
             extension(
                 RequestWrapper::new(request),
                 Bytes::clone(&bytes),
@@ -367,7 +381,7 @@ impl Extensions {
             )
             .await;
         }
-        if let Some(extension) = self.post.last() {
+        if let Some((_, extension)) = self.post.last() {
             extension(
                 RequestWrapper::new(request),
                 bytes,

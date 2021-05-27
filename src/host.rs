@@ -170,7 +170,7 @@ impl Host {
         }
     }
 
-    /// Adds a [`Prepare`] and a [`Prime`] extension which redirects requests using HTTP to HTTPS
+    /// Adds a [`Prepare`] and a [`Prime`] extension (with a priority of `4`) which redirects requests using HTTP to HTTPS
     /// with a [`StatusCode::TEMPORARY_REDIRECT`].
     ///
     /// For more info about how it works, see the source of this function.
@@ -206,10 +206,12 @@ impl Host {
                 )
             }),
         );
-        self.extensions.add_prime(Box::new(|request, _, _| {
-            let request: &FatRequest = unsafe { request.get_inner() };
-            let uri =
-                if request.uri().scheme_str() == Some("http") && request.uri().port().is_none() {
+        self.extensions.add_prime(
+            Box::new(|request, _, _| {
+                let request: &FatRequest = unsafe { request.get_inner() };
+                let uri = if request.uri().scheme_str() == Some("http")
+                    && request.uri().port().is_none()
+                {
                     // redirect
                     let mut uri = request.uri().clone().into_parts();
 
@@ -234,12 +236,16 @@ impl Host {
                 } else {
                     None
                 };
-            ready(uri)
-        }));
+                ready(uri)
+            }),
+            4,
+        );
         self
     }
 
     /// Enables [HSTS](https://en.wikipedia.org/wiki/HSTS) on this [`Host`].
+    ///
+    /// The [`Package`] extension has a priority of `8`.
     ///
     /// You should be careful using this feature.
     /// If you do not plan to have a certificate for your domain
@@ -249,8 +255,8 @@ impl Host {
     /// Also see [hstspreload.org](https://hstspreload.org/)
     #[cfg(feature = "https")]
     pub fn enable_hsts(&mut self) -> &mut Self {
-        self.extensions
-            .add_package(Box::new(|mut response, request, _| {
+        self.extensions.add_package(
+            Box::new(|mut response, request, _| {
                 let response: &mut Response<_> = unsafe { response.get_inner() };
                 let request: &FatRequest = unsafe { request.get_inner() };
                 if request.uri().scheme_str() == Some("https") {
@@ -263,7 +269,9 @@ impl Host {
                 }
 
                 ready(())
-            }));
+            }),
+            8,
+        );
         self
     }
     pub fn disable_client_cache(&mut self) -> &mut Self {

@@ -50,6 +50,8 @@ pub fn new() -> Extensions {
 /// The current defaults are [`download()`], [`cache()`], [`php()`], and [`templates()`]
 ///
 /// They will *always* get included in your server after calling this function.
+///
+/// The priority of the `php` extension is `-8` and `-32` for the `push` extension.
 pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_internal("download".to_string(), Box::new(download));
     extensions.add_present_internal("cache".to_string(), Box::new(cache));
@@ -60,11 +62,12 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_prepare_fn(
         Box::new(|req| req.uri().path().ends_with(".php")),
         Box::new(php),
+        -8,
     );
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), Box::new(templates));
     #[cfg(feature = "push")]
-    extensions.add_post(Box::new(push));
+    extensions.add_post(Box::new(push), -32);
 }
 
 // Ok, since it is used, just not by every extension, and #[CFG] would be too fragile for this.
@@ -167,6 +170,8 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
 /// Forces `file_extensions` to be cached according to their respective preference.
 ///
 /// Useful when you have compiled away cache, but still want images and fonts to be cached.
+///
+/// The priority for the [`Package`] extension is `16`
 pub fn force_cache(
     extensions: &mut Extensions,
     file_extensions: &'static [(&'static str, ClientCachePreference)],
@@ -180,5 +185,5 @@ pub fn force_cache(
                 }
             }
         }
-    }));
+    }), 16);
 }
