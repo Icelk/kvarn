@@ -7,7 +7,6 @@ use std::path::Path;
 
 /// ToDo: Remove this, and import from Kvarn Core or Kvarn Kärna
 pub(crate) mod parse {
-
     pub mod chars {
         /// Line feed
         pub const LF: u8 = 10;

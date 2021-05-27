@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 pulldown-cmark = { version = "^0.8", default-features = false, features = ["simd"] }
 notify = "^4"
-chrono = { version = "0.4.19", optional = true }
+chrono = { version = "^0.4", optional = true }
 
 [features]
 default = ["date"]
