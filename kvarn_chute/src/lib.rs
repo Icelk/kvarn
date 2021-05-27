@@ -347,7 +347,7 @@ pub fn process_document<P: AsRef<Path>>(
         Box::new(|_inner, mut ext| {
             let date = chrono::Local::now();
             use fmt::Write;
-            write!(ext, "{}", date.format("%a, %F, %-H:%-M %:z"))
+            write!(ext, "{}", date.format("%a, %F, %0H:%0M %:z"))
                 .expect("failed to push to string");
         }),
     );
