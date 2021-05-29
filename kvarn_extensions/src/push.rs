@@ -50,20 +50,33 @@ pub fn push(
                                 Uri::from_parts(uri).ok()
                             })
                     {
-                        let mut request = utility::empty_clone_request(request);
-                        *request.uri_mut() = uri;
+                        let mut push_request = Request::builder().uri(uri);
+                        macro_rules! copy_header {
+                            ($builder: expr, $headers: expr, $name: expr) => {
+                                if let Some(header) = $headers.get($name) {
+                                    $builder = $builder.header($name, header);
+                                }
+                            };
+                        }
+                        let headers = request.headers();
 
-                        let empty_request = utility::empty_clone_request(&request);
+                        copy_header!(push_request, headers, "accept-encoding");
+
+                        let push_request = push_request.body(()).expect(
+                            "failed to construct a request only from another valid request.",
+                        );
+
+                        let empty_request = utility::empty_clone_request(&push_request);
 
                         let mut response_pipe = match response_pipe.push_request(empty_request) {
                             Ok(pipe) => pipe,
                             Err(_) => return,
                         };
 
-                        let request = request.map(|_| kvarn::application::Body::Empty);
+                        let push_request = push_request.map(|_| kvarn::application::Body::Empty);
 
                         if let Err(err) = kvarn::handle_cache(
-                            request,
+                            push_request,
                             addr,
                             kvarn::SendKind::Push(&mut response_pipe),
                             host,
@@ -72,8 +85,6 @@ pub fn push(
                         {
                             error!("Error occurred when pushing request. {:?}", err);
                         };
-
-                        info!("Pushed {}", url);
                     }
                 }
             }
