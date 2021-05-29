@@ -1,4 +1,9 @@
 //! Graceful shutdown for Kvarn.
+//!
+//! This is handled through a [`Manager`] and several helper structs.
+//! The `Manager` is returned from [`run`] and can be awaited
+//! to pause execution till the server is shut down.
+//! It is also used to trigger a shutdown.
 use crate::prelude::{threading::*, *};
 #[cfg(feature = "graceful-shutdown")]
 use atomic::{AtomicBool, AtomicIsize};
@@ -17,6 +22,8 @@ use tokio::sync::watch::{
 #[repr(transparent)]
 pub(crate) struct WakerIndex(usize);
 
+/// Wrapper type for `UnsafeCell<Vec<Option<Waker>>>` to enable sharing across threads.
+/// This is safe because of the promises [`WakerIndex`] and the use of this struct bellow.
 #[derive(Debug)]
 #[cfg(feature = "graceful-shutdown")]
 #[repr(transparent)]
@@ -47,6 +54,13 @@ unsafe impl Sync for WakerList {}
 #[cfg(feature = "graceful-shutdown")]
 unsafe impl Send for WakerList {}
 
+/// Shutdown manager.
+/// Contains a counter of connections and a shutdown flag
+/// to determine when to initiate a shutdown.
+///
+/// This will wait for all current connections to close, but immediately closes listeners.
+///
+/// Waiting on shutdown is handled using [`tokio::sync::watch`].
 #[derive(Debug)]
 #[must_use]
 pub struct Manager {
@@ -62,6 +76,7 @@ pub struct Manager {
     channel: (WatchSender<()>, WatchReceiver<()>),
 }
 impl Manager {
+    /// Creates a new shutdown manager with the capacity of the list of wakers set to `_capacity`.
     pub fn new(_capacity: usize) -> Self {
         #[cfg(feature = "graceful-shutdown")]
         {
@@ -79,6 +94,9 @@ impl Manager {
             Self {}
         }
     }
+    /// Adds a listener to this manager.
+    ///
+    /// This is used so the `accept` future resolves immediately when the shutdown is triggered.
     pub fn add_listener(&mut self, listener: TcpListener) -> AcceptManager {
         AcceptManager {
             #[cfg(feature = "graceful-shutdown")]
@@ -91,12 +109,18 @@ impl Manager {
             listener,
         }
     }
+    /// Adds to the count of connections.
+    /// When this connection is closed, you must call [`Manager::remove_connection`]
+    /// or a logic error will occur and a shutdown will never occur.
     pub fn add_connection(&self) {
         #[cfg(feature = "graceful-shutdown")]
         {
             self.connections.fetch_add(1, Ordering::Release);
         }
     }
+    /// Removes from the count of connections.
+    /// If the count reaches 0 and the internal shutdown flag is enabled,
+    /// it will initiate a graceful shutdown.
     pub fn remove_connection(&self) {
         #[cfg(feature = "graceful-shutdown")]
         {
@@ -116,6 +140,7 @@ impl Manager {
             }
         }
     }
+    /// Gets the value of the internal shutdown flag. This signals a graceful shutdown is underway.
     #[cfg(feature = "graceful-shutdown")]
     pub fn get_shutdown(&self, order: Ordering) -> bool {
         self.shutdown.load(order)
@@ -176,12 +201,19 @@ impl Manager {
         }
     }
 }
+/// The result of [`AcceptManager::accept`].
+/// Can either be a new connection or a shutdown signal.
+/// The listener should be dropped right after the shutdown signal is received.
 #[derive(Debug)]
 #[must_use]
 pub enum AcceptAction {
+    /// Shutdown signal; immediately drop this struct.
     Shutdown,
+    /// Accept a new connection or handle a IO error.
     Accept(io::Result<(TcpStream, SocketAddr)>),
 }
+/// A wrapper around [`TcpListener`] (and `UdpListener` when HTTP/3 comes around)
+/// which waits for a new connection **or** a shutdown signal.
 #[derive(Debug)]
 #[must_use]
 pub struct AcceptManager {
@@ -190,6 +222,8 @@ pub struct AcceptManager {
     listener: TcpListener,
 }
 impl AcceptManager {
+    /// Waits for a new connection or a shutdown signal.
+    ///
     /// Please increase the count of connections on [`Manager`] when this connection is accepted
     /// and decrease it when the connection dies.
     pub async fn accept(&mut self, _manager: &Manager) -> AcceptAction {
@@ -206,6 +240,7 @@ impl AcceptManager {
         _manager.remove_waker(self.index);
         action
     }
+    /// Returns a reference to the inner listener.
     pub fn get_inner(&self) -> &TcpListener {
         &self.listener
     }

@@ -270,6 +270,10 @@ impl Host {
         );
         self
     }
+    /// Disables client cache on this host.
+    ///
+    /// This makes all [`ClientCachePreference`]s `no-store`.
+    /// Use Kvarn extensions' `force_cache` to force certain files to cache.
     pub fn disable_client_cache(&mut self) -> &mut Self {
         self.options.disable_client_cache();
         self
@@ -307,6 +311,10 @@ impl Debug for Host {
         d.finish()
     }
 }
+/// Options for [`Host`].
+/// Values wrapped in [`Option`]s usually use hardcoded defaults when the value is [`None`].
+///
+/// This can easily be cloned to be shared across multiple hosts.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Options {
@@ -329,6 +337,9 @@ pub struct Options {
     pub public_data_dir: Option<PathBuf>,
 }
 impl Options {
+    /// Creates a new [`Options`] with default settings.
+    ///
+    /// All options are [`None`] and [`Self::disable_client_cache`] is `false`.
     pub fn new() -> Self {
         Self {
             folder_default: None,
@@ -337,10 +348,16 @@ impl Options {
             public_data_dir: None,
         }
     }
+    /// Disables client cache on this host.
+    ///
+    /// This makes all [`ClientCachePreference`]s `no-store`.
+    /// Use Kvarn extensions' `force_cache` to force certain files to cache.
     pub fn disable_client_cache(&mut self) -> &mut Self {
         self.disable_client_cache = true;
         self
     }
+    /// Sets the relative directory (from the [`Host::path`]) to fetch data for the web in.
+    /// Defaults to `public`
     pub fn set_public_data_dir(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.public_data_dir = Some(path.as_ref().to_path_buf());
         self
