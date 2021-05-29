@@ -57,20 +57,8 @@ pub struct Host {
     /// See [`comprash`] and [`Host::file_cache`] for more info.
     pub response_cache: ResponseCache,
 
-    /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
-    /// E.g. `/posts/` -> `/posts/index.html`
-    ///
-    /// If no value is passed, `index.html` is assumed.
-    pub folder_default: Option<String>,
-    /// Will be the default for unspecified file extensions; `/foobar.` will resolve to `/foobar.<extension_default>`.
-    /// E.g. `/index.` -> `/index.html`
-    ///
-    /// If no value is passed, `html` is assumed.
-    pub extension_default: Option<String>,
-    /// Returns `cache-control` header to be `no-store` by default, if enabled.
-    ///
-    /// Useful if you have a developing site and don't want traditionally static content to be in the client cache.
-    pub disable_client_cache: bool,
+    /// Other settings.
+    pub options: Options,
 }
 impl Host {
     /// Creates a new [`Host`].
@@ -92,6 +80,7 @@ impl Host {
         private_key_path: impl AsRef<Path>,
         path: PathBuf,
         extensions: Extensions,
+        options: Options,
     ) -> Result<Self, (CertificateError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
@@ -100,11 +89,9 @@ impl Host {
                 certificate: Some(cert),
                 path,
                 extensions,
-                folder_default: None,
-                extension_default: None,
                 file_cache: Mutex::new(Cache::default()),
                 response_cache: Mutex::new(Cache::default()),
-                disable_client_cache: false,
+                options,
             }),
             Err(err) => Err((
                 err,
@@ -113,11 +100,9 @@ impl Host {
                     certificate: None,
                     path,
                     extensions,
-                    folder_default: None,
-                    extension_default: None,
                     file_cache: Mutex::new(Cache::default()),
                     response_cache: Mutex::new(Cache::default()),
-                    disable_client_cache: false,
+                    options,
                 },
             )),
         }
@@ -126,18 +111,21 @@ impl Host {
     ///
     /// This host will only support non-encrypted HTTP/1 connections.
     /// Consider enabling the `https` flag and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
-    pub fn non_secure(host_name: &'static str, path: PathBuf, extensions: Extensions) -> Self {
+    pub fn non_secure(
+        host_name: &'static str,
+        path: PathBuf,
+        extensions: Extensions,
+        options: Options,
+    ) -> Self {
         Self {
             name: host_name,
             #[cfg(feature = "https")]
             certificate: None,
             path,
             extensions,
-            folder_default: None,
-            extension_default: None,
             file_cache: Mutex::new(Cache::default()),
             response_cache: Mutex::new(Cache::default()),
-            disable_client_cache: false,
+            options,
         }
     }
 
@@ -154,8 +142,16 @@ impl Host {
         private_key_path: impl AsRef<Path>,
         path: PathBuf,
         extensions: Extensions,
+        options: Options,
     ) -> Self {
-        match Host::new(host_name, cert_path, private_key_path, path, extensions) {
+        match Host::new(
+            host_name,
+            cert_path,
+            private_key_path,
+            path,
+            extensions,
+            options,
+        ) {
             Ok(mut host) => {
                 host.set_http_redirect_to_https();
                 host
@@ -275,7 +271,7 @@ impl Host {
         self
     }
     pub fn disable_client_cache(&mut self) -> &mut Self {
-        self.disable_client_cache = true;
+        self.options.disable_client_cache();
         self
     }
 
@@ -307,9 +303,52 @@ impl Debug for Host {
         d.field("extensions", &CleanDebug::new("[internal extension data]"));
         d.field("file_cache", &CleanDebug::new("[internal cache]"));
         d.field("response_cache", &CleanDebug::new("[internal cache]"));
-        d.field("folder_default", &self.folder_default);
-        d.field("extension_default", &self.extension_default);
+        d.field("settings", &self.options);
         d.finish()
+    }
+}
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct Options {
+    /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
+    /// E.g. `/posts/` -> `/posts/index.html`
+    ///
+    /// If no value is passed, `index.html` is assumed.
+    pub folder_default: Option<String>,
+    /// Will be the default for unspecified file extensions; `/foobar.` will resolve to `/foobar.<extension_default>`.
+    /// E.g. `/index.` -> `/index.html`
+    ///
+    /// If no value is passed, `html` is assumed.
+    pub extension_default: Option<String>,
+    /// Returns `cache-control` header to be `no-store` by default, if enabled.
+    ///
+    /// Useful if you have a developing site and don't want traditionally static content to be in the client cache.
+    pub disable_client_cache: bool,
+    /// Default data directory for public files.
+    /// Default is `public`
+    pub public_data_dir: Option<PathBuf>,
+}
+impl Options {
+    pub fn new() -> Self {
+        Self {
+            folder_default: None,
+            extension_default: None,
+            disable_client_cache: false,
+            public_data_dir: None,
+        }
+    }
+    pub fn disable_client_cache(&mut self) -> &mut Self {
+        self.disable_client_cache = true;
+        self
+    }
+    pub fn set_public_data_dir(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        self.public_data_dir = Some(path.as_ref().to_path_buf());
+        self
+    }
+}
+impl Default for Options {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -377,7 +416,12 @@ impl Data {
     #[inline]
     pub fn simple_non_secure(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
-            default: Host::non_secure(default_host_name, ".".into(), extensions),
+            default: Host::non_secure(
+                default_host_name,
+                ".".into(),
+                extensions,
+                Options::default(),
+            ),
             by_name: HashMap::new(),
             has_secure: false,
         }

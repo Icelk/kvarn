@@ -160,8 +160,12 @@ impl Extensions {
                 let host: &Host = unsafe { host.get_inner() };
                 let append = match Ending::from_uri(uri) {
                     Ending::Other => return ready(None),
-                    Ending::Dot => host.extension_default.as_deref().unwrap_or("html"),
-                    Ending::Slash => host.folder_default.as_deref().unwrap_or("index.html"),
+                    Ending::Dot => host.options.extension_default.as_deref().unwrap_or("html"),
+                    Ending::Slash => host
+                        .options
+                        .folder_default
+                        .as_deref()
+                        .unwrap_or("index.html"),
                 };
 
                 let mut uri = uri.clone().into_parts();

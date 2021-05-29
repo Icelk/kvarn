@@ -526,7 +526,10 @@ pub async fn handle_cache(
                     Ok(_) => {
                         let path = utility::make_path(
                             &host.path,
-                            "public",
+                            host.options
+                                .public_data_dir
+                                .as_deref()
+                                .unwrap_or_else(|| Path::new("public")),
                             // Ok, since `path.is_some()` above which calls the same function.
                             parse::uri(request.uri().path()).unwrap(),
                             None,
@@ -554,7 +557,7 @@ pub async fn handle_cache(
                 .and_then(std::ffi::OsStr::to_str)
             {
                 Some(ext) => ext,
-                None => match host.extension_default.as_ref() {
+                None => match host.options.extension_default.as_ref() {
                     Some(ext) => ext.as_str(),
                     None => "",
                 },
@@ -564,7 +567,7 @@ pub async fn handle_cache(
                 compress,
                 client_cache,
                 extension,
-                host.disable_client_cache,
+                host.options.disable_client_cache,
             );
 
             let response = match compressed_response.clone_preferred(&request) {
