@@ -989,6 +989,8 @@ mod macros {
             extension!(|$request: RequestWrapper, $response: EmptyResponseWrapperMut, $host: HostWrapper | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
         }
     }
+    #[allow(unused_imports)]
+    use super::ResponsePipeFuture;
     /// Creates a [`ResponsePipeFuture`].
     ///
     /// # Examples

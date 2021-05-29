@@ -577,9 +577,6 @@ pub enum ClientCachePreference {
 }
 impl ClientCachePreference {
     /// Gets the [`HeaderValue`] representation of the preference.
-    ///
-    /// You should not insert nor remove any `cache-control` header if this is [`None`].
-    /// See [`ClientCachePreference::Undefined`] for more info.
     #[inline]
     #[must_use]
     pub fn as_header(self) -> HeaderValue {
