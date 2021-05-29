@@ -40,6 +40,9 @@
     // When a enum variant has been conditionally compiled away
     irrefutable_let_patterns,
 )]
+#![doc(html_favicon_url = "https://kvarn.org/favicon.png")]
+#![doc(html_logo_url = "https://kvarn.org/logo.svg")]
+#![doc(html_root_url = "https://doc.kvarn.org/")]
 
 // Module declaration
 pub mod application;
