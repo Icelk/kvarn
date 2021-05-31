@@ -276,7 +276,7 @@ pub fn process_document<P: AsRef<Path>>(
     }
     let (mut extensions, header_content_starts) = parse::extension_args(header_pre_meta);
 
-    let (file_extensions, file_content_start) = parse::extension_args(&buffer[..]);
+    let (file_extensions, mut file_content_start) = parse::extension_args(&buffer[..]);
     'extension_loop: for extension in file_extensions.into_iter() {
         // If extension name is present
         let extension_name = match extension.get(0) {
@@ -292,7 +292,11 @@ pub fn process_document<P: AsRef<Path>>(
         // Push to main extension list
         extensions.push(extension);
     }
-    let file_content_start = file_content_start + 1;
+    if let Ok(string) = std::str::from_utf8(&buffer[file_content_start..]) {
+        let white_space_chars = string.char_indices().take_while(|(_, char)| char.is_whitespace()).last().map_or(0, |(pos, char)| pos + char.len_utf8());
+
+        file_content_start += white_space_chars;
+    }
     // Write all extensions
     for (position, extension) in extensions.iter().enumerate() {
         match position {
