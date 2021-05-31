@@ -292,6 +292,7 @@ pub fn process_document<P: AsRef<Path>>(
         // Push to main extension list
         extensions.push(extension);
     }
+    let file_content_start = file_content_start + 1;
     // Write all extensions
     for (position, extension) in extensions.iter().enumerate() {
         match position {
