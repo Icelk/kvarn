@@ -785,8 +785,8 @@ impl Debug for PortDescriptor {
 /// use kvarn::prelude::*;
 ///
 /// # async {
-/// // Create a host with hostname "localhost", serving files from directory "./web", and the default extensions.
-/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default());
+/// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
+/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
 /// // Create a set of virtual hosts (`Data`) with `host` as the default.
 /// let data = Data::builder(host).build();
 /// // Bind port 8080 with `data`.
