@@ -461,7 +461,6 @@ mod response {
             &self,
             response: &mut Response<T>,
             len: usize,
-            method: &Method,
         ) {
             match self {
                 Self::Http1(_) => match response.version() {

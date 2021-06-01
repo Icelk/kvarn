@@ -341,10 +341,9 @@ impl<'a> SendKind<'a> {
         &self,
         response: &mut Response<T>,
         len: usize,
-        method: &Method,
     ) {
         match self {
-            Self::Send(p) => p.ensure_version_and_length(response, len, method),
+            Self::Send(p) => p.ensure_version_and_length(response, len),
             Self::Push(p) => p.ensure_version(response),
         }
     }
@@ -359,7 +358,6 @@ impl<'a> SendKind<'a> {
         future: Option<
             impl FnOnce(extensions::ResponseBodyPipeWrapperMut, extensions::HostWrapper) -> F,
         >,
-        method: &Method,
         address: SocketAddr,
         data: Option<parse::CriticalRequestComponents>,
     ) -> io::Result<()> {
@@ -368,7 +366,7 @@ impl<'a> SendKind<'a> {
         }
 
         let len = response.body().len();
-        self.ensure_version_and_length(&mut response, len, method);
+        self.ensure_version_and_length(&mut response, len);
 
         let (mut response, body) = utility::split_response(response);
 
@@ -598,7 +596,6 @@ pub async fn handle_cache(
         &request,
         host,
         future,
-        request.method(),
         address,
         sanitize_data.ok(),
     )
