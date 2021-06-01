@@ -51,7 +51,7 @@ pub use extensions::{Package, Post, Prepare, Present, Prime, ResponsePipeFuture}
 pub use host::{Data, Host};
 pub use shutdown::{AcceptAction, AcceptManager};
 pub use utility::chars::*;
-pub use utility::{read_file, read_file_cached};
+pub use utility::{read_file, read_file_cached, AsCleanDebug};
 
 /// **Prelude:** file system
 ///

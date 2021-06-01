@@ -177,7 +177,7 @@ impl Debug for FatResponse {
             .field("client", &self.client)
             .field("server", &self.server)
             .field("compress", &self.compress)
-            .field("future", &utility::CleanDebug::new("opaque Future"))
+            .field("future", &"opaque Future".as_clean())
             .finish()
     }
 }
@@ -337,11 +337,7 @@ impl<'a> SendKind<'a> {
     /// Ensures correct version and length (only applicable for HTTP/1 connections)
     /// of a response according to inner enum variants.
     #[inline]
-    pub fn ensure_version_and_length<T>(
-        &self,
-        response: &mut Response<T>,
-        len: usize,
-    ) {
+    pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
         match self {
             Self::Send(p) => p.ensure_version_and_length(response, len),
             Self::Push(p) => p.ensure_version(response),
@@ -758,7 +754,7 @@ impl Debug for PortDescriptor {
             &self
                 .server_config
                 .as_ref()
-                .map(|_| utility::CleanDebug::new("certificate")),
+                .map(|_| "certificate".as_clean()),
         );
 
         s.field("host_data", &self.data).finish()

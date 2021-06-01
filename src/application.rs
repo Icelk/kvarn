@@ -347,7 +347,7 @@ mod response {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             f.debug_struct("Http1Body")
                 .field("reader", &self.reader)
-                .field("buffer", &utility::CleanDebug::new("[internal buffer]"))
+                .field("buffer", &"[internal buffer]".as_clean())
                 .field("offset", &self.offset)
                 .field("content_length", &self.content_length)
                 .finish()
@@ -457,11 +457,7 @@ mod response {
         }
         /// Ensures the version and length of the `response` using the variant of [`ResponsePipe`].
         #[inline]
-        pub fn ensure_version_and_length<T>(
-            &self,
-            response: &mut Response<T>,
-            len: usize,
-        ) {
+        pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
             match self {
                 Self::Http1(_) => match response.version() {
                     Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
