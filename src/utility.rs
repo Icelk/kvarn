@@ -150,6 +150,11 @@ pub async fn read_to_end_or_max(
     max_len: usize,
 ) -> io::Result<()> {
     let mut read = buffer.len();
+
+    if read >= max_len {
+        return Ok(())
+    }
+
     // This is safe because of the trailing unsafe block.
     unsafe { buffer.set_len(buffer.capacity()) };
     loop {
