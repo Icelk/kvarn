@@ -152,7 +152,7 @@ pub async fn read_to_end_or_max(
     let mut read = buffer.len();
 
     if read >= max_len {
-        return Ok(())
+        return Ok(());
     }
 
     // This is safe because of the trailing unsafe block.
@@ -646,13 +646,35 @@ pub mod write {
     }
 }
 
-// pub fn read_to_async<R: Read>(reader: R) -> ReadToAsync<R> {
-//     ReadToAsync(reader)
-// }
-// pub struct ReadToAsync<R: Read>(R);
-// impl<R> AsyncRead for ReadToAsync<R> {
-//     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-//         buf.put_slice(buf)
-//         self.get_mut().read(buf)
-//     }
-// }
+/// An adaptor between std's [`Read`] and tokio's [`AsyncRead`] traits.
+/// This should be used when you have a foreign type which implements read
+/// (on a [`Vec`], for example) that returns immediately, because you buffered the actual read with tokio.
+///
+/// The `reader` should return immediately, else it'll block.
+pub fn read_to_async<R: Read + Unpin>(reader: R) -> ReadToAsync<R> {
+    ReadToAsync(reader)
+}
+/// Helper struct for [`read_to_async`].
+#[derive(Debug)]
+pub struct ReadToAsync<R>(R);
+impl<R: Read + Unpin> AsyncRead for ReadToAsync<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        // buf.put_slice(buf)
+        let extra_filled = unsafe {
+            self.get_mut()
+                .0
+                .read(&mut *(buf.unfilled_mut() as *mut [_] as *mut [u8]))
+        };
+        Poll::Ready(match extra_filled {
+            Ok(extra_filled) => {
+                buf.set_filled(buf.filled().len() + extra_filled);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        })
+    }
+}
