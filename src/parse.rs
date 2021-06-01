@@ -225,7 +225,7 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
         }
     }
     {
-        let key = query.get(pair_start..value_start);
+        let key = query.get(pair_start..value_start - 1);
         let value = query.get(value_start..);
 
         if let (Some(key), Some(value)) = (key, value) {
