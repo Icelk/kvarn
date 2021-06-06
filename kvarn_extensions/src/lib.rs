@@ -167,20 +167,30 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
     })
 }
 
-/// Forces `file_extensions` to be cached according to their respective preference.
-///
+/// Forces the responses matching `rules` to be cached according to their respective preference.
 /// Useful when you have compiled away cache, but still want images and fonts to be cached.
+///
+/// Rules can take three shapes.
+/// 1. Matching all file extensions. Here, the rule str have to start with a `.`
+/// 2. Path start with. Matches all responses which start with the rule. str has to start with `/`
+/// 3. Path contains rule. For example, `*target*` matches `/target/bin/kvarn`,
+///    `/a/really/long/path/with/some_target_name/in/it`, but not `/tar/get` or
+///    `/articles/rust_Target`.
 ///
 /// The priority for the [`Package`] extension is `16`
 pub fn force_cache(
     extensions: &mut Extensions,
-    file_extensions: &'static [(&'static str, ClientCachePreference)],
+    rules: &'static [(&'static str, ClientCachePreference)],
 ) {
     extensions.add_package(package!(response, req, _host {
         let extension = req.uri().path().split('.').last();
+        let path = req.uri().path();
         if let Some(extension) = extension {
-            for (extension_candidate, preference) in file_extensions {
-                if *extension_candidate == extension {
+            for (rule, preference) in rules {
+                let replace = (rule.starts_with('/') && path.starts_with(rule))
+                    || rule.strip_prefix('.').map_or(false, |ext| ext == extension)
+                    || rule.strip_prefix('*').and_then(|rule| rule.strip_suffix('*')).map_or(false, |rule| path.contains(rule));
+                if replace {
                     utility::replace_header(response.headers_mut(), "cache-control", preference.as_header());
                 }
             }
