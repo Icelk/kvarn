@@ -15,6 +15,17 @@ pub fn push(
             return;
         }
 
+        // If user agent is Firefox, return.
+        // This implementations of push doesn not work with Firefox!
+        if unsafe { request.get_inner() }
+            .headers()
+            .get("user-agent")
+            .and_then(|user_agent| user_agent.to_str().ok())
+            .map_or(false, |user_agent| user_agent.contains("Firefox/"))
+        {
+            return;
+        }
+
         const HTML_START: &str = "<!doctype html>";
 
         match str::from_utf8(&bytes) {
@@ -74,6 +85,8 @@ pub fn push(
                         };
 
                         let push_request = push_request.map(|_| kvarn::application::Body::Empty);
+
+                        // let pipe = kvarn::SendKind::Push(&mut response_pipe);
 
                         if let Err(err) = kvarn::handle_cache(
                             push_request,
