@@ -145,6 +145,11 @@ impl Extensions {
         new
     }
 
+    /// Adds a prime extension to redirect [`Uri`]s ending with `.` and `/`.
+    ///
+    /// This routs the requests according to [`host::Options::folder_default`] and
+    /// [`host::Options::extension_default`].
+    /// See respective documentation for more info.
     pub fn add_uri_redirect(&mut self) -> &mut Self {
         self.add_prime(
             Box::new(|request, host, _| {
@@ -206,6 +211,9 @@ impl Extensions {
         );
         self
     }
+    /// Adds a [`Package`] extension to set the `referrer-policy` to `no-referrer`
+    /// for maximum privacy and security.
+    /// This is added when calling [`Extensions::new`].
     pub fn add_no_referrer(&mut self) -> &mut Self {
         self.add_package(
             Box::new(|mut response, _, _| {
@@ -221,6 +229,8 @@ impl Extensions {
         );
         self
     }
+    /// Adds extensions to disallow all CORS requests.
+    /// This is added when calling [`Extensions::new`].
     pub fn add_disallow_cors(&mut self) -> &mut Self {
         self.add_prime(
             Box::new(|request, _, _| {
@@ -258,6 +268,9 @@ impl Extensions {
         );
         self
     }
+    /// Overrides the default handling (deny all) of CORS requests to the `cors_settings`.
+    ///
+    /// See [`Cors`] for a example and more info.
     pub fn add_cors(&mut self, cors_settings: Arc<Cors>) -> &mut Self {
         self.add_disallow_cors();
 
@@ -988,12 +1001,40 @@ impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
     }
 }
 
+/// A [CORS](https://en.wikipedia.org/wiki/Cross-origin_resource_sharing) ruleset for Kvarn.
+///
+/// Use [`Extensions::add_cors`] to allow selected CORS requests.
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// // Allow `https://icelk.dev` and `https://kvarn.org` to access all images.
+/// // Also allow all requests from `http://example.org` access to the api.
+/// let cors =
+///     Cors::new()
+///         .allow(
+///             "/images/*",
+///             CorsAllowList::new()
+///                 .add_origin("https://icelk.dev")
+///                 .add_origin("https://kvarn.org")
+///             )
+///         .allow(
+///             "/api/*",
+///             CorsAllowList::new()
+///                 .add_origin("http://example.org")
+///                 .add_method(Method::PUT)
+///                 .add_method(Method::POST)
+///         );
+/// ```
 #[must_use]
 #[derive(Debug)]
 pub struct Cors {
     rules: Vec<(String, CorsAllowList)>,
 }
 impl Cors {
+    /// Creates a new CORS ruleset without any rules.
+    /// All CORS requests are rejected.
     pub fn new() -> Self {
         Self { rules: Vec::new() }
     }
@@ -1076,6 +1117,13 @@ impl Default for Cors {
         Self::new()
     }
 }
+/// A CORS allow list which allowes hosts, methods, and headers from a associated path.
+/// This is a builder-like struct.
+/// Use the `add_*` methods to add allowed origins, methods, and headers.
+/// Multiple allow lists can be added to a [`Cors`] instance.
+/// See the example at [`Cors`].
+///
+/// Use [`Cors::allow`] to add a rule.
 #[must_use]
 #[derive(Debug)]
 pub struct CorsAllowList {
@@ -1084,6 +1132,7 @@ pub struct CorsAllowList {
     headers: Vec<HeaderName>,
 }
 impl CorsAllowList {
+    /// Creates a empty CORS allow list.
     pub fn new() -> Self {
         Self {
             allowed: Vec::new(),
