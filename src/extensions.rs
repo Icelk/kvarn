@@ -136,10 +136,17 @@ impl Extensions {
     ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
     /// - Package extension (8) to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `Referrer-Policy` header has been set earlier in the response.
+    /// - A CORS extension to deny all CORS requests. See [`Self::with_cors`] for CORS management.
     pub fn new() -> Self {
         let mut new = Self::empty();
 
-        new.add_prime(
+        new.add_uri_redirect().add_no_referrer().add_disallow_cors();
+
+        new
+    }
+
+    pub fn add_uri_redirect(&mut self) -> &mut Self {
+        self.add_prime(
             Box::new(|request, host, _| {
                 enum Ending {
                     Dot,
@@ -197,7 +204,10 @@ impl Extensions {
             }),
             -100,
         );
-        new.add_package(
+        self
+    }
+    pub fn add_no_referrer(&mut self) -> &mut Self {
+        self.add_package(
             Box::new(|mut response, _, _| {
                 let response: &mut Response<()> = unsafe { response.get_inner() };
                 response
@@ -209,9 +219,178 @@ impl Extensions {
             }),
             10,
         );
-
-        new
+        self
     }
+    pub fn add_disallow_cors(&mut self) -> &mut Self {
+        self.add_prime(
+            Box::new(|request, _, _| {
+                box_fut!({
+                    let request = unsafe { request.get_inner() };
+
+                    let missmatch = request
+                        .headers()
+                        .get("origin")
+                        .and_then(|origin| origin.to_str().ok())
+                        .map_or(false, |origin| {
+                            !Cors::is_part_of_origin(origin, request.uri())
+                        });
+                    if missmatch {
+                        Some(Uri::from_static("/./cors_fail"))
+                    } else {
+                        None
+                    }
+                })
+            }),
+            16_777_216,
+        );
+
+        self.add_prepare_single(
+            "/./cors_fail".to_owned(),
+            Box::new(|_, _, _, _| {
+                box_fut!({
+                    let response = Response::builder()
+                        .status(StatusCode::FORBIDDEN)
+                        .body(Bytes::from_static(b"CORS request denied"))
+                        .expect("we know this is a good request.");
+                    FatResponse::new(response, ServerCachePreference::Full)
+                })
+            }),
+        );
+        self
+    }
+    pub fn add_cors(&mut self, cors_settings: Arc<Cors>) -> &mut Self {
+        self.add_disallow_cors();
+
+        self.prime.retain(|(priority, _)| *priority != 16_777_216);
+
+        let options_cors_settings = Arc::clone(&cors_settings);
+        let package_cors_settings = Arc::clone(&cors_settings);
+
+        // This priority have to be higher than the one in the [`Self::add_disallow_cors`]'s prime
+        // extension.
+        self.add_prime(
+            Box::new(move |request, _, _| {
+                let request = unsafe { request.get_inner() };
+
+                if request.uri().path().starts_with("/./") {
+                    return ready(None);
+                }
+
+                let allow = cors_settings.allow_cors_request(request.headers(), request.uri());
+                ready(if allow.is_some() {
+                    None
+                } else {
+                    Some(Uri::from_static("/./cors_fail"))
+                })
+            }),
+            16_777_217,
+        );
+
+        // Low priority so it runs last.
+        self.add_package(
+            Box::new(move |mut response, request, _| {
+                let (response, request) = unsafe { (response.get_inner(), request.get_inner()) };
+
+                if let Some(origin) = request.headers().get("origin") {
+                    let allowed = package_cors_settings
+                        .allow_cors_request(request.headers(), request.uri())
+                        .is_some();
+                    if allowed {
+                        utility::replace_header(
+                            response.headers_mut(),
+                            "access-control-allow-origin",
+                            origin.clone(),
+                        )
+                    }
+                }
+                ready(())
+            }),
+            -1024,
+        );
+
+        self.add_prepare_single(
+            "/./cors_options".to_owned(),
+            Box::new(move |mut request, _, _, _| {
+                let request = unsafe { request.get_inner() };
+                warn!("URI {:?}", request.uri());
+                let allowed =
+                    options_cors_settings.allow_cors_request(request.headers(), request.uri());
+
+                let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
+
+                if let Some((methods, headers)) = allowed {
+                    let methods = methods
+                        .iter()
+                        .enumerate()
+                        .fold(BytesMut::with_capacity(24), |mut acc, (pos, method)| {
+                            acc.extend_from_slice(method.as_str().as_bytes());
+                            if pos + 1 != methods.len() {
+                                acc.extend_from_slice(b", ");
+                            }
+                            acc
+                        })
+                        .freeze();
+                    let headers = headers
+                        .iter()
+                        .enumerate()
+                        .fold(BytesMut::with_capacity(24), |mut acc, (pos, header)| {
+                            acc.extend_from_slice(header.as_str().as_bytes());
+                            if pos + 1 != headers.len() {
+                                acc.extend_from_slice(b", ");
+                            }
+                            acc
+                        })
+                        .freeze();
+
+                    builder = builder
+                        .header(
+                            "access-control-allow-methods",
+                            HeaderValue::from_maybe_shared(methods).unwrap(),
+                        )
+                        .header(
+                            "access-control-allow-headers",
+                            HeaderValue::from_maybe_shared(headers).unwrap(),
+                        );
+                }
+
+                let response = builder.body(Bytes::new()).unwrap_or_else(|_| {
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(utility::hardcoded_error_body(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            None,
+                        ))
+                        .expect("this is a good response.")
+                });
+                ready(FatResponse::new(response, ServerCachePreference::None))
+            }),
+        );
+
+        // This priority has to be above all the above, else it won't be able to get the options.
+        self.add_prime(
+            Box::new(move |request, _, _| {
+                let request = unsafe { request.get_inner() };
+                warn!("{:?}", request);
+                ready(
+                    if request.method() == Method::OPTIONS
+                        && request.headers().get("origin").is_some()
+                        && request
+                            .headers()
+                            .get("access-control-request-method")
+                            .is_some()
+                    {
+                        Some(Uri::from_static("/./cors_options"))
+                    } else {
+                        None
+                    },
+                )
+            }),
+            16_777_215,
+        );
+
+        self
+    }
+
     /// Adds a prime extension. Higher `priority` extensions are ran first.
     pub fn add_prime(&mut self, extension: Prime, priority: i32) {
         self.prime.push((priority, extension));
@@ -816,6 +995,138 @@ impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
     }
 }
+
+#[must_use]
+#[derive(Debug)]
+pub struct Cors {
+    rules: Vec<(String, CorsAllowList)>,
+}
+impl Cors {
+    pub fn new() -> Self {
+        Self { rules: Vec::new() }
+    }
+    /// Allows requests from the `allow_list` to access `path`.
+    ///
+    /// By default, `path` will only match requests with the exact path.
+    /// This can be changed by appending `*` to the end of the path, which
+    /// will then check if the request path start with `path`.
+    pub fn allow(mut self, path: impl AsRef<str>, allow_list: CorsAllowList) -> Self {
+        let path = path.as_ref().to_owned();
+
+        self.rules.push((path, allow_list));
+        self
+    }
+    #[must_use]
+    pub fn build(self) -> Arc<Self> {
+        Arc::new(self)
+    }
+    /// Check if the (cross-origin) request's `origin` [`Uri`] is allowed by the CORS rules.
+    pub fn allow_origin(&self, origin: &Uri, uri_path: &str) -> Option<(&[Method], &[HeaderName])> {
+        for (path, allow) in &self.rules {
+            warn!("Match Path {} uri path {}", path, uri_path);
+            if path == uri_path
+                || (path
+                    .strip_suffix('*')
+                    .map_or(false, |path| uri_path.starts_with(path)))
+            {
+                return allow.matches(origin);
+            }
+        }
+        None
+    }
+    pub fn allow_cors_request(
+        &self,
+        headers: &HeaderMap,
+        uri: &Uri,
+    ) -> Option<(&[Method], &[HeaderName])> {
+        let same_host = (&[Method::GET, Method::HEAD, Method::OPTIONS][..], &[][..]);
+        warn!("Origin {:?}uri {:?}", headers.get("origin"), uri);
+        match headers.get("origin") {
+            None => Some(same_host),
+            Some(origin)
+                if origin
+                    .to_str()
+                    .map_or(false, |origin| Cors::is_part_of_origin(origin, uri)) =>
+            {
+                Some(same_host)
+            }
+            Some(origin) => match Uri::try_from(origin.as_bytes()) {
+                Ok(origin) => self.allow_origin(&origin, uri.path()),
+                Err(_) => None,
+            },
+        }
+    }
+    fn is_part_of_origin(origin: &str, uri: &Uri) -> bool {
+        let origin = match origin.strip_prefix("https://") {
+            Some(o) if uri.scheme() == Some(&uri::Scheme::HTTPS) => o,
+            None => match origin.strip_prefix("http://") {
+                Some(o) if uri.scheme() == Some(&uri::Scheme::HTTP) => o,
+                _ => return false,
+            },
+            Some(_) => return false,
+        };
+        uri.authority()
+            .map(uri::Authority::as_str)
+            .map_or(false, |authority| authority == origin)
+    }
+}
+impl Default for Cors {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+#[must_use]
+#[derive(Debug)]
+pub struct CorsAllowList {
+    allowed: Vec<Uri>,
+    methods: Vec<Method>,
+    headers: Vec<HeaderName>,
+}
+impl CorsAllowList {
+    pub fn new() -> Self {
+        Self {
+            allowed: Vec::new(),
+            methods: vec![Method::GET, Method::HEAD, Method::OPTIONS],
+            headers: Vec::new(),
+        }
+    }
+    pub fn add_origin(mut self, allowed_origin: Uri) -> Self {
+        assert!(allowed_origin.host().is_some());
+        assert!(allowed_origin.scheme().is_some());
+        self.allowed.push(allowed_origin);
+        self
+    }
+    pub fn add_method(mut self, allowed_method: Method) -> Self {
+        if !self.methods.contains(&allowed_method) {
+            self.methods.push(allowed_method)
+        }
+        self
+    }
+    pub fn add_header(mut self, allowed_header: HeaderName) -> Self {
+        if !self.headers.contains(&allowed_header) {
+            self.headers.push(allowed_header)
+        }
+        self
+    }
+    pub fn matches(&self, origin: &Uri) -> Option<(&[Method], &[HeaderName])> {
+        for allowed in &self.allowed {
+            let scheme = allowed.scheme().map_or("https", |scheme| scheme.as_str());
+            if Some(allowed.host().unwrap()) == origin.host()
+                && allowed.port_u16() == origin.port_u16()
+                && Some(scheme) == origin.scheme().map(uri::Scheme::as_str)
+            {
+                return Some((&self.methods, &self.headers));
+            }
+        }
+        None
+    }
+}
+impl Default for CorsAllowList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 mod macros {
     /// Makes a pinned future, compatible with [`crate::RetFut`] and [`crate::RetSyncFut`]
     ///
