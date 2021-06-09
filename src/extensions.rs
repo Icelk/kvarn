@@ -272,11 +272,7 @@ impl Extensions {
             Box::new(move |request, _, _| {
                 let request = unsafe { request.get_inner() };
 
-                if request.uri().path().starts_with("/./") {
-                    return ready(None);
-                }
-
-                let allow = cors_settings.allow_cors_request(request.headers(), request.uri());
+                let allow = cors_settings.check_cors_request(request);
                 ready(if allow.is_some() {
                     None
                 } else {
@@ -292,9 +288,7 @@ impl Extensions {
                 let (response, request) = unsafe { (response.get_inner(), request.get_inner()) };
 
                 if let Some(origin) = request.headers().get("origin") {
-                    let allowed = package_cors_settings
-                        .allow_cors_request(request.headers(), request.uri())
-                        .is_some();
+                    let allowed = package_cors_settings.check_cors_request(request).is_some();
                     if allowed {
                         utility::replace_header(
                             response.headers_mut(),
@@ -312,9 +306,8 @@ impl Extensions {
             "/./cors_options".to_owned(),
             Box::new(move |mut request, _, _, _| {
                 let request = unsafe { request.get_inner() };
-                warn!("URI {:?}", request.uri());
                 let allowed =
-                    options_cors_settings.allow_cors_request(request.headers(), request.uri());
+                    options_cors_settings.check_cors_request(request);
 
                 let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
 
@@ -370,7 +363,6 @@ impl Extensions {
         self.add_prime(
             Box::new(move |request, _, _| {
                 let request = unsafe { request.get_inner() };
-                warn!("{:?}", request);
                 ready(
                     if request.method() == Method::OPTIONS
                         && request.headers().get("origin").is_some()
@@ -1016,46 +1008,55 @@ impl Cors {
         self.rules.push((path, allow_list));
         self
     }
+    /// Puts `self` in a [`Arc`].
+    /// Useful for adding the CORS ruleset with [`Extensions::add_cors`].
     #[must_use]
     pub fn build(self) -> Arc<Self> {
         Arc::new(self)
     }
     /// Check if the (cross-origin) request's `origin` [`Uri`] is allowed by the CORS rules.
-    pub fn allow_origin(&self, origin: &Uri, uri_path: &str) -> Option<(&[Method], &[HeaderName])> {
+    pub fn check_origin(&self, origin: &Uri, uri_path: &str) -> Option<(&[Method], &[HeaderName])> {
         for (path, allow) in &self.rules {
-            warn!("Match Path {} uri path {}", path, uri_path);
             if path == uri_path
                 || (path
                     .strip_suffix('*')
                     .map_or(false, |path| uri_path.starts_with(path)))
             {
-                return allow.matches(origin);
+                return allow.check(origin);
             }
         }
         None
     }
-    pub fn allow_cors_request(
+    /// Check if the `headers` and `uri` is allowed with this ruleset.
+    ///
+    /// > This will not check for errors in `access-control-request-headers`.
+    ///
+    /// Use this over [`Self::check_origin`] becuse this checks for `same_origin` requests.
+    pub fn check_cors_request<T>(
         &self,
-        headers: &HeaderMap,
-        uri: &Uri,
+        request: &Request<T>,
     ) -> Option<(&[Method], &[HeaderName])> {
-        let same_host = (&[Method::GET, Method::HEAD, Method::OPTIONS][..], &[][..]);
-        warn!("Origin {:?}uri {:?}", headers.get("origin"), uri);
-        match headers.get("origin") {
-            None => Some(same_host),
+        let same_origin_allowed_headers =
+            (&[Method::GET, Method::HEAD, Method::OPTIONS][..], &[][..]);
+        match request.headers().get("origin") {
+            None => Some(same_origin_allowed_headers),
             Some(origin)
                 if origin
                     .to_str()
-                    .map_or(false, |origin| Cors::is_part_of_origin(origin, uri)) =>
+                    .map_or(false, |origin| Cors::is_part_of_origin(origin, request.uri())) =>
             {
-                Some(same_host)
+                Some(same_origin_allowed_headers)
             }
             Some(origin) => match Uri::try_from(origin.as_bytes()) {
-                Ok(origin) => self.allow_origin(&origin, uri.path()),
+                Ok(origin) => match self.check_origin(&origin, request.uri().path()){
+                    Some(origin) if origin.0.contains(request.method()) => Some(origin),
+                    _ => None
+                },
                 Err(_) => None,
             },
         }
     }
+    /// Checks if `uri` is the same origin as `origin`.
     fn is_part_of_origin(origin: &str, uri: &Uri) -> bool {
         let origin = match origin.strip_prefix("https://") {
             Some(o) if uri.scheme() == Some(&uri::Scheme::HTTPS) => o,
@@ -1090,25 +1091,38 @@ impl CorsAllowList {
             headers: Vec::new(),
         }
     }
-    pub fn add_origin(mut self, allowed_origin: Uri) -> Self {
+    /// Allows CORS request from `allowed_origin`.
+    /// Note that the scheme (`https` / `http`) is sensitive.
+    /// Use [`Self::add_origin_uri`] for a [`Uri`] input.
+    pub fn add_origin(self, allowed_origin: &'static str) -> Self {
+        self.add_origin_uri(Uri::from_static(allowed_origin))
+    }
+    /// Allows CORS request from `allowed_origin`.
+    /// Note that the scheme (`https` / `http`) is sensitive.
+    pub fn add_origin_uri(mut self, allowed_origin: Uri) -> Self {
         assert!(allowed_origin.host().is_some());
         assert!(allowed_origin.scheme().is_some());
         self.allowed.push(allowed_origin);
         self
     }
+    /// Allows the listed origin(s) (added via [`Self::add_origin`])
+    /// to request using `allowed_method`.
     pub fn add_method(mut self, allowed_method: Method) -> Self {
         if !self.methods.contains(&allowed_method) {
             self.methods.push(allowed_method)
         }
         self
     }
+    /// Allows the listed origin(s) (added via [`Self::add_origin`])
+    /// to send the `allowed_header` in the request.
     pub fn add_header(mut self, allowed_header: HeaderName) -> Self {
         if !self.headers.contains(&allowed_header) {
             self.headers.push(allowed_header)
         }
         self
     }
-    pub fn matches(&self, origin: &Uri) -> Option<(&[Method], &[HeaderName])> {
+    /// Checks if the `origin` is allowed according to the allow list.
+    pub fn check(&self, origin: &Uri) -> Option<(&[Method], &[HeaderName])> {
         for allowed in &self.allowed {
             let scheme = allowed.scheme().map_or("https", |scheme| scheme.as_str());
             if Some(allowed.host().unwrap()) == origin.host()
