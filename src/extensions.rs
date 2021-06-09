@@ -1139,6 +1139,7 @@ impl Default for Cors {
 #[derive(Debug)]
 pub struct CorsAllowList {
     allowed: Vec<Uri>,
+    allow_all_origins: bool,
     methods: Vec<Method>,
     headers: Vec<HeaderName>,
 }
@@ -1147,6 +1148,7 @@ impl CorsAllowList {
     pub fn new() -> Self {
         Self {
             allowed: Vec::new(),
+            allow_all_origins: false,
             methods: vec![Method::GET, Method::HEAD, Method::OPTIONS],
             headers: Vec::new(),
         }
@@ -1163,6 +1165,11 @@ impl CorsAllowList {
         assert!(allowed_origin.host().is_some());
         assert!(allowed_origin.scheme().is_some());
         self.allowed.push(allowed_origin);
+        self
+    }
+    /// Enables the flag to allow all origins to use the set methods and headers in CORS requests.
+    pub fn allow_all_origins(mut self) -> Self {
+        self.allow_all_origins = true;
         self
     }
     /// Allows the listed origin(s) (added via [`Self::add_origin`])
@@ -1183,6 +1190,9 @@ impl CorsAllowList {
     }
     /// Checks if the `origin` is allowed according to the allow list.
     pub fn check(&self, origin: &Uri) -> Option<(&[Method], &[HeaderName])> {
+        if self.allow_all_origins {
+            return Some((&self.methods, &self.headers));
+        }
         for allowed in &self.allowed {
             let scheme = allowed.scheme().map_or("https", |scheme| scheme.as_str());
             if Some(allowed.host().unwrap()) == origin.host()
