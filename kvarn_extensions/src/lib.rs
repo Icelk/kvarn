@@ -60,7 +60,7 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_internal("allow-ips".to_string(), Box::new(ip_allow));
     #[cfg(feature = "php")]
     extensions.add_prepare_fn(
-        Box::new(|req| req.uri().path().ends_with(".php")),
+        Box::new(|req, _| req.uri().path().ends_with(".php")),
         Box::new(php),
         -8,
     );

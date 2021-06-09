@@ -19,6 +19,7 @@
 //! the future is awaited and the referenced data is guaranteed to not be touched by
 //! anyone but the receiving extension. If you use it later, the data can be used
 //! or have been dropped.
+
 use crate::prelude::{internals::*, *};
 
 /// A return type for a `dyn` [`Future`].
@@ -64,7 +65,7 @@ pub type Post = Box<
 /// Dynamic function to check if a extension should be ran.
 ///
 /// Used with [`Prepare`] extensions
-pub type If = Box<(dyn Fn(&FatRequest) -> bool + Sync + Send)>;
+pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool + Sync + Send)>;
 /// A [`Future`] for writing to a [`ResponsePipe`] after the response is sent.
 ///
 /// Used with [`Prepare`] extensions
@@ -249,7 +250,8 @@ impl Extensions {
         request: &mut FatRequest,
         host: &Host,
         address: SocketAddr,
-    ) {
+    ) -> Option<Uri> {
+        let mut uri = None;
         for (_, prime) in &self.prime {
             if let Some(prime) = prime(
                 RequestWrapper::new(request),
@@ -258,18 +260,27 @@ impl Extensions {
             )
             .await
             {
-                *request.uri_mut() = prime;
+                if prime.path().starts_with("/./") {
+                    uri = Some(prime)
+                } else {
+                    *request.uri_mut() = prime;
+                }
             }
         }
+        uri
     }
     pub(crate) async fn resolve_prepare(
         &self,
         request: &mut FatRequest,
+        overide_uri: Option<&Uri>,
         host: &Host,
         path: &Path,
         address: SocketAddr,
     ) -> Option<FatResponse> {
-        if let Some(extension) = self.prepare_single.get(request.uri().path()) {
+        if let Some(extension) = self
+            .prepare_single
+            .get(overide_uri.unwrap_or_else(|| request.uri()).path())
+        {
             Some(
                 extension(
                     RequestWrapperMut::new(request),
@@ -281,7 +292,7 @@ impl Extensions {
             )
         } else {
             for (_, function, extension) in &self.prepare_fn {
-                if function(request) {
+                if function(request, host) {
                     return Some(
                         extension(
                             RequestWrapperMut::new(request),

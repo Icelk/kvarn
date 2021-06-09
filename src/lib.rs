@@ -445,11 +445,13 @@ pub async fn handle_cache(
 ) -> io::Result<()> {
     let sanitize_data = parse::sanitize_request(&request);
 
-    host.extensions
+    let overide_uri = host
+        .extensions
         .resolve_prime(&mut request, host, address)
         .await;
 
-    let mut path_query = comprash::UriKey::path_and_query(request.uri());
+    let mut path_query =
+        comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
 
     let mut lock = host.response_cache.lock().await;
     // copy of [`UriKey::call_all`].
@@ -532,7 +534,7 @@ pub async fn handle_cache(
                             None,
                         );
 
-                        handle_request(&mut request, address, host, &path).await?
+                        handle_request(&mut request, overide_uri.as_ref(), address, host, &path).await?
                     }
                     Err(err) => err.into_response(host).await,
                 }
@@ -611,6 +613,7 @@ pub async fn handle_cache(
 /// LAYER 5.1
 pub async fn handle_request(
     request: &mut Request<application::Body>,
+    overide_uri: Option<&Uri>,
     address: net::SocketAddr,
     host: &Host,
     path: &Path,
@@ -627,7 +630,7 @@ pub async fn handle_request(
     {
         if let Some(resp) = host
             .extensions
-            .resolve_prepare(request, &host, path, address)
+            .resolve_prepare(request, overide_uri, &host, path, address)
             .await
         {
             let resp = resp.into_parts();

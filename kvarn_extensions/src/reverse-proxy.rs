@@ -1,4 +1,3 @@
-
 use kvarn::prelude::{internals::*, *};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::net::{TcpStream, UdpSocket, UnixStream};
@@ -432,7 +431,7 @@ impl Manager {
         let path = Arc::new(path);
 
         let when_path = Arc::clone(&path);
-        let when = Box::new(move |request: &FatRequest| {
+        let when = Box::new(move |request: &FatRequest, _host: &Host| {
             request.uri().path().starts_with(when_path.as_str())
         });
 

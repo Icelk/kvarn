@@ -19,6 +19,7 @@ pub use log::{debug, error, info, log, trace, warn};
 pub use mime::Mime;
 pub use mime_guess;
 pub use std::collections::HashMap;
+pub use std::convert::TryFrom;
 pub use std::fmt::{self, Debug, Display, Formatter};
 pub use std::io::{self, prelude::*};
 pub use std::net::{self, IpAddr, SocketAddr};
