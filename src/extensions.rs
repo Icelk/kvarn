@@ -136,7 +136,7 @@ impl Extensions {
     ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
     /// - Package extension (8) to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `Referrer-Policy` header has been set earlier in the response.
-    /// - A CORS extension to deny all CORS requests. See [`Self::with_cors`] for CORS management.
+    /// - A CORS extension to deny all CORS requests. See [`Self::add_cors`] for CORS management.
     pub fn new() -> Self {
         let mut new = Self::empty();
 
