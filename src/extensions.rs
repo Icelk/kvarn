@@ -319,8 +319,7 @@ impl Extensions {
             "/./cors_options".to_owned(),
             Box::new(move |mut request, _, _, _| {
                 let request = unsafe { request.get_inner() };
-                let allowed =
-                    options_cors_settings.check_cors_request(request);
+                let allowed = options_cors_settings.check_cors_request(request);
 
                 let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
 
@@ -1047,6 +1046,18 @@ impl Cors {
         let path = path.as_ref().to_owned();
 
         self.rules.push((path, allow_list));
+
+        self.rules.sort_by(|a, b| {
+            use std::cmp::Ordering;
+            if a.0.ends_with('*') == b.0.ends_with('*') {
+                b.0.len().cmp(&a.0.len())
+            } else if a.0.ends_with('*') {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        });
+
         self
     }
     /// Puts `self` in a [`Arc`].
@@ -1082,16 +1093,16 @@ impl Cors {
         match request.headers().get("origin") {
             None => Some(same_origin_allowed_headers),
             Some(origin)
-                if origin
-                    .to_str()
-                    .map_or(false, |origin| Cors::is_part_of_origin(origin, request.uri())) =>
+                if origin.to_str().map_or(false, |origin| {
+                    Cors::is_part_of_origin(origin, request.uri())
+                }) =>
             {
                 Some(same_origin_allowed_headers)
             }
             Some(origin) => match Uri::try_from(origin.as_bytes()) {
-                Ok(origin) => match self.check_origin(&origin, request.uri().path()){
+                Ok(origin) => match self.check_origin(&origin, request.uri().path()) {
                     Some(origin) if origin.0.contains(request.method()) => Some(origin),
-                    _ => None
+                    _ => None,
                 },
                 Err(_) => None,
             },
