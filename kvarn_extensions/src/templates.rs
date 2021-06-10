@@ -66,10 +66,6 @@ pub async fn handle_template(arguments: &PresentArguments, file: &[u8], host: &H
                         .get(position + 1..position + 2)
                         .map_or(false, |range| range != [L_SQ_BRACKET]) =>
             {
-                info!(
-                    "Next bytes {:?}",
-                    str::from_utf8(&file[position..position + 5])
-                );
                 response.push(byte)
             }
             // Else, it's a escaping character!
