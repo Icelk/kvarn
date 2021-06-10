@@ -450,7 +450,7 @@ pub async fn handle_cache(
         .resolve_prime(&mut request, host, address)
         .await;
 
-    let mut path_query =
+    let path_query =
         comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
 
     let mut lock = host.response_cache.lock().await;
@@ -464,11 +464,11 @@ pub async fn handle_cache(
     // and had to inline it.
     let cached = match lock.get(&path_query).into_option() {
         Some(t) => Some(t),
-        None => match &mut path_query {
+        None => match path_query {
             UriKey::Path(_) => None,
             UriKey::PathQuery(p) => {
-                p.truncate_query();
-                let t = lock.get(&path_query).into_option();
+                let p = UriKey::Path(p.into_path());
+                let t = lock.get(&p).into_option();
                 t
             }
         },
