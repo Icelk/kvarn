@@ -653,6 +653,66 @@ macro_rules! get_unsafe_mut_wrapper {
         get_unsafe_mut_wrapper!($main, $return, stringify!($return));
     };
 }
+/// **Should only be used from within Kvarn!**
+/// A super-unsafe pointer. Must be used with great care.
+///
+/// # Safety
+///
+/// The safety of this struct requires you to
+/// 1. make sure the lifetime of the `reference` lives longer than all references returned by
+///    [`Self::get`] and [`Self::get_mut`].
+/// 2. make sure no other references exist.
+///    You can use [`Self::new_mut`] to garantuee this.
+///
+/// This type implements `Send + Sync` to allow it to cross `async` boundarys.
+/// This type is used in the `move ||` part of extensions.
+#[repr(transparent)]
+#[must_use]
+#[allow(missing_debug_implementations)]
+pub struct SuperUnsafePointer<T> {
+    pointer: *mut T,
+}
+impl<T> SuperUnsafePointer<T> {
+    /// Creates a new pointer from a mutable reference.
+    ///
+    /// # Safety
+    ///
+    /// Read the docs of this struct for safety requirements.
+    ///
+    /// The compiler guarantees exclusive mutable access.
+    pub fn new_mut(reference: &mut T) -> Self {
+        Self { pointer: reference }
+    }
+    /// Creates a new pointer from a reference.
+    ///
+    /// # Safety
+    ///
+    /// Read the docs of this struct for safety requirements.
+    pub unsafe fn new(reference: &T) -> Self {
+        Self {
+            pointer: reference as *const _ as *mut _,
+        }
+    }
+    /// Get a reference to the inner value.
+    ///
+    /// # Safety
+    ///
+    /// Read the docs of this struct for safety requirements.
+    #[must_use]
+    pub unsafe fn get(&self) -> &T {
+        &*self.pointer
+    }
+    /// Get a mutable reference to the inner value.
+    ///
+    /// # Safety
+    ///
+    /// Read the docs of this struct for safety requirements.
+    pub unsafe fn get_mut(&mut self) -> &mut T {
+        &mut *self.pointer
+    }
+}
+unsafe impl<T: Send> Send for SuperUnsafePointer<T> {}
+unsafe impl<T: Sync> Sync for SuperUnsafePointer<T> {}
 
 get_unsafe_wrapper!(RequestWrapper, FatRequest);
 get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
@@ -1260,9 +1320,17 @@ mod macros {
                 $(mut $wrapper_param: $wrapper_param_type,)*
                 $(mut $param: $param_type,)*
             | {
-                $(let $clone = Arc::clone(&$clone);)*
+                // SAFETY: This is safe because we know the future will be ran immediately when it's
+                // returned.
+                // The closure owns a Arc and Kvarn's internals guarantees the future will be
+                // ran in the closure's lifetime.
+                $(let $clone = unsafe { SuperUnsafePointer::new(&$clone) };)*
                 Box::pin(async move {
+                    // SAFETY: as stated in [`kvarn::extensions`], it's safe to get the inner
+                    // value of wrapper struct inside the extension.
                     $(let $wrapper_param = unsafe { $wrapper_param.get_inner() };)*
+                    // SAFETY: See the comments above.
+                    $(let $clone = unsafe { $clone.get() };)*
 
                     $code
                 }) as RetSyncFut<_>
