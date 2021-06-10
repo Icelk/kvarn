@@ -475,7 +475,10 @@ pub async fn handle_cache(
     };
     #[allow(clippy::single_match_else)]
     let (response, identity, future) = match cached {
-        Some(resp) if sanitize_data.is_ok() => {
+        Some(resp)
+            if sanitize_data.is_ok()
+                && matches!(request.method(), &Method::GET | &Method::HEAD) =>
+        {
             info!("Found in cache!");
             let response = match resp.clone_preferred(&request) {
                 Err(message) => {
@@ -499,10 +502,11 @@ pub async fn handle_cache(
                 server_cache: ServerCachePreference,
                 path_query: PathQuery,
                 response: CompressedResponse,
+                method: &Method,
                 future: &Option<T>,
             ) {
                 if future.is_none() {
-                    if server_cache.cache(response.get_identity()) {
+                    if server_cache.cache(response.get_identity(), method) {
                         let mut lock = host.response_cache.lock().await;
                         let key = if server_cache.query_matters() {
                             comprash::UriKey::PathQuery(path_query)
@@ -534,7 +538,8 @@ pub async fn handle_cache(
                             None,
                         );
 
-                        handle_request(&mut request, overide_uri.as_ref(), address, host, &path).await?
+                        handle_request(&mut request, overide_uri.as_ref(), address, host, &path)
+                            .await?
                     }
                     Err(err) => err.into_response(host).await,
                 }
@@ -583,7 +588,15 @@ pub async fn handle_cache(
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
-            maybe_cache(host, server_cache, path_query, compressed_response, &future).await;
+            maybe_cache(
+                host,
+                server_cache,
+                path_query,
+                compressed_response,
+                request.method(),
+                &future,
+            )
+            .await;
 
             (response, identity_body, future)
         }
