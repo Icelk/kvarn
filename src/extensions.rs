@@ -75,6 +75,37 @@ pub type ResponsePipeFuture = Box<
         + Sync,
 >;
 
+#[derive(Debug)]
+pub struct Id {
+    priority: i32,
+    name: Option<&'static str>,
+}
+impl Id {
+    pub fn new(priority: i32, name: &'static str) -> Self {
+        Self {
+            priority,
+            name: Some(name),
+        }
+    }
+    pub fn without_name(priority: i32) -> Self {
+        Self {
+            priority,
+            name: None,
+        }
+    }
+    pub fn name(&self) -> &'static str {
+        self.name.unwrap_or("Unnamed")
+    }
+    pub fn priority(&self) -> i32 {
+        self.priority
+    }
+}
+impl Display for Id {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} with priority {}", self.name(), self.priority())
+    }
+}
+
 /// Magic number for [`Present`] extension.
 ///
 /// `!> `
@@ -91,9 +122,15 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
     Box::pin(core::future::ready(value))
 }
 
-macro_rules! order_reverse_by_first {
-    ($list: expr) => {
-        $list.sort_by(|a, b| b.0.cmp(&a.0));
+macro_rules! add_sort_list {
+    ($list: expr, $item: expr, $priority: expr) => {
+        if let Ok(pos) = $list
+            .binary_search_by(|probe| $priority.cmp(&probe.0.priority()))
+        {
+            $list.remove(pos);
+        }
+        $list.push($item);
+        $list.sort_by(|a, b| b.0.priority().cmp(&a.0.priority()));
     };
 }
 
@@ -104,13 +141,13 @@ macro_rules! order_reverse_by_first {
 #[allow(missing_debug_implementations)]
 #[must_use]
 pub struct Extensions {
-    prime: Vec<(i32, Prime)>,
+    prime: Vec<(Id, Prime)>,
     prepare_single: HashMap<String, Prepare>,
-    prepare_fn: Vec<(i32, If, Prepare)>,
+    prepare_fn: Vec<(Id, If, Prepare)>,
     present_internal: HashMap<String, Present>,
     present_file: HashMap<String, Present>,
-    package: Vec<(i32, Package)>,
-    post: Vec<(i32, Post)>,
+    package: Vec<(Id, Package)>,
+    post: Vec<(Id, Post)>,
 }
 impl Extensions {
     /// Creates a empty [`Extensions`].
@@ -207,7 +244,7 @@ impl Extensions {
 
                 ready(Some(uri))
             }),
-            -100,
+            Id::new(-100, "Expanding . and / to reduce URI size"),
         );
         self
     }
@@ -225,7 +262,7 @@ impl Extensions {
 
                 ready(())
             }),
-            10,
+            Id::new(10, "Set the referrer-policy header to no-referrer"),
         );
         self
     }
@@ -251,7 +288,7 @@ impl Extensions {
                     }
                 })
             }),
-            16_777_216,
+            Id::new(16_777_216, "Reroute all CORS requests to /./cors_fail"),
         );
 
         self.add_prepare_single(
@@ -274,8 +311,6 @@ impl Extensions {
     pub fn add_cors(&mut self, cors_settings: Arc<Cors>) -> &mut Self {
         self.add_disallow_cors();
 
-        self.prime.retain(|(priority, _)| *priority != 16_777_216);
-
         let options_cors_settings = Arc::clone(&cors_settings);
         let package_cors_settings = Arc::clone(&cors_settings);
 
@@ -292,7 +327,7 @@ impl Extensions {
                     Some(Uri::from_static("/./cors_fail"))
                 })
             }),
-            16_777_217,
+            Id::new(16_777_216, "Reroute not allowed CORS request to /./cors_failed"),
         );
 
         // Low priority so it runs last.
@@ -312,7 +347,7 @@ impl Extensions {
                 }
                 ready(())
             }),
-            -1024,
+            Id::new(-1024, "Adds access-control-allow-origin depending on if CORS request is allowed"),
         );
 
         self.add_prepare_single(
@@ -389,25 +424,23 @@ impl Extensions {
                     },
                 )
             }),
-            16_777_215,
+            Id::new(16_777_215, "Provides CORS preflight request support"),
         );
 
         self
     }
 
     /// Adds a prime extension. Higher `priority` extensions are ran first.
-    pub fn add_prime(&mut self, extension: Prime, priority: i32) {
-        self.prime.push((priority, extension));
-        order_reverse_by_first!(self.prime);
+    pub fn add_prime(&mut self, extension: Prime, id: Id) {
+        add_sort_list!(self.prime, (id, extension), id.priority());
     }
     /// Adds a prepare extension for a single URI.
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
         self.prepare_single.insert(path, extension);
     }
     /// Adds a prepare extension run if `function` return `true`. Higher `priority` extensions are ran first.
-    pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, priority: i32) {
-        self.prepare_fn.push((priority, predicate, extension));
-        order_reverse_by_first!(self.prepare_fn);
+    pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, id: Id) {
+        add_sort_list!(self.prepare_fn, (id, predicate, extension), id.priority());
     }
     /// Adds a present internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: String, extension: Present) {
@@ -418,14 +451,12 @@ impl Extensions {
         self.present_file.insert(name, extension);
     }
     /// Adds a package extension, used to make last-minute changes to response. Higher `priority` extensions are ran first.
-    pub fn add_package(&mut self, extension: Package, priority: i32) {
-        self.package.push((priority, extension));
-        order_reverse_by_first!(self.package);
+    pub fn add_package(&mut self, extension: Package, id: Id) {
+        add_sort_list!(self.package, (id, extension), id.priority());
     }
     /// Adds a post extension, used for HTTP/2 push Higher `priority` extensions are ran first.
-    pub fn add_post(&mut self, extension: Post, priority: i32) {
-        self.post.push((priority, extension));
-        order_reverse_by_first!(self.post);
+    pub fn add_post(&mut self, extension: Post, id: Id) {
+        add_sort_list!(self.post, (id, extension), id.priority());
     }
 
     pub(crate) async fn resolve_prime(

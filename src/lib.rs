@@ -27,7 +27,7 @@
 #![deny(
     unreachable_pub,
     missing_debug_implementations,
-    missing_docs,
+    // missing_docs,
     clippy::pedantic
 )]
 #![allow(

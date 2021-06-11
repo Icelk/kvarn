@@ -234,7 +234,7 @@ impl Host {
                 };
                 ready(uri)
             }),
-            4,
+            extensions::Id::new(4, "Redirecting to HTTPS"),
         );
         self
     }
@@ -266,7 +266,7 @@ impl Host {
 
                 ready(())
             }),
-            8,
+            extensions::Id::new(8, "Adding HSTS header"),
         );
         self
     }

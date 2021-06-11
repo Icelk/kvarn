@@ -62,12 +62,12 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_prepare_fn(
         Box::new(|req, _| req.uri().path().ends_with(".php")),
         Box::new(php),
-        -8,
+        extensions::Id::new(-8, "PHP"),
     );
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), Box::new(templates));
     #[cfg(feature = "push")]
-    extensions.add_post(Box::new(push), -32);
+    extensions.add_post(Box::new(push), extensions::Id::new(-32, "HTTP/2 Push"));
 }
 
 // Ok, since it is used, just not by every extension, and #[CFG] would be too fragile for this.
@@ -195,5 +195,5 @@ pub fn force_cache(
                 }
             }
         }
-    }), 16);
+    }), extensions::Id::new(16, "Adding cache-control header (force-cache)"));
 }
