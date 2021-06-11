@@ -105,6 +105,22 @@ impl Display for Id {
         write!(f, "{} with priority {}", self.name(), self.priority())
     }
 }
+impl PartialEq for Id {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority().eq(&other.priority())
+    }
+}
+impl Eq for Id {}
+impl Ord for Id {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.priority().cmp(&other.priority())
+    }
+}
+impl PartialOrd for Id {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 /// Magic number for [`Present`] extension.
 ///

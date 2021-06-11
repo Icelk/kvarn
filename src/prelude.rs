@@ -18,6 +18,7 @@ pub use http::{
 pub use log::{debug, error, info, log, trace, warn};
 pub use mime::Mime;
 pub use mime_guess;
+pub use std::cmp::{self, Ord, PartialOrd};
 pub use std::collections::HashMap;
 pub use std::convert::TryFrom;
 pub use std::fmt::{self, Debug, Display, Formatter};
