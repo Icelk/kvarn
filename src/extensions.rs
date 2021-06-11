@@ -430,7 +430,7 @@ impl Extensions {
         self
     }
 
-    /// Adds a prime extension. Higher `priority` extensions are ran first.
+    /// Adds a prime extension. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prime(&mut self, extension: Prime, id: Id) {
         add_sort_list!(self.prime, (id, extension), id.priority());
     }
@@ -438,7 +438,7 @@ impl Extensions {
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
         self.prepare_single.insert(path, extension);
     }
-    /// Adds a prepare extension run if `function` return `true`. Higher `priority` extensions are ran first.
+    /// Adds a prepare extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, id: Id) {
         add_sort_list!(self.prepare_fn, (id, predicate, extension), id.priority());
     }
@@ -450,11 +450,11 @@ impl Extensions {
     pub fn add_present_file(&mut self, name: String, extension: Present) {
         self.present_file.insert(name, extension);
     }
-    /// Adds a package extension, used to make last-minute changes to response. Higher `priority` extensions are ran first.
+    /// Adds a package extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_package(&mut self, extension: Package, id: Id) {
         add_sort_list!(self.package, (id, extension), id.priority());
     }
-    /// Adds a post extension, used for HTTP/2 push Higher `priority` extensions are ran first.
+    /// Adds a post extension, used for HTTP/2 push Higher [`Id::priority()`] extensions are ran first.
     pub fn add_post(&mut self, extension: Post, id: Id) {
         add_sort_list!(self.post, (id, extension), id.priority());
     }
