@@ -49,7 +49,9 @@ pub use crate::utility;
 // Crate exports
 pub use crate::*;
 pub use comprash::UriKey;
-pub use extensions::{Package, Post, Prepare, Present, Prime, ResponsePipeFuture, Cors, CorsAllowList};
+pub use extensions::{
+    Cors, CorsAllowList, Package, Post, Prepare, Present, Prime, ResponsePipeFuture,
+};
 pub use host::{Data, Host};
 pub use shutdown::{AcceptAction, AcceptManager};
 pub use utility::chars::*;

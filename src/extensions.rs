@@ -140,13 +140,10 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
 
 macro_rules! add_sort_list {
     ($list: expr, $item: expr, $priority: expr) => {
-        if let Ok(pos) = $list
-            .binary_search_by(|probe| $priority.cmp(&probe.0.priority()))
-        {
-            $list.remove(pos);
-        }
-        $list.push($item);
-        $list.sort_by(|a, b| b.0.priority().cmp(&a.0.priority()));
+        match $list.binary_search_by(|probe| $priority.cmp(&probe.0)) {
+            Ok(pos) => $list[pos] = $item,
+            Err(pos) => $list.insert(pos, $item),
+        };
     };
 }
 
@@ -343,7 +340,10 @@ impl Extensions {
                     Some(Uri::from_static("/./cors_fail"))
                 })
             }),
-            Id::new(16_777_216, "Reroute not allowed CORS request to /./cors_failed"),
+            Id::new(
+                16_777_216,
+                "Reroute not allowed CORS request to /./cors_failed",
+            ),
         );
 
         // Low priority so it runs last.
@@ -363,7 +363,10 @@ impl Extensions {
                 }
                 ready(())
             }),
-            Id::new(-1024, "Adds access-control-allow-origin depending on if CORS request is allowed"),
+            Id::new(
+                -1024,
+                "Adds access-control-allow-origin depending on if CORS request is allowed",
+            ),
         );
 
         self.add_prepare_single(
@@ -448,7 +451,7 @@ impl Extensions {
 
     /// Adds a prime extension. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prime(&mut self, extension: Prime, id: Id) {
-        add_sort_list!(self.prime, (id, extension), id.priority());
+        add_sort_list!(self.prime, (id, extension), id);
     }
     /// Adds a prepare extension for a single URI.
     pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
@@ -456,7 +459,7 @@ impl Extensions {
     }
     /// Adds a prepare extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, id: Id) {
-        add_sort_list!(self.prepare_fn, (id, predicate, extension), id.priority());
+        add_sort_list!(self.prepare_fn, (id, predicate, extension), id);
     }
     /// Adds a present internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: String, extension: Present) {
@@ -468,11 +471,11 @@ impl Extensions {
     }
     /// Adds a package extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_package(&mut self, extension: Package, id: Id) {
-        add_sort_list!(self.package, (id, extension), id.priority());
+        add_sort_list!(self.package, (id, extension), id);
     }
     /// Adds a post extension, used for HTTP/2 push Higher [`Id::priority()`] extensions are ran first.
     pub fn add_post(&mut self, extension: Post, id: Id) {
-        add_sort_list!(self.post, (id, extension), id.priority());
+        add_sort_list!(self.post, (id, extension), id);
     }
 
     pub(crate) async fn resolve_prime(
