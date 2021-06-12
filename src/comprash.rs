@@ -8,7 +8,11 @@
 //! response receiving correct headers and [`extensions`].
 use crate::prelude::*;
 use std::time::Instant;
-use std::{borrow::Borrow, hash::Hash};
+use std::{
+    borrow::Borrow,
+    hash::{Hash, Hasher},
+    collections::hash_map::DefaultHasher,
+};
 
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
 pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
@@ -644,13 +648,14 @@ impl<V> CacheOut<V> {
 /// implementations of this struct.
 #[derive(Debug)]
 #[must_use]
-pub struct Cache<K, V> {
+pub struct Cache<K, V, H = DefaultHasher> {
     map: HashMap<K, (V, Option<(Instant, Duration)>)>,
     max_items: usize,
     size_limit: usize,
     inserts: usize,
+    hasher: H,
 }
-impl<K, V> Cache<K, V> {
+impl<K, V> Cache<K, V, DefaultHasher> {
     /// Creates a new [`Cache`]. See [`Cache`] and [`CacheOut`]
     /// for more info about what the parameters do.
     #[inline]
@@ -660,6 +665,7 @@ impl<K, V> Cache<K, V> {
             max_items,
             size_limit,
             inserts: 0,
+            hasher:DefaultHasher::new(),
         }
     }
     /// Creates a new [`Cache`] with `size_limit` and default `max_items`.
@@ -678,7 +684,7 @@ impl<K, V> Default for Cache<K, V> {
         Self::new(1024, 4 * 1024 * 1024) // 4MiB
     }
 }
-impl<K: Eq + Hash, V> Cache<K, V> {
+impl<K: Eq + Hash, V, H> Cache<K, V, H> {
     /// Get value at `key` from the cache.
     ///
     /// See [`HashMap::get`] for more info.
@@ -737,7 +743,10 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         key: K,
         value: V,
         lifetime: Option<Duration>,
-    ) -> CacheOut<V> {
+    ) -> CacheOut<V>
+    where
+        H: Hasher,
+    {
         if value_length >= self.size_limit {
             return CacheOut::NotInserted(value);
         }
@@ -755,15 +764,17 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         }
     }
 }
-impl<K: Eq + Hash, V> Cache<K, V> {
+impl<K, V, H: Hasher> Cache<K, V, H> {
+    pub fn feed_hasher(&mut self, data: &[u8]) {
+        self.hasher.write(data);
+    }
+}
+impl<K: Eq + Hash, V, H: Hasher> Cache<K, V, H> {
     /// Discards one key-value pair pseudo-randomly.
     pub fn discard_one(&mut self) {
-        // `ToDo`: optimise. Save hasher in state.
         let pseudo_random = {
-            use std::hash::Hasher;
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            hasher.write_usize(self.inserts);
-            hasher.finish()
+            self.feed_hasher(&self.inserts.to_le_bytes());
+            self.hasher.finish()
         };
 
         // I don't care about normalized distribution
@@ -779,11 +790,15 @@ impl<K: Eq + Hash, V> Cache<K, V> {
         });
     }
 }
-impl<K: Eq + Hash> Cache<K, CompressedResponse> {
+impl<K: Eq + Hash, H: Hasher> Cache<K, CompressedResponse, H> {
     /// Caches a [`CompressedResponse`] and returns the previous response, if any.
     pub fn cache(&mut self, key: K, response: CompressedResponse) -> CacheOut<CompressedResponse> {
         let lifetime = parse::CacheControl::from_headers(response.get_identity().headers())
             .map_or(None, |cc| cc.to_duration());
+
+        let identity = response.get_identity().body();
+        let identity_fragment = identity.get(identity.len() - 512..).unwrap_or(identity);
+        self.feed_hasher(identity_fragment);
 
         debug!("Inserted item to cache with lifetime {:?}", lifetime);
 
@@ -798,6 +813,9 @@ impl<K: Eq + Hash> Cache<K, CompressedResponse> {
 impl<K: Eq + Hash> Cache<K, Bytes> {
     /// Caches a [`Bytes`] and returns the previous bytes, if any.
     pub fn cache(&mut self, key: K, contents: Bytes) -> CacheOut<Bytes> {
+        let fragment = contents.get(contents.len() - 512..).unwrap_or(&contents);
+        self.feed_hasher(fragment);
+
         // Bytes are not cleared from cache.
         self.insert(contents.len(), key, contents, None)
     }
