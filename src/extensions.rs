@@ -58,7 +58,7 @@ pub type Package =
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Post = Box<
-    (dyn Fn(RequestWrapper, Bytes, ResponsePipeWrapperMut, SocketAddr, HostWrapper) -> RetFut<()>
+    (dyn Fn(RequestWrapper, HostWrapper, ResponsePipeWrapperMut, Bytes, SocketAddr) -> RetFut<()>
          + Sync
          + Send),
 >;
@@ -622,20 +622,20 @@ impl Extensions {
         for (_, extension) in self.post.iter().take(self.post.len().saturating_sub(1)) {
             extension(
                 RequestWrapper::new(request),
-                Bytes::clone(&bytes),
-                ResponsePipeWrapperMut::new(response_pipe),
-                addr,
                 HostWrapper::new(host),
+                ResponsePipeWrapperMut::new(response_pipe),
+                Bytes::clone(&bytes),
+                addr,
             )
             .await;
         }
         if let Some((_, extension)) = self.post.last() {
             extension(
                 RequestWrapper::new(request),
-                bytes,
-                ResponsePipeWrapperMut::new(response_pipe),
-                addr,
                 HostWrapper::new(host),
+                ResponsePipeWrapperMut::new(response_pipe),
+                bytes,
+                addr,
             )
             .await;
         }
@@ -1509,8 +1509,8 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! post {
-        ($request:ident, $bytes:ident, $response:ident, $addr:ident, $host:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$request: RequestWrapper, $response: EmptyResponseWrapperMut, $host: HostWrapper | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
+        ($request:ident, $host:ident, $response:ident, $bytes:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$request: RequestWrapper, $host: HostWrapper, $response: ResponsePipeWrapperMut | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
         }
     }
     #[allow(unused_imports)]

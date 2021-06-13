@@ -2,10 +2,10 @@ use crate::*;
 
 pub fn push(
     request: RequestWrapper,
-    bytes: Bytes,
-    mut response_pipe: ResponsePipeWrapperMut,
-    addr: SocketAddr,
     host: HostWrapper,
+    mut response_pipe: ResponsePipeWrapperMut,
+    bytes: Bytes,
+    addr: SocketAddr,
 ) -> RetFut<()> {
     use internals::*;
     Box::pin(async move {
