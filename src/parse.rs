@@ -299,6 +299,7 @@ impl CriticalRequestComponents {
     ///
     /// The first value is the start and the second is the end.
     /// Both are relative to the start of the data.
+    #[inline]
     #[must_use]
     pub fn get_range(&self) -> Option<(usize, usize)> {
         self.range
@@ -345,7 +346,7 @@ impl SanitizeError {
 pub fn sanitize_request<T>(
     request: &Request<T>,
 ) -> Result<CriticalRequestComponents, SanitizeError> {
-    let path_ok = if request.uri().path().contains("./") {
+    let path_ok = if request.uri().path().contains("./") || !request.uri().path().starts_with('/') {
         false
     } else {
         parse::uri(request.uri().path()).map_or(false, Path::is_relative)

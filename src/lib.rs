@@ -577,7 +577,9 @@ pub async fn handle_cache(
                                 .public_data_dir
                                 .as_deref()
                                 .unwrap_or_else(|| Path::new("public")),
-                            // Ok, since `path.is_some()` above which calls the same function.
+                            // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
+                            // We also are OK with all Uris, since we did a check on the
+                            // incoming and presume all internal extension changes are good.
                             parse::uri(request.uri().path()).unwrap(),
                             None,
                         );
