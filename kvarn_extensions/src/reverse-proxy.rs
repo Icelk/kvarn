@@ -277,7 +277,7 @@ impl EstablishedConnection {
 
         debug!("Sent reverse-proxy request.");
 
-        let response = match timeout(Duration::from_millis(1000), async {
+        let response = match timeout(std::time::Duration::from_millis(1000), async {
             parse::response(&mut *self, 16 * 1024).await
         })
         .await
@@ -552,7 +552,7 @@ impl Manager {
                         loop {
                             // Add 60 second timeout to UDP connections.
                             let timeout_result = if udp_connection {
-                                timeout(Duration::from_secs(90), open_back.channel())
+                                timeout(std::time::Duration::from_secs(90), open_back.channel())
                                 .await
                             }else {
                                 Ok(open_back.channel().await)
@@ -588,7 +588,7 @@ impl Manager {
 
                 response
             }),
-            -128,
+            extensions::Id::new(-128, "Reverse proxy").no_override(),
         );
     }
 }
