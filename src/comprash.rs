@@ -828,7 +828,7 @@ impl<K: Eq + Hash, H: Hasher> Cache<K, CompressedResponse, H> {
             .map_or(None, |cc| cc.to_duration());
 
         let identity = response.get_identity().body();
-        let identity_fragment = identity.get(identity.len() - 512..).unwrap_or(identity);
+        let identity_fragment = &identity[identity.len().saturating_sub(512)..];
         self.feed_hasher(identity_fragment);
 
         debug!("Inserted item to cache with lifetime {:?}", lifetime);
@@ -844,7 +844,7 @@ impl<K: Eq + Hash, H: Hasher> Cache<K, CompressedResponse, H> {
 impl<K: Eq + Hash> Cache<K, Bytes> {
     /// Caches a [`Bytes`] and returns the previous bytes, if any.
     pub fn cache(&mut self, key: K, contents: Bytes) -> CacheOut<Bytes> {
-        let fragment = contents.get(contents.len() - 512..).unwrap_or(&contents);
+        let fragment = &contents[contents.len().saturating_sub(512)..];
         self.feed_hasher(fragment);
 
         // Bytes are not cleared from cache.
