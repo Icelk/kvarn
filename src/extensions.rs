@@ -2,6 +2,14 @@
 //!
 //! Check out [extensions.md](https://github.com/Icelk/kvarn/tree/main/extensions.md) for more info.
 //!
+//! If you want to make new extensions for others to use, make sure to check other extensions,
+//! so the priorities are valid. This can be done by using the debug implementation on [`Extensions`].
+//! ```
+//! # use kvarn::prelude::*;
+//! let extensions = Extensions::new();
+//! println!("The currently mounted extensions: {:#?}", extensions);
+//! ```
+//!
 //! ## Unsafe pointers
 //!
 //! This modules contains extensive usage of unsafe pointers.
@@ -75,34 +83,54 @@ pub type ResponsePipeFuture = Box<
         + Sync,
 >;
 
-#[derive(Debug)]
+/// A extension Id. The [`Self::priority`] is used for sorting extensions
+/// and [`Self::name`] for debugging which extensions are mounted.
+///
+/// Higher `priority` extensions are ran first.
+/// The debug name is useful when you want to see which priorities
+/// other extensions use. This is beneficial when creating "plug-and-play" extensions.
+#[derive(Debug, Clone, Copy)]
+#[must_use]
 pub struct Id {
     priority: i32,
     name: Option<&'static str>,
 }
 impl Id {
+    /// Creates a new Id with `priority` and a `name`.
     pub fn new(priority: i32, name: &'static str) -> Self {
         Self {
             priority,
             name: Some(name),
         }
     }
+    /// Creates a Id without a name. This is considered a bad practice,
+    /// as you cannot see which extensions are mounted to the
+    /// [`Extensions`].
+    ///
+    /// See [`Self::name`] for details about how this affects output.
     pub fn without_name(priority: i32) -> Self {
         Self {
             priority,
             name: None,
         }
     }
+    /// Returns the name of this Id.
+    ///
+    /// If the Id is created with [`Self::without_name`],
+    /// this returns `Unnamed`.
+    #[must_use]
     pub fn name(&self) -> &'static str {
         self.name.unwrap_or("Unnamed")
     }
+    /// Returns the priority of this extension.
+    #[must_use]
     pub fn priority(&self) -> i32 {
         self.priority
     }
 }
 impl Display for Id {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} with priority {}", self.name(), self.priority())
+        write!(f, "\"{}\" with priority {}", self.name(), self.priority())
     }
 }
 impl PartialEq for Id {
@@ -644,6 +672,27 @@ impl Extensions {
 impl Default for Extensions {
     fn default() -> Self {
         Self::new()
+    }
+}
+impl Debug for Extensions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        macro_rules! map {
+            ($slice: expr) => {
+                &$slice
+                    .iter()
+                    .map(|ext| (ext.0.as_clean(), "internal extension".as_clean()))
+                    .collect::<Vec<_>>()
+            };
+        }
+        f.debug_struct("Extensions")
+            .field("prime", map!(self.prime))
+            .field("prepare_single", map!(self.prepare_single))
+            .field("prepare_fn", map!(self.prepare_fn))
+            .field("present_internal", map!(self.present_internal))
+            .field("present_file", map!(self.present_file))
+            .field("package", map!(self.package))
+            .field("post", map!(self.post))
+            .finish()
     }
 }
 

@@ -765,6 +765,12 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
     }
 }
 impl<K, V, H: Hasher> Cache<K, V, H> {
+    /// Writes to the internal hasher to increase quality of output.
+    ///
+    /// Should be used by implementors of the `cache` method to add
+    /// to the internal hasher with their data.
+    ///
+    /// The hasher is used when selecting a item to remove from the cache.
     pub fn feed_hasher(&mut self, data: &[u8]) {
         self.hasher.write(data);
     }
