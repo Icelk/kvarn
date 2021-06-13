@@ -462,39 +462,83 @@ pub async fn handle_cache(
     // ...therefore, they cannot allow references to captured variables to escape
     // ```
     // and had to inline it.
-    let cached = match lock.get(&path_query).into_option() {
+    let cached = match lock.get_with_lifetime(&path_query).into_option() {
         Some(t) => Some(t),
         None => match path_query {
             UriKey::Path(_) => None,
             UriKey::PathQuery(p) => {
                 let p = UriKey::Path(p.into_path());
-                let t = lock.get(&p).into_option();
+                let t = lock.get_with_lifetime(&p).into_option();
                 t
             }
         },
     };
     #[allow(clippy::single_match_else)]
     let (response, identity, future) = match cached {
-        Some(resp)
+        Some((resp, (creation, _)))
             if sanitize_data.is_ok()
                 && matches!(request.method(), &Method::GET | &Method::HEAD) =>
         {
             info!("Found in cache!");
-            let response = match resp.clone_preferred(&request) {
-                Err(message) => {
-                    utility::default_error(
-                        StatusCode::NOT_ACCEPTABLE,
-                        Some(host),
-                        Some(message.as_bytes()),
-                    )
-                    .await
-                }
-                Ok(response) => response,
-            };
-            let identity_body = Bytes::clone(resp.get_identity().body());
-            drop(lock);
 
-            (response, identity_body, None)
+            let creation = *creation;
+
+            let if_modified_since: Option<time::DateTime<time::Utc>> =
+                if host.options.disable_if_modified_since {
+                    None
+                } else {
+                    request
+                        .headers()
+                        .get("if-modified-since")
+                        .and_then(|h| h.to_str().ok())
+                        .and_then(|s| time::NaiveDateTime::parse_from_str(s, parse::HTTP_DATE).ok())
+                        .map(|date_time| time::DateTime::from_utc(date_time, time::Utc))
+                };
+
+            let client_request_is_fresh = if_modified_since.map_or(false, |timestamp| {
+                // - 1s because the sent datetime floors the seconds, so the `creation`
+                // datetime is 0-1s ahead.
+                timestamp >= creation - time::Duration::seconds(1)
+            });
+
+            let mut response_data =
+                // We don't need to check for `host.options.disable_if_modified_since`
+                // but `if_modified_since` is `None` and therefore `client_request` is false
+                // if the option is enabled, as defined in the if in the `if_modified_since`
+                // definition.
+                if  client_request_is_fresh {
+                    drop(lock);
+                    let mut response = Response::new(Bytes::new());
+                    *response.status_mut() = StatusCode::NOT_MODIFIED;
+                    (response, Bytes::new(), None)
+                } else {
+                    let response = match resp.clone_preferred(&request) {
+                        Err(message) => {
+                            utility::default_error(
+                                StatusCode::NOT_ACCEPTABLE,
+                                Some(host),
+                                Some(message.as_bytes()),
+                            )
+                            .await
+                        }
+                        Ok(response) => response,
+                    };
+                    let identity_body = Bytes::clone(resp.get_identity().body());
+                    drop(lock);
+
+                    (response, identity_body, None)
+                };
+            if !host.options.disable_if_modified_since {
+                let last_modified =
+                    HeaderValue::from_str(&creation.format(parse::HTTP_DATE).to_string())
+                        .expect("We know these bytes are valid.");
+                utility::replace_header(
+                    response_data.0.headers_mut(),
+                    "last-modified",
+                    last_modified,
+                );
+            }
+            response_data
         }
         _ => {
             async fn maybe_cache<T>(
@@ -574,7 +618,7 @@ pub async fn handle_cache(
                 host.options.disable_client_cache,
             );
 
-            let response = match compressed_response.clone_preferred(&request) {
+            let mut response = match compressed_response.clone_preferred(&request) {
                 Err(message) => {
                     utility::default_error(
                         StatusCode::NOT_ACCEPTABLE,
@@ -598,9 +642,17 @@ pub async fn handle_cache(
             )
             .await;
 
+            if !host.options.disable_if_modified_since {
+                let last_modified =
+                    HeaderValue::from_str(&time::Utc::now().format(parse::HTTP_DATE).to_string())
+                        .expect("We know these bytes are valid.");
+                utility::replace_header(response.headers_mut(), "last-modified", last_modified);
+            }
+
             (response, identity_body, future)
         }
     };
+
     pipe.send(
         response,
         identity,

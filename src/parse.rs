@@ -7,6 +7,11 @@
 //! are very useful.
 
 use crate::prelude::*;
+use time::Duration;
+
+/// HTTP dates parsing and formatting in the
+/// [chrono format](https://docs.rs/chrono/0.4.19/chrono/format/strftime/index.html).
+pub const HTTP_DATE: &str = "%a, %d %b %Y %T GMT";
 
 /// A general error from parsing.
 #[derive(Debug)]
@@ -643,7 +648,7 @@ impl CacheControl {
     #[must_use]
     pub fn to_duration(&self) -> Option<Duration> {
         if let (true, Some(max_age)) = (self.store(), self.max_age) {
-            Some(Duration::from_secs(max_age.into()))
+            Some(Duration::seconds(max_age.into()))
         } else {
             None
         }

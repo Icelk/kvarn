@@ -65,7 +65,7 @@ pub enum LimitStrength {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct LimitManager {
-    connection_map_and_time: Arc<Mutex<(HashMap<IpAddr, usize>, time::Instant)>>,
+    connection_map_and_time: Arc<Mutex<(HashMap<IpAddr, usize>, std::time::Instant)>>,
     max_requests: usize,
     check_every: usize,
     reset_seconds: u64,
@@ -82,7 +82,7 @@ impl LimitManager {
     /// After `reset_seconds`, all data is cleared.
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
         Self {
-            connection_map_and_time: Arc::new(Mutex::new((HashMap::new(), time::Instant::now()))),
+            connection_map_and_time: Arc::new(Mutex::new((HashMap::new(), std::time::Instant::now()))),
             max_requests,
             check_every,
             reset_seconds,
@@ -105,7 +105,7 @@ impl LimitManager {
             let mut lock = self.connection_map_and_time.lock().await;
             let (map, time) = &mut *lock;
             if time.elapsed().as_secs() >= self.reset_seconds {
-                *time = time::Instant::now();
+                *time = std::time::Instant::now();
                 map.clear();
                 LimitStrength::Passed
             } else {

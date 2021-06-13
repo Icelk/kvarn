@@ -27,7 +27,6 @@ pub use std::net::{self, IpAddr, SocketAddr};
 pub use std::path::{Path, PathBuf};
 pub use std::str;
 pub use std::sync::Arc;
-pub use std::time;
 pub use std::{
     future::Future,
     pin::Pin,
@@ -87,7 +86,7 @@ pub mod internals {
     pub use encryption::Encryption;
     pub use extensions::{ready, RetFut, RetSyncFut};
     pub use limiting::{LimitStrength, LimitWrapper};
-    pub use tokio::time::{timeout, Duration};
+    pub use tokio::time::timeout;
     pub use utility::default_error;
 }
 
@@ -98,4 +97,14 @@ pub mod threading {
     pub use std::sync::atomic::{self, Ordering};
     pub use std::task::{Context, Wake, Waker};
     pub use tokio::task::{spawn, spawn_blocking, spawn_local};
+}
+
+/// **Prelude:** time
+///
+/// Here, all relevant time items are imported.
+pub mod time {
+    pub use chrono::{
+        Date, DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone,
+        Timelike, Utc,
+    };
 }

@@ -6,12 +6,11 @@
 //!
 //! The main type in this module is [`CompressedResponse`], a dynamically compressed
 //! response receiving correct headers and [`extensions`].
-use crate::prelude::*;
-use std::time::Instant;
+use crate::prelude::{time::*, *};
 use std::{
     borrow::Borrow,
-    hash::{Hash, Hasher},
     collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
 };
 
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
@@ -635,7 +634,26 @@ impl<V> CacheOut<V> {
             Self::Present(v) | Self::NotInserted(v) => Some(v),
         }
     }
+    /// Applies a function to the inner value `V` of [`CacheOut`],
+    /// if not [`CacheOut::None`] and returns a `CacheOut` with
+    /// the transformed `K`.
+    pub fn map<K>(self, f: impl FnOnce(V) -> K) -> CacheOut<K> {
+        match self {
+            Self::None => CacheOut::None,
+            Self::NotInserted(v) => CacheOut::NotInserted(f(v)),
+            Self::Present(v) => CacheOut::Present(f(v)),
+        }
+    }
 }
+
+/// The item used in the cache.
+/// `T` represents the cached data.
+///
+/// The other information is for lifetimes of the cache.
+/// The [`DateTime`] is when the item was added and
+/// the [`Duration`] how long the item can be kept.
+/// A `Duration` value of `None` means the item will never expire.
+pub type CacheItem<T> = (T, (DateTime<Utc>, Option<Duration>));
 
 /// A general cache with size and item count limits.
 ///
@@ -649,7 +667,7 @@ impl<V> CacheOut<V> {
 #[derive(Debug)]
 #[must_use]
 pub struct Cache<K, V, H = DefaultHasher> {
-    map: HashMap<K, (V, Option<(Instant, Duration)>)>,
+    map: HashMap<K, CacheItem<V>>,
     max_items: usize,
     size_limit: usize,
     inserts: usize,
@@ -665,7 +683,7 @@ impl<K, V> Cache<K, V, DefaultHasher> {
             max_items,
             size_limit,
             inserts: 0,
-            hasher:DefaultHasher::new(),
+            hasher: DefaultHasher::new(),
         }
     }
     /// Creates a new [`Cache`] with `size_limit` and default `max_items`.
@@ -693,12 +711,23 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
     where
         K: Borrow<Q>,
     {
+        self.get_with_lifetime(key).map(|v| &v.0)
+    }
+    /// Gets the [`CacheItem`] at `key` from the cache.
+    /// Consider using [`Self::get`] for most operations.
+    ///
+    /// This includes all lifetime information about the item in the cache.
+    /// See [`CacheItem`] for more info about this.
+    pub fn get_with_lifetime<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&CacheItem<V>>
+    where
+        K: Borrow<Q>,
+    {
         // maybe set tokio timers to remove items instead?
         match self.map.get(key) {
-            Some((v, expiry))
-                if expiry.map_or(true, |(creation, lifetime)| creation.elapsed() <= lifetime) =>
+            Some(value_and_lifetime)
+                if value_and_lifetime.1.1.map_or(true, |lifetime| Utc::now() - value_and_lifetime.1.0 <= lifetime) =>
             {
-                CacheOut::Present(v)
+                CacheOut::Present(value_and_lifetime)
             }
             Some(_) => {
                 // SAFETY: No other have a reference to self; the other branches are just that,
@@ -754,11 +783,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
         if self.map.len() >= self.max_items {
             self.discard_one();
         }
-        let value = match lifetime {
-            Some(lifetime) => (value, Some((Instant::now(), lifetime))),
-            None => (value, None),
-        };
-        match self.map.insert(key, value) {
+        match self.map.insert(key, (value, (Utc::now(), lifetime))) {
             Some((v, _expiry)) => CacheOut::Present(v),
             None => CacheOut::None,
         }

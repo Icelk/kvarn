@@ -334,6 +334,10 @@ pub struct Options {
     /// Default data directory for public files.
     /// Default is `public`
     pub public_data_dir: Option<PathBuf>,
+
+    /// Disables further caching by sending a [`StatusCode::NOT_MODIFIED`] when the
+    /// `if-modified-since` header is sent and the resource is fresh.
+    pub disable_if_modified_since: bool,
 }
 impl Options {
     /// Creates a new [`Options`] with default settings.
@@ -345,6 +349,7 @@ impl Options {
             extension_default: None,
             disable_client_cache: false,
             public_data_dir: None,
+            disable_if_modified_since: false,
         }
     }
     /// Disables client cache on this host.

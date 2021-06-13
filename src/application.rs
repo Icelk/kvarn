@@ -333,7 +333,7 @@ mod response {
             buffer.extend(&self.bytes);
             let len = self.content_length;
             if let Ok(result) = timeout(
-                Duration::from_millis(250),
+                std::time::Duration::from_millis(250),
                 utility::read_to_end_or_max(&mut buffer, &mut *self, len),
             )
             .await
