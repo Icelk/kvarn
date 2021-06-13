@@ -680,6 +680,16 @@ pub mod write {
 pub fn read_to_async<R: Read + Unpin>(reader: R) -> ReadToAsync<R> {
     ReadToAsync(reader)
 }
+unsafe fn get_unfilled_mut<'a>(buf: &mut ReadBuf<'a>) -> &'a mut [u8] {
+    &mut *(buf.unfilled_mut() as *mut [_] as *mut [u8])
+}
+unsafe fn set_buf_len(buf: &mut ReadBuf<'_>, len: usize) {
+    buf.assume_init(len.saturating_sub(buf.filled().len()));
+    buf.set_filled(len);
+}
+fn new_uninit_buf(bytes: &mut [u8]) -> ReadBuf {
+    ReadBuf::uninit(unsafe { &mut *(bytes as *mut _ as *mut [std::mem::MaybeUninit<u8>]) })
+}
 /// Helper struct for [`read_to_async`].
 #[derive(Debug)]
 pub struct ReadToAsync<R>(R);
@@ -689,18 +699,131 @@ impl<R: Read + Unpin> AsyncRead for ReadToAsync<R> {
         _cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        // buf.put_slice(buf)
-        let extra_filled = unsafe {
-            self.get_mut()
-                .0
-                .read(&mut *(buf.unfilled_mut() as *mut [_] as *mut [u8]))
-        };
+        let extra_filled = unsafe { self.get_mut().0.read(get_unfilled_mut(buf)) };
         Poll::Ready(match extra_filled {
             Ok(extra_filled) => {
-                buf.set_filled(buf.filled().len() + extra_filled);
+                unsafe { set_buf_len(buf, extra_filled) };
                 Ok(())
             }
             Err(e) => Err(e),
         })
+    }
+}
+
+#[derive(Debug)]
+#[must_use]
+struct AsyncAdapterBufferInner {
+    buffer: Vec<u8>,
+    read: usize,
+}
+impl AsyncAdapterBufferInner {
+    fn new() -> Self {
+        Self {
+            buffer: Vec::with_capacity(4096),
+            read: 0,
+        }
+    }
+}
+///
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+#[must_use]
+pub struct AsyncAdapterBuffer {
+    inner: Arc<AsyncAdapterBufferInner>,
+}
+impl AsyncAdapterBuffer {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(AsyncAdapterBufferInner::new()),
+        }
+    }
+    #[allow(clippy::mut_from_ref)]
+    unsafe fn buffer(&self) -> &mut Vec<u8> {
+        #[allow(clippy::cast_ref_to_mut)]
+        &mut *(&self.inner.buffer as *const _ as *mut Vec<u8>)
+    }
+    #[allow(clippy::mut_from_ref)]
+    unsafe fn buffer_read_mut(&self) -> &mut usize {
+        #[allow(clippy::cast_ref_to_mut)]
+        &mut *(&self.inner.read as *const _ as *mut usize)
+    }
+}
+impl Read for AsyncAdapterBuffer {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        unsafe {
+            let mut to_read = &self.buffer()[self.inner.read..];
+            let read = io::Read::read(&mut to_read, buf)?;
+            *self.buffer_read_mut() += read;
+            Ok(read)
+        }
+    }
+}
+///
+#[derive(Debug)]
+#[must_use]
+pub struct AsyncAdapter<R, A> {
+    source: R,
+    adapter: A,
+    buffer: AsyncAdapterBuffer,
+}
+impl<R, A> AsyncAdapter<R, A> {
+    fn buffer_read(&self) -> usize {
+        self.buffer.inner.read
+    }
+}
+impl<R: AsyncRead + Unpin, A: Read + Unpin> AsyncRead for AsyncAdapter<R, A> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        // shit...
+        unsafe {
+            if self.buffer.buffer().len() == self.buffer_read() {
+                // First option; we need to read to the source buffer
+                self.buffer
+                    .buffer()
+                    .set_len(self.buffer.inner.buffer.capacity());
+                let mut buf = new_uninit_buf(self.buffer.buffer());
+                buf.assume_init(self.buffer_read());
+                *self.buffer.buffer_read_mut() = 0;
+                #[allow(clippy::cast_ref_to_mut)]
+                let source = &mut *(&self.source as *const _ as *mut R);
+                match Pin::new(source).poll_read(cx, &mut buf) {
+                    Poll::Ready(Ok(())) => {
+                        cx.waker().wake_by_ref();
+                        self.buffer.buffer().set_len(buf.filled().len());
+                        Poll::Pending
+                    }
+                    Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+                    Poll::Pending => Poll::Pending,
+                }
+            } else {
+                // Second option; we have something in our source buffer.
+                // Read it to the adapter!
+                match self.adapter.read(get_unfilled_mut(buf)) {
+                    Ok(0) => Poll::Ready(Ok(())),
+                    Ok(r) => {
+                        buf.set_filled(buf.filled().len() + r);
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
+                    }
+                    Err(err) => Poll::Ready(Err(err)),
+                }
+            }
+        }
+    }
+}
+
+///
+pub fn async_adapter<R: AsyncRead + Unpin, A: Read + Unpin>(
+    source: R,
+    adapter: impl Fn(AsyncAdapterBuffer) -> A,
+) -> AsyncAdapter<R, A> {
+    let buffer = AsyncAdapterBuffer::new();
+    AsyncAdapter {
+        source,
+        adapter: adapter(buffer.clone()),
+        buffer,
     }
 }

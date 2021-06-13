@@ -300,27 +300,39 @@ impl EstablishedConnection {
                     } else {
                         let mut buffer = BytesMut::with_capacity(body.len() + 512);
                         buffer.extend(&body);
-                        if let Ok(result) = timeout(
-                            Duration::from_millis(250),
-                            utility::read_to_end_or_max(&mut buffer, &mut *self, len),
-                        )
-                        .await
-                        {
+
+                        let result = if chunked {
+                            let adapter = utility::async_adapter(&mut *self, |buffer| {
+                                chunked_transfer::Decoder::new(buffer)
+                            });
+                            timeout(
+                                std::time::Duration::from_millis(250),
+                                utility::read_to_end_or_max(&mut buffer, adapter, len),
+                            )
+                            .await
+                        } else {
+                            timeout(
+                                std::time::Duration::from_millis(250),
+                                utility::read_to_end_or_max(&mut buffer, &mut *self, len),
+                            )
+                            .await
+                        };
+                        if let Ok(result) = result {
                             result?
-                        } else if !chunked {
+                        } else {
                             warn!("Remote read timed out.");
                             unsafe { buffer.set_len(0) };
                         }
 
-                        if chunked {
-                            let mut new_buffer = BytesMut::with_capacity(buffer.len());
-                            let decoder = chunked_transfer::Decoder::new(&buffer[..]);
-                            read_to_end(&mut new_buffer, decoder)?;
-                            buffer = new_buffer;
+                        // if chunked {
+                            // let mut new_buffer = BytesMut::with_capacity(buffer.len());
+                            // let decoder = chunked_transfer::Decoder::new(&buffer[..]);
+                            // read_to_end(&mut new_buffer, decoder)?;
+                            // buffer = new_buffer;
 
-                            utility::remove_all_headers(head.headers_mut(), "transfer-encoding");
-                            info!("Decoding chunked transfer-encoding.");
-                        }
+                            // utility::remove_all_headers(head.headers_mut(), "transfer-encoding");
+                            // info!("Decoding chunked transfer-encoding.");
+                        // }
                         buffer.freeze()
                     };
 
@@ -432,6 +444,7 @@ impl Manager {
 
         let when_path = Arc::clone(&path);
         let when = Box::new(move |request: &FatRequest, _host: &Host| {
+            info!("Testing {:?}", request.uri());
             request.uri().path().starts_with(when_path.as_str())
         });
 
