@@ -13,7 +13,7 @@
 //! Therefore, I think the user of this library should have a choice to reject connections
 //! to a [`Host`] which isn't explicitly associated with said domain.
 
-use crate::prelude::*;
+use crate::prelude::{internals::*, *};
 #[cfg(feature = "https")]
 use rustls::{
     internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
@@ -486,9 +486,9 @@ impl Data {
     }
     /// Cleverly gets the host depending on [`header::HOST`] and the `sni_hostname`.
     #[inline]
-    pub fn smart_get<'a, T>(
+    pub fn smart_get<'a>(
         &'a self,
-        request: &Request<T>,
+        request: &Request<Body>,
         sni_hostname: Option<&str>,
     ) -> &'a Host {
         fn get_header(headers: &HeaderMap) -> Option<&str> {
@@ -518,11 +518,11 @@ impl Data {
     #[cfg(feature = "https")]
     #[inline]
     #[must_use]
-    pub fn make_config(self: &Arc<Self>, alpn_protocols: Vec<Vec<u8>>) -> ServerConfig {
+    pub fn make_config(self: &Arc<Self>) -> ServerConfig {
         let mut config = ServerConfig::new(NoClientAuth::new());
         let arc = Arc::clone(self);
         config.cert_resolver = arc;
-        config.alpn_protocols = alpn_protocols;
+        config.alpn_protocols = alpn();
         config
     }
 
