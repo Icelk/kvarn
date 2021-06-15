@@ -6,7 +6,7 @@
 //! This is also where part of Layer 6 is. The [`list_header`] and [`query`]
 //! are very useful.
 
-use crate::prelude::*;
+// use crate::prelude::*;
 use time::Duration;
 
 /// HTTP dates parsing and formatting in the
