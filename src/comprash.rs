@@ -663,7 +663,7 @@ pub type CacheItem<T> = (T, (DateTime<Utc>, Option<Duration>));
 /// The insert method, `Cache::cache`, has type-specific implementations.
 /// This enables clever inserting of data, independently from this struct.
 /// Therefore, the [`Cache::insert`] function should *only* be used in
-/// implementations of this struct.
+/// those implementations of this struct.
 #[derive(Debug)]
 #[must_use]
 pub struct Cache<K, V, H = DefaultHasher> {
