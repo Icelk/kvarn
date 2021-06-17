@@ -725,7 +725,9 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
         // maybe set tokio timers to remove items instead?
         match self.map.get(key) {
             Some(value_and_lifetime)
-                if value_and_lifetime.1.1.map_or(true, |lifetime| Utc::now() - value_and_lifetime.1.0 <= lifetime) =>
+                if value_and_lifetime.1 .1.map_or(true, |lifetime| {
+                    Utc::now() - value_and_lifetime.1 .0 <= lifetime
+                }) =>
             {
                 CacheOut::Present(value_and_lifetime)
             }
@@ -825,7 +827,10 @@ impl<K: Eq + Hash, H: Hasher> Cache<K, CompressedResponse, H> {
     /// Caches a [`CompressedResponse`] and returns the previous response, if any.
     pub fn cache(&mut self, key: K, response: CompressedResponse) -> CacheOut<CompressedResponse> {
         let lifetime = parse::CacheControl::from_headers(response.get_identity().headers())
-            .map_or(None, |cc| cc.to_duration());
+            .ok()
+            .as_ref()
+            .and_then(parse::CacheControl::as_freshness)
+            .map(|s| Duration::seconds(s as i64));
 
         let identity = response.get_identity().body();
         let identity_fragment = &identity[identity.len().saturating_sub(512)..];

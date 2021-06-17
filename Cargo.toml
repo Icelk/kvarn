@@ -18,6 +18,7 @@ members = [
   "kvarn_extensions",
   "kvarn_chute",
   "utils",
+  "async",
 ]
 
 [dependencies]
@@ -29,6 +30,7 @@ futures = "^0.3"
 h2 = { version = "^0.3", default-features = false, optional = true }
 http = "^0.2"
 kvarn_utils = { path = "utils" }
+kvarn_async = { path = "async" }
 log = "^0.4"
 mime = "^0.3"
 mime_guess = "^2"

@@ -1,8 +1,25 @@
+//! Utility functions for web application development.
+//!
+//! This includes
+//! - commonly used [`chars`],
+//! - a [`build_bytes`] macro to create a [`Bytes`] from bytes slices with one allocation,
+//! - [`WriteableBytes`] to optimize performance when creating a new [`Bytes`] of unknown length,
+//! - [`hardcoded_error`] to get a hard-coded error response.
+//! - [`CleanDebug`] and it's trait [`AsCleanDebug`] to get a [`Debug`] implementation wired to the
+//!   item's [`Display`] implementation.
+#![deny(
+    unreachable_pub,
+    missing_debug_implementations,
+    missing_docs,
+    clippy::pedantic
+)]
+#![allow(clippy::missing_panics_doc)]
+
 pub mod parse;
 pub mod prelude;
 use prelude::*;
 
-pub use parse::{sanitize_request, CriticalRequestComponents, list_header, ValueQualitySet};
+pub use parse::{list_header, sanitize_request, CriticalRequestComponents, ValueQualitySet};
 
 /// Common characters expressed as a single byte each, according to UTF-8.
 pub mod chars {
@@ -39,6 +56,14 @@ pub mod chars {
 /// Allocates only once; capacity is calculated before any allocation.
 ///
 /// Works like the [`vec!`] macro, but takes byte slices and concatenates them together.
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// let built_bytes = built_bytes!(b"GET", b" ", b"/foo-", b"bar", " HTTP/2");
+/// assert_eq!(built_bytes, Bytes::from_static("GET /foo-bar HTTP/2"));
+/// ```
 #[macro_export]
 macro_rules! build_bytes {
     () => (
@@ -52,6 +77,56 @@ macro_rules! build_bytes {
         b.freeze()
     }};
 }
+
+/// Implements [`Debug`] from the [`Display`] implementation of `value`.
+///
+/// Can be used to give fields a arbitrary [`mod@str`] without surrounding quotes,
+/// for example in [`fmt::DebugStruct::field`].
+pub struct CleanDebug<'a, T: ?Sized + Display>(&'a T);
+impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
+    /// Creates a new wrapper around `value` with [`Debug`] implemented as [`Display`].
+    #[inline]
+    pub fn new(value: &'a T) -> Self {
+        Self(value)
+    }
+}
+impl<'a, T: ?Sized + Display> Debug for CleanDebug<'a, T> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self.0, f)
+    }
+}
+impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self.0, f)
+    }
+}
+/// Trait to enable `.as_clean` to get a [`CleanDebug`] for the variable.
+pub trait AsCleanDebug {
+    /// Get a [`CleanDebug`] for Self.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use kvarn::prelude::*;
+    /// let s = "a\tstring";
+    /// let clean_debug = s.as_clean();
+    ///
+    /// // A debug formatting is the same as the value itself.
+    /// assert_eq!(format!("{:?}", clean_debug), s);
+    ///
+    /// // The debug formatting of the `&str` is messy for clean output in debug implementations.
+    /// assert_eq!(format!("{:?}", s), r#""a\tstring""#)
+    /// ```
+    fn as_clean(&self) -> CleanDebug<Self>
+    where
+        Self: Display,
+    {
+        CleanDebug::new(self)
+    }
+}
+impl<T: Display> AsCleanDebug for T {}
 
 /// A writeable `Bytes`.
 ///
@@ -260,11 +335,6 @@ pub fn remove_all_headers<K: header::IntoHeaderName>(headers: &mut HeaderMap, na
     }
 }
 
-macro_rules! starts_with_any {
-    ($e:expr, $($match:expr $(,)?)*) => {
-        $($e.starts_with($match) || )* false
-    };
-}
 /// Checks the equality of value of `name` in `headers` and `value`.
 /// Value **must** be all lowercase; the [`HeaderValue`] in `headers` is converted to lowercase.
 pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &str) -> bool {
@@ -273,6 +343,24 @@ pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &s
         .map(HeaderValue::to_str)
         .and_then(Result::ok);
     header_value.map_or(false, |s| s.to_ascii_lowercase() == value)
+}
+
+/// Tests if the first arguments starts with any of the following.
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// let example = "POST /api/username HTTP/3"
+/// assert!(
+///     starts_with!(example, "GET" | "HEAD" | "POST")
+/// );
+/// ```
+#[macro_export]
+macro_rules! starts_with_any {
+    ($e:expr, $($match:expr),*) => {
+        $($e.starts_with($match) || )* false
+    };
 }
 
 /// Check if `bytes` starts with a valid [`Method`].
@@ -366,53 +454,3 @@ pub fn method_has_response_body(method: &Method) -> bool {
             | Method::PATCH
     )
 }
-
-/// Implements [`Debug`] from the [`Display`] implementation of `value`.
-///
-/// Can be used to give fields a arbitrary [`mod@str`] without surrounding quotes,
-/// for example in [`fmt::DebugStruct::field`].
-pub struct CleanDebug<'a, T: ?Sized + Display>(&'a T);
-impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
-    /// Creates a new wrapper around `value` with [`Debug`] implemented as [`Display`].
-    #[inline]
-    pub fn new(value: &'a T) -> Self {
-        Self(value)
-    }
-}
-impl<'a, T: ?Sized + Display> Debug for CleanDebug<'a, T> {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(self.0, f)
-    }
-}
-impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
-    #[inline]
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(self.0, f)
-    }
-}
-/// Trait to enable `.as_clean` to get a [`CleanDebug`] for the variable.
-pub trait AsCleanDebug {
-    /// Get a [`CleanDebug`] for Self.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use kvarn::prelude::*;
-    /// let s = "a\tstring";
-    /// let clean_debug = s.as_clean();
-    ///
-    /// // A debug formatting is the same as the value itself.
-    /// assert_eq!(format!("{:?}", clean_debug), s);
-    ///
-    /// // The debug formatting of the `&str` is messy for clean output in debug implementations.
-    /// assert_eq!(format!("{:?}", s), r#""a\tstring""#)
-    /// ```
-    fn as_clean(&self) -> CleanDebug<Self>
-    where
-        Self: Display,
-    {
-        CleanDebug::new(self)
-    }
-}
-impl<T: Display> AsCleanDebug for T {}

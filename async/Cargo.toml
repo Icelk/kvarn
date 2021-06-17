@@ -1,5 +1,5 @@
 [package]
-name = "kvarn_utils"
+name = "kvarn_async"
 version = "0.1.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2018"
@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "^0.4"
 bytes = "^1"
 http = "^0.2"
+kvarn_utils = { path = "../utils" }
+tokio = { version = "^1", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }

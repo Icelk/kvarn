@@ -135,7 +135,7 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
     box_fut!({
         let data = unsafe { data.get_inner() };
-        let error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
+        let error = default(StatusCode::NOT_FOUND, Some(data.host()), None).await;
         *data.response_mut() = error;
     })
 }
@@ -161,7 +161,7 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
 
         if !matched {
             // If it does not match, set the response to 404
-            let error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
+            let error = default(StatusCode::NOT_FOUND, Some(data.host()), None).await;
             *data.response_mut() = error;
         }
     })

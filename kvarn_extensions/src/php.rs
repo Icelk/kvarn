@@ -12,14 +12,14 @@ pub fn php(
         let path = unsafe { path.get_inner() };
 
         if !path.exists() {
-            return utility::default_error_response(StatusCode::NOT_FOUND, host, None).await;
+            return default_error_response(StatusCode::NOT_FOUND, host, None).await;
         }
 
         let body = match req.body_mut().read_to_bytes().await {
             Ok(body) => body,
             Err(_) => {
                 return FatResponse::cache(
-                    utility::default_error(
+                    default_error(
                         StatusCode::BAD_REQUEST,
                         Some(host),
                         Some("failed to read body".as_bytes()),
@@ -32,20 +32,15 @@ pub fn php(
             Ok(vec) => vec,
             Err(err) => {
                 error!("FastCGI failed. {}", err);
-                return utility::default_error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    host,
-                    None,
-                )
-                .await;
+                return default_error_response(StatusCode::INTERNAL_SERVER_ERROR, host, None).await;
             }
         };
         let output = Bytes::copy_from_slice(&output);
-        match kvarn::parse::response_php(&output) {
+        match async_bits::read::response_php(&output) {
             Ok(response) => FatResponse::cache(response),
             Err(err) => {
                 error!("failed to parse response; {}", err.as_str());
-                utility::default_error_response(StatusCode::NOT_FOUND, host, None).await
+                default_error_response(StatusCode::NOT_FOUND, host, None).await
             }
         }
     })

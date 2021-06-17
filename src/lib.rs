@@ -31,7 +31,9 @@
     clippy::pedantic
 )]
 #![allow(
+    // I WANT A LONG fn!
     clippy::too_many_lines,
+    // I know what I'm doing with unwraps.
     clippy::missing_panics_doc,
     // when a parameter of a function is prefixed due to cfg in fn
     clippy::used_underscore_binding,
@@ -48,21 +50,22 @@
 pub mod application;
 pub mod comprash;
 pub mod encryption;
+pub mod error;
 pub mod extensions;
 pub mod host;
 pub mod limiting;
-pub mod parse;
 pub mod prelude;
+pub mod read;
 pub mod shutdown;
-pub mod utility;
 
 use prelude::{internals::*, networking::*, *};
 // When user only imports crate::* and not crate::prelude::*
 pub use comprash::{
     ClientCachePreference, CompressPreference, CompressedResponse, ServerCachePreference,
 };
+pub use error::{default, default_response};
 pub use extensions::Extensions;
-pub use utility::{default_error, default_error_response, read_file, read_file_cached};
+pub use read::{file as read_file, file_cached as read_file_cached};
 /// The `Request` used within Kvarn.
 pub type FatRequest = Request<application::Body>;
 /// A `Response` returned by [`handle_request()`].
@@ -299,8 +302,7 @@ pub async fn handle_connection(
                     ResponsePipe::Http1(_) => Version::HTTP_11,
                     ResponsePipe::Http2(_) => Version::HTTP_2,
                 };
-                let (mut response, body) =
-                    utils::split_response(limiting::get_too_many_requests());
+                let (mut response, body) = utils::split_response(limiting::get_too_many_requests());
                 *response.version_mut() = version;
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -514,7 +516,7 @@ pub async fn handle_cache(
                 } else {
                     let response = match resp.clone_preferred(&request) {
                         Err(message) => {
-                            utility::default_error(
+                            error::default(
                                 StatusCode::NOT_ACCEPTABLE,
                                 Some(host),
                                 Some(message.as_bytes()),
@@ -587,7 +589,7 @@ pub async fn handle_cache(
                         handle_request(&mut request, overide_uri.as_ref(), address, host, &path)
                             .await?
                     }
-                    Err(err) => utility::sanitize_error_into_response(*err, host).await,
+                    Err(err) => error::sanitize_error_into_response(*err, host).await,
                 }
                 .into_parts();
 
@@ -622,7 +624,7 @@ pub async fn handle_cache(
 
             let mut response = match compressed_response.clone_preferred(&request) {
                 Err(message) => {
-                    utility::default_error(
+                    error::default(
                         StatusCode::NOT_ACCEPTABLE,
                         Some(host),
                         Some(message.as_bytes()),
@@ -715,7 +717,7 @@ pub async fn handle_request(
     if response.is_none() {
         match *request.method() {
             Method::GET | Method::HEAD => {
-                if let Some(content) = utility::read_file(&path, &host.file_cache).await {
+                if let Some(content) = read_file(&path, &host.file_cache).await {
                     response = Some(Response::new(content));
                 }
             }
@@ -726,7 +728,7 @@ pub async fn handle_request(
     let response = match response {
         Some(r) => r,
         None => {
-            utility::default_error_response(status.unwrap_or(StatusCode::NOT_FOUND), host, None)
+            error::default_response(status.unwrap_or(StatusCode::NOT_FOUND), host, None)
                 .await
                 .response
         }

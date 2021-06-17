@@ -215,8 +215,8 @@ impl HttpConnection {
 
 mod request {
     use super::{
-        io, parse, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption, Error,
-        Mutex, Pin, Poll, ReadBuf, Request,
+        async_bits::read, io, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption,
+        Error, Mutex, Pin, Poll, ReadBuf, Request,
     };
 
     #[inline]
@@ -232,7 +232,7 @@ mod request {
         };
         let lock = stream.lock().await;
 
-        let (head, bytes) = parse::request(lock, max_len, default_host, scheme).await?;
+        let (head, bytes) = read::request(lock, max_len, default_host, scheme).await?;
         let body = Body::Http1(response::Http1Body::new(
             stream,
             bytes,
@@ -334,7 +334,7 @@ mod response {
             let len = self.content_length;
             if let Ok(result) = timeout(
                 std::time::Duration::from_millis(250),
-                utility::read_to_end_or_max(&mut buffer, &mut *self, len),
+                async_bits::read_to_end_or_max(&mut buffer, &mut *self, len),
             )
             .await
             {
@@ -420,7 +420,7 @@ mod response {
                         _ => {}
                     }
                     let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
-                    utility::write::response(&response, b"", &mut writer)
+                    async_bits::write::response(&response, b"", &mut writer)
                         .await
                         .map_err(Error::Io)?;
                     writer.flush().await.map_err(Error::Io)?;
