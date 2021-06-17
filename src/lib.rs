@@ -165,7 +165,7 @@ impl Debug for FatResponse {
             Str(&'a str),
             Bytes(&'a [u8]),
         }
-        let response = utility::empty_clone_response(&self.response);
+        let response = utils::empty_clone_response(&self.response);
         let body = if let Ok(s) = str::from_utf8(self.response.body()) {
             BytesOrStr::Str(s)
         } else {
@@ -300,7 +300,7 @@ pub async fn handle_connection(
                     ResponsePipe::Http2(_) => Version::HTTP_2,
                 };
                 let (mut response, body) =
-                    utility::split_response(limiting::get_too_many_requests());
+                    utils::split_response(limiting::get_too_many_requests());
                 *response.version_mut() = version;
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -355,7 +355,7 @@ impl<'a> SendKind<'a> {
             impl FnOnce(extensions::ResponseBodyPipeWrapperMut, extensions::HostWrapper) -> F,
         >,
         address: SocketAddr,
-        data: Option<parse::CriticalRequestComponents>,
+        data: Option<utils::CriticalRequestComponents>,
     ) -> io::Result<()> {
         if let Some(data) = &data {
             data.apply_to_response(&mut response).await;
@@ -364,7 +364,7 @@ impl<'a> SendKind<'a> {
         let len = response.body().len();
         self.ensure_version_and_length(&mut response, len);
 
-        let (mut response, body) = utility::split_response(response);
+        let (mut response, body) = utils::split_response(response);
 
         host.extensions
             .resolve_package(&mut response, request, host)
@@ -376,7 +376,7 @@ impl<'a> SendKind<'a> {
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
 
-                if utility::method_has_response_body(request.method()) {
+                if utils::method_has_response_body(request.method()) {
                     // Send body
                     ret_log_app_error!(body_pipe.send_with_maybe_close(body, false).await);
                 }
@@ -398,7 +398,7 @@ impl<'a> SendKind<'a> {
                 ret_log_app_error!(body_pipe.close().await);
             }
             SendKind::Push(push_pipe) => {
-                let send_body = utility::method_has_response_body(request.method());
+                let send_body = utils::method_has_response_body(request.method());
 
                 // Send response
                 let mut body_pipe = ret_log_app_error!(
@@ -443,7 +443,7 @@ pub async fn handle_cache(
     mut pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
-    let sanitize_data = parse::sanitize_request(&request);
+    let sanitize_data = utils::sanitize_request(&request);
 
     let overide_uri = host
         .extensions
@@ -532,7 +532,7 @@ pub async fn handle_cache(
                 let last_modified =
                     HeaderValue::from_str(&creation.format(parse::HTTP_DATE).to_string())
                         .expect("We know these bytes are valid.");
-                utility::replace_header(
+                utils::replace_header(
                     response_data.0.headers_mut(),
                     "last-modified",
                     last_modified,
@@ -571,7 +571,7 @@ pub async fn handle_cache(
             let (mut resp, mut client_cache, mut server_cache, compress, future) =
                 match sanitize_data.as_ref() {
                     Ok(_) => {
-                        let path = utility::make_path(
+                        let path = utils::make_path(
                             &host.path,
                             host.options
                                 .public_data_dir
@@ -580,14 +580,14 @@ pub async fn handle_cache(
                             // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
                             // We also are OK with all Uris, since we did a check on the
                             // incoming and presume all internal extension changes are good.
-                            parse::uri(request.uri().path()).unwrap(),
+                            utils::parse::uri(request.uri().path()).unwrap(),
                             None,
                         );
 
                         handle_request(&mut request, overide_uri.as_ref(), address, host, &path)
                             .await?
                     }
-                    Err(err) => err.into_response(host).await,
+                    Err(err) => utility::sanitize_error_into_response(*err, host).await,
                 }
                 .into_parts();
 
@@ -648,7 +648,7 @@ pub async fn handle_cache(
                 let last_modified =
                     HeaderValue::from_str(&time::Utc::now().format(parse::HTTP_DATE).to_string())
                         .expect("We know these bytes are valid.");
-                utility::replace_header(response.headers_mut(), "last-modified", last_modified);
+                utils::replace_header(response.headers_mut(), "last-modified", last_modified);
             }
 
             (response, identity_body, future)

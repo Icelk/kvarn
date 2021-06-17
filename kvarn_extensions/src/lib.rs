@@ -89,7 +89,7 @@ pub mod parse {
 pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
     let data = unsafe { data.get_inner() };
     let headers = data.response_mut().headers_mut();
-    kvarn::utility::replace_header_static(headers, "content-type", "application/octet-stream");
+    utils::replace_header_static(headers, "content-type", "application/octet-stream");
     ready(())
 }
 
@@ -191,7 +191,7 @@ pub fn force_cache(
                     || rule.strip_prefix('.').map_or(false, |ext| ext == extension)
                     || rule.strip_prefix('*').and_then(|rule| rule.strip_suffix('*')).map_or(false, |rule| path.contains(rule));
                 if replace {
-                    utility::replace_header(response.headers_mut(), "cache-control", preference.as_header());
+                    utils::replace_header(response.headers_mut(), "cache-control", preference.as_header());
                 }
             }
         }

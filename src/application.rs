@@ -17,7 +17,7 @@ pub use response::Http1Body;
 #[derive(Debug)]
 pub enum Error {
     /// A parse error from the module [`parse`].
-    Parse(parse::Error),
+    Parse(utils::parse::Error),
     /// An input-output error was encountered while reading or writing.
     Io(io::Error),
     /// [`h2`] emitted an error
@@ -31,9 +31,9 @@ pub enum Error {
     /// *Use HTTP/2 instead, or check if the [`ResponsePipe`] is HTTP/1*.
     PushOnHttp1,
 }
-impl From<parse::Error> for Error {
+impl From<utils::parse::Error> for Error {
     #[inline]
-    fn from(err: parse::Error) -> Self {
+    fn from(err: utils::parse::Error) -> Self {
         Self::Parse(err)
     }
 }
@@ -207,7 +207,7 @@ impl HttpConnection {
                     }
                     Err(err) => Err(Error::H2(err)),
                 },
-                None => Err(parse::Error::Done.into()),
+                None => Err(utils::parse::Error::Done.into()),
             },
         }
     }
@@ -215,7 +215,7 @@ impl HttpConnection {
 
 mod request {
     use super::{
-        io, parse, response, utility, Arc, AsyncRead, Body, Bytes, Context, Encryption, Error,
+        io, parse, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption, Error,
         Mutex, Pin, Poll, ReadBuf, Request,
     };
 
@@ -236,7 +236,7 @@ mod request {
         let body = Body::Http1(response::Http1Body::new(
             stream,
             bytes,
-            utility::get_body_length_request(&head),
+            utils::get_body_length_request(&head),
         ));
         Ok(head.map(|()| body))
     }
@@ -412,7 +412,7 @@ mod response {
                         .map(HeaderValue::to_str)
                         .and_then(Result::ok)
                     {
-                        Some("close") | None => utility::replace_header_static(
+                        Some("close") | None => utils::replace_header_static(
                             response.headers_mut(),
                             "connection",
                             "keep-alive",
@@ -461,7 +461,7 @@ mod response {
             match self {
                 Self::Http1(_) => match response.version() {
                     Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
-                        utility::set_content_length(response.headers_mut(), len);
+                        utils::set_content_length(response.headers_mut(), len);
                     }
 
                     _ => *response.version_mut() = Version::HTTP_11,

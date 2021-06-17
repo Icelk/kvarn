@@ -77,7 +77,7 @@ pub fn push(
                             "failed to construct a request only from another valid request.",
                         );
 
-                        let empty_request = utility::empty_clone_request(&push_request);
+                        let empty_request = utils::empty_clone_request(&push_request);
 
                         let mut response_pipe = match response_pipe.push_request(empty_request) {
                             Ok(pipe) => pipe,

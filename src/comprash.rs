@@ -225,7 +225,7 @@ impl CompressedResponse {
             .map(HeaderValue::to_str)
             .and_then(Result::ok)
         {
-            Some(header) => parse::list_header(header),
+            Some(header) => utils::list_header(header),
             None => Vec::new(),
         };
 
@@ -249,7 +249,7 @@ impl CompressedResponse {
 
         let only_identity = values.len() == 1
             && values[0]
-                == parse::ValueQualitySet {
+                == utils::ValueQualitySet {
                     value: "identity",
                     quality: 1.0,
                 };
@@ -352,7 +352,7 @@ impl CompressedResponse {
                 format!("{}; charset=utf-8", mime).as_bytes(),
             ))
             .unwrap();
-            utility::replace_header(headers, "content-type", content_type);
+            utils::replace_header(headers, "content-type", content_type);
         }
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
 
@@ -415,7 +415,7 @@ impl CompressedResponse {
             headers.get("content-encoding"),
             headers.get("content-type"),
         );
-        utility::replace_header(headers, "content-encoding", compression);
+        utils::replace_header(headers, "content-encoding", compression);
         *builder.headers_mut().unwrap() = map;
         builder.body(new_data).unwrap()
     }
@@ -429,7 +429,7 @@ impl CompressedResponse {
         if self.gzip.is_none() {
             let bytes = self.identity.body().as_ref();
 
-            let mut buffer = utility::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
+            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
 
             let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::fast());
             c.write_all(bytes).expect("Failed to compress using gzip!");
@@ -455,7 +455,7 @@ impl CompressedResponse {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();
 
-            let mut buffer = utility::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
+            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
 
             let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, 8, 21);
             c.write_all(bytes)

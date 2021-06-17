@@ -408,7 +408,7 @@ impl Extensions {
                 if let Some(origin) = request.headers().get("origin") {
                     let allowed = package_cors_settings.check_cors_request(request).is_some();
                     if allowed {
-                        utility::replace_header(
+                        utils::replace_header(
                             response.headers_mut(),
                             "access-control-allow-origin",
                             origin.clone(),
@@ -469,7 +469,7 @@ impl Extensions {
                 let response = builder.body(Bytes::new()).unwrap_or_else(|_| {
                     Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(utility::hardcoded_error_body(
+                        .body(utils::hardcoded_error_body(
                             StatusCode::INTERNAL_SERVER_ERROR,
                             None,
                         ))
@@ -607,7 +607,7 @@ impl Extensions {
     ) -> io::Result<()> {
         let mut body = LazyRequestBody::new(request.body_mut());
         let body = &mut body;
-        let path = parse::uri(request.uri().path());
+        let path = utils::parse::uri(request.uri().path());
 
         if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());

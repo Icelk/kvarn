@@ -104,7 +104,7 @@ async fn read_templates_from_file(
     template_set: &str,
     host: &Host,
 ) -> Option<HashMap<String, Vec<u8>>> {
-    let path = utility::make_path(&host.path, "templates", template_set, None);
+    let path = utils::make_path(&host.path, "templates", template_set, None);
 
     // The template file will be access several times.
     match read_file_cached(&path, &host.file_cache).await {

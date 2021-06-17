@@ -17,6 +17,7 @@ members = [
   "./",
   "kvarn_extensions",
   "kvarn_chute",
+  "utils",
 ]
 
 [dependencies]
@@ -27,6 +28,7 @@ flate2 = { version = "^1", optional = true }
 futures = "^0.3"
 h2 = { version = "^0.3", default-features = false, optional = true }
 http = "^0.2"
+kvarn_utils = { path = "utils" }
 log = "^0.4"
 mime = "^0.3"
 mime_guess = "^2"
