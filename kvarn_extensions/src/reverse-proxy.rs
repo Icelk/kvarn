@@ -273,52 +273,72 @@ impl EstablishedConnection {
         }
 
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
-        utility::write::request(request, body, &mut buffered).await?;
+        write::request(request, body, &mut buffered).await?;
 
         debug!("Sent reverse-proxy request.");
 
         let response = match timeout(std::time::Duration::from_millis(1000), async {
-            parse::response(&mut *self, 16 * 1024).await
+            kvarn::prelude::async_bits::read::response(&mut *self, 16 * 1024).await
         })
         .await
         {
             Ok(result) => match result {
                 Err(err) => return Err(err.into()),
                 Ok(response) => {
-                    let chunked =
-                        utility::header_eq(response.headers(), "transfer-encoding", "chunked");
+                    enum MaybeChunked<R1, R2> {
+                        No(R1),
+                        Yes(async_chunked_transfer::Decoder<R2>),
+                    }
+                    impl<R1: AsyncRead + Unpin, R2: AsyncRead + Unpin> AsyncRead for MaybeChunked<R1, R2> {
+                        fn poll_read(
+                            mut self: Pin<&mut Self>,
+                            cx: &mut Context<'_>,
+                            buf: &mut ReadBuf<'_>,
+                        ) -> Poll<io::Result<()>> {
+                            match &mut *self {
+                                Self::No(reader) => Pin::new(reader).poll_read(cx, buf),
+                                Self::Yes(reader) => Pin::new(reader).poll_read(cx, buf),
+                            }
+                        }
+                    }
+
+                    let chunked = header_eq(response.headers(), "transfer-encoding", "chunked");
                     let len = if chunked {
                         usize::MAX
                     } else {
-                        utility::get_body_length_response(&response, Some(request.method()))
+                        get_body_length_response(&response, Some(request.method()))
                     };
 
-                    let (mut head, body) = utility::split_response(response);
+                    let (mut head, body) = split_response(response);
 
                     let body = if len == 0 || len <= body.len() {
                         body
                     } else {
                         let mut buffer = BytesMut::with_capacity(body.len() + 512);
-                        buffer.extend(&body);
+
+                        let reader = if chunked {
+                            let reader = AsyncReadExt::chain(&*body, &mut *self);
+                            let decoder = async_chunked_transfer::Decoder::new(reader);
+                            MaybeChunked::Yes(decoder)
+                        } else {
+                            buffer.extend(&body);
+                            MaybeChunked::No(&mut *self)
+                        };
+
                         if let Ok(result) = timeout(
-                            Duration::from_millis(250),
-                            utility::read_to_end_or_max(&mut buffer, &mut *self, len),
+                            tokio::time::Duration::from_millis(250),
+                            read_to_end_or_max(&mut buffer, reader, len),
                         )
                         .await
                         {
                             result?
-                        } else if !chunked {
+                        } else {
                             warn!("Remote read timed out.");
                             unsafe { buffer.set_len(0) };
                         }
 
                         if chunked {
-                            let mut new_buffer = BytesMut::with_capacity(buffer.len());
-                            let decoder = chunked_transfer::Decoder::new(&buffer[..]);
-                            read_to_end(&mut new_buffer, decoder)?;
-                            buffer = new_buffer;
-
-                            utility::remove_all_headers(head.headers_mut(), "transfer-encoding");
+                            remove_all_headers(head.headers_mut(), "transfer-encoding");
                             info!("Decoding chunked transfer-encoding.");
                         }
                         buffer.freeze()
@@ -482,7 +502,7 @@ impl Manager {
         extensions.add_prepare_fn(
             self.when,
             prepare!(req, host, _path, _addr, move |connection, modify| {
-                let mut empty_req = utility::empty_clone_request(&req);
+                let mut empty_req = empty_clone_request(&req);
                 let mut bytes = return_status!(
                     req.body_mut().read_to_bytes().await.ok(),
                     StatusCode::BAD_GATEWAY,
@@ -497,14 +517,10 @@ impl Manager {
                     host
                 );
 
-                utility::replace_header_static(
-                    empty_req.headers_mut(),
-                    "accept-encoding",
-                    "identity",
-                );
+                replace_header_static(empty_req.headers_mut(), "accept-encoding", "identity");
 
-                if utility::header_eq(empty_req.headers(), "connection", "keep-alive") {
-                    utility::replace_header_static(empty_req.headers_mut(), "connection", "close");
+                if header_eq(empty_req.headers(), "connection", "keep-alive") {
+                    replace_header_static(empty_req.headers_mut(), "connection", "close");
                 }
 
                 *empty_req.version_mut() = Version::HTTP_11;
@@ -518,9 +534,9 @@ impl Manager {
                 let mut response = match connection.request(&empty_req, &bytes).await {
                     Ok(mut response) => {
                         let headers = response.headers_mut();
-                        utility::remove_all_headers(headers, "keep-alive");
-                        if !utility::header_eq(headers, "connection", "upgrade") {
-                            utility::remove_all_headers(headers, "connection");
+                        remove_all_headers(headers, "keep-alive");
+                        if !header_eq(headers, "connection", "upgrade") {
+                            remove_all_headers(headers, "connection");
                         }
 
                         FatResponse::cache(response)
