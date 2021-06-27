@@ -51,7 +51,7 @@ pub struct Host {
     /// The caches are separated to limit the performance fluctuations of
     /// multiple hosts on the same instance.
     ///
-    /// Can be used to clear the cache and to pass to the read functions in [`utility`].
+    /// Can be used to clear the cache and to pass to the read functions in [`read`].
     pub file_cache: FileCache,
     /// The response cache of this host.
     /// See [`comprash`] and [`Host::file_cache`] for more info.

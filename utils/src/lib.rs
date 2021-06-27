@@ -4,7 +4,7 @@
 //! - commonly used [`chars`],
 //! - a [`build_bytes`] macro to create a [`Bytes`] from bytes slices with one allocation,
 //! - [`WriteableBytes`] to optimize performance when creating a new [`Bytes`] of unknown length,
-//! - [`hardcoded_error`] to get a hard-coded error response.
+//! - [`hardcoded_error_body`] to get a hard-coded error response.
 //! - [`CleanDebug`] and it's trait [`AsCleanDebug`] to get a [`Debug`] implementation wired to the
 //!   item's [`Display`] implementation.
 #![deny(
@@ -226,7 +226,7 @@ pub fn make_path(
 ///
 /// It can be useful when you don't have access to the file cache
 /// or if a error html file isn't provided. Is used by the preferred
-/// function [`default_error`].
+/// function `default_error` found in Kvarn.
 #[must_use]
 pub fn hardcoded_error_body(code: http::StatusCode, message: Option<&[u8]>) -> Bytes {
     // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
@@ -353,7 +353,7 @@ pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &s
 /// # use kvarn::prelude::*;
 /// let example = "POST /api/username HTTP/3"
 /// assert!(
-///     starts_with!(example, "GET" | "HEAD" | "POST")
+///     starts_with!(example, "GET" | "HEAD" | "POST")
 /// );
 /// ```
 #[macro_export]

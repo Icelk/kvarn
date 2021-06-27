@@ -1,6 +1,6 @@
 //! The prelude for common web application utilities.
 //!
-//! This should contains the most commonly used items in [`std`], [`http`], [`log`], and [`bytes`].
+//! This should contains the most commonly used items in [`std`], [`http`], [`mod@log`], and [`bytes`].
 //! It also exports all the items in [`crate`].
 
 pub use bytes::{Bytes, BytesMut};

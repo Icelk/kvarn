@@ -1,9 +1,9 @@
 //! General parsing complying to the HTTP standards.
 //!
-//! Mainly, it can parse [`request`]s, [`headers`], and a [`response_php`];
-//! a response without the first line, giving status in the headers.
+//! This parses small bits of a HTTP request/response to extract common information.
+//! The [`sanitize_request`] exists to check if a request is valid.
 //!
-//! This is also where part of Layer 6 is. The [`list_header`] and [`query`]
+//! This is where part of Layer 6 resides. The [`list_header`] and [`query`]
 //! are very useful.
 
 use crate::prelude::*;
@@ -412,7 +412,7 @@ pub fn query(query: &str) -> HashMap<&str, &str> {
 }
 
 /// Will convert an [`prim@str`] path component of a [`Uri`] to a [`Path`].
-/// It asserts the first byte is a [`FORWARD_SLASH`] and then chops it off.
+/// It asserts the first byte is a [`chars::FORWARD_SLASH`] and then chops it off.
 ///
 /// > _Note: you **must** check that the path is safe to read from before using it. See [`sanitize_request`]._
 ///

@@ -2,7 +2,7 @@
 //!
 //! This includes [reading to bytes](fn.read_to_end.html),
 //! a adapter between std's [`Read`] trait and tokio's [`AsyncRead`],
-//! a [`write`] module for writing `HTTP/1` requests and responses,
+//! a [`mod@write`] module for writing `HTTP/1` requests and responses,
 //! and a [`read`] module for reading `HTTP/1` requests and responses.
 
 #![deny(
@@ -272,6 +272,7 @@ pub mod read {
     ///
     /// Will return error if building the `http::Response` internally failed, if path is empty,
     /// or any errors which occurs while reading from `stream`.
+    /// See [`Error`] for all vairants.
     ///
     /// # Limitations
     ///
@@ -404,7 +405,8 @@ pub mod read {
     ///
     /// # Errors
     ///
-    /// Passes errors from [`headers`] and [`http::response::Builder::body`]
+    /// Passes errors from [`http::response::Builder::body`] and internal checks.
+    /// See [`Error`] for variants.
     /// Will also return errors similar to [`request`].
     pub async fn response(
         mut reader: impl AsyncRead + Unpin,
@@ -488,7 +490,7 @@ pub mod read {
     ///
     /// # Errors
     ///
-    /// Passes errors from [`headers`] and [`http::response::Builder::body`]
+    /// Returns virtually the same errors as [`response`].
     pub fn response_php(bytes: &Bytes) -> Result<Response<Bytes>, Error> {
         let header_start = 0;
 
