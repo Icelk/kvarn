@@ -65,7 +65,7 @@ impl Host {
     /// Will read certificates in the specified locations
     /// and return an non-secure host if parsing fails.
     ///
-    /// To achieve greater safety, use [`Host::with_http_redirect`] and call [`Host::enable_hsts`].
+    /// To achieve greater security, use [`Host::with_http_redirect`] and call [`Host::enable_hsts`].
     ///
     /// See [`Host::non_secure`] for a non-failing function,
     /// available regardless of features.
@@ -84,27 +84,54 @@ impl Host {
     ) -> Result<Self, (CertificateError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
-            Ok(cert) => Ok(Self {
-                name: host_name,
-                certificate: Some(cert),
-                path,
-                extensions,
-                file_cache: Mutex::new(Cache::default()),
-                response_cache: Mutex::new(Cache::default()),
-                options,
-            }),
-            Err(err) => Err((
-                err,
-                Self {
-                    name: host_name,
-                    certificate: None,
-                    path,
-                    extensions,
-                    file_cache: Mutex::new(Cache::default()),
-                    response_cache: Mutex::new(Cache::default()),
-                    options,
-                },
+            Ok((cert, pk)) => Ok(Self::from_cert_and_pk(
+                host_name, cert, pk, path, extensions, options,
             )),
+            Err(err) => Err((err, Self::non_secure(host_name, path, extensions, options))),
+        }
+    }
+    /// Creates a new [`Host`] from the [`rustls`]
+    /// `cert` and `pk`. When they are in files, consider [`Self::new`]
+    /// which reads from files.
+    ///
+    /// See the considerations of [`Self::new`] for security.
+    ///
+    /// # Examples
+    ///
+    /// ```nocomplie
+    /// let certificate =
+    ///     rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+    /// let cert = vec![rustls::Certificate(certificate.serialize_der().unwrap())];
+    /// let pk = rustls::PrivateKey(certificate.serialize_private_key_der());
+    /// let pk = Arc::new(rustls::sign::any_supported_type(&pk).unwrap());
+    ///
+    /// Host::from_cert_and_pk(
+    ///     "localhost",
+    ///     cert,
+    ///     pk,
+    ///     PathBuf::from("tests"),
+    ///     extensions,
+    ///     host::Options::default(),
+    /// )
+    /// ```
+    pub fn from_cert_and_pk(
+        host_name: &'static str,
+        cert: Vec<rustls::Certificate>,
+        pk: Arc<Box<dyn sign::SigningKey>>,
+        path: PathBuf,
+        extensions: Extensions,
+        options: Options,
+    ) -> Self {
+        let cert = sign::CertifiedKey::new(cert, pk);
+
+        Self {
+            name: host_name,
+            certificate: Some(cert),
+            path,
+            extensions,
+            file_cache: Mutex::new(Cache::default()),
+            response_cache: Mutex::new(Cache::default()),
+            options,
         }
     }
     /// Creates a new [`Host`] without a certificate.
@@ -658,7 +685,7 @@ impl From<io::Error> for CertificateError {
 pub fn get_certified_key(
     cert_path: impl AsRef<Path>,
     private_key_path: impl AsRef<Path>,
-) -> Result<sign::CertifiedKey, CertificateError> {
+) -> Result<(Vec<rustls::Certificate>, Arc<Box<dyn sign::SigningKey>>), CertificateError> {
     let mut chain = io::BufReader::new(std::fs::File::open(&cert_path)?);
     let mut private_key = io::BufReader::new(std::fs::File::open(&private_key_path)?);
 
@@ -684,5 +711,5 @@ pub fn get_certified_key(
         Err(()) => return Err(CertificateError::ImproperCertificateFormat),
     };
 
-    Ok(sign::CertifiedKey::new(chain, Arc::new(key)))
+    Ok((chain, Arc::new(key)))
 }
