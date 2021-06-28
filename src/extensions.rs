@@ -1471,7 +1471,7 @@ mod macros {
     /// ```
     /// # use kvarn::prelude::*;
     /// let extension = prime!(req, host, addr {
-    ///     utility::default_error_response(StatusCode::BAD_REQUEST, host, None).await
+    ///     default_error_response(StatusCode::BAD_REQUEST, host, None).await
     /// });
     /// ```
     #[macro_export]
@@ -1503,7 +1503,7 @@ mod macros {
     ///     let times_called = times_called.fetch_add(1, atomic::Ordering::Relaxed);
     ///     println!("Called {} time(s). Request {:?}", times_called, req);
     ///
-    ///     utility::default_error_response(StatusCode::NOT_FOUND, host, None).await
+    ///     default_error_response(StatusCode::NOT_FOUND, host, None).await
     /// });
     /// ```
     ///
@@ -1511,7 +1511,7 @@ mod macros {
     /// ```
     /// # use kvarn::prelude::*;
     /// prepare!(req, host, path, addr {
-    ///     utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await
+    ///     default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await
     /// });
     /// ```
     #[macro_export]
@@ -1569,23 +1569,17 @@ mod macros {
     /// # Examples
     /// ```
     /// # use kvarn::prelude::*;
-    /// let extension = post!(request, bytes, response, address, host {
-    ///     let valid_utf8 = response.headers().get("content-type").map(HeaderValue::to_str)
-    ///         .and_then(Result::ok).map(|s| s.contains("utf8")).unwrap_or(false);
-    ///     
-    ///     match valid_utf8 {
-    ///         true => match str::from_utf8(&bytes) {
-    ///             Ok(s) => println!("Sent response in cleartext: '{}'", s),
-    ///             Err(_) => println!("Response is UTF-8, but the bytes are not. Probably compressed."),
-    ///         },
-    ///         false => println!("Response is not UTF-8."),
+    /// let extension = post!(request, host, response_pipe, bytes, addr {
+    ///     match response_pipe {
+    ///         application::ResponsePipe::Http1(c) => println!("This is a HTTP/1 connection. {:?}", c),
+    ///         application::ResponsePipe::Http2(c) => println!("This is a HTTP/2 connection. {:?}", c),
     ///     }
     /// });
     /// ```
     #[macro_export]
     macro_rules! post {
-        ($request:ident, $host:ident, $response:ident, $bytes:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$request: RequestWrapper, $host: HostWrapper, $response: ResponsePipeWrapperMut | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
+        ($request:ident, $host:ident, $response_pipe:ident, $bytes:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
+            extension!(|$request: RequestWrapper, $host: HostWrapper, $response_pipe: ResponsePipeWrapperMut | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
         }
     }
     #[allow(unused_imports)]
@@ -1596,7 +1590,7 @@ mod macros {
     /// ```
     /// # use kvarn::prelude::*;
     /// prepare!(req, host, path, addr {
-    ///     let response = utility::default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await;
+    ///     let response = default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await;
     ///     response.with_future(response_pipe_fut!(response_pipe, host {
     ///         response_pipe.send(Bytes::from_static(b"This will be appended to the body!")).await;
     ///     }))
