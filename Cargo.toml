@@ -71,7 +71,7 @@ mt = ["tokio/rt-multi-thread"]
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = []
 
-doc-tests = ["reqwest", "rand", "tokio/macros"]
+doc-tests = ["reqwest", "rand", "rcgen", "tokio/macros"]
 
 [dev-dependencies]
 reqwest = { version = "^0.11" }
