@@ -176,7 +176,7 @@ impl Manager {
     ///
     /// Passes errors from [`WatchSender::send`].
     #[cfg(feature = "graceful-shutdown")]
-    pub async fn shutdown(&self) {
+    pub fn shutdown(&self) {
         info!("Initiating shutdown.");
         self.shutdown.store(true, Ordering::Release);
 
