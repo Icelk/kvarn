@@ -528,18 +528,13 @@ impl ServerCachePreference {
     #[must_use]
     #[allow(clippy::unused_self)]
     pub fn cache(self, _response: &Response<Bytes>, _method: &Method) -> bool {
-        #[cfg(not(feature = "no-response-cache"))]
-        {
-            let of_self = match self {
-                Self::None => false,
-                Self::QueryMatters | Self::Full => true,
-            };
-            let of_response = !matches!(_response.status().as_u16(), 400..=403 | 405..=499)
-                && matches!(_method, &Method::GET | &Method::HEAD);
-            of_self && of_response
-        }
-        #[cfg(feature = "no-response-cache")]
-        false
+        let of_self = match self {
+            Self::None => false,
+            Self::QueryMatters | Self::Full => true,
+        };
+        let of_response = !matches!(_response.status().as_u16(), 400..=403 | 405..=499)
+            && matches!(_method, &Method::GET | &Method::HEAD);
+        of_self && of_response
     }
     /// If query matters in cache.
     ///

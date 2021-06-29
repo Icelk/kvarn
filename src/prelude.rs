@@ -70,7 +70,7 @@ pub mod internals {
     pub use encryption::Encryption;
     pub use error::default as default_error;
     pub use extensions::{ready, RetFut, RetSyncFut};
-    pub use limiting::{LimitStrength, LimitWrapper};
+    pub use limiting::{Action as LimitAction, Manager as LimitManager};
     pub use tokio::time::timeout;
 }
 

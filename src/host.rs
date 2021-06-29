@@ -52,10 +52,16 @@ pub struct Host {
     /// multiple hosts on the same instance.
     ///
     /// Can be used to clear the cache and to pass to the read functions in [`read`].
-    pub file_cache: FileCache,
+    pub file_cache: Option<FileCache>,
     /// The response cache of this host.
     /// See [`comprash`] and [`Host::file_cache`] for more info.
-    pub response_cache: ResponseCache,
+    pub response_cache: Option<ResponseCache>,
+    /// The [`LimitManager`] checking for spam attacks
+    /// for this host.
+    ///
+    /// Having this host-specific enables different virtual
+    /// hosts to have varying degrees of strictness.
+    pub limiter: LimitManager,
 
     /// Other settings.
     pub options: Options,
@@ -78,7 +84,7 @@ impl Host {
         host_name: &'static str,
         cert_path: impl AsRef<Path>,
         private_key_path: impl AsRef<Path>,
-        path: PathBuf,
+        path: impl AsRef<Path>,
         extensions: Extensions,
         options: Options,
     ) -> Result<Self, (CertificateError, Self)> {
@@ -114,11 +120,12 @@ impl Host {
     ///     host::Options::default(),
     /// )
     /// ```
+    #[cfg(feature = "https")]
     pub fn from_cert_and_pk(
         host_name: &'static str,
         cert: Vec<rustls::Certificate>,
         pk: Arc<Box<dyn sign::SigningKey>>,
-        path: PathBuf,
+        path: impl AsRef<Path>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
@@ -127,11 +134,12 @@ impl Host {
         Self {
             name: host_name,
             certificate: Some(cert),
-            path,
+            path: path.as_ref().to_path_buf(),
             extensions,
-            file_cache: Mutex::new(Cache::default()),
-            response_cache: Mutex::new(Cache::default()),
+            file_cache: Some(Mutex::new(Cache::default())),
+            response_cache: Some(Mutex::new(Cache::default())),
             options,
+            limiter: LimitManager::default(),
         }
     }
     /// Creates a new [`Host`] without a certificate.
@@ -140,7 +148,7 @@ impl Host {
     /// Consider enabling the `https` flag and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
     pub fn non_secure(
         host_name: &'static str,
-        path: PathBuf,
+        path: impl AsRef<Path>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
@@ -148,11 +156,12 @@ impl Host {
             name: host_name,
             #[cfg(feature = "https")]
             certificate: None,
-            path,
+            path: path.as_ref().to_path_buf(),
             extensions,
-            file_cache: Mutex::new(Cache::default()),
-            response_cache: Mutex::new(Cache::default()),
+            file_cache: Some(Mutex::new(Cache::default())),
+            response_cache: Some(Mutex::new(Cache::default())),
             options,
+            limiter: LimitManager::default(),
         }
     }
 
@@ -167,7 +176,7 @@ impl Host {
         host_name: &'static str,
         cert_path: impl AsRef<Path>,
         private_key_path: impl AsRef<Path>,
-        path: PathBuf,
+        path: impl AsRef<Path>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
@@ -306,6 +315,29 @@ impl Host {
         self
     }
 
+    /// Disables the file system cache for this host.
+    /// This can cause degraded performance under heavy load,
+    /// but reduces the memoy used.
+    pub fn disable_fs_cache(&mut self) -> &mut Self {
+        self.file_cache = None;
+        self
+    }
+    /// Disables the response cache for this host.
+    /// This can cause degraded performance under heavy load,
+    /// but reduces the memoy used.
+    pub fn disable_response_cache(&mut self) -> &mut Self {
+        self.response_cache = None;
+        self
+    }
+    /// Disables all server caches.
+    /// This can cause degraded performance under heavy load,
+    /// but reduces the memoy used.
+    ///
+    /// Right now calls [`Self::disable_fs_cache`] and [`Self::disable_response_cache`].
+    pub fn disable_server_cache(&mut self) -> &mut Self {
+        self.disable_fs_cache().disable_response_cache()
+    }
+
     /// Whether or not this this host is secured with a certificate.
     ///
     /// See [`Host::certificate`].
@@ -365,6 +397,11 @@ pub struct Options {
     /// Disables further caching by sending a [`StatusCode::NOT_MODIFIED`] when the
     /// `if-modified-since` header is sent and the resource is fresh.
     pub disable_if_modified_since: bool,
+
+    /// Disables file system access for public files.
+    ///
+    /// This still enables custom error messages and reading of files through extensions.
+    pub disable_fs: bool,
 }
 impl Options {
     /// Creates a new [`Options`] with default settings.
@@ -377,6 +414,7 @@ impl Options {
             disable_client_cache: false,
             public_data_dir: None,
             disable_if_modified_since: false,
+            disable_fs: false,
         }
     }
     /// Disables client cache on this host.
@@ -385,6 +423,13 @@ impl Options {
     /// Use Kvarn extensions' `force_cache` to force certain files to cache.
     pub fn disable_client_cache(&mut self) -> &mut Self {
         self.disable_client_cache = true;
+        self
+    }
+    /// Disables accessing the file system for public files.
+    ///
+    /// See [`Self::disable_fs`] for more info.
+    pub fn disable_fs(&mut self) -> &mut Self {
+        self.disable_fs = true;
         self
     }
     /// Sets the relative directory (from the [`Host::path`]) to fetch data for the web in.
@@ -466,7 +511,7 @@ impl Data {
         Self {
             default: Host::non_secure(
                 default_host_name,
-                ".".into(),
+                ".",
                 extensions,
                 Options::default(),
             ),
@@ -556,11 +601,15 @@ impl Data {
     /// Clears all response caches.
     #[inline]
     pub async fn clear_response_caches(&self) {
-        // Handle default host
-        self.default.response_cache.lock().await.clear();
-        // All other
-        for host in self.by_name.values() {
-            host.response_cache.lock().await.clear();
+        if let Some(cache) = &self.default.response_cache {
+            // Handle default host
+            cache.lock().await.clear();
+            // All other
+            for host in self.by_name.values() {
+                if let Some(cache) = &host.response_cache {
+                    cache.lock().await.clear();
+                }
+            }
         }
     }
     /// Clears a single `uri` in `host`.
@@ -579,23 +628,27 @@ impl Data {
         let mut cleared = false;
         if host.is_empty() || host == "default" {
             found = true;
-            let mut lock = self.default.response_cache.lock().await;
-            if key
-                .call_all(|key| lock.remove(key).into_option())
-                .1
-                .is_some()
-            {
-                cleared = true;
+            if let Some(cache) = &self.default.response_cache {
+                let mut lock = cache.lock().await;
+                if key
+                    .call_all(|key| lock.remove(key).into_option())
+                    .1
+                    .is_some()
+                {
+                    cleared = true;
+                }
             }
         } else if let Some(host) = self.by_name.get(host) {
             found = true;
-            let mut lock = host.response_cache.lock().await;
-            if key
-                .call_all(|key| lock.remove(key).into_option())
-                .1
-                .is_some()
-            {
-                cleared = true;
+            if let Some(cache) = &host.response_cache {
+                let mut lock = cache.lock().await;
+                if key
+                    .call_all(|key| lock.remove(key).into_option())
+                    .1
+                    .is_some()
+                {
+                    cleared = true;
+                }
             }
         }
         (found, cleared)
@@ -603,9 +656,13 @@ impl Data {
     /// Clears all file caches.
     #[inline]
     pub async fn clear_file_caches(&self) {
-        self.default.file_cache.lock().await.clear();
+        if let Some(cache) = &self.default.file_cache {
+            cache.lock().await.clear();
+        }
         for host in self.by_name.values() {
-            host.file_cache.lock().await.clear();
+            if let Some(cache) = &host.file_cache {
+                cache.lock().await.clear();
+            }
         }
     }
     /// Clears the `path` from all caches.
@@ -614,20 +671,8 @@ impl Data {
     /// Though, it's not blocking.
     pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
         let mut found = false;
-        if self
-            .default
-            .file_cache
-            .lock()
-            .await
-            .remove(path.as_ref())
-            .into_option()
-            .is_some()
-        {
-            found = true;
-        }
-        for host in self.by_name.values() {
-            if host
-                .file_cache
+        if let Some(cache) = &self.default.file_cache {
+            if cache
                 .lock()
                 .await
                 .remove(path.as_ref())
@@ -635,6 +680,19 @@ impl Data {
                 .is_some()
             {
                 found = true;
+            }
+        }
+        for host in self.by_name.values() {
+            if let Some(cache) = &host.file_cache {
+                if cache
+                    .lock()
+                    .await
+                    .remove(path.as_ref())
+                    .into_option()
+                    .is_some()
+                {
+                    found = true;
+                }
             }
         }
         found

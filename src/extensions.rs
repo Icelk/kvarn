@@ -49,7 +49,7 @@ pub type Prime =
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Prepare = Box<
-    (dyn Fn(RequestWrapperMut, HostWrapper, PathWrapper, SocketAddr) -> RetFut<FatResponse>
+    (dyn Fn(RequestWrapperMut, HostWrapper, Option<PathWrapper>, SocketAddr) -> RetFut<FatResponse>
          + Sync
          + Send),
 >;
@@ -561,7 +561,7 @@ impl Extensions {
         request: &mut FatRequest,
         overide_uri: Option<&Uri>,
         host: &Host,
-        path: &Path,
+        path: Option<&Path>,
         address: SocketAddr,
     ) -> Option<FatResponse> {
         if let Some(extension) = self
@@ -572,7 +572,7 @@ impl Extensions {
                 extension(
                     RequestWrapperMut::new(request),
                     HostWrapper::new(host),
-                    PathWrapper::new(path),
+                    path.map(PathWrapper::new),
                     address,
                 )
                 .await,
@@ -584,7 +584,7 @@ impl Extensions {
                         extension(
                             RequestWrapperMut::new(request),
                             HostWrapper::new(host),
-                            PathWrapper::new(path),
+                            path.map(PathWrapper::new),
                             address,
                         )
                         .await,

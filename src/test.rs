@@ -86,14 +86,14 @@ pub async fn run_server(extensions: Extensions, https: bool) -> Server {
             "localhost",
             cert,
             pk,
-            PathBuf::from("tests"),
+            "tests",
             extensions,
             host::Options::default(),
         )
     } else {
         Host::non_secure(
             "localhost",
-            PathBuf::from("tests"),
+            "tests",
             extensions,
             host::Options::default(),
         )

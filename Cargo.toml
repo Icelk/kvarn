@@ -44,20 +44,16 @@ rand = { version = "^0.8", optional = true }
 rcgen = { version = "^0.8", optional = true }
 
 [features]
-default = ["https", "http2", "compression", "fs", "limiting", "graceful-shutdown"]
+default = ["all-http", "all-compression", "graceful-shutdown"]
 
-# Enables the server to serve from the file system
-fs = []
-# Enables limits on the server, to avoid abusive usage by counting IP requests
-limiting = []
+# Enable all features
+full = ["all-http", "all-compression", "graceful-shutdown", "mt"]
 
-# Disables the cache
-no-fs-cache = []
-no-response-cache = []
-no-cache = ["no-fs-cache", "no-response-cache"]
+# All HTTP versions and features
+all-http = ["https", "http2"]
 
 # Compressing
-compression = ["br", "gzip"]
+all-compression = ["br", "gzip"]
 br = ["brotli"]
 gzip = ["flate2"]
 
@@ -71,6 +67,7 @@ mt = ["tokio/rt-multi-thread"]
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = []
 
+# Used for doc to include tests. Shall only be included by `cargo doc`, where it MUST be used.
 doc-tests = ["reqwest", "rand", "rcgen", "tokio/macros"]
 
 [dev-dependencies]

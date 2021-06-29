@@ -10,21 +10,23 @@ use crate::prelude::{fs::*, *};
 ///
 /// Should only be used when a file is typically access several times or from several requests.
 #[inline]
-pub async fn file_cached<P: AsRef<Path>>(path: &P, _cache: &FileCache) -> Option<Bytes> {
-    #[cfg(not(feature = "no-fs-cache"))]
-    if let CacheOut::Present(file) = _cache.lock().await.get(path.as_ref()) {
-        return Some(Bytes::clone(file));
+pub async fn file_cached<P: AsRef<Path>>(path: &P, cache: Option<&FileCache>) -> Option<Bytes> {
+    if let Some(cache) = cache {
+        if let CacheOut::Present(file) = cache.lock().await.get(path.as_ref()) {
+            return Some(Bytes::clone(file));
+        }
     }
 
     let file = File::open(path).await.ok()?;
     let mut buffer = BytesMut::with_capacity(4096);
     async_bits::read_to_end(&mut buffer, file).await.ok()?;
     let buffer = buffer.freeze();
-    #[cfg(not(feature = "no-fs-cache"))]
-    _cache
-        .lock()
-        .await
-        .cache(path.as_ref().to_path_buf(), Bytes::clone(&buffer));
+    if let Some(cache) = cache {
+        cache
+            .lock()
+            .await
+            .cache(path.as_ref().to_path_buf(), Bytes::clone(&buffer));
+    }
     Some(buffer)
 }
 
@@ -33,10 +35,11 @@ pub async fn file_cached<P: AsRef<Path>>(path: &P, _cache: &FileCache) -> Option
 ///
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 #[inline]
-pub async fn file<P: AsRef<Path>>(path: &P, _cache: &FileCache) -> Option<Bytes> {
-    #[cfg(not(feature = "no-fs-cache"))]
-    if let CacheOut::Present(cached) = _cache.lock().await.get(path.as_ref()) {
-        return Some(Bytes::clone(cached));
+pub async fn file<P: AsRef<Path>>(path: &P, cache: Option<&FileCache>) -> Option<Bytes> {
+    if let Some(cache) = cache {
+        if let CacheOut::Present(cached) = cache.lock().await.get(path.as_ref()) {
+            return Some(Bytes::clone(cached));
+        }
     }
 
     let file = File::open(path).await.ok()?;

@@ -257,12 +257,8 @@ pub async fn handle_connection(
     stream: TcpStream,
     address: SocketAddr,
     descriptors: Arc<PortDescriptor>,
-    #[allow(unused_variables)] limiter: LimitWrapper,
     mut continue_accepting: impl FnMut() -> bool,
 ) -> io::Result<()> {
-    #[cfg(feature = "limiting")]
-    let mut limiter = limiter;
-
     // LAYER 2
     #[cfg(feature = "https")]
     let encrypted =
@@ -296,10 +292,10 @@ pub async fn handle_connection(
         .await
     {
         trace!("Got request {:#?}", request);
-        #[cfg(feature = "limiting")]
-        match limiter.register(address.ip()).await {
-            LimitStrength::Drop => return Ok(()),
-            LimitStrength::Send => {
+        let host = descriptors.data.smart_get(&request, hostname.as_deref());
+        match host.limiter.register(address.ip()).await {
+            LimitAction::Drop => return Ok(()),
+            LimitAction::Send => {
                 let version = match response_pipe {
                     ResponsePipe::Http1(_) => Version::HTTP_11,
                     ResponsePipe::Http2(_) => Version::HTTP_2,
@@ -311,9 +307,8 @@ pub async fn handle_connection(
                 ret_log_app_error!(body_pipe.send_with_maybe_close(body, true).await);
                 continue;
             }
-            LimitStrength::Passed => {}
+            LimitAction::Passed => {}
         }
-        let host = descriptors.data.smart_get(&request, hostname.as_deref());
         debug!("Accepting new connection from {} on {}", address, host.name);
         // fn to handle getting from cache, generating response and sending it
         handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await?;
@@ -457,26 +452,36 @@ pub async fn handle_cache(
     let path_query =
         comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
 
-    let mut lock = host.response_cache.lock().await;
-    // copy of [`UriKey::call_all`].
-    // I got the message
-    // ```
-    // captured variable cannot escape `FnMut` closure body
-    // `FnMut` closures only have access to their captured variables while they are executing...
-    // ...therefore, they cannot allow references to captured variables to escape
-    // ```
-    // and had to inline it.
-    let cached = match lock.get_with_lifetime(&path_query).into_option() {
-        Some(t) => Some(t),
-        None => match path_query {
-            UriKey::Path(_) => None,
-            UriKey::PathQuery(p) => {
-                let p = UriKey::Path(p.into_path());
-                let t = lock.get_with_lifetime(&p).into_option();
-                t
-            }
-        },
+    let mut lock = if let Some(response_cache) = &host.response_cache {
+        Some(response_cache.lock().await)
+    } else {
+        None
     };
+
+    let cached = if let Some(lock) = &mut lock {
+        // copy of [`UriKey::call_all`].
+        // I got the message
+        // ```
+        // captured variable cannot escape `FnMut` closure body
+        // `FnMut` closures only have access to their captured variables while they are executing...
+        // ...therefore, they cannot allow references to captured variables to escape
+        // ```
+        // and had to inline it.
+        match lock.get_with_lifetime(&path_query).into_option() {
+            Some(t) => Some(t),
+            None => match path_query {
+                UriKey::Path(_) => None,
+                UriKey::PathQuery(p) => {
+                    let p = UriKey::Path(p.into_path());
+                    let t = lock.get_with_lifetime(&p).into_option();
+                    t
+                }
+            },
+        }
+    } else {
+        None
+    };
+
     #[allow(clippy::single_match_else)]
     let (response, identity, future) = match cached {
         Some((resp, (creation, _)))
@@ -554,15 +559,17 @@ pub async fn handle_cache(
                 future: &Option<T>,
             ) {
                 if future.is_none() {
-                    if server_cache.cache(response.get_identity(), method) {
-                        let mut lock = host.response_cache.lock().await;
-                        let key = if server_cache.query_matters() {
-                            comprash::UriKey::PathQuery(path_query)
-                        } else {
-                            comprash::UriKey::Path(path_query.into_path())
-                        };
-                        info!("Caching uri {:?}!", &key);
-                        lock.cache(key, response);
+                    if let Some(response_cache) = &host.response_cache {
+                        if server_cache.cache(response.get_identity(), method) {
+                            let mut lock = response_cache.lock().await;
+                            let key = if server_cache.query_matters() {
+                                comprash::UriKey::PathQuery(path_query)
+                            } else {
+                                comprash::UriKey::Path(path_query.into_path())
+                            };
+                            info!("Caching uri {:?}!", &key);
+                            lock.cache(key, response);
+                        }
                     }
                 } else {
                     info!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
@@ -575,21 +582,31 @@ pub async fn handle_cache(
             let (mut resp, mut client_cache, mut server_cache, compress, future) =
                 match sanitize_data.as_ref() {
                     Ok(_) => {
-                        let path = utils::make_path(
-                            &host.path,
-                            host.options
-                                .public_data_dir
-                                .as_deref()
-                                .unwrap_or_else(|| Path::new("public")),
-                            // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
-                            // We also are OK with all Uris, since we did a check on the
-                            // incoming and presume all internal extension changes are good.
-                            utils::parse::uri(request.uri().path()).unwrap(),
-                            None,
-                        );
+                        let path = if host.options.disable_fs {
+                            None
+                        } else {
+                            Some(utils::make_path(
+                                &host.path,
+                                host.options
+                                    .public_data_dir
+                                    .as_deref()
+                                    .unwrap_or_else(|| Path::new("public")),
+                                // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
+                                // We also are OK with all Uris, since we did a check on the
+                                // incoming and presume all internal extension changes are good.
+                                utils::parse::uri(request.uri().path()).unwrap(),
+                                None,
+                            ))
+                        };
 
-                        handle_request(&mut request, overide_uri.as_ref(), address, host, &path)
-                            .await?
+                        handle_request(
+                            &mut request,
+                            overide_uri.as_ref(),
+                            address,
+                            host,
+                            path.as_deref(),
+                        )
+                        .await?
                     }
                     Err(err) => error::sanitize_error_into_response(*err, host).await,
                 }
@@ -687,7 +704,7 @@ pub async fn handle_request(
     overide_uri: Option<&Uri>,
     address: net::SocketAddr,
     host: &Host,
-    path: &Path,
+    path: Option<&Path>,
 ) -> io::Result<FatResponse> {
     let mut response = None;
     let mut client_cache = None;
@@ -715,15 +732,16 @@ pub async fn handle_request(
         }
     }
 
-    #[cfg(feature = "fs")]
     if response.is_none() {
-        match *request.method() {
-            Method::GET | Method::HEAD => {
-                if let Some(content) = read_file(&path, &host.file_cache).await {
-                    response = Some(Response::new(content));
+        if let Some(path) = path {
+            match *request.method() {
+                Method::GET | Method::HEAD => {
+                    if let Some(content) = read_file(&path, host.file_cache.as_ref()).await {
+                        response = Some(Response::new(content));
+                    }
                 }
+                _ => status = Some(StatusCode::METHOD_NOT_ALLOWED),
             }
-            _ => status = Some(StatusCode::METHOD_NOT_ALLOWED),
         }
     }
 
@@ -924,32 +942,33 @@ async fn accept(
         "Started listening on {:?}",
         listener.get_inner().local_addr()
     );
-    let host = Arc::new(descriptor);
-
-    #[allow(unused_mut)]
-    let mut limiter = LimitWrapper::default();
+    let descriptor = Arc::new(descriptor);
 
     loop {
         match listener.accept(shutdown_manager).await {
             AcceptAction::Shutdown => return Ok(()),
             AcceptAction::Accept(result) => match result {
                 Ok((socket, addr)) => {
-                    #[cfg(feature = "limiting")]
-                    match limiter.register(addr.ip()).await {
-                        LimitStrength::Drop => {
+                    match descriptor
+                        .data
+                        .get_default()
+                        .limiter
+                        .register(addr.ip())
+                        .await
+                    {
+                        LimitAction::Drop => {
                             drop(socket);
                             return Ok(());
                         }
-                        LimitStrength::Send | LimitStrength::Passed => {}
+                        LimitAction::Send | LimitAction::Passed => {}
                     }
-                    let host = Arc::clone(&host);
-                    let limiter = LimitWrapper::clone(&limiter);
+                    let host = Arc::clone(&descriptor);
                     #[cfg(feature = "graceful-shutdown")]
                     let shutdown_manager = Arc::clone(shutdown_manager);
                     tokio::spawn(async move {
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.add_connection();
-                        if let Err(err) = handle_connection(socket, addr, host, limiter, || {
+                        if let Err(err) = handle_connection(socket, addr, host, || {
                             #[cfg(feature = "graceful-shutdown")]
                             {
                                 !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)

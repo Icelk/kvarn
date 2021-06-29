@@ -43,7 +43,7 @@ pub async fn default(
         Some(host) => {
             let path = utils::make_path(&host.path, "errors", code.as_str(), Some("html"));
 
-            match read_file_cached(&path, &host.file_cache).await {
+            match read_file_cached(&path, host.file_cache.as_ref()).await {
                 Some(file) => file,
                 None => utils::hardcoded_error_body(code, message),
             }
