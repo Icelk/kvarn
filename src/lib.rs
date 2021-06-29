@@ -588,7 +588,7 @@ pub async fn handle_cache(
                             overide_uri.as_ref(),
                             address,
                             host,
-                            path.as_deref(),
+                            &path,
                         )
                         .await?
                     }
@@ -688,7 +688,7 @@ pub async fn handle_request(
     overide_uri: Option<&Uri>,
     address: net::SocketAddr,
     host: &Host,
-    path: Option<&Path>,
+    path: &Option<PathBuf>,
 ) -> io::Result<FatResponse> {
     let mut response = None;
     let mut client_cache = None;

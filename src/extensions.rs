@@ -49,7 +49,7 @@ pub type Prime =
 ///
 /// See [module level documentation](extensions) and the extensions.md link for more info.
 pub type Prepare = Box<
-    (dyn Fn(RequestWrapperMut, HostWrapper, Option<PathWrapper>, SocketAddr) -> RetFut<FatResponse>
+    (dyn Fn(RequestWrapperMut, HostWrapper, PathOptionWrapper, SocketAddr) -> RetFut<FatResponse>
          + Sync
          + Send),
 >;
@@ -561,7 +561,7 @@ impl Extensions {
         request: &mut FatRequest,
         overide_uri: Option<&Uri>,
         host: &Host,
-        path: Option<&Path>,
+        path: &Option<PathBuf>,
         address: SocketAddr,
     ) -> Option<FatResponse> {
         if let Some(extension) = self
@@ -572,7 +572,7 @@ impl Extensions {
                 extension(
                     RequestWrapperMut::new(request),
                     HostWrapper::new(host),
-                    path.map(PathWrapper::new),
+                    PathOptionWrapper::new(path),
                     address,
                 )
                 .await,
@@ -584,7 +584,7 @@ impl Extensions {
                         extension(
                             RequestWrapperMut::new(request),
                             HostWrapper::new(host),
-                            path.map(PathWrapper::new),
+                            PathOptionWrapper::new(path),
                             address,
                         )
                         .await,
@@ -844,7 +844,7 @@ get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
 get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
 get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, ResponsePipe);
 get_unsafe_wrapper!(HostWrapper, Host);
-get_unsafe_wrapper!(PathWrapper, Path);
+get_unsafe_wrapper!(PathOptionWrapper, Option<PathBuf>);
 get_unsafe_mut_wrapper!(PresentDataWrapper, PresentData);
 get_unsafe_mut_wrapper!(ResponseBodyPipeWrapperMut, ResponseBodyPipe);
 
@@ -1430,7 +1430,7 @@ mod macros {
     /// extension!(|
     ///     request: RequestWrapperMut,
     ///     host: HostWrapper,
-    ///     path: PathWrapper |
+    ///     path: PathOptionWrapper |
     ///     addr: SocketAddr |,
     ///     ,
     ///     { println!("Hello world, from extension macro!"); }
@@ -1520,7 +1520,7 @@ mod macros {
             $crate::extension!(|
                 $request: RequestWrapperMut,
                 $host: HostWrapper,
-                $path: PathWrapper |
+                $path: PathOptionWrapper |
                 $addr: SocketAddr |,
                 $($($clone)*)*,
                 $code
