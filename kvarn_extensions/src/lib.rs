@@ -29,7 +29,7 @@ pub mod fastcgi;
 #[cfg(feature = "php")]
 pub mod php;
 #[cfg(feature = "php")]
-pub use php::php;
+pub use php::mount_php as php;
 
 #[cfg(feature = "templates")]
 pub mod templates;
@@ -59,11 +59,7 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_file("private".to_string(), Box::new(hide));
     extensions.add_present_internal("allow-ips".to_string(), Box::new(ip_allow));
     #[cfg(feature = "php")]
-    extensions.add_prepare_fn(
-        Box::new(|req, _| req.uri().path().ends_with(".php")),
-        Box::new(php),
-        extensions::Id::new(-8, "PHP"),
-    );
+    php(extensions);
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), Box::new(templates));
     #[cfg(feature = "push")]

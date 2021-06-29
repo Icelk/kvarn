@@ -107,7 +107,7 @@ async fn read_templates_from_file(
     let path = utils::make_path(&host.path, "templates", template_set, None);
 
     // The template file will be access several times.
-    match read_file_cached(&path, &host.file_cache).await {
+    match read_file_cached(&path, host.file_cache.as_ref()).await {
         Some(file) => {
             let templates = extract_templates(&file[..]);
             Some(templates)
