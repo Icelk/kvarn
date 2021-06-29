@@ -60,6 +60,7 @@ The name comes from the current plan to move core stuff into it's own crate.
 - [ ] Move core stuff
 - [ ] Smart push with id (so all other data isn't pushed on every request)
 - [x] Graceful shutdown and handover. Maintenance and updates are now a non-issue!
+- [ ] IPv6
 
 # v0.4.0 WebSockets & Auth
 
