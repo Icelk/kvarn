@@ -68,170 +68,6 @@ pub use comprash::{
 pub use error::{default, default_response};
 pub use extensions::Extensions;
 pub use read::{file as read_file, file_cached as read_file_cached};
-/// The `Request` used within Kvarn.
-pub type FatRequest = Request<application::Body>;
-/// A `Response` returned by [`handle_request()`].
-///
-/// Contains all preference information to the lower-level
-/// functions. Most things like `content-length`, `content-encoding`,
-/// `content-type`, `cache-control`, and server caching will be
-/// automatically handled.
-pub struct FatResponse {
-    response: Response<Bytes>,
-    client: ClientCachePreference,
-    server: ServerCachePreference,
-    compress: CompressPreference,
-
-    future: Option<ResponsePipeFuture>,
-}
-impl FatResponse {
-    /// Creates a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
-    ///
-    /// Choose
-    /// - [`ServerCachePreference::Full`] if the page is one regularly accessed,
-    /// - [`ServerCachePreference::None`] if the page is rarely accessed or if the runtime cost of
-    ///   getting the page is minimal.
-    /// - [`ServerCachePreference::QueryMatters`] should be avoided. It should be used when
-    ///   you have a page dictated by the query. Consider using a [`Prime`] extension
-    ///   to make all requests act as only one of a few queries to increase performance
-    ///   by reducing cache size.
-    pub fn new(response: Response<Bytes>, server_cache_preference: ServerCachePreference) -> Self {
-        Self {
-            response,
-            client: ClientCachePreference::Full,
-            server: server_cache_preference,
-            compress: CompressPreference::Full,
-
-            future: None,
-        }
-    }
-    /// Creates a new [`FatResponse`] with all preferences set to `Full` and no `Future`.
-    ///
-    /// Use the `with_*` methods to change the defaults.
-    pub fn cache(response: Response<Bytes>) -> Self {
-        Self::new(response, ServerCachePreference::Full)
-    }
-    /// Creates a new [`FatResponse`] with all cache preferences set to `None`,
-    /// compress preference set to `Full`, and no `Future`.
-    ///
-    /// Use the `with_*` methods to change the defaults.
-    pub fn no_cache(response: Response<Bytes>) -> Self {
-        Self {
-            response,
-            client: ClientCachePreference::None,
-            server: ServerCachePreference::None,
-            compress: CompressPreference::Full,
-            future: None,
-        }
-    }
-    /// Sets the inner [`ClientCachePreference`].
-    pub fn with_client_cache(mut self, preference: ClientCachePreference) -> Self {
-        self.client = preference;
-        self
-    }
-    /// Sets the inner [`ServerCachePreference`].
-    pub fn with_server_cache(mut self, preference: ServerCachePreference) -> Self {
-        self.server = preference;
-        self
-    }
-    /// Sets the inner [`CompressPreference`].
-    pub fn with_compress(mut self, preference: CompressPreference) -> Self {
-        self.compress = preference;
-        self
-    }
-    /// Sets the inner `Future`.
-    pub fn with_future(mut self, future: ResponsePipeFuture) -> Self {
-        self.future = Some(future);
-        self
-    }
-    /// Turns `self` into a tuple of all it's parts.
-    pub fn into_parts(
-        self,
-    ) -> (
-        Response<Bytes>,
-        ClientCachePreference,
-        ServerCachePreference,
-        CompressPreference,
-        Option<ResponsePipeFuture>,
-    ) {
-        (
-            self.response,
-            self.client,
-            self.server,
-            self.compress,
-            self.future,
-        )
-    }
-}
-impl Debug for FatResponse {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[derive(Debug)]
-        enum BytesOrStr<'a> {
-            Str(&'a str),
-            Bytes(&'a [u8]),
-        }
-        let response = utils::empty_clone_response(&self.response);
-        let body = if let Ok(s) = str::from_utf8(self.response.body()) {
-            BytesOrStr::Str(s)
-        } else {
-            BytesOrStr::Bytes(self.response.body())
-        };
-        let response = response.map(|()| body);
-        f.debug_struct("FatResponse")
-            .field("resp", &response)
-            .field("client", &self.client)
-            .field("server", &self.server)
-            .field("compress", &self.compress)
-            .field("future", &"opaque Future".as_clean())
-            .finish()
-    }
-}
-
-/// The Kvarn `server` header.
-/// Can also be used for identifying the client when using
-/// Kvarn as a reverse-proxy.
-#[cfg(target_os = "windows")]
-pub const SERVER: &str = "Kvarn/0.2.0 (Windows)";
-/// The Kvarn `server` header.
-/// Can also be used for identifying the client when using
-/// Kvarn as a reverse-proxy.
-#[cfg(target_os = "macos")]
-pub const SERVER: &str = "Kvarn/0.2.0 (macOS)";
-/// The Kvarn `server` header.
-/// Can also be used for identifying the client when using
-/// Kvarn as a reverse-proxy.
-#[cfg(target_os = "linux")]
-pub const SERVER: &str = "Kvarn/0.2.0 (Linux)";
-/// The Kvarn `server` header.
-/// Can also be used for identifying the client when using
-/// Kvarn as a reverse-proxy.
-#[cfg(target_os = "freebsd")]
-pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
-/// The Kvarn `server` header.
-/// Can also be used for identifying the client when using
-/// Kvarn as a reverse-proxy.
-#[cfg(not(any(
-    target_os = "windows",
-    target_os = "macos",
-    target_os = "linux",
-    target_os = "freebsd"
-)))]
-pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
-
-/// All the supported ALPN protocols.
-///
-/// > ***Note:** this is often not needed, as the ALPN protocols
-/// are set in [`host::Data::make_config()`].*
-#[must_use]
-pub fn alpn() -> Vec<Vec<u8>> {
-    #[allow(unused_mut)]
-    let mut vec = Vec::with_capacity(4);
-    #[cfg(feature = "http2")]
-    {
-        vec.push(b"h2".to_vec());
-    }
-    vec
-}
 
 macro_rules! ret_log_app_error {
     ($e:expr) => {
@@ -243,6 +79,154 @@ macro_rules! ret_log_app_error {
             Ok(val) => val,
         }
     };
+}
+
+/// Run the Kvarn web server on `ports`.
+///
+/// Will bind a [`TcpListener`] on every `port` in [`PortDescriptor`].
+///
+/// > This ↑ will change when HTTP/3 support arrives, then Udp will also be used.
+///
+/// This is the last step in getting Kvarn spinning.
+/// You can interact with the caches through the [`Host`] and [`Data`] you created, and
+/// the returned [`shutdown::Manager`], if you have the `graceful-shutdown` feature enabled.
+///
+/// # Examples
+///
+/// Will start a bare-bones web server on port `8080`, using the dir `web` to serve files.
+///
+/// > **Note:** it uses `web` to serve files only if the feature `fs` is enabled. Place them in `web/public`
+/// > to access them in your user-agent.
+/// > It's done this way to enable you to have domain-specific files not being public to the web,
+/// > and for a place to store other important files. Kvarn extensions' template system will in this case
+/// > read template files from `web/templates`.
+///
+/// ```no_run
+/// use kvarn::prelude::*;
+///
+/// # async {
+/// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
+/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// // Create a set of virtual hosts (`Data`) with `host` as the default.
+/// let data = Data::builder(host).build();
+/// // Bind port 8080 with `data`.
+/// let port_descriptor = PortDescriptor::new(8080, data);
+///
+/// // Run with the configured ports.
+/// let shutdown_manager = run(vec![port_descriptor]).await;
+/// // Waits for shutdown.
+/// shutdown_manager.wait().await;
+/// # };
+/// ```
+pub async fn run(ports: Vec<PortDescriptor>) -> Arc<shutdown::Manager> {
+    info!("Starting server on {} ports.", ports.len());
+
+    let len = ports.len();
+    let mut shutdown_manager = shutdown::Manager::new(len);
+
+    let mut listeners = Vec::with_capacity(len);
+    for descriptor in ports {
+        let socket = TcpSocket::new_v4().expect("Failed to create a new IPv4 socket configuration");
+        #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+        {
+            if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
+                error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.")
+            }
+        }
+        socket
+            .bind(net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into())
+            .expect("Failed to bind address");
+
+        let listener = socket
+            .listen(1024)
+            .expect("Failed to listen on bound address.");
+
+        let listener = shutdown_manager.add_listener(listener);
+        listeners.push((listener, descriptor));
+    }
+
+    let shutdown_manager = shutdown_manager.build();
+
+    for (listener, descriptor) in listeners {
+        let shutdown_manager = Arc::clone(&shutdown_manager);
+        let future = async move {
+            accept(listener, descriptor, &shutdown_manager)
+                .await
+                .expect("Failed to accept message!")
+        };
+
+        tokio::spawn(future);
+    }
+
+    shutdown_manager
+}
+
+async fn accept(
+    mut listener: AcceptManager,
+    descriptor: PortDescriptor,
+    shutdown_manager: &Arc<shutdown::Manager>,
+) -> Result<(), io::Error> {
+    trace!(
+        "Started listening on {:?}",
+        listener.get_inner().local_addr()
+    );
+    let descriptor = Arc::new(descriptor);
+
+    loop {
+        match listener.accept(shutdown_manager).await {
+            AcceptAction::Shutdown => return Ok(()),
+            AcceptAction::Accept(result) => match result {
+                Ok((socket, addr)) => {
+                    match descriptor
+                        .data
+                        .get_default()
+                        .limiter
+                        .register(addr.ip())
+                        .await
+                    {
+                        LimitAction::Drop => {
+                            drop(socket);
+                            return Ok(());
+                        }
+                        LimitAction::Send | LimitAction::Passed => {}
+                    }
+                    let host = Arc::clone(&descriptor);
+                    #[cfg(feature = "graceful-shutdown")]
+                    let shutdown_manager = Arc::clone(shutdown_manager);
+                    tokio::spawn(async move {
+                        #[cfg(feature = "graceful-shutdown")]
+                        shutdown_manager.add_connection();
+                        if let Err(err) = handle_connection(socket, addr, host, || {
+                            #[cfg(feature = "graceful-shutdown")]
+                            {
+                                !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
+                            }
+                            #[cfg(not(feature = "graceful-shutdown"))]
+                            {
+                                true
+                            }
+                        })
+                        .await
+                        {
+                            warn!(
+                                "An error occurred in the main processing function {:?}",
+                                err
+                            );
+                        }
+                        #[cfg(feature = "graceful-shutdown")]
+                        shutdown_manager.remove_connection();
+                    });
+                    continue;
+                }
+                Err(err) => {
+                    // An error occurred
+                    error!("Failed to accept() on listener");
+
+                    return Err(err);
+                }
+            },
+        }
+    }
 }
 
 /// Handles a single connection. This includes encrypting it, extracting the HTTP header information,
@@ -853,150 +837,167 @@ impl Debug for PortDescriptor {
     }
 }
 
-/// Run the Kvarn web server on `ports`.
+/// The `Request` used within Kvarn.
+pub type FatRequest = Request<application::Body>;
+/// A `Response` returned by [`handle_request()`].
 ///
-/// Will bind a [`TcpListener`] on every `port` in [`PortDescriptor`].
-///
-/// > This ↑ will change when HTTP/3 support arrives, then Udp will also be used.
-///
-/// This is the last step in getting Kvarn spinning.
-/// You can interact with the caches through the [`Host`] and [`Data`] you created, and
-/// the returned [`shutdown::Manager`], if you have the `graceful-shutdown` feature enabled.
-///
-/// # Examples
-///
-/// Will start a bare-bones web server on port `8080`, using the dir `web` to serve files.
-///
-/// > **Note:** it uses `web` to serve files only if the feature `fs` is enabled. Place them in `web/public`
-/// > to access them in your user-agent.
-/// > It's done this way to enable you to have domain-specific files not being public to the web,
-/// > and for a place to store other important files. Kvarn extensions' template system will in this case
-/// > read template files from `web/templates`.
-///
-/// ```no_run
-/// use kvarn::prelude::*;
-///
-/// # async {
-/// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
-/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// // Create a set of virtual hosts (`Data`) with `host` as the default.
-/// let data = Data::builder(host).build();
-/// // Bind port 8080 with `data`.
-/// let port_descriptor = PortDescriptor::new(8080, data);
-///
-/// // Run with the configured ports.
-/// let shutdown_manager = run(vec![port_descriptor]).await;
-/// // Waits for shutdown.
-/// shutdown_manager.wait().await;
-/// # };
-/// ```
-pub async fn run(ports: Vec<PortDescriptor>) -> Arc<shutdown::Manager> {
-    info!("Starting server on {} ports.", ports.len());
+/// Contains all preference information to the lower-level
+/// functions. Most things like `content-length`, `content-encoding`,
+/// `content-type`, `cache-control`, and server caching will be
+/// automatically handled.
+pub struct FatResponse {
+    response: Response<Bytes>,
+    client: ClientCachePreference,
+    server: ServerCachePreference,
+    compress: CompressPreference,
 
-    let len = ports.len();
-    let mut shutdown_manager = shutdown::Manager::new(len);
+    future: Option<ResponsePipeFuture>,
+}
+impl FatResponse {
+    /// Creates a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
+    ///
+    /// Choose
+    /// - [`ServerCachePreference::Full`] if the page is one regularly accessed,
+    /// - [`ServerCachePreference::None`] if the page is rarely accessed or if the runtime cost of
+    ///   getting the page is minimal.
+    /// - [`ServerCachePreference::QueryMatters`] should be avoided. It should be used when
+    ///   you have a page dictated by the query. Consider using a [`Prime`] extension
+    ///   to make all requests act as only one of a few queries to increase performance
+    ///   by reducing cache size.
+    pub fn new(response: Response<Bytes>, server_cache_preference: ServerCachePreference) -> Self {
+        Self {
+            response,
+            client: ClientCachePreference::Full,
+            server: server_cache_preference,
+            compress: CompressPreference::Full,
 
-    let mut listeners = Vec::with_capacity(len);
-    for descriptor in ports {
-        let socket = TcpSocket::new_v4().expect("Failed to create a new IPv4 socket configuration");
-        #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-        {
-            if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
-                error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.")
-            }
+            future: None,
         }
-        socket
-            .bind(net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into())
-            .expect("Failed to bind address");
-
-        let listener = socket
-            .listen(1024)
-            .expect("Failed to listen on bound address.");
-
-        let listener = shutdown_manager.add_listener(listener);
-        listeners.push((listener, descriptor));
     }
-
-    let shutdown_manager = shutdown_manager.build();
-
-    for (listener, descriptor) in listeners {
-        let shutdown_manager = Arc::clone(&shutdown_manager);
-        let future = async move {
-            accept(listener, descriptor, &shutdown_manager)
-                .await
-                .expect("Failed to accept message!")
+    /// Creates a new [`FatResponse`] with all preferences set to `Full` and no `Future`.
+    ///
+    /// Use the `with_*` methods to change the defaults.
+    pub fn cache(response: Response<Bytes>) -> Self {
+        Self::new(response, ServerCachePreference::Full)
+    }
+    /// Creates a new [`FatResponse`] with all cache preferences set to `None`,
+    /// compress preference set to `Full`, and no `Future`.
+    ///
+    /// Use the `with_*` methods to change the defaults.
+    pub fn no_cache(response: Response<Bytes>) -> Self {
+        Self {
+            response,
+            client: ClientCachePreference::None,
+            server: ServerCachePreference::None,
+            compress: CompressPreference::Full,
+            future: None,
+        }
+    }
+    /// Sets the inner [`ClientCachePreference`].
+    pub fn with_client_cache(mut self, preference: ClientCachePreference) -> Self {
+        self.client = preference;
+        self
+    }
+    /// Sets the inner [`ServerCachePreference`].
+    pub fn with_server_cache(mut self, preference: ServerCachePreference) -> Self {
+        self.server = preference;
+        self
+    }
+    /// Sets the inner [`CompressPreference`].
+    pub fn with_compress(mut self, preference: CompressPreference) -> Self {
+        self.compress = preference;
+        self
+    }
+    /// Sets the inner `Future`.
+    pub fn with_future(mut self, future: ResponsePipeFuture) -> Self {
+        self.future = Some(future);
+        self
+    }
+    /// Turns `self` into a tuple of all it's parts.
+    pub fn into_parts(
+        self,
+    ) -> (
+        Response<Bytes>,
+        ClientCachePreference,
+        ServerCachePreference,
+        CompressPreference,
+        Option<ResponsePipeFuture>,
+    ) {
+        (
+            self.response,
+            self.client,
+            self.server,
+            self.compress,
+            self.future,
+        )
+    }
+}
+impl Debug for FatResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        #[derive(Debug)]
+        enum BytesOrStr<'a> {
+            Str(&'a str),
+            Bytes(&'a [u8]),
+        }
+        let response = utils::empty_clone_response(&self.response);
+        let body = if let Ok(s) = str::from_utf8(self.response.body()) {
+            BytesOrStr::Str(s)
+        } else {
+            BytesOrStr::Bytes(self.response.body())
         };
-
-        tokio::spawn(future);
+        let response = response.map(|()| body);
+        f.debug_struct("FatResponse")
+            .field("resp", &response)
+            .field("client", &self.client)
+            .field("server", &self.server)
+            .field("compress", &self.compress)
+            .field("future", &"opaque Future".as_clean())
+            .finish()
     }
-
-    shutdown_manager
 }
 
-async fn accept(
-    mut listener: AcceptManager,
-    descriptor: PortDescriptor,
-    shutdown_manager: &Arc<shutdown::Manager>,
-) -> Result<(), io::Error> {
-    trace!(
-        "Started listening on {:?}",
-        listener.get_inner().local_addr()
-    );
-    let descriptor = Arc::new(descriptor);
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
+#[cfg(target_os = "windows")]
+pub const SERVER: &str = "Kvarn/0.2.0 (Windows)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
+#[cfg(target_os = "macos")]
+pub const SERVER: &str = "Kvarn/0.2.0 (macOS)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
+#[cfg(target_os = "linux")]
+pub const SERVER: &str = "Kvarn/0.2.0 (Linux)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
+#[cfg(target_os = "freebsd")]
+pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
+/// The Kvarn `server` header.
+/// Can also be used for identifying the client when using
+/// Kvarn as a reverse-proxy.
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd"
+)))]
+pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
 
-    loop {
-        match listener.accept(shutdown_manager).await {
-            AcceptAction::Shutdown => return Ok(()),
-            AcceptAction::Accept(result) => match result {
-                Ok((socket, addr)) => {
-                    match descriptor
-                        .data
-                        .get_default()
-                        .limiter
-                        .register(addr.ip())
-                        .await
-                    {
-                        LimitAction::Drop => {
-                            drop(socket);
-                            return Ok(());
-                        }
-                        LimitAction::Send | LimitAction::Passed => {}
-                    }
-                    let host = Arc::clone(&descriptor);
-                    #[cfg(feature = "graceful-shutdown")]
-                    let shutdown_manager = Arc::clone(shutdown_manager);
-                    tokio::spawn(async move {
-                        #[cfg(feature = "graceful-shutdown")]
-                        shutdown_manager.add_connection();
-                        if let Err(err) = handle_connection(socket, addr, host, || {
-                            #[cfg(feature = "graceful-shutdown")]
-                            {
-                                !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
-                            }
-                            #[cfg(not(feature = "graceful-shutdown"))]
-                            {
-                                true
-                            }
-                        })
-                        .await
-                        {
-                            warn!(
-                                "An error occurred in the main processing function {:?}",
-                                err
-                            );
-                        }
-                        #[cfg(feature = "graceful-shutdown")]
-                        shutdown_manager.remove_connection();
-                    });
-                    continue;
-                }
-                Err(err) => {
-                    // An error occurred
-                    error!("Failed to accept() on listener");
-
-                    return Err(err);
-                }
-            },
-        }
+/// All the supported ALPN protocols.
+///
+/// > ***Note:** this is often not needed, as the ALPN protocols
+/// are set in [`host::Data::make_config()`].*
+#[must_use]
+pub fn alpn() -> Vec<Vec<u8>> {
+    #[allow(unused_mut)]
+    let mut vec = Vec::with_capacity(4);
+    #[cfg(feature = "http2")]
+    {
+        vec.push(b"h2".to_vec());
     }
+    vec
 }
