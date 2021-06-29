@@ -124,25 +124,47 @@ pub async fn run(ports: Vec<PortDescriptor>) -> Arc<shutdown::Manager> {
     let len = ports.len();
     let mut shutdown_manager = shutdown::Manager::new(len);
 
-    let mut listeners = Vec::with_capacity(len);
+    let mut listeners = Vec::with_capacity(len * 2);
     for descriptor in ports {
-        let socket = TcpSocket::new_v4().expect("Failed to create a new IPv4 socket configuration");
-        #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-        {
-            if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
-                error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.")
+        fn create_listener(
+            create_socket: impl Fn() -> TcpSocket,
+            address: SocketAddr,
+            shutdown_manager: &mut shutdown::Manager,
+        ) -> AcceptManager {
+            let socket = create_socket();
+            #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+            {
+                if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
+                    error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.")
+                }
             }
+            socket.bind(address).expect("Failed to bind address");
+
+            let listener = socket
+                .listen(1024)
+                .expect("Failed to listen on bound address.");
+
+            shutdown_manager.add_listener(listener)
         }
-        socket
-            .bind(net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into())
-            .expect("Failed to bind address");
 
-        let listener = socket
-            .listen(1024)
-            .expect("Failed to listen on bound address.");
+        let descriptor = Arc::new(descriptor);
 
-        let listener = shutdown_manager.add_listener(listener);
-        listeners.push((listener, descriptor));
+        if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
+            let listener = create_listener(
+                || TcpSocket::new_v4().expect("Failed to create a new IPv4 socket configuration"),
+                net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into(),
+                &mut shutdown_manager,
+            );
+            listeners.push((listener, Arc::clone(&descriptor)));
+        }
+        if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
+            let listener = create_listener(
+                || TcpSocket::new_v6().expect("Failed to create a new IPv6 socket configuration"),
+                SocketAddr::new(IpAddr::V6(net::Ipv6Addr::LOCALHOST), descriptor.port),
+                &mut shutdown_manager,
+            );
+            listeners.push((listener, descriptor));
+        }
     }
 
     let shutdown_manager = shutdown_manager.build();
@@ -163,14 +185,13 @@ pub async fn run(ports: Vec<PortDescriptor>) -> Arc<shutdown::Manager> {
 
 async fn accept(
     mut listener: AcceptManager,
-    descriptor: PortDescriptor,
+    descriptor: Arc<PortDescriptor>,
     shutdown_manager: &Arc<shutdown::Manager>,
 ) -> Result<(), io::Error> {
     trace!(
         "Started listening on {:?}",
         listener.get_inner().local_addr()
     );
-    let descriptor = Arc::new(descriptor);
 
     loop {
         match listener.accept(shutdown_manager).await {
@@ -190,13 +211,13 @@ async fn accept(
                         }
                         LimitAction::Send | LimitAction::Passed => {}
                     }
-                    let host = Arc::clone(&descriptor);
+                    let descriptor = Arc::clone(&descriptor);
                     #[cfg(feature = "graceful-shutdown")]
                     let shutdown_manager = Arc::clone(shutdown_manager);
                     tokio::spawn(async move {
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.add_connection();
-                        if let Err(err) = handle_connection(socket, addr, host, || {
+                        if let Err(err) = handle_connection(socket, addr, descriptor, || {
                             #[cfg(feature = "graceful-shutdown")]
                             {
                                 !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
@@ -583,14 +604,8 @@ pub async fn handle_cache(
                             ))
                         };
 
-                        handle_request(
-                            &mut request,
-                            overide_uri.as_ref(),
-                            address,
-                            host,
-                            &path,
-                        )
-                        .await?
+                        handle_request(&mut request, overide_uri.as_ref(), address, host, &path)
+                            .await?
                     }
                     Err(err) => error::sanitize_error_into_response(*err, host).await,
                 }
@@ -754,6 +769,19 @@ pub async fn handle_request(
     Ok(response)
 }
 
+/// Which version of the [Internet Protocol](https://en.wikipedia.org/wiki/Internet_Protocol)
+/// to bind to.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[must_use]
+pub enum BindIpVersion {
+    /// Bind to IPv4
+    V4,
+    /// Bind to IPv6
+    V6,
+    /// Bind to IPv4 and IPv6
+    Both,
+}
+
 /// Describes port, certificate, and host data for
 /// a single port to bind.
 #[derive(Clone)]
@@ -763,6 +791,7 @@ pub struct PortDescriptor {
     #[cfg(feature = "https")]
     server_config: Option<Arc<rustls::ServerConfig>>,
     data: Arc<Data>,
+    version: BindIpVersion,
 }
 impl PortDescriptor {
     /// Uses the defaults for non-secure HTTP with `host_data`
@@ -772,6 +801,7 @@ impl PortDescriptor {
             #[cfg(feature = "https")]
             server_config: None,
             data: host_data,
+            version: BindIpVersion::Both,
         }
     }
     /// Uses the defaults for secure HTTP, HTTPS, with `host_data`.
@@ -782,6 +812,7 @@ impl PortDescriptor {
             port: 443,
             server_config: Some(Arc::new(host_data.make_config())),
             data: host_data,
+            version: BindIpVersion::Both,
         }
     }
     /// Creates a new descriptor for `port` with `host_data` and an optional [`rustls::ServerConfig`].
@@ -795,6 +826,7 @@ impl PortDescriptor {
             port,
             server_config,
             data: host_data,
+            version: BindIpVersion::Both,
         }
     }
     /// Creates a new descriptor for `port` with `host_data`.
@@ -806,6 +838,7 @@ impl PortDescriptor {
             #[cfg(feature = "https")]
             server_config: Some(Arc::new(host_data.make_config())),
             data: host_data,
+            version: BindIpVersion::Both,
         }
     }
     /// Creates a new non-secure descriptor for `port` with `host_data`.
@@ -816,7 +849,24 @@ impl PortDescriptor {
             #[cfg(feature = "https")]
             server_config: None,
             data: host_data,
+            version: BindIpVersion::Both,
         }
+    }
+    /// Binds to IPv4 only.
+    /// The default is to bind both.
+    ///
+    /// This disables IPv6 for this port.
+    pub fn ipv4_only(mut self) -> Self {
+        self.version = BindIpVersion::V4;
+        self
+    }
+    /// Binds to IPv6 only.
+    /// The default is to bind both.
+    ///
+    /// This disables IPv4 for this port.
+    pub fn ipv6_only(mut self) -> Self {
+        self.version = BindIpVersion::V6;
+        self
     }
 }
 impl Debug for PortDescriptor {

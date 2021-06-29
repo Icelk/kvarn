@@ -56,11 +56,11 @@ The name comes from the current plan to move core stuff into it's own crate.
 - [x] Byte ranges
 - [ ] `read_to_bytes()` performance
 - [x] Implement an easy-to-configure proxy extension in kvarn_extensions
-- [ ] If-Modified-Since header to increase client cache performance
-- [ ] Move core stuff
+- [x] If-Modified-Since header to increase client cache performance
+- [x] Move core stuff
 - [ ] Smart push with id (so all other data isn't pushed on every request)
 - [x] Graceful shutdown and handover. Maintenance and updates are now a non-issue!
-- [ ] IPv6
+- [x] IPv6
 
 # v0.4.0 WebSockets & Auth
 
