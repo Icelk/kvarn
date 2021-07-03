@@ -24,3 +24,7 @@ php = ["fastcgi-client", "tokio"]
 templates = []
 push = ["url_crawl"]
 reverse-proxy = ["tokio"]
+
+[dev-dependencies]
+tokio = { version = "^1", features = ["net", "io-util", "macros"] }
+kvarn_testing = { path = "../testing" }

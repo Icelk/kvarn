@@ -8,6 +8,8 @@
 //! For example, if you mount the extensions [`download`], it binds the *extension declaration* `download`.
 //! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it.
 
+#![deny(clippy::all)]
+
 use kvarn::{extensions::*, prelude::*};
 
 #[cfg(feature = "reverse-proxy")]

@@ -61,3 +61,19 @@ fn php(
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use kvarn_testing::*;
+
+    #[tokio::test]
+    async fn no_fs() {
+        let server = ServerBuilder::from(crate::new())
+            .with_options(|options| {options.disable_fs();})
+            .run()
+            .await;
+
+        let response = server.get("index.php").send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}
