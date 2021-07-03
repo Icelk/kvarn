@@ -406,7 +406,7 @@ pub struct Options {
 impl Options {
     /// Creates a new [`Options`] with default settings.
     ///
-    /// All options are [`None`] and [`Self::disable_client_cache`] is `false`.
+    /// All [`Option`]s are [`None`] and all booleans are `false`.
     pub fn new() -> Self {
         Self {
             folder_default: None,

@@ -301,12 +301,8 @@ pub async fn handle_connection(
         match host.limiter.register(address.ip()).await {
             LimitAction::Drop => return Ok(()),
             LimitAction::Send => {
-                let version = match response_pipe {
-                    ResponsePipe::Http1(_) => Version::HTTP_11,
-                    ResponsePipe::Http2(_) => Version::HTTP_2,
-                };
                 let (mut response, body) = utils::split_response(limiting::get_too_many_requests());
-                *response.version_mut() = version;
+                response_pipe.ensure_version_and_length(&mut response, body.len());
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
                 ret_log_app_error!(body_pipe.send_with_maybe_close(body, true).await);

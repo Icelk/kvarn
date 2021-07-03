@@ -19,6 +19,7 @@ members = [
   "kvarn_chute",
   "utils",
   "async",
+  "testing",
 ]
 
 [dependencies]
@@ -71,7 +72,4 @@ graceful-shutdown = []
 doc-tests = ["reqwest", "rand", "rcgen", "tokio/macros"]
 
 [dev-dependencies]
-reqwest = { version = "^0.11" }
-rand = "^0.8"
-rcgen = "^0.8"
-tokio = { version = "^1", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time", "macros"] }
+kvarn_testing = { path = "testing" }
