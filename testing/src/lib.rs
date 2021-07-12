@@ -6,7 +6,7 @@
 
 #![deny(clippy::all)]
 
-pub use kvarn::prelude::*;
+use kvarn::prelude::*;
 
 macro_rules! impl_methods {
     ($($method: ident),*) => {
