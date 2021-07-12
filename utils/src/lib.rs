@@ -15,11 +15,13 @@
 )]
 #![allow(clippy::missing_panics_doc)]
 
+pub mod extensions;
 pub mod parse;
 pub mod prelude;
 use prelude::*;
 
 pub use parse::{list_header, sanitize_request, CriticalRequestComponents, ValueQualitySet};
+pub use extensions::{PresentArguments, PresentExtensions, PresentArgumentsIter, PresentExtensionsIter};
 
 /// Common characters expressed as a single byte each, according to UTF-8.
 pub mod chars {
@@ -60,14 +62,14 @@ pub mod chars {
 /// # Examples
 ///
 /// ```
-/// # use kvarn::prelude::*;
-/// let built_bytes = built_bytes!(b"GET", b" ", b"/foo-", b"bar", " HTTP/2");
-/// assert_eq!(built_bytes, Bytes::from_static("GET /foo-bar HTTP/2"));
+/// # use kvarn_utils::prelude::*;
+/// let built_bytes = build_bytes!(b"GET", b" ", b"/foo-", b"bar", b" HTTP/2");
+/// assert_eq!(built_bytes, Bytes::from_static(b"GET /foo-bar HTTP/2"));
 /// ```
 #[macro_export]
 macro_rules! build_bytes {
     () => (
-        $crate::prelude::Bytes::new()
+        $crate::prelude::prelude::Bytes::new()
     );
     ($($bytes:expr),+ $(,)?) => {{
         let mut b = $crate::prelude::BytesMut::with_capacity($($bytes.len() +)* 0);
@@ -109,7 +111,7 @@ pub trait AsCleanDebug {
     /// # Examples
     ///
     /// ```
-    /// # use kvarn::prelude::*;
+    /// # use kvarn_utils::prelude::prelude::*;
     /// let s = "a\tstring";
     /// let clean_debug = s.as_clean();
     ///
@@ -350,10 +352,10 @@ pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &s
 /// # Examples
 ///
 /// ```
-/// # use kvarn::prelude::*;
-/// let example = "POST /api/username HTTP/3"
+/// # use kvarn_utils::prelude::*;
+/// let example = "POST /api/username HTTP/3";
 /// assert!(
-///     starts_with!(example, "GET" | "HEAD" | "POST")
+///     starts_with_any!(example, "GET" , "HEAD" , "POST")
 /// );
 /// ```
 #[macro_export]

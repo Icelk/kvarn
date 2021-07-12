@@ -61,7 +61,7 @@ pub mod networking {
 ///
 /// **This is not part of the public API and may change rapidly**
 pub mod internals {
-    use super::{application, async_bits, comprash, encryption, error, extensions, limiting};
+    use super::{utils,application, async_bits, comprash, encryption, error, extensions, limiting};
     pub use application::{
         Body, HttpConnection, PushedResponsePipe, ResponseBodyPipe, ResponsePipe,
     };
@@ -72,6 +72,9 @@ pub mod internals {
     pub use extensions::{ready, RetFut, RetSyncFut};
     pub use limiting::{Action as LimitAction, Manager as LimitManager};
     pub use tokio::time::timeout;
+    pub use utils::{
+        PresentArguments, PresentArgumentsIter, PresentExtensions, PresentExtensionsIter,
+    };
 }
 
 /// **Prelude:** internal
