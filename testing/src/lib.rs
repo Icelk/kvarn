@@ -2,7 +2,7 @@
 //!
 //! Here, you can easily spin up a new server on a random non-used port
 //! and send a request to it in under 5 lines.
-//! See [`run_server`] on getting started.
+//! See [`ServerBuilder::run`] on getting started.
 
 #![deny(clippy::all)]
 
@@ -20,7 +20,7 @@ macro_rules! impl_methods {
     };
 }
 
-/// A port returned by [`run_server`] to connect to.
+/// A port returned by [`ServerBuilder::run`] to connect to.
 #[derive(Debug)]
 pub struct Server {
     server: Arc<shutdown::Manager>,

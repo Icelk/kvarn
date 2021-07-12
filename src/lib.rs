@@ -57,8 +57,6 @@ pub mod limiting;
 pub mod prelude;
 pub mod read;
 pub mod shutdown;
-#[cfg(any(test, doc))]
-pub mod test;
 
 use prelude::{internals::*, networking::*, *};
 // When user only imports crate::* and not crate::prelude::*

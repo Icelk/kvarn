@@ -39,11 +39,6 @@ rustls = { version = "^0.19", optional = true }
 tokio = { version = "^1", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
 webpki = { version = "^0.21", optional = true }
 
-# For documenting test module
-reqwest = { version = "^0.11", optional = true }
-rand = { version = "^0.8", optional = true }
-rcgen = { version = "^0.8", optional = true }
-
 [features]
 default = ["all-http", "all-compression", "graceful-shutdown"]
 
@@ -67,9 +62,6 @@ mt = ["tokio/rt-multi-thread"]
 
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = []
-
-# Used for doc to include tests. Shall only be included by `cargo doc`, where it MUST be used.
-doc-tests = ["reqwest", "rand", "rcgen", "tokio/macros"]
 
 [dev-dependencies]
 kvarn_testing = { path = "testing" }
