@@ -1,7 +1,7 @@
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fmt;
+use std::fmt::{self, Display, Formatter};
 use std::io::{self, prelude::*};
 use std::path::Path;
 
@@ -268,7 +268,7 @@ pub fn process_document<P: AsRef<Path>>(
         path.set_extension("html");
         path
     };
-    let mut write_file = io::BufWriter::new(filesystem::create_file(&new_path, quiet));
+    let mut write_file = filesystem::create_file(&new_path, quiet);
 
     let mut buffer = Vec::with_capacity(metadata.len() as usize); // ToDo: Remove `as usize`
     if file.read_to_end(&mut buffer).is_err() {
@@ -293,7 +293,11 @@ pub fn process_document<P: AsRef<Path>>(
         extensions.push(extension);
     }
     if let Ok(string) = std::str::from_utf8(&buffer[file_content_start..]) {
-        let white_space_chars = string.char_indices().take_while(|(_, char)| char.is_whitespace()).last().map_or(0, |(pos, char)| pos + char.len_utf8());
+        let white_space_chars = string
+            .char_indices()
+            .take_while(|(_, char)| char.is_whitespace())
+            .last()
+            .map_or(0, |(pos, char)| pos + char.len_utf8());
 
         file_content_start += white_space_chars;
     }
@@ -345,13 +349,40 @@ pub fn process_document<P: AsRef<Path>>(
     let input = std::str::from_utf8(&buffer[file_content_start..])
         .expect("we tried to split the beginning of MarkDown on a character boundary, or the input file isn't valid UTF-8");
 
+    let mut headers = Vec::new();
+    get_headers(&mut headers, &input);
+
     let mut tags: Tags = HashMap::new();
+    tags.insert(
+        "toc".to_owned(),
+        Box::new(|_inner, mut ext| {
+            let mut indent_counter = IndentCounter::new();
+            use fmt::Write;
+            write!(ext, "|Contents|\n|---|\n")?;
+            for Header {
+                name,
+                anchor,
+                indent,
+            } in &headers
+            {
+                indent_counter.add(*indent);
+                writeln!(
+                    ext,
+                    "|<a style=\"margin-left: {}em;\"></a> [{} {}](#{})|",
+                    indent_counter.left_margin(2),
+                    indent_counter,
+                    name,
+                    anchor
+                )?;
+            }
+        }),
+    );
     #[cfg(feature = "date")]
     tags.insert(
         "date".to_owned(),
         Box::new(|_inner, mut ext| {
-            let date = chrono::Local::now();
             use fmt::Write;
+            let date = chrono::Local::now();
             write!(ext, "{}", date.format("%a, %F, %0H:%0M %:z"))
                 .expect("failed to push to string");
         }),
@@ -362,22 +393,27 @@ pub fn process_document<P: AsRef<Path>>(
     // Parse CMark
     let parser = Parser::new_ext(&input, Options::all());
 
-    let mut header_ids = HashSet::new();
-    let with_tagged_headers = map_peek(parser, |event, next| match (&event, next) {
-        (Event::Start(Tag::Heading(level)), Some(Event::Text(header_text))) => {
-            let id = resolve_id(header_text, &mut header_ids);
-            let html = format!("<h{} id=\"{}\">", level, id);
+    let mut parser_header_index = 0;
+    let parser = parser.map(|event| match event {
+        Event::Start(Tag::Heading(level)) => {
+            let Header { anchor, .. } = &headers[parser_header_index];
+            parser_header_index += 1;
+            let html = format!("<h{} id=\"{}\">", level, anchor);
             Event::Html(CowStr::Boxed(html.into_boxed_str()))
         }
         _ => event,
     });
 
+    let mut output = Vec::with_capacity(input.len() * 2);
+
     // Write HTML from specified file to output file (buffered for performance)
-    html::write_html(&mut write_file, with_tagged_headers)?;
+    html::write_html(&mut output, parser)?;
+
+    // Write output
+    write_file.write_all(&output)?;
 
     // Writes footer
     write_file.write_all(footer)?;
-    // Flushes the buffered writer
     write_file.flush()?;
 
     if !quiet {
@@ -385,36 +421,6 @@ pub fn process_document<P: AsRef<Path>>(
     }
 
     Ok(())
-}
-
-fn resolve_id<'a>(next: &str, map: &'a mut HashSet<String>) -> &'a str {
-    let mut next = make_anchor(next);
-
-    let mut added_suffix = false;
-    while map.contains(&next) {
-        if !added_suffix {
-            next.push_str("-1");
-            added_suffix = true;
-            continue;
-        }
-        let pos = next.rfind('-').unwrap_or_else(|| next.len());
-        // We know this lies on a valid boundary from the above code.
-        let number: u32 = next.get(pos + 1..).unwrap().parse().unwrap_or(1) + 1;
-        let to_remove = next.len() - pos - 1;
-        for _ in 0..to_remove {
-            next.pop();
-        }
-        use fmt::Write;
-        write!(next, "{}", number).expect("failed to write to string");
-    }
-    insert_hashset(map, next)
-}
-fn insert_hashset(map: &mut HashSet<String>, value: String) -> &str {
-    let pointer: *const str = value.as_str();
-    map.insert(value);
-    // Safe because the value is now owned by the map.
-    // Unwrap is ok; we just inserted the value.
-    map.get(unsafe { &*pointer }).unwrap()
 }
 
 /// Will watch the given directory.
@@ -485,31 +491,6 @@ pub fn wait_for(message: &str) {
     println!("{}", message);
     let _ = io::stdin().read(&mut [0; 0]);
 }
-struct MapPeek<T, I: Iterator<Item = T>, F> {
-    iter: std::iter::Peekable<I>,
-    func: F,
-}
-impl<T, I: Iterator<Item = T>, F: FnMut(T, Option<&T>) -> T> Iterator for MapPeek<T, I, F> {
-    type Item = T;
-    fn next(&mut self) -> Option<Self::Item> {
-        let next = self.iter.next();
-        if let Some(next) = next {
-            let peek = self.iter.peek();
-            Some((self.func)(next, peek))
-        } else {
-            None
-        }
-    }
-}
-fn map_peek<T, I: Iterator<Item = T>, F: FnMut(T, Option<&T>) -> T>(
-    iter: I,
-    f: F,
-) -> MapPeek<T, I, F> {
-    MapPeek {
-        iter: iter.peekable(),
-        func: f,
-    }
-}
 
 pub struct Extendible<'a> {
     inner: &'a mut String,
@@ -542,9 +523,9 @@ pub fn make_anchor(title: &str) -> String {
     a
 }
 
-pub type Tags = HashMap<String, Box<dyn Fn(&str, Extendible)>>;
+pub type Tags<'a> = HashMap<String, Box<dyn Fn(&'a str, Extendible) + 'a>>;
 
-pub fn replace_tags(text: &str, tags: Tags) -> String {
+pub fn replace_tags<'a>(text: &'a str, tags: Tags<'a>) -> String {
     let mut string = String::with_capacity(text.len() + 64);
 
     let mut in_tag = false;
@@ -593,4 +574,94 @@ pub fn replace_tags(text: &str, tags: Tags) -> String {
         }
     }
     string
+}
+
+#[derive(Debug)]
+pub struct Header<'a> {
+    name: &'a str,
+    anchor: String,
+    indent: u8,
+}
+pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
+    fn is_parenthesis(c: char) -> bool {
+        matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
+    }
+    for line in input.lines() {
+        let trimmed = line.trim();
+        let header_trimmed = trimmed.trim_start_matches('#');
+        let indent = trimmed.len() - header_trimmed.len();
+
+        if indent > 0 {
+            let heavily_trimmed = header_trimmed.trim_start_matches(|c: char| !c.is_alphabetic());
+            let heavily_trimmed = heavily_trimmed
+                .split(|c: char| {
+                    !(c.is_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace())
+                        || is_parenthesis(c)
+                })
+                .next()
+                .unwrap_or(heavily_trimmed)
+                .trim_end();
+
+            let anchor = make_anchor(heavily_trimmed);
+            let indent = indent.min(255) as u8;
+
+            headers.push(Header {
+                name: heavily_trimmed,
+                anchor,
+                indent,
+            });
+        }
+    }
+}
+#[derive(Debug)]
+pub struct IndentCounter {
+    indent_index: [u8; 6],
+    last_indent: u8,
+}
+impl IndentCounter {
+    pub fn new() -> Self {
+        Self {
+            indent_index: [0; 6],
+            last_indent: 0,
+        }
+    }
+    pub fn add(&mut self, indent: u8) {
+        let indent = indent - 1;
+        if self.last_indent > indent {
+            self.indent_index[self.last_indent as usize] = 0;
+        }
+        self.indent_index[indent as usize] += 1;
+        self.last_indent = indent;
+    }
+    pub fn indent(&self) -> IndentIndenter {
+        IndentIndenter { data: self }
+    }
+    pub fn left_margin(&self, multiplier: usize) -> usize {
+        self.last_indent as usize * multiplier
+    }
+}
+impl Default for IndentCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Display for IndentCounter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for i in 0..self.last_indent {
+            write!(f, "{}.", self.indent_index[i as usize])?;
+        }
+        write!(f, "{}", self.indent_index[self.last_indent as usize])
+    }
+}
+#[derive(Debug)]
+pub struct IndentIndenter<'a> {
+    data: &'a IndentCounter,
+}
+impl<'a> Display for IndentIndenter<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for _ in 0..self.data.last_indent {
+            write!(f, "    ")?;
+        }
+        Ok(())
+    }
 }
