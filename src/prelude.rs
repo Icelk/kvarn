@@ -61,7 +61,9 @@ pub mod networking {
 ///
 /// **This is not part of the public API and may change rapidly**
 pub mod internals {
-    use super::{utils,application, async_bits, comprash, encryption, error, extensions, limiting};
+    use super::{
+        application, async_bits, comprash, encryption, error, extensions, limiting, utils,
+    };
     pub use application::{
         Body, HttpConnection, PushedResponsePipe, ResponseBodyPipe, ResponsePipe,
     };
