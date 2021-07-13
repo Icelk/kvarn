@@ -1,0 +1,49 @@
+!> tmpl standard.html markdown.html
+[head][dependencies][md-imports][close-head][navigation]
+<main><md><p>Kvarn is very extensible. Therefore, several pluggable interfaces (called <em>extensions</em>) exist to make integration fast and seamless.</p>
+<p>Here are the five <strong>P</strong>s
+chronologically ordered from the request’s perspective. </p>
+<h1 id="prime">Prime</h1>
+<ul>
+<li><input disabled="" type="checkbox"/>
+Not cached</li>
+</ul>
+<p>This is where you can add cache redirects. If you for example want to load the login page on all privileged pages (when the user is not logged in),
+you can test the <code>Authentication</code> HTTP header
+and from there decide to intercept the request.</p>
+<p>It is also here where all http requests are upgraded to HTTPS, by redirecting the request to 
+a special page where a 307 Redirect is created and returned.</p>
+<h1 id="prepare">Prepare</h1>
+<ul>
+<li><input disabled="" type="checkbox" checked=""/>
+First response can be cached. The optional <code>Future</code> is not.</li>
+</ul>
+<p>Called with URI to capture to a function. Will still get all other extensions applied.</p>
+<p>It’s programmatically an alternative to reading from the file system. It’s also very useful for API’s (both REST and GraphQL).</p>
+<h1 id="present">Present</h1>
+<ul>
+<li><input disabled="" type="checkbox" checked=""/>
+Cached</li>
+</ul>
+<p>Here, files can opt in to extensions to manipulate data, such as the template system and <code>hide</code> extension.</p>
+<p>This type can modify most data in response and will be executed in series.</p>
+<h1 id="package">Package</h1>
+<ul>
+<li><input disabled="" type="checkbox"/>
+Not cached</li>
+</ul>
+<blockquote>
+<p><em>I know the name is a stretch</em></p>
+</blockquote>
+<p>Here, you can define headers to add to the final response.
+These headers are not cached, but applied every time. You can therefore compare things like other headers and version from request.</p>
+<p>Cookies can be defined here, since they won’t be cached then.</p>
+<h1 id="post">Post</h1>
+<ul>
+<li><input disabled="" type="checkbox"/>
+Not cached</li>
+</ul>
+<p>These extensions are called after all data are written to the user. This will almost exclusively be used for HTTP/2 push.</p>
+<p>Maybe, it can be used to sync data to a database after the request is written to not block it?</p>
+</md></main>
+[footer]

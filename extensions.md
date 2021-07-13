@@ -5,6 +5,8 @@ chronologically ordered from the request's perspective.
 
 # Prime
 
+- [ ] Not cached
+
 This is where you can add cache redirects. If you for example want to load the login page on all privileged pages (when the user is not logged in),
 you can test the `Authentication` HTTP header
 and from there decide to intercept the request.
