@@ -20,6 +20,27 @@ pub async fn handle_template(arguments: &PresentArguments, file: &[u8], host: &H
         Placeholder,
     }
 
+    // Remove first line if it contains "tmpl-ignore", for formatting quirks.
+    let mut file = file;
+    {
+        let limit = 48;
+        let first_line_end = file
+            .iter()
+            .copied()
+            .enumerate()
+            .position(|(pos, byte)| pos >= limit || byte == LF);
+
+        if first_line_end.unwrap_or(0) != limit {
+            if let Some(first_line_end) = first_line_end {
+                if let Ok(first_line) = str::from_utf8(&file[..=first_line_end]) {
+                    if first_line.contains("tmpl-ignore") {
+                        file = &file[first_line_end + 1..];
+                    }
+                }
+            }
+        }
+    }
+
     let mut response = Vec::with_capacity(file.len() * 2);
 
     let mut stage = Stage::Text;
