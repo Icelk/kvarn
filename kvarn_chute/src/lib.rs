@@ -358,7 +358,7 @@ pub fn process_document<P: AsRef<Path>>(
         Box::new(|_inner, mut ext| {
             let mut indent_counter = IndentCounter::new();
             use fmt::Write;
-            write!(ext, "|Contents|\n|---|\n")?;
+            write!(ext, "|Contents|\n|---|\n").unwrap();
             for Header {
                 name,
                 anchor,
@@ -373,7 +373,7 @@ pub fn process_document<P: AsRef<Path>>(
                     indent_counter,
                     name,
                     anchor
-                )?;
+                ).unwrap();
             }
         }),
     );
@@ -492,6 +492,7 @@ pub fn wait_for(message: &str) {
     let _ = io::stdin().read(&mut [0; 0]);
 }
 
+/// It's safe to unwrap on the [`fmt::Write`] trait; we're writing to a [`String`].
 pub struct Extendible<'a> {
     inner: &'a mut String,
 }
