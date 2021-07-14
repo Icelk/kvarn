@@ -19,8 +19,9 @@ We have now reached this milestone, with HTTP/2, fast async IO, a new superior e
 This release is now currently running [icelk.dev](https://icelk.dev) and [kvarn.org](https://kvarn.org).
 
 This is a *real* performance uplift. It's essentially a complete rewrite of Kvarn.
-[extensions.md](extensions.md) and [routing.md](routing.md) are documents designed to make the server's
-architecture more *transparent*. It should be understandable even for non-programmers. It should make it easier to integrate with Kvarn.
+The pages at kvarn.org, especially the one about [extensions](https://kvarn.org/extensions/) and
+the [request pipeline](https://kvarn.org/pipeline.) should make the design choices more clear.
+It should be understandable even for non-programmers. It should make it easier to integrate with Kvarn.
 
 > One other big thing is HTTP/2 Push, which makes loading web sites more than 2 times faster.
 > Without doing anything from your part, you can expect automatic push to work, resulting in the
