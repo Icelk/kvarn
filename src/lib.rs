@@ -561,7 +561,7 @@ pub async fn handle_cache(
                 response: CompressedResponse,
                 method: &Method,
                 future: &Option<T>,
-            ) {
+            ) -> bool {
                 if future.is_none() {
                     if let Some(response_cache) = &host.response_cache {
                         if server_cache.cache(response.get_identity(), method) {
@@ -573,11 +573,13 @@ pub async fn handle_cache(
                             };
                             info!("Caching uri {:?}!", &key);
                             lock.cache(key, response);
+                            return true;
                         }
                     }
                 } else {
                     info!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
                 }
+                false
             }
 
             drop(lock);
@@ -653,7 +655,7 @@ pub async fn handle_cache(
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
-            maybe_cache(
+            let should_cache = maybe_cache(
                 host,
                 server_cache,
                 path_query,
@@ -663,7 +665,7 @@ pub async fn handle_cache(
             )
             .await;
 
-            if !host.options.disable_if_modified_since {
+            if !host.options.disable_if_modified_since && should_cache {
                 let last_modified =
                     HeaderValue::from_str(&time::Utc::now().format(parse::HTTP_DATE).to_string())
                         .expect("We know these bytes are valid.");
