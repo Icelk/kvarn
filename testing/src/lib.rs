@@ -164,7 +164,8 @@ impl ServerBuilder {
                 .map(|cert_key| cert_key.cert[0].clone());
             let data = Data::builder(host).build();
             let port_descriptor = PortDescriptor::new(port, data);
-            let shutdown = run(run_config![port_descriptor]).await;
+            let config = RunConfig::new().add(port_descriptor).disable_handover();
+            let shutdown = run(config).await;
             return Server {
                 port,
                 certificate,
