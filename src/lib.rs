@@ -111,12 +111,13 @@ macro_rules! ret_log_app_error {
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
 /// // Run with the configured ports.
-/// let shutdown_manager = run(vec![port_descriptor]).await;
+/// let shutdown_manager = run(run_config![port_descriptor]).await;
 /// // Waits for shutdown.
 /// shutdown_manager.wait().await;
 /// # };
 /// ```
-pub async fn run(ports: Vec<PortDescriptor>) -> Arc<shutdown::Manager> {
+pub async fn run(ports: RunConfig) -> Arc<shutdown::Manager> {
+    let RunConfig { ports, handover, handover_socket_path } = ports;
     info!("Starting server on {} ports.", ports.len());
 
     let len = ports.len();
@@ -774,6 +775,89 @@ pub enum BindIpVersion {
     V6,
     /// Bind to IPv4 and IPv6
     Both,
+}
+
+/// Configuration for [`run`].
+/// This mainly consists of an array of [`PortDescriptor`]s.
+///
+/// It also allows control of [handover](https://kvarn.org/shutdown-handover.).
+///
+/// # Examples
+///
+/// See [`run`] as it uses this, created by a macro invocation.
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// # async {
+/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// let data = Data::builder(host).build();
+/// let port_descriptor = PortDescriptor::new(8080, data);
+///
+/// let config = RunConfig::new()
+///     .add(port_descriptor)
+///     .set_handover_socket_path("/tmp/kvarn-instance-1.sock");
+/// run(config).await.shutdown();
+/// # };
+/// ```
+#[derive(Debug)]
+pub struct RunConfig {
+    ports: Vec<PortDescriptor>,
+    handover: bool,
+    handover_socket_path: Option<&'static str>,
+}
+impl RunConfig {
+    /// Creates an empty [`RunConfig`].
+    pub fn new() -> Self {
+        RunConfig {
+            ports: vec![],
+            handover: true,
+            handover_socket_path: None,
+        }
+    }
+
+    /// Adds a [`PortDescriptor`] to the Kvarn server.
+    pub fn add(mut self, port_descriptor: PortDescriptor) -> Self {
+        self.ports.push(port_descriptor);
+        self
+    }
+    /// Disables [handover](https://kvarn.org/shutdown-handover.) for the instance of Kvarn.
+    ///
+    /// This can enable multiple Kvarn servers to run on the same machine.
+    pub fn disable_handover(mut self) -> Self {
+        self.handover = false;
+        self
+    }
+    /// Sets the path of the socket where the [handover](https://kvarn.org/shutdown-handover.)
+    /// is managed.
+    ///
+    /// This can enable multiple Kvarn servers to run on the same machine.
+    /// If each application (as in an use for Kvarn) has it's own path, multiple can coexist.
+    pub fn set_handover_socket_path(mut self, path: &'static str) -> Self {
+        self.handover_socket_path = Some(path);
+        self
+    }
+}
+impl Default for RunConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+/// Creates a [`RunConfig`] from [`PortDescriptor`]s.
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// # let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// # let data = Data::builder(host).build();
+/// # let port1 = PortDescriptor::new(8080, Arc::clone(&data));
+/// # let port2 = PortDescriptor::new(8081, data);
+/// let config = run_config!(port1, port2);
+#[macro_export]
+macro_rules! run_config {
+    ($($port_descriptor:expr),+ $(,)?) => {
+        $crate::RunConfig::new()$(.add($port_descriptor))+
+    };
 }
 
 /// Describes port, certificate, and host data for

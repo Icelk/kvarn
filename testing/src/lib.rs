@@ -164,7 +164,7 @@ impl ServerBuilder {
                 .map(|cert_key| cert_key.cert[0].clone());
             let data = Data::builder(host).build();
             let port_descriptor = PortDescriptor::new(port, data);
-            let shutdown = run(vec![port_descriptor]).await;
+            let shutdown = run(run_config![port_descriptor]).await;
             return Server {
                 port,
                 certificate,
