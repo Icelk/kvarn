@@ -356,6 +356,22 @@ pub fn process_document<P: AsRef<Path>>(
     tags.insert(
         "toc".to_owned(),
         Box::new(|_inner, mut ext| {
+            struct MarginDisplay<'a> {
+                counter: &'a IndentCounter,
+                multiplier: usize,
+            }
+            impl<'a> Display for MarginDisplay<'a> {
+                fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                    let margin = self.counter.left_margin(self.multiplier);
+
+                    if margin == 0 {
+                        Ok(())
+                    } else {
+                        write!(f, "<span style=\"margin-left: {}em\"></span>", margin)
+                    }
+                }
+            }
+
             let mut indent_counter = IndentCounter::new();
             use fmt::Write;
             write!(ext, "|Contents|\n|---|\n").unwrap();
@@ -366,13 +382,15 @@ pub fn process_document<P: AsRef<Path>>(
             } in &headers
             {
                 indent_counter.add(*indent);
+                let margin = MarginDisplay {
+                    counter: &indent_counter,
+                    multiplier: 2,
+                };
+
                 writeln!(
                     ext,
-                    "|<a style=\"margin-left: {}em;\"></a> [{} {}](#{})|",
-                    indent_counter.left_margin(2),
-                    indent_counter,
-                    name,
-                    anchor
+                    "|{} [{} {}](#{})|",
+                    margin, indent_counter, name, anchor
                 )
                 .unwrap();
             }
