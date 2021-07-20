@@ -41,10 +41,16 @@ impl Server {
     }
     /// Builds a URL to the server with `path`.
     pub fn url(&self, path: impl AsRef<str>) -> reqwest::Url {
+        let added_root = if path.as_ref().starts_with('/') {
+            ""
+        } else {
+            "/"
+        };
         let string = format!(
-            "http{}://localhost:{}/{}",
+            "http{}://localhost:{}{}{}",
             self.cert().map_or("", |_| "s"),
             self.port(),
+            added_root,
             path.as_ref()
         );
         reqwest::Url::parse(&string).unwrap()
@@ -119,7 +125,12 @@ impl ServerBuilder {
     pub async fn run(self) -> Server {
         use rand::prelude::*;
 
-        let Self {https, extensions, options, path} = self;
+        let Self {
+            https,
+            extensions,
+            options,
+            path,
+        } = self;
 
         let path = path.as_deref().unwrap_or(Path::new("tests"));
 
@@ -130,14 +141,7 @@ impl ServerBuilder {
             let pk = rustls::PrivateKey(certificate.serialize_private_key_der());
             let pk = Arc::new(rustls::sign::any_supported_type(&pk).unwrap());
 
-            Host::from_cert_and_pk(
-                "localhost",
-                cert,
-                pk,
-                path,
-                extensions,
-                options,
-            )
+            Host::from_cert_and_pk("localhost", cert, pk, path, extensions, options)
         } else {
             Host::non_secure("localhost", path, extensions, options)
         };
@@ -146,8 +150,11 @@ impl ServerBuilder {
         let port_range = rand::distributions::Uniform::new(4096, 61440);
         loop {
             let port = port_range.sample(&mut rng);
-            match tokio::net::TcpStream::connect(SocketAddr::new(IpAddr::V4(net::Ipv4Addr::LOCALHOST), port))
-                .await
+            match tokio::net::TcpStream::connect(SocketAddr::new(
+                IpAddr::V4(net::Ipv4Addr::LOCALHOST),
+                port,
+            ))
+            .await
             {
                 Err(e) => match e.kind() {
                     io::ErrorKind::ConnectionRefused => {}
