@@ -439,6 +439,16 @@ impl Extensions {
                 let request = unsafe { request.get_inner() };
                 let allowed = options_cors_settings.check_cors_request(request);
 
+                if allowed.is_none() {
+                    return ready({
+                        let response = Response::builder()
+                            .status(StatusCode::FORBIDDEN)
+                            .body(Bytes::from_static(b"CORS request denied"))
+                            .expect("we know this is a good request.");
+                        FatResponse::new(response, ServerCachePreference::Full)
+                    });
+                }
+
                 let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
 
                 if let Some((methods, headers)) = allowed {
