@@ -206,9 +206,7 @@ impl From<(Extensions, host::Options)> for ServerBuilder {
 mod tests {
     use super::ServerBuilder;
 
-    #[tokio::test]
-    async fn index() {
-        let server = ServerBuilder::default().run().await;
+    fn run_simple(server: &super::Server) {
         let response = server
             .get("")
             .timeout(std::time::Duration::from_millis(100))
@@ -224,4 +222,22 @@ mod tests {
         );
         assert!(response.text().await.unwrap().contains("404 Not Found"));
     }
+
+    #[tokio::test]
+    async fn https() {
+        let server = ServerBuilder::default().run().await;
+        run_simple(&server);
+    }
+    #[tokio::test]
+    async fn http() {
+        let server = ServerBuilder::default().http().run().await;
+        run_simple(&server);
+    }
+}
+
+#[doc(hidden)]
+pub mod prelude {
+    pub use super::{Server, ServerBuilder};
+    pub use kvarn::prelude::*;
+    pub use reqwest;
 }
