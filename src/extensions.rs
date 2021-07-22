@@ -352,7 +352,7 @@ impl Extensions {
         self.add_prepare_single(
             "/./cors_fail".to_owned(),
             Box::new(|_, _, _, _| {
-                box_fut!({
+                ready({
                     let response = Response::builder()
                         .status(StatusCode::FORBIDDEN)
                         .body(Bytes::from_static(b"CORS request denied"))
@@ -360,6 +360,25 @@ impl Extensions {
                     FatResponse::new(response, ServerCachePreference::Full)
                 })
             }),
+        );
+        self.add_prime(
+            Box::new(move |request, _, _| {
+                let request = unsafe { request.get_inner() };
+                ready(
+                    if request.method() == Method::OPTIONS
+                        && request.headers().get("origin").is_some()
+                        && request
+                            .headers()
+                            .get("access-control-request-method")
+                            .is_some()
+                    {
+                        Some(Uri::from_static("/./cors_fail"))
+                    } else {
+                        None
+                    },
+                )
+            }),
+            Id::new(16_777_215, "Provides CORS preflight request support"),
         );
         self
     }
@@ -387,7 +406,7 @@ impl Extensions {
             }),
             Id::new(
                 16_777_216,
-                "Reroute not allowed CORS request to /./cors_failed",
+                "Reroute not allowed CORS request to /./cors_fail",
             ),
         );
 
