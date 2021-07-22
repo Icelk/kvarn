@@ -79,7 +79,7 @@ async fn body() {
         .with_extensions(|extensions| {
             extensions.add_prepare_single(
                 "/api-1".to_string(),
-                prepare!(req, _host, path, addr {
+                prepare!(req, _host, path, _addr {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
                     let body = str::from_utf8(&body).unwrap();
 
@@ -91,7 +91,7 @@ async fn body() {
             );
             extensions.add_prepare_single(
                 "/api-2".to_string(),
-                prepare!(req, _host, path, addr {
+                prepare!(req, _host, _path, _addr {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
 
                     println!("Body len: {}", body.len());
@@ -104,7 +104,7 @@ async fn body() {
             );
             extensions.add_prepare_single(
                 "/api-3".to_string(),
-                prepare!(req, _host, path, addr {
+                prepare!(req, _host, _path, _addr {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
                     let body = str::from_utf8(&body).unwrap();
 
@@ -116,27 +116,27 @@ async fn body() {
         })
         .run()
         .await;
-    let response = server
+    server
         .post("/api-1")
         .header("content-type", "text/plain; encoding=utf-8")
         .body("This is the full body.")
         .send()
-        .await;
+        .await.unwrap();
 
     let body = vec![chars::SPACE; length];
-    let response = server
+    server
         .post("/api-2")
         .header("content-type", "application/octet-stream")
         .body(body)
         .send()
         .await
         .unwrap();
-    let response = server
+    server
         .get("/api-3")
         .header("content-type", "text/plain; encoding=utf-8")
         .body("This is the full body.")
         .send()
-        .await;
+        .await.unwrap();
 }
 
 fn get_extensions() -> Extensions {

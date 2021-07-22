@@ -11,7 +11,7 @@ async fn default_deny() {
         .await
         .unwrap();
 
-    test_cors_response(response, false, line!());
+    test_cors_response(response, false, line!()).await;
 }
 #[tokio::test]
 async fn default_options() {
