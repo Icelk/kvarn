@@ -9,12 +9,12 @@
 use kvarn::prelude::*;
 
 macro_rules! impl_methods {
-    ($($method: ident),*) => {
+    ($($method: ident $name: ident),*) => {
         $(
             /// Make a request to `path` with the selected method.
             pub fn $method(&self, path: impl AsRef<str>) -> reqwest::RequestBuilder {
                 let client = self.client().build().unwrap();
-                client.$method(self.url(path))
+                client.request(reqwest::Method::$name, self.url(path))
             }
         )*
     };
@@ -28,7 +28,7 @@ pub struct Server {
     port: u16,
 }
 impl Server {
-    impl_methods!(get, post, put, patch, delete, head);
+    impl_methods!(get GET, post POST, put PUT, delete DELETE, head HEAD, options OPTIONS, connect CONNECT, patch PATCH, trace TRACE);
 
     /// Get a [`reqwest::ClientBuilder`] with the [`Self::cert`] accepted.
     pub fn client(&self) -> reqwest::ClientBuilder {
