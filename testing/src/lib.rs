@@ -170,7 +170,11 @@ impl ServerBuilder {
                 .as_ref()
                 .map(|cert_key| cert_key.cert[0].clone());
             let data = Data::builder(host).build();
-            let port_descriptor = PortDescriptor::new(port, data);
+            let port_descriptor = if https {
+                PortDescriptor::new(port, data)
+            } else {
+                PortDescriptor::non_secure(port, data)
+            };
             let config = RunConfig::new().add(port_descriptor).disable_handover();
             let shutdown = run(config).await;
             return Server {
@@ -206,7 +210,7 @@ impl From<(Extensions, host::Options)> for ServerBuilder {
 mod tests {
     use super::ServerBuilder;
 
-    fn run_simple(server: &super::Server) {
+    fn simple_request(server: &super::Server) {
         let response = server
             .get("")
             .timeout(std::time::Duration::from_millis(100))
@@ -226,12 +230,12 @@ mod tests {
     #[tokio::test]
     async fn https() {
         let server = ServerBuilder::default().run().await;
-        run_simple(&server);
+        simple_request(&server);
     }
     #[tokio::test]
     async fn http() {
         let server = ServerBuilder::default().http().run().await;
-        run_simple(&server);
+        simple_request(&server);
     }
 }
 
