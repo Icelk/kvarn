@@ -111,8 +111,8 @@ async fn read_templates<'a, I: Iterator<Item = &'a str>>(
 ) -> HashMap<String, Vec<u8>> {
     let mut templates = HashMap::with_capacity(32);
 
-    for template in files {
-        if let Some(map) = read_templates_from_file(template, host).await {
+    for file in files {
+        if let Some(map) = read_templates_from_file(file, host).await {
             for (key, value) in map.into_iter() {
                 templates.insert(key, value);
             }
@@ -121,11 +121,8 @@ async fn read_templates<'a, I: Iterator<Item = &'a str>>(
 
     templates
 }
-async fn read_templates_from_file(
-    template_set: &str,
-    host: &Host,
-) -> Option<HashMap<String, Vec<u8>>> {
-    let path = utils::make_path(&host.path, "templates", template_set, None);
+async fn read_templates_from_file(file: &str, host: &Host) -> Option<HashMap<String, Vec<u8>>> {
+    let path = utils::make_path(&host.path, "templates", file, None);
 
     // The template file will be access several times.
     match read_file_cached(&path, host.file_cache.as_ref()).await {
@@ -140,68 +137,92 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
     let mut templates = HashMap::with_capacity(16);
 
     let mut last_was_lf = true;
-    let mut escape = false;
-    let mut name_start = 0;
-    let mut name_end = 0usize;
+    let mut add_after_name = 0;
+    let mut escape = 0_u8;
+    let mut name_start = 0_usize;
+    let mut name_end = 0_usize;
     let mut newline_size = 1;
+    let mut buffer = Vec::new();
+
     for (position, byte) in file.iter().enumerate() {
+        let defined_name = name_end > name_start;
+        let in_name = name_start >= name_end;
         // Ignore all CR characters
-        if *byte == CR {
+        if defined_name && *byte == CR {
             newline_size = 2;
             continue;
         }
         // Ignore all whitespace
-        if *byte == SPACE || *byte == TAB {
+        if defined_name && (*byte == SPACE || *byte == TAB) {
             continue;
         }
+        if *byte == ESCAPE {
+            escape += 1;
+            match escape {
+                1 => continue,
+                _ => escape = 0,
+            }
+        }
+
         // If previous char was \, escape!
         // New template, process previous!
-        if !escape && last_was_lf && *byte == L_SQ_BRACKET {
+        if escape != 1 && last_was_lf && *byte == L_SQ_BRACKET {
             // If name is longer than empty
             if name_end.checked_sub(name_start + 2).is_some() {
                 // Check if we have a valid UTF-8 string
                 if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
-                    // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
-                    let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
-                        newline_size
-                    } else if file.get(name_end) == Some(&SPACE) {
-                        1
-                    } else {
-                        0
-                    };
+                    let mut buffer = std::mem::replace(&mut buffer, Vec::new());
+                    for _ in 0..newline_size {
+                        buffer.pop();
+                    }
                     // Then insert template; name we got from previous step, then bytes from where the previous template definition ended, then our current position, just before the start of the next template
                     // Returns a byte-slice of the file
-                    templates.insert(
-                        name.to_owned(),
-                        file[name_end + add_after_name..position - newline_size].to_vec(),
-                    );
+                    templates.insert(name.to_owned(), buffer);
+                    name_end = 0;
+                    name_start = 0;
                 }
             }
-            // Set start of template name to now
-            name_start = position;
+            if name_end >= name_start {
+                // Set start of template name to now
+                name_start = position;
+            }
+            continue;
         }
-        if *byte == R_SQ_BRACKET {
+        if in_name && *byte == R_SQ_BRACKET {
             name_end = position + 1;
-        }
-
-        last_was_lf = *byte == LF;
-        escape = *byte == ESCAPE;
-    }
-    // Because we add the definitions in the start of the new one, check for last in the end of file
-    if name_end.checked_sub(name_start + 2).is_some() {
-        if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
             // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
-            let add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
+            add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
                 newline_size
             } else if file.get(name_end) == Some(&SPACE) {
                 1
             } else {
                 0
             };
-            templates.insert(
-                name.to_owned(),
-                file[name_end + add_after_name..file.len() - newline_size].to_vec(),
-            );
+        }
+        if *byte != SPACE {
+            last_was_lf = *byte == LF;
+        }
+        if !in_name {
+            if add_after_name > 0 {
+                add_after_name -= 1;
+                continue;
+            }
+            buffer.push(*byte);
+            if *byte != ESCAPE {
+                escape = 0;
+            }
+        }
+    }
+    // Because we add the definitions in the start of the new one, check for last in the end of file
+    if name_end.checked_sub(name_start + 2).is_some() {
+        if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
+            if buffer.ends_with(&[LF]) {
+                buffer.pop();
+            }
+            if buffer.ends_with(&[CR]) {
+                buffer.pop();
+            }
+            templates.insert(name.to_owned(), buffer);
         }
     }
     templates
