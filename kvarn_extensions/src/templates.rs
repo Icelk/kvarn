@@ -153,9 +153,9 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
             continue;
         }
         // Ignore all whitespace
-        if defined_name && (*byte == SPACE || *byte == TAB) {
-            continue;
-        }
+        // if defined_name && (*byte == SPACE || *byte == TAB) {
+            // continue;
+        // }
         if *byte == ESCAPE {
             escape += 1;
             match escape {
