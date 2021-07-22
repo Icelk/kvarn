@@ -64,7 +64,7 @@ fn php(
 
 #[cfg(test)]
 mod tests {
-    use kvarn_testing::*;
+    use kvarn_testing::prelude::*;
 
     #[tokio::test]
     async fn no_fs() {
