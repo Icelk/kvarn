@@ -250,28 +250,6 @@ impl EstablishedConnection {
         request: &Request<T>,
         body: &[u8],
     ) -> Result<Response<Bytes>, GatewayError> {
-        pub fn read_to_end(buffer: &mut BytesMut, mut reader: impl Read) -> io::Result<()> {
-            let mut read = buffer.len();
-            // This is safe because of the trailing unsafe block.
-            unsafe { buffer.set_len(buffer.capacity()) };
-            loop {
-                match reader.read(&mut buffer[read..])? {
-                    0 => break,
-                    len => {
-                        read += len;
-                        if read > buffer.len() - 512 {
-                            buffer.reserve(2048);
-                            // This is safe because of the trailing unsafe block.
-                            unsafe { buffer.set_len(buffer.capacity()) };
-                        }
-                    }
-                }
-            }
-            // I have counted the length in `read`. It will *not* include uninitiated bytes.
-            unsafe { buffer.set_len(read) };
-            Ok(())
-        }
-
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
         write::request(request, body, &mut buffered).await?;
 
