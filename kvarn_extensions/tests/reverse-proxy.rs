@@ -4,7 +4,6 @@ use kvarn_testing::prelude::*;
 #[tokio::test]
 #[cfg(feature = "reverse-proxy")]
 async fn basic() {
-    env_logger::init();
     let servers_dir = "/port/";
     let path = Arc::new(servers_dir.to_owned());
 
@@ -107,7 +106,7 @@ async fn base() {
     let backend = ServerBuilder::default().http().with_extensions(|ext|{
         ext.add_prepare_single(
                 "/user-agent".to_string(),
-                kvarn::prepare!(req, _host, _path, addr {
+                kvarn::prepare!(req, _host, _path, _addr {
                     let bytes = Bytes::copy_from_slice(format!("{:?}", req.headers().get("user-agent")).as_bytes());
                     let response = Response::new(bytes);
                     FatResponse::no_cache(response)
@@ -134,4 +133,37 @@ async fn base() {
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     assert_eq!(response.text().await.unwrap(), format!("Some({:?})", ua));
+}
+
+#[tokio::test]
+#[cfg(feature = "reverse-proxy")]
+async fn chunked_encoding() {
+    let backend = ServerBuilder::default().http().with_extensions(|ext|{
+        ext.add_prepare_single(
+                "/chunked".to_string(),
+                kvarn::prepare!(_req, _host, _path, _addr {
+                    let bytes = Bytes::from_static(b"5\r\nhello\r\n7\r\n world!\r\n0\r\n\r\n");
+                    let response = Response::builder().header("transfer-encoding", "chunked").body(bytes).unwrap();
+                    FatResponse::no_cache(response)
+                }),
+            )
+    }).run().await;
+    let mut extensions = Extensions::new();
+    kvarn_extensions::ReverseProxy::base(
+        "/api",
+        kvarn_extensions::static_connection(kvarn_extensions::ReverseProxyConnection::Tcp(
+            kvarn_extensions::localhost(backend.port()),
+        )),
+    )
+    .mount(&mut extensions);
+    let proxy = ServerBuilder::from(extensions).run().await;
+
+    let response = proxy
+        .get("/api/chunked")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "hello world!");
 }
