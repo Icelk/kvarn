@@ -552,6 +552,8 @@ impl Extensions {
         add_sort_list!(self.post, id, extension,);
     }
 
+    /// The returned [`Uri`] should be the path of the request.
+    /// The original request isn't modified, so prepare extensions can rely on it.
     pub(crate) async fn resolve_prime(
         &self,
         request: &mut FatRequest,
@@ -1071,7 +1073,7 @@ impl Cors {
             }
             Some(origin) => match Uri::try_from(origin.as_bytes()) {
                 Ok(origin) => match self.check_origin(&origin, request.uri().path()) {
-                    Some(origin) if origin.0.contains(request.method()) => Some(origin),
+                    Some(allowed) if allowed.0.contains(request.method()) => Some(allowed),
                     _ => None,
                 },
                 Err(_) => None,
@@ -1080,14 +1082,25 @@ impl Cors {
     }
     /// Checks if `uri` is the same origin as `origin`.
     fn is_part_of_origin(origin: &str, uri: &Uri) -> bool {
-        let origin = match origin.strip_prefix("https://") {
-            Some(o) if uri.scheme() == Some(&uri::Scheme::HTTPS) => o,
-            None => match origin.strip_prefix("http://") {
-                Some(o) if uri.scheme() == Some(&uri::Scheme::HTTP) => o,
-                _ => return false,
-            },
-            Some(_) => return false,
+        let uri_parts = {
+            if let Some(pos) = origin.find("://") {
+                if origin.find('.').map_or(false, |dot_pos| dot_pos > pos) {
+                    // This is fine; it's on the find boundary
+                    Some((origin.get(..pos).unwrap(), origin.get(pos + 3..).unwrap()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         };
+        let (scheme, origin) = match uri_parts {
+            Some((s, o)) => (s, o),
+            None => return false,
+        };
+        if Some(scheme) != uri.scheme_str() {
+            return false;
+        }
         uri.authority()
             .map(uri::Authority::as_str)
             .map_or(false, |authority| authority == origin)
@@ -1165,6 +1178,7 @@ impl CorsAllowList {
         }
         for allowed in &self.allowed {
             let scheme = allowed.scheme().map_or("https", |scheme| scheme.as_str());
+            // This is OK; we assert it has a host when we add it
             if Some(allowed.host().unwrap()) == origin.host()
                 && allowed.port_u16() == origin.port_u16()
                 && Some(scheme) == origin.scheme().map(uri::Scheme::as_str)
