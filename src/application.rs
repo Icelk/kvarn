@@ -329,17 +329,28 @@ mod response {
         /// Returns any errors from the underlying reader.
         #[inline]
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
-            let mut buffer = BytesMut::with_capacity(self.bytes.len() + 512);
-            buffer.extend(&self.bytes);
             let len = self.content_length;
-            if let Ok(result) = timeout(
-                std::time::Duration::from_millis(250),
-                async_bits::read_to_end_or_max(&mut buffer, &mut *self, len),
-            )
-            .await
-            {
-                result?
+
+            if len == 0 {
+                return Ok(Bytes::new());
             }
+            let mut buffer = BytesMut::with_capacity(len);
+            if len < self.bytes.len() {
+                buffer.extend(&self.bytes[..len]);
+            } else {
+                buffer.extend(&self.bytes);
+                if let Ok(result) = timeout(
+                    std::time::Duration::from_millis(250),
+                    async_bits::read_to_end_or_max(&mut buffer, &mut *self, len),
+                )
+                .await
+                {
+                    result?
+                }
+            }
+
+            // Don't return anything next time we are called!
+            self.content_length = 0;
             Ok(buffer.freeze())
         }
     }
