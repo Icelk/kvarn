@@ -11,6 +11,7 @@ pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub async fn handle_template(arguments: &PresentArguments, file: &[u8], host: &Host) -> Vec<u8> {
+    println!("Got file {:?}", str::from_utf8(file));
     // Get templates, from cache or file
     let templates = read_templates(arguments.iter().rev(), host).await;
 
@@ -137,26 +138,22 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
     let mut templates = HashMap::with_capacity(16);
 
     let mut last_was_lf = true;
-    let mut add_after_name = 0;
+    let mut ignore_after_name = 0;
     let mut escape = 0_u8;
     let mut name_start = 0_usize;
     let mut name_end = 0_usize;
     let mut newline_size = 1;
     let mut buffer = Vec::new();
 
-    for (position, byte) in file.iter().enumerate() {
+    for (position, byte) in file.iter().copied().enumerate() {
         let defined_name = name_end > name_start;
         let in_name = name_start >= name_end;
         // Ignore all CR characters
-        if defined_name && *byte == CR {
+        if defined_name && byte == CR {
             newline_size = 2;
             continue;
         }
-        // Ignore all whitespace
-        // if defined_name && (*byte == SPACE || *byte == TAB) {
-            // continue;
-        // }
-        if *byte == ESCAPE {
+        if byte == ESCAPE {
             escape += 1;
             match escape {
                 1 => continue,
@@ -166,7 +163,7 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
 
         // If previous char was \, escape!
         // New template, process previous!
-        if escape != 1 && last_was_lf && *byte == L_SQ_BRACKET {
+        if escape != 1 && last_was_lf && byte == L_SQ_BRACKET {
             // If name is longer than empty
             if name_end.checked_sub(name_start + 2).is_some() {
                 // Check if we have a valid UTF-8 string
@@ -188,10 +185,10 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
             }
             continue;
         }
-        if in_name && *byte == R_SQ_BRACKET {
+        if in_name && byte == R_SQ_BRACKET {
             name_end = position + 1;
             // Check if value comes after newline, space, or right after. Then remove the CRLF/space from template value
-            add_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
+            ignore_after_name = if file.get(name_end + newline_size - 1) == Some(&LF) {
                 newline_size
             } else if file.get(name_end) == Some(&SPACE) {
                 1
@@ -199,16 +196,19 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
                 0
             };
         }
-        if *byte != SPACE {
-            last_was_lf = *byte == LF;
+        if byte != SPACE {
+            last_was_lf = byte == LF;
         }
         if !in_name {
-            if add_after_name > 0 {
-                add_after_name -= 1;
+            if ignore_after_name > 0 {
+                ignore_after_name -= 1;
                 continue;
             }
-            buffer.push(*byte);
-            if *byte != ESCAPE {
+            if escape == 1 && byte != L_SQ_BRACKET {
+                buffer.push(ESCAPE);
+            }
+            buffer.push(byte);
+            if byte != ESCAPE {
                 escape = 0;
             }
         }
