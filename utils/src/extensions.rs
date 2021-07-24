@@ -88,7 +88,7 @@ impl PresentExtensions {
                 if byte == CR {
                     has_cr = true;
                 }
-                if byte == CR || byte == LF {
+                if byte == LF {
                     return Some(Self {
                         data,
                         extensions: Arc::new(extensions_args),
