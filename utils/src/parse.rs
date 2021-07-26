@@ -98,7 +98,7 @@ pub enum CacheControlError {
     MultipleMaxAge,
     /// Could not parse integer in max-age or Kvarn cache control header.
     InvalidInteger,
-    /// The unit for the Kvarn cache control header is invalid.
+    /// The unit in the `kvarn-cache-control` header is invalid.
     ///
     /// For now, valid units are
     /// - `s` for seconds
@@ -106,7 +106,7 @@ pub enum CacheControlError {
     /// - `h` for hours
     /// - `d` for days
     InvalidUnit,
-    /// The Kvarn cache control header is a keyword, but it is invalid.
+    /// The `kvarn-cache-control` header is a keyword, but it is invalid.
     ///
     /// For now, valid keywords are
     /// - `none` for no caching

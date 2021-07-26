@@ -257,6 +257,10 @@ async fn accept(
 /// optionally (HTTP/2 & HTTP/3) decompressing them, and passing the request to [`handle_cache()`].
 /// It will also recognise which host should handle the connection.
 ///
+/// Here, both [layer 2](https://kvarn.org/pipeline.#layer-2--encryption)
+/// and [layer 3](https://kvarn.org/pipeline.#layer-3--http)
+/// are handled.
+///
 /// # Errors
 ///
 /// Will pass any errors from reading the request, making a TLS handshake, and writing the response.
@@ -435,11 +439,11 @@ impl<'a> SendKind<'a> {
 /// Will handle a single request, check the cache, process if needed, and caches it.
 /// This is where the response is sent.
 ///
+/// This is [layer 4](https://kvarn.org/pipeline.#layer-4--caching-and-compression)
+///
 /// # Errors
 ///
 /// Errors are passed from writing the response.
-///
-/// LAYER 4
 pub async fn handle_cache(
     mut request: Request<application::Body>,
     address: SocketAddr,
@@ -584,7 +588,6 @@ pub async fn handle_cache(
 
             drop(lock);
             let path_query = comprash::PathQuery::from_uri(request.uri());
-            // LAYER 5.1
             let (mut resp, mut client_cache, mut server_cache, compress, future) =
                 match sanitize_data.as_ref() {
                     Ok(_) => {
@@ -692,13 +695,11 @@ pub async fn handle_cache(
 
 /// Handles a single request and returns response with cache and compress preference.
 ///
-///  
+/// This is [layer 5](https://kvarn.org/pipeline.#layer-5--pathing)
+///
 /// # Errors
 ///
 /// ~~Will return any errors from reading from the body of `request`.~~ Currently, does not return any errors.
-///
-///  
-/// LAYER 5.1
 pub async fn handle_request(
     request: &mut Request<application::Body>,
     overide_uri: Option<&Uri>,
