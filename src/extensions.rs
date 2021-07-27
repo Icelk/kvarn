@@ -1095,16 +1095,16 @@ impl Cors {
                 // None
             // }
         };
-        let (scheme, authority) = match uri_parts {
+        let (origin_scheme, origin_authority) = match uri_parts {
             Some((s, o)) => (s, o),
             None => return false,
         };
-        if Some(scheme) != uri.scheme_str() {
+        if Some(origin_scheme) != uri.scheme_str() {
             return false;
         }
         uri.authority()
             .map(uri::Authority::as_str)
-            .map_or(false, |authority| authority == authority)
+            .map_or(false, |authority| authority == origin_authority)
     }
 }
 impl Default for Cors {
