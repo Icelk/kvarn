@@ -11,7 +11,6 @@ pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
 }
 
 pub async fn handle_template(arguments: &PresentArguments, file: &[u8], host: &Host) -> Vec<u8> {
-    println!("Got file {:?}", str::from_utf8(file));
     // Get templates, from cache or file
     let templates = read_templates(arguments.iter().rev(), host).await;
 
