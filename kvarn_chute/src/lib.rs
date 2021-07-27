@@ -628,6 +628,9 @@ pub struct Header<'a> {
     indent: u8,
 }
 pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
+    fn is_parenthesis(c: char) -> bool {
+        matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
+    }
     let mut in_code = false;
     for line in input.lines() {
         let trimmed = line.trim();
@@ -640,11 +643,11 @@ pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
 
         if !in_code && indent > 0 {
             let heavily_trimmed = header_trimmed.trim_start_matches(|c: char| !c.is_alphabetic());
+            let split_using_parentheses = header_trimmed.contains("](");
             let heavily_trimmed = heavily_trimmed
                 .split(|c: char| {
                     !(c.is_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace() || c.is_punctuation())
-                        || c == '('
-                        || c == ')'
+                        || (split_using_parentheses && is_parenthesis(c))
                 })
                 .next()
                 .unwrap_or(heavily_trimmed);
