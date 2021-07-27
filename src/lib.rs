@@ -63,7 +63,7 @@ use prelude::{internals::*, networking::*, *};
 pub use comprash::{
     ClientCachePreference, CompressPreference, CompressedResponse, ServerCachePreference,
 };
-pub use error::{default, default_response};
+pub use error::{default as default_error, default_response as default_error_response};
 #[doc(inline)]
 pub use extensions::Extensions;
 pub use read::{file as read_file, file_cached as read_file_cached};
@@ -118,7 +118,11 @@ macro_rules! ret_log_app_error {
 /// # };
 /// ```
 pub async fn run(ports: RunConfig) -> Arc<shutdown::Manager> {
-    let RunConfig { ports, handover, handover_socket_path } = ports;
+    let RunConfig {
+        ports,
+        handover,
+        handover_socket_path,
+    } = ports;
     info!("Starting server on {} ports.", ports.len());
 
     let len = ports.len();
@@ -169,8 +173,8 @@ pub async fn run(ports: RunConfig) -> Arc<shutdown::Manager> {
 
     let shutdown_manager = shutdown_manager.build();
 
-    if handover{
-    shutdown::Manager::initiate_handover(&shutdown_manager, handover_socket_path).await;
+    if handover {
+        shutdown::Manager::initiate_handover(&shutdown_manager, handover_socket_path).await;
     }
 
     for (listener, descriptor) in listeners {
@@ -366,7 +370,20 @@ impl<'a> SendKind<'a> {
         data: Option<utils::CriticalRequestComponents>,
     ) -> io::Result<()> {
         if let Some(data) = &data {
-            data.apply_to_response(&mut response).await;
+            match data.apply_to_response(&mut response).await {
+                Err(SanitizeError::RangeNotSatisfiable) => {
+                    response = default_error(
+                        StatusCode::RANGE_NOT_SATISFIABLE,
+                        Some(host),
+                        Some(b"Range start after end of body"),
+                    )
+                    .await;
+                }
+                Err(SanitizeError::UnsafePath) => {
+                    response = default_error(StatusCode::BAD_REQUEST, Some(host), None).await;
+                }
+                Ok(()) => {}
+            }
         }
 
         let len = response.body().len();

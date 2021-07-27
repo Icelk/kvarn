@@ -655,11 +655,19 @@ impl CriticalRequestComponents {
     /// Applies the critical components' info to the `response`.
     ///
     /// For now applies range and replaces the `accept-ranges` header.
-    pub async fn apply_to_response(&self, response: &mut Response<Bytes>) {
+    ///
+    /// # Errors
+    ///
+    /// Will return a [`SanitizeError::RangeNotSatisfiable`] if the start of the range is greater
+    /// than the length of the body.
+    pub async fn apply_to_response(&self, response: &mut Response<Bytes>) -> Result<(), SanitizeError> {
         if let Some((range_start, mut range_end)) = self.get_range() {
             // Clamp to length
             if range_end >= response.body().len() {
                 range_end = response.body().len();
+            }
+            if range_start >= response.body().len() {
+                return Err(SanitizeError::RangeNotSatisfiable);
             }
 
             let len = response.body().len().to_string();
@@ -682,6 +690,7 @@ impl CriticalRequestComponents {
         } else if !response.body().is_empty() {
             replace_header_static(response.headers_mut(), "accept-ranges", "bytes")
         }
+        Ok(())
     }
     /// Get the range wanted by the request.
     ///
