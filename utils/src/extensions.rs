@@ -1,6 +1,9 @@
 //! Parsing utilities and constants for Kvarn extensions.
 
-use crate::{*, chars::{AMPERSAND, BANG, CR, LF, PIPE, SPACE}};
+use crate::{
+    chars::{AMPERSAND, BANG, CR, LF, PIPE, SPACE},
+    *,
+};
 
 /// Magic number for [`Present`] extension.
 ///
@@ -243,5 +246,80 @@ impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
         self.back_index -= 1;
         // Again, safe because we checked for str in creation of [`PresentExtensions`].
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn basic() {
+        let file = "\
+!> tmpl standard.html md.html &> allow-ips 10.0.0.16 &>
+File's contents.
+";
+        let mut extensions = PresentExtensions::new(Bytes::from_static(file.as_bytes()))
+            .unwrap()
+            .into_iter();
+        {
+            let extension = extensions.next().unwrap();
+            assert_eq!(extension.name(), "tmpl");
+            let mut arguments = extension.iter();
+            assert_eq!(arguments.next(), Some("standard.html"));
+            assert_eq!(arguments.next(), Some("md.html"));
+            assert_eq!(arguments.next(), None);
+        }
+        {
+            let extension = extensions.next().unwrap();
+            assert_eq!(extension.name(), "allow-ips");
+            let mut arguments = extension.iter();
+            assert_eq!(arguments.next(), Some("10.0.0.16"));
+            assert_eq!(arguments.next(), Some("&>"));
+            assert_eq!(arguments.next(), None);
+        }
+        assert!(extensions.next().is_none());
+    }
+    #[test]
+    #[should_panic]
+    fn failing() {
+        let file = "\
+!>  tmpl standard.html  md.html  &>
+File's contents.
+";
+        let mut extensions = PresentExtensions::new(Bytes::from_static(file.as_bytes()))
+            .unwrap()
+            .into_iter();
+        {
+            let extension = extensions.next().unwrap();
+            assert_eq!(extension.name(), "tmpl");
+            let mut arguments = extension.iter();
+            assert_eq!(arguments.next(), Some("standard.html"));
+            assert_eq!(arguments.next(), Some("md.html"));
+            assert_eq!(arguments.next(), None);
+        }
+        assert!(extensions.next().is_none());
+    }
+    #[test]
+    fn weird() {
+        let file = "\
+!>  tmpl standard.html  md.html  &>
+File's contents.
+";
+        let mut extensions = PresentExtensions::new(Bytes::from_static(file.as_bytes()))
+            .unwrap()
+            .into_iter();
+        {
+            let extension = extensions.next().unwrap();
+            assert_eq!(extension.name(), "");
+            let mut arguments = extension.iter();
+            assert_eq!(arguments.next(), Some("tmpl"));
+            assert_eq!(arguments.next(), Some("standard.html"));
+            assert_eq!(arguments.next(), Some(""));
+            assert_eq!(arguments.next(), Some("md.html"));
+            assert_eq!(arguments.next(), Some(""));
+            assert_eq!(arguments.next(), Some("&>"));
+            assert_eq!(arguments.next(), None);
+        }
+        assert!(extensions.next().is_none());
     }
 }
