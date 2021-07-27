@@ -368,7 +368,7 @@ pub fn list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
 
 /// A key-value pair in the query.
 #[must_use]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct QueryPair<'a> {
     name: &'a str,
     value: &'a str,
@@ -378,12 +378,14 @@ impl<'a> QueryPair<'a> {
         Self { name, value }
     }
     /// Gets the name of the query pair
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
     /// Gets the value of the query pair
+    #[must_use]
     pub fn value(&self) -> &str {
-        &self.name
+        &self.value
     }
 }
 impl<'a> Display for QueryPair<'a> {
@@ -399,7 +401,9 @@ impl<'a> Display for QueryPair<'a> {
 /// A query can have multiple values per name.
 /// If we always use the first or last value of a name in a query, subtle exploits slip in.
 /// You have to make a explicit choice of what to do in this implementation.
-#[derive(Debug)]
+///
+/// Note that the order of the names in the [`Display`] implementation may be in the right order.
+#[derive(Debug, PartialEq, Eq)]
 #[must_use]
 pub struct Query<'a> {
     pairs: Vec<QueryPair<'a>>,
@@ -409,6 +413,7 @@ impl<'a> Query<'a> {
     fn insert(&mut self, name: &'a str, value: &'a str) {
         match self.index_of(name) {
             Ok(pos) | Err(pos) => {
+                let pos = self.iterate_to_last(name, pos);
                 self.pairs.insert(pos, QueryPair::new(name, value));
             }
         }
@@ -474,13 +479,13 @@ impl<'a> Query<'a> {
     }
     /// Index can be any position in the array with the [`QueryPair::name`] set to `name`.
     fn iterate_to_last(&self, name: &str, mut index: usize) -> usize {
-        for pair in self.pairs[index..].iter() {
-            if pair.name() == name {
-                index += 1;
-            } else {
-                break;
+            for pair in &self.pairs[index..] {
+                if pair.name() == name {
+                    index += 1;
+                } else {
+                    break;
+                }
             }
-        }
         index
     }
     /// See [`Self::index_of`] and [`Self::iterate_to_first`].
@@ -587,7 +592,7 @@ impl<'a> DoubleEndedIterator for QueryPairIter<'a> {
 pub fn query(query: &str) -> Query {
     let elements = query
         .chars()
-        .fold(1, |acc, byte| if byte == '&' { acc + 1 } else { acc });
+        .fold(1, |acc, byte| acc + usize::from(byte == '&'));
     let mut map = Query {
         pairs: Vec::with_capacity(elements),
     };
@@ -600,7 +605,7 @@ pub fn query(query: &str) -> Query {
                 value_start = position + 1;
             }
             '&' => {
-                let key = query.get(pair_start..value_start);
+                let key = query.get(pair_start..value_start.saturating_sub(1));
                 let value = query.get(value_start..position);
 
                 if let (Some(key), Some(value)) = (key, value) {
@@ -613,7 +618,7 @@ pub fn query(query: &str) -> Query {
         }
     }
     {
-        let key = query.get(pair_start..value_start - 1);
+        let key = query.get(pair_start..value_start.saturating_sub(1));
         let value = query.get(value_start..);
 
         if let (Some(key), Some(value)) = (key, value) {
@@ -642,7 +647,7 @@ pub fn uri(path: &str) -> Option<&Path> {
 }
 /// Critical components from request to apply to response.
 #[must_use]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CriticalRequestComponents {
     range: Option<(usize, usize)>,
 }
@@ -856,4 +861,186 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
         };
     }
     Ok((headers, header_end))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize() {
+        let request1 = Request::get("/../../etc/passwd").body(()).unwrap();
+        let request2 = Request::get("//etc/passwd").body(()).unwrap();
+        let request3 = Request::get("/static/movie.mkv")
+            .header("range", HeaderValue::from_static("bytes=53424-98342"))
+            .body(())
+            .unwrap();
+        let request4 = Request::get("/static/movie.mkv")
+            .header("range", HeaderValue::from_static("53424-98342"))
+            .body(())
+            .unwrap();
+        let request5 = Request::get("/static/movie.mkv")
+            .header("range", HeaderValue::from_static("bytes=53424-48342"))
+            .body(())
+            .unwrap();
+        let request6 = Request::get("/static/movie.mkv")
+            .header(
+                "range",
+                HeaderValue::from_static("bytes=53424-98342, 98342-100000"),
+            )
+            .body(())
+            .unwrap();
+
+        assert_eq!(sanitize_request(&request1), Err(SanitizeError::UnsafePath));
+        assert_eq!(sanitize_request(&request2), Err(SanitizeError::UnsafePath));
+        assert!(sanitize_request(&request3).is_ok());
+        assert_eq!(
+            sanitize_request(&request4),
+            Ok(CriticalRequestComponents { range: None })
+        );
+        assert_eq!(
+            sanitize_request(&request5),
+            Err(SanitizeError::RangeNotSatisfiable)
+        );
+        assert_eq!(
+            sanitize_request(&request6),
+            Ok(CriticalRequestComponents { range: None })
+        );
+    }
+
+    #[test]
+    fn parse_headers() {
+        fn contains(headers: &HeaderMap, name: &str, value: &'static str) -> bool {
+            headers.get(name).unwrap() == HeaderValue::from_static(value)
+        }
+
+        let headers1 = "\
+accept-ranges: bytes\r
+access-control-allow-credentials: true\r
+access-control-allow-methods: GET, HEAD\r
+access-control-allow-origin: https://search.brave.com\r
+access-control-max-age: 31536000\r
+age: 10138\r
+cache-control: public; max-age=31536000; immutable\r
+content-length: 7168\r
+content-security-policy: sandbox\r
+content-type: font/woff2\r
+cross-origin-opener-policy: same-origin\r
+date: Tue, 27 Jul 2021 14:08:15 GMT\r
+etag: \"96c9ae84c0824fd428d14665c9d1980c\"\r
+last-modified: Thu, 15 Jul 2021 08:02:39 GMT\r
+server: AmazonS3\r
+via: 1.1 8cd193739d511303cb3678dc24369a0c.cloudfront.net (CloudFront)\r
+x-amz-cf-id: LQlkPpL1NdDw5aPwhTC2HIDjWTi6QQNqU6TsGJpyn9e2UkWFfyIPSA==\r
+x-amz-cf-pop: CPH50-C1\r
+x-amz-server-side-encryption: AES256\r
+x-amz-version-id: gkBvWuHX41LtglHm6kRnswUH2XB9Exxi\r
+x-cache: Hit from cloudfront\r
+x-content-type-options: nosniff\r
+x-frame-options: DENY\r";
+        let headers2 = "\
+accept-ranges: bytes\r
+cache-control: no-store\r
+content-encoding: gzip\r
+content-type: text/html; charset=utf-8\r
+last-modified: Tue, 27 Jul 2021 16:41:42 GMT\r
+referrer-policy: no-referrer\r
+server: Kvarn/0.2.0 (Linux)\r\n\r\n\
+Some data!";
+
+        let h1 = headers(&Bytes::from_static(headers1.as_bytes())).unwrap().0;
+        let (h2, h2body) = headers(&Bytes::from_static(headers2.as_bytes())).unwrap();
+
+        assert!(contains(&h1, "age", "10138"));
+        assert!(contains(&h1, "content-length", "7168"));
+        assert!(contains(
+            &h1,
+            "etag",
+            "\"96c9ae84c0824fd428d14665c9d1980c\""
+        ));
+        assert!(contains(
+            &h1,
+            "x-amz-version-id",
+            "gkBvWuHX41LtglHm6kRnswUH2XB9Exxi"
+        ));
+
+        assert!(contains(&h2, "referrer-policy", "no-referrer"));
+        assert!(contains(&h2, "server", "Kvarn/0.2.0 (Linux)"));
+        assert_eq!(&headers2[h2body..], "Some data!");
+    }
+
+    #[test]
+    fn uri_sanitize() {
+        let request = Request::get("//etc/passwd").body(()).unwrap();
+        let u = request.uri();
+        assert!(sanitize_request(&request).is_err());
+
+        assert_eq!(uri(u.path()).unwrap(), Path::new("/etc/passwd"));
+        assert_eq!(uri("index.html"), None);
+    }
+
+    #[test]
+    fn header_list() {
+        let header = "en-GB,en-US;q=0.9,en; q=0.8, sv;q=0.7";
+        let mut list = list_header(header).into_iter();
+        assert_eq!(
+            list.next().unwrap(),
+            ValueQualitySet {
+                value: "en-GB",
+                quality: 1.0
+            }
+        );
+        assert_eq!(
+            list.next().unwrap(),
+            ValueQualitySet {
+                value: "en-US",
+                quality: 0.9
+            }
+        );
+        assert_eq!(
+            list.next().unwrap(),
+            ValueQualitySet {
+                value: "en",
+                quality: 0.8
+            }
+        );
+        assert_eq!(
+            list.next().unwrap(),
+            ValueQualitySet {
+                value: "sv",
+                quality: 0.7
+            }
+        );
+        assert_eq!(list.next(), None);
+    }
+
+    #[test]
+    fn parse_query() {
+        let uri = Uri::from_static(
+            "https://banking.icelk.dev/transfer?from=icelk&to=bob&amount=500$&from=alice&to=icelk",
+        );
+        let query = query(uri.query().unwrap());
+
+        let mut from = query.get_all("from");
+        assert_eq!(from.next().unwrap().value(), "icelk");
+        assert_eq!(from.next().unwrap().value(), "alice");
+        assert_eq!(from.next(), None);
+
+        assert_eq!(
+            query.get("amount"),
+            Some(&QueryPair {
+                name: "amount",
+                value: "500$"
+            })
+        );
+
+        assert_eq!(query.get("to"), None);
+        assert_eq!(
+            query.get_first("to"),
+            Some(&QueryPair {
+                name: "to",
+                value: "bob"
+            })
+        );
+    }
 }
