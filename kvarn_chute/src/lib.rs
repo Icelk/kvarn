@@ -4,6 +4,7 @@ use std::ffi::OsStr;
 use std::fmt::{self, Display, Formatter};
 use std::io::{self, prelude::*};
 use std::path::Path;
+use unicode_categories::UnicodeCategories;
 
 /// ToDo: Remove this, and import from Kvarn Core or Kvarn Kärna
 pub(crate) mod parse {
@@ -349,8 +350,10 @@ pub fn process_document<P: AsRef<Path>>(
     let input = std::str::from_utf8(&buffer[file_content_start..])
         .expect("we tried to split the beginning of MarkDown on a character boundary, or the input file isn't valid UTF-8");
 
+    let start = std::time::Instant::now();
     let mut headers = Vec::new();
     get_headers(&mut headers, &input);
+    println!("Took {:?}µs", start.elapsed().as_micros());
 
     let mut tags: Tags = HashMap::new();
     tags.insert(
@@ -530,14 +533,38 @@ impl<'a> fmt::Write for Extendible<'a> {
     }
 }
 
-pub fn make_anchor(title: &str) -> String {
+pub fn make_anchor(headers: &[Header], title: &str) -> String {
+    fn is_parenthesis(c: char) -> bool {
+        matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
+    }
     let lowercase = title.to_lowercase();
     let mut a = String::with_capacity(lowercase.len());
+    let mut in_parenthesis = false;
     for char in lowercase.chars() {
         match char {
-            ' ' => a.push('-'),
-            _ if char.is_ascii_alphanumeric() => a.push(char),
+            ' ' if !in_parenthesis => a.push('-'),
+            _ if is_parenthesis(char) => in_parenthesis = !in_parenthesis,
+            _ if !in_parenthesis && char.is_ascii_alphanumeric() => a.push(char),
             _ => {}
+        }
+    }
+    {
+        let mut last_number = 0_u32;
+        let mut last_number_length = 0_u32;
+        while headers.iter().any(|header| header.anchor == a) {
+            if last_number_length == 0 {
+                a.push_str("-1");
+            } else {
+                for _ in 0..last_number_length {
+                    a.pop();
+                }
+                let number = (last_number + 1).to_string();
+
+                a.push_str(&number);
+
+                last_number_length = number.len() as u32;
+                last_number += 1;
+            }
         }
     }
     a
@@ -603,9 +630,6 @@ pub struct Header<'a> {
     indent: u8,
 }
 pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
-    fn is_parenthesis(c: char) -> bool {
-        matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
-    }
     let mut in_code = false;
     for line in input.lines() {
         let trimmed = line.trim();
@@ -620,14 +644,14 @@ pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
             let heavily_trimmed = header_trimmed.trim_start_matches(|c: char| !c.is_alphabetic());
             let heavily_trimmed = heavily_trimmed
                 .split(|c: char| {
-                    !(c.is_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace())
-                        || is_parenthesis(c)
+                    !(c.is_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace() || c.is_punctuation())
+                        || c == '('
+                        || c == ')'
                 })
                 .next()
-                .unwrap_or(heavily_trimmed)
-                .trim_end();
+                .unwrap_or(heavily_trimmed);
 
-            let anchor = make_anchor(heavily_trimmed);
+            let anchor = make_anchor(headers, heavily_trimmed);
             let indent = indent.min(255) as u8;
 
             headers.push(Header {
