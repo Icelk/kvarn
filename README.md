@@ -1,6 +1,8 @@
+<img align="right" width="25%" src="https://kvarn.org/logo.svg">
+
 # Kvarn
 
-> An extensible and efficient forwards thinking web server
+> An extensible and efficient forwards thinking web server.
 
 See the [roadmap](roadmap.md) or visit [kvarn.org](https://kvarn.org/)
 
@@ -11,11 +13,12 @@ The path of requests are documented in the [pipeline](https://kvarn.org/pipeline
 
 # Current state
 
-> Kvarn is under rapid development, so breaking changes will happen (often as a product of redesigning parts of the architecture).
-> The next version, 0.2.0 should have a more stable API.
+> Kvarn is under rapid development, so small breaking changes happens.
+> v0.3.0 will bring a relatively stable API.
 
-Kvarn is at the time of writing very bare-bones. I want to keep it this way. I'll try to make it as fast as possible, which often means you'll have
-to configure it at compile-time (e.g. add extensions from [`kvarn_extensions`](kvarn_extensions/README.md)).
+Kvarn ism at the time of writing, very bare-bones. I want to keep it this way, to try to make it as fast as possible.
+This, [at least for now](https://kvarn.org/config.), means you'll have to configure it at compile-time
+(e.g. add extensions from [`kvarn_extensions`](kvarn_extensions/README.md) and configuring hosts).
 
 v0.2.0 will have two major dependencies; Rustls and Tokio.
 
