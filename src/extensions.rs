@@ -1083,18 +1083,19 @@ impl Cors {
     /// Checks if `uri` is the same origin as `origin`.
     fn is_part_of_origin(origin: &str, uri: &Uri) -> bool {
         let uri_parts = {
-            if let Some(pos) = origin.find("://") {
-                if origin.find('.').map_or(false, |dot_pos| dot_pos > pos) {
-                    // This is fine; it's on the find boundary
-                    Some((origin.get(..pos).unwrap(), origin.get(pos + 3..).unwrap()))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+            origin.split_once("://")
+            // if let Some(pos) = origin.find("://") {
+                // if origin.find('.').map_or(false, |dot_pos| dot_pos > pos) {
+                    // // This is fine; it's on the find boundary
+                    // Some((origin.get(..pos).unwrap(), origin.get(pos + 3..).unwrap()))
+                // } else {
+                    // None
+                // }
+            // } else {
+                // None
+            // }
         };
-        let (scheme, origin) = match uri_parts {
+        let (scheme, authority) = match uri_parts {
             Some((s, o)) => (s, o),
             None => return false,
         };
@@ -1103,7 +1104,7 @@ impl Cors {
         }
         uri.authority()
             .map(uri::Authority::as_str)
-            .map_or(false, |authority| authority == origin)
+            .map_or(false, |authority| authority == authority)
     }
 }
 impl Default for Cors {
