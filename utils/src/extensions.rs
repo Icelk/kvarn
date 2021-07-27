@@ -5,11 +5,11 @@ use crate::{
     *,
 };
 
-/// Magic number for [`Present`] extension.
+/// Magic number for [`Present`](https://kvarn.org/extensions/#present) extension.
 ///
 /// `!> `
 pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
-/// Separator between [`Present`] extensions.
+/// Separator between [`Present`](https://kvarn.org/extensions/#present) extensions.
 ///
 /// ` &> `
 pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
@@ -39,7 +39,7 @@ impl PresentExtensionPosData {
     }
 }
 
-/// The [`Present`] extensions parsed from a file containing them.
+/// The [`Present`](https://kvarn.org/extensions/#present) extensions parsed from a file containing them.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 #[must_use]
@@ -49,7 +49,7 @@ pub struct PresentExtensions {
     data_start: usize,
 }
 impl PresentExtensions {
-    /// Parses a file to create a representation of the [`Present`] extensions in it.
+    /// Parses a file to create a representation of the [`Present`](https://kvarn.org/extensions/#present) extensions in it.
     ///
     /// `data` should start with [`PRESENT_INTERNAL_PREFIX`], as all present extension files should.
     pub fn new(data: Bytes) -> Option<Self> {
@@ -109,7 +109,7 @@ impl PresentExtensions {
 
         None
     }
-    /// Creates an empty representation of [`Present`] extensions
+    /// Creates an empty representation of [`Present`](https://kvarn.org/extensions/#present) extensions
     pub fn empty() -> Self {
         Self {
             data: Bytes::new(),
@@ -178,7 +178,7 @@ impl Iterator for PresentExtensionsIter {
         })
     }
 }
-/// The arguments and name of a single [`Present`] extension.
+/// The arguments and name of a single [`Present`](https://kvarn.org/extensions/#present) extension.
 #[derive(Debug)]
 #[must_use]
 pub struct PresentArguments {
@@ -187,7 +187,7 @@ pub struct PresentArguments {
     len: usize,
 }
 impl PresentArguments {
-    /// Creates an empty representation of [`Present`] arguments
+    /// Creates an empty representation of [`Present`](https://kvarn.org/extensions/#present) arguments
     #[inline]
     pub fn empty() -> Self {
         Self {
