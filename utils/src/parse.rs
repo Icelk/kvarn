@@ -266,7 +266,6 @@ impl CacheControl {
     }
 }
 
-
 /// A pair of a value string and a quality of said value.
 ///
 /// Often used in the `accept-*` HTTP headers.
@@ -366,19 +365,232 @@ pub fn list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
     }
     list
 }
+
+/// A key-value pair in the query.
+#[must_use]
+#[derive(Debug)]
+pub struct QueryPair<'a> {
+    name: &'a str,
+    value: &'a str,
+}
+impl<'a> QueryPair<'a> {
+    fn new(name: &'a str, value: &'a str) -> Self {
+        Self { name, value }
+    }
+    /// Gets the name of the query pair
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    /// Gets the value of the query pair
+    pub fn value(&self) -> &str {
+        &self.name
+    }
+}
+impl<'a> Display for QueryPair<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())?;
+        f.write_str("=")?;
+        f.write_str(self.value())
+    }
+}
+/// A set of [`QueryPair`]s, parsed from a [`query`].
+///
+/// This is a multimap (one to many relation between keys and values) struct.
+/// A query can have multiple values per name.
+/// If we always use the first or last value of a name in a query, subtle exploits slip in.
+/// You have to make a explicit choice of what to do in this implementation.
+#[derive(Debug)]
+#[must_use]
+pub struct Query<'a> {
+    pairs: Vec<QueryPair<'a>>,
+}
+#[must_use]
+impl<'a> Query<'a> {
+    fn insert(&mut self, name: &'a str, value: &'a str) {
+        match self.index_of(name) {
+            Ok(pos) | Err(pos) => {
+                self.pairs.insert(pos, QueryPair::new(name, value));
+            }
+        }
+    }
+
+    /// Returns a iterator of all values with `name`.
+    ///
+    /// Don't use this to get the first or last item; you'll get the same drawbacks as
+    /// [`Self::get_first`] and [`Self::get_last`].
+    pub fn get_all(&self, name: &'a str) -> QueryPairIter {
+        QueryPairIter::new(self, name)
+    }
+    /// Returns the value of `name`.
+    /// This is the recommended method to get a [`QueryPair`].
+    ///
+    /// Note that this can return [`None`] even if `name` is present in the query.
+    ///
+    /// If there exists multiple values associated with a name, [`None`] is returned.
+    #[must_use]
+    pub fn get(&self, name: &'a str) -> Option<&QueryPair> {
+        let mut iter = self.get_all(name).peekable();
+        let first = iter.next()?;
+        if iter.peek().is_some() {
+            None
+        } else {
+            Some(first)
+        }
+    }
+    /// Gets the first value of `name` in the query.
+    /// Consider using [`Self::get`] instead, as it eliminates risks for query attacks.
+    ///
+    /// Watch [this Youtube video](https://youtu.be/QVZBl8yxVX0) to see how it can be exploited.
+    #[must_use]
+    pub fn get_first(&self, name: &'a str) -> Option<&QueryPair> {
+        self.get_all(name).next()
+    }
+    /// Gets the last value of `name` in the query.
+    /// Consider using [`Self::get`] instead, as it eliminates risks for query attacks.
+    ///
+    /// Watch [this Youtube video](https://youtu.be/QVZBl8yxVX0) to see how it can be exploited.
+    #[must_use]
+    pub fn get_last(&self, name: &'a str) -> Option<&QueryPair> {
+        self.get_all(name).rev().next()
+    }
+    /// If the value is found then [`Result::Ok`] is returned, containing the
+    /// index of the matching element.
+    /// If the value is not found then
+    /// [`Result::Err`] is returned, containing the index where a matching
+    /// element could be inserted while maintaining sorted order.
+    fn index_of(&self, name: &str) -> Result<usize, usize> {
+        self.pairs.binary_search_by(|probe| probe.name().cmp(name))
+    }
+    /// Index can be any position in the array with the [`QueryPair::name`] set to `name`.
+    fn iterate_to_first(&self, name: &str, mut index: usize) -> usize {
+        for pair in self.pairs[..index].iter().rev() {
+            if pair.name() == name {
+                index -= 1;
+            } else {
+                break;
+            }
+        }
+        index
+    }
+    /// Index can be any position in the array with the [`QueryPair::name`] set to `name`.
+    fn iterate_to_last(&self, name: &str, mut index: usize) -> usize {
+        for pair in self.pairs[index..].iter() {
+            if pair.name() == name {
+                index += 1;
+            } else {
+                break;
+            }
+        }
+        index
+    }
+    /// See [`Self::index_of`] and [`Self::iterate_to_first`].
+    fn find_first(&self, name: &str) -> Result<usize, usize> {
+        let index = self.index_of(name)?;
+        Ok(self.iterate_to_first(name, index))
+    }
+}
+impl<'a> Display for Query<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for (pos, pair) in self.pairs.iter().enumerate() {
+            f.write_fmt(format_args!("{}", pair))?;
+            if self.pairs.len() - 1 != pos {
+                f.write_str("&")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// An iterator of the values of a name in a [`Query`].
+/// Created by [`Query::get_all`].
+#[derive(Debug)]
+#[must_use]
+pub struct QueryPairIter<'a> {
+    query: &'a Query<'a>,
+    pos: Option<usize>,
+    back_pos: Option<usize>,
+    name: &'a str,
+}
+impl<'a> QueryPairIter<'a> {
+    fn new(query: &'a Query, name: &'a str) -> Self {
+        Self {
+            pos: None,
+            back_pos: None,
+            query,
+            name,
+        }
+    }
+    fn ensure_pos(&mut self) {
+        if self.pos.is_none() {
+            self.pos = Some(self.back_pos.map_or_else(
+                || self.query.find_first(self.name).unwrap_or(usize::MAX),
+                |last| self.query.iterate_to_first(self.name, last),
+            ))
+        }
+    }
+    fn ensure_back_pos(&mut self) {
+        if self.back_pos.is_none() {
+            self.pos = Some(self.pos.map_or_else(
+                || {
+                    self.query
+                        .index_of(self.name)
+                        .map(|index| self.query.iterate_to_last(self.name, index))
+                        .unwrap_or(usize::MAX)
+                },
+                |first| self.query.iterate_to_last(self.name, first),
+            ))
+        }
+    }
+}
+impl<'a> Iterator for QueryPairIter<'a> {
+    type Item = &'a QueryPair<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ensure_pos();
+        if Some(self.pos.unwrap()) == self.back_pos {
+            return None;
+        }
+        self.query.pairs.get(self.pos.unwrap()).and_then(|current| {
+            if current.name() == self.name {
+                *self.pos.as_mut().unwrap() += 1;
+                Some(current)
+            } else {
+                None
+            }
+        })
+    }
+}
+impl<'a> DoubleEndedIterator for QueryPairIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.ensure_back_pos();
+        if self.pos == Some(self.back_pos.unwrap()) {
+            return None;
+        }
+        self.query
+            .pairs
+            .get(self.back_pos.unwrap())
+            .and_then(|current| {
+                if current.name() == self.name {
+                    *self.back_pos.as_mut().unwrap() -= 1;
+                    Some(current)
+                } else {
+                    None
+                }
+            })
+    }
+}
+
 /// Parses a query to a map between keys and their values, as specified in the query.
 ///
 /// `query` should not contains the `?`, but start the byte after.
 ///
 /// Both the keys and values can be empty.
-///
-/// > **Note:** if multiple of the same keys only the last will be present.
-#[must_use]
-pub fn query(query: &str) -> HashMap<&str, &str> {
+pub fn query(query: &str) -> Query {
     let elements = query
         .chars()
         .fold(1, |acc, byte| if byte == '&' { acc + 1 } else { acc });
-    let mut map = HashMap::with_capacity(elements);
+    let mut map = Query {
+        pairs: Vec::with_capacity(elements),
+    };
 
     let mut pair_start = 0;
     let mut value_start = 0;
