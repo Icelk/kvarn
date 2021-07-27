@@ -20,8 +20,10 @@ pub mod parse;
 pub mod prelude;
 use prelude::*;
 
+pub use extensions::{
+    PresentArguments, PresentArgumentsIter, PresentExtensions, PresentExtensionsIter,
+};
 pub use parse::{list_header, sanitize_request, CriticalRequestComponents, ValueQualitySet};
-pub use extensions::{PresentArguments, PresentExtensions, PresentArgumentsIter, PresentExtensionsIter};
 
 /// Common characters expressed as a single byte each, according to UTF-8.
 pub mod chars {
@@ -53,7 +55,7 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = 93;
 }
 
-/// Conveniency macro to create a [`Bytes`] from multiple `&[u8]` sources.
+/// Convenience macro to create a [`Bytes`] from multiple `&[u8]` sources.
 ///
 /// Allocates only once; capacity is calculated before any allocation.
 ///
@@ -338,13 +340,13 @@ pub fn remove_all_headers<K: header::IntoHeaderName>(headers: &mut HeaderMap, na
 }
 
 /// Checks the equality of value of `name` in `headers` and `value`.
-/// Value **must** be all lowercase; the [`HeaderValue`] in `headers` is converted to lowercase.
+/// Value does not need to be all lowercase; the equality operation ignores the cases.
 pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &str) -> bool {
     let header_value = headers
         .get(name)
         .map(HeaderValue::to_str)
         .and_then(Result::ok);
-    header_value.map_or(false, |s| s.to_ascii_lowercase() == value)
+    header_value.map_or(false, |s| s.eq_ignore_ascii_case(value))
 }
 
 /// Tests if the first arguments starts with any of the following.
@@ -418,8 +420,9 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
 }
 /// Gets the body length of a `response`.
 ///
-/// If `method` is [`Some`] and [`method_has_response_body`] returns true, `0` is
-/// returned. Else the `content-length` header is checked. `0` is otherwise returned.
+/// If `method` is [`Some`] and [`method_has_response_body`] returns false, `0` is
+/// returned. If the [`method_has_request_body`] or `method` is [`None`],
+/// the `content-length` header is checked. `0` is otherwise returned.
 pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> usize {
     use std::str::FromStr;
     if method.map_or(true, |m| method_has_response_body(m)) {
@@ -455,4 +458,190 @@ pub fn method_has_response_body(method: &Method) -> bool {
             | Method::OPTIONS
             | Method::PATCH
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+
+    #[test]
+    fn build_bytes() {
+        struct Spaces {
+            count: usize,
+        }
+        impl Spaces {
+            fn iter(&mut self) -> &mut Self {
+                self
+            }
+            fn len(&self) -> usize {
+                self.count
+            }
+        }
+        impl Iterator for Spaces {
+            type Item = u8;
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.count == 0 {
+                    return None;
+                }
+                self.count -= 1;
+                Some(chars::SPACE)
+            }
+        }
+        let mut spaces = Spaces { count: 1 };
+        let world = "world!".to_string().into_bytes();
+        let bytes = build_bytes!(b"Hello", spaces, &world);
+        assert_eq!(bytes, "Hello world!".as_bytes());
+    }
+
+    #[test]
+    fn starts_with() {
+        let example1 = "POST /api/username HTTP/3";
+        let example2 = "S_,Qasz>8!+}24_R?Z?j";
+        assert!(starts_with_any!(example1, "POST", "PUT", "DELETE", "PATCH"));
+        assert!(!starts_with_any!(
+            example2, "POST", "PUT", "DELETE", "PATCH", "S_,qasz"
+        ));
+    }
+
+    #[test]
+    fn clean_debug() {
+        let message = "All\tOK.";
+        assert_eq!(format!("{:?}", message.as_clean()), message);
+        assert_ne!(format!("{:?}", message), message);
+        assert_eq!(format!("{:?}", message), r#""All\tOK.""#);
+    }
+
+    #[test]
+    fn writeable_bytes() {
+        use io::Write;
+        let mut bytes = WriteableBytes::new();
+        bytes.write_all(b"oh hi").unwrap();
+        bytes.write_all(&[chars::SPACE; 8]).unwrap();
+        bytes.write_all(b"bye").unwrap();
+
+        assert_eq!(bytes.into_inner().freeze(), "oh hi        bye".as_bytes());
+    }
+
+    #[test]
+    fn body_length() {
+        let request1 = Request::options("/")
+            .body(Bytes::from_static(b"Hello!"))
+            .unwrap();
+        let request2 = Request::get("/api/update-status")
+            .header("content-length", HeaderValue::from_static("42"))
+            .body(Bytes::from_static(
+                b"{ name: \"Icelk\", status: \"Testing Kvarn\" } spurious data...",
+            ))
+            .unwrap();
+        let request3 = Request::put("/api/status?name=icelk")
+            .header("content-length", HeaderValue::from_static("13"))
+            .body(Bytes::from_static(b"Testing Kvarn"))
+            .unwrap();
+        assert_eq!(get_body_length_request(&request1), 0);
+        assert_eq!(get_body_length_request(&request2), 0);
+        assert_eq!(get_body_length_request(&request3), 13);
+
+        let data =
+            Bytes::from_static(b"I refuses to brew coffee because I am, permanently, a teapot.");
+        let data_len = data.len();
+        let response1 = Response::builder()
+            .status(418)
+            .header(
+                "content-length",
+                HeaderValue::from_str(data_len.to_string().as_str()).unwrap(),
+            )
+            .body(data.clone())
+            .unwrap();
+        assert_eq!(
+            get_body_length_response(&response1, Some(&Method::GET)),
+            data_len
+        );
+        assert_eq!(get_body_length_response(&response1, None), data_len);
+        assert_eq!(get_body_length_response(&response1, Some(&Method::PUT)), 0);
+
+        let mut response2 = empty_clone_response(&response1).map(|()| data);
+        replace_header_static(
+            response2.headers_mut(),
+            "Content-Length",
+            "invalid content-length",
+        );
+        assert_eq!(get_body_length_response(&response2, Some(&Method::GET)), 0);
+    }
+    #[test]
+    fn header_case_insensitive_equality() {
+        let mut headers = HeaderMap::default();
+        headers.append("referrer-policy", HeaderValue::from_static("no-referrer"));
+        headers.append("content-encoding", HeaderValue::from_static("gzip"));
+
+        assert!(header_eq(&headers, "referrer-policy", "NO-REFERRER"));
+        assert!(header_eq(&headers, "REFERRER-POLICY", "no-refeRrer"));
+        assert!(!header_eq(&headers, "REFERRER-POLICY", "NO_REFERRER"));
+        assert!(header_eq(&headers, "content-encoding", "gzip"));
+        assert!(header_eq(&headers, "Content-Encoding", "gzip"));
+        assert!(!header_eq(&headers, "Content_Encoding", "gzip"));
+    }
+    #[test]
+    fn path1() {
+        let path = make_path("public", "errors", "404", Some("html"));
+        assert_eq!(path, Path::new("public/errors/404.html"));
+    }
+    #[test]
+    fn path2() {
+        let path = make_path("public", "errors/static", "404", None);
+        assert_eq!(path, Path::new("public/errors/static/404"));
+    }
+
+    fn get_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.append("user-agent", HeaderValue::from_static("curl/7.64.1"));
+        headers.append(
+            "user-agent",
+            HeaderValue::from_static("Kvarn/0.2.0 (macOS)"),
+        );
+        headers.append("accept", HeaderValue::from_static("text/plain"));
+
+        headers
+    }
+    #[test]
+    fn header_management1() {
+        let mut headers = get_headers();
+        remove_all_headers(&mut headers, "user-agent");
+        assert_eq!(headers.get("user-agent"), None);
+        assert!(headers.get("accept").is_some());
+    }
+    #[test]
+    fn header_management2() {
+        let start = std::time::Instant::now();
+        let mut headers = get_headers();
+        replace_header(
+            &mut headers,
+            "user-agent",
+            HeaderValue::from_str("tinyquest").unwrap(),
+        );
+        let processing_time = start.elapsed().as_micros().to_string();
+        replace_header(
+            &mut headers,
+            "x-processing-time",
+            HeaderValue::from_str(&processing_time).unwrap(),
+        );
+        assert_eq!(
+            headers.get("user-agent"),
+            Some(&HeaderValue::from_static("tinyquest"))
+        );
+        assert_eq!(
+            headers.get("x-processing-time").unwrap().to_str().unwrap(),
+            &processing_time
+        );
+        assert!(headers.get("accept").is_some());
+    }
+    #[test]
+    fn header_management3() {
+        let mut headers = get_headers();
+        replace_header_static(&mut headers, "user-agent", "tinyquest");
+        assert_eq!(
+            headers.get("user-agent"),
+            Some(&HeaderValue::from_static("tinyquest"))
+        );
+        assert!(headers.get("accept").is_some());
+    }
 }
