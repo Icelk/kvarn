@@ -350,10 +350,8 @@ pub fn process_document<P: AsRef<Path>>(
     let input = std::str::from_utf8(&buffer[file_content_start..])
         .expect("we tried to split the beginning of MarkDown on a character boundary, or the input file isn't valid UTF-8");
 
-    let start = std::time::Instant::now();
     let mut headers = Vec::new();
     get_headers(&mut headers, &input);
-    println!("Took {:?}µs", start.elapsed().as_micros());
 
     let mut tags: Tags = HashMap::new();
     tags.insert(
