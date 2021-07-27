@@ -20,9 +20,11 @@ pub mod parse;
 pub mod prelude;
 use prelude::*;
 
+#[doc(inline)]
 pub use extensions::{
     PresentArguments, PresentArgumentsIter, PresentExtensions, PresentExtensionsIter,
 };
+#[doc(inline)]
 pub use parse::{list_header, sanitize_request, CriticalRequestComponents, ValueQualitySet};
 
 /// Common characters expressed as a single byte each, according to UTF-8.

@@ -64,6 +64,7 @@ pub use comprash::{
     ClientCachePreference, CompressPreference, CompressedResponse, ServerCachePreference,
 };
 pub use error::{default, default_response};
+#[doc(inline)]
 pub use extensions::Extensions;
 pub use read::{file as read_file, file_cached as read_file_cached};
 
