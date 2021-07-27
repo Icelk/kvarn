@@ -2,7 +2,6 @@
 //!
 //! Here, you can easily spin up a new server on a random non-used port
 //! and send a request to it in under 5 lines.
-//! See [`ServerBuilder::run`] on getting started.
 
 #![deny(clippy::all)]
 
@@ -239,9 +238,11 @@ mod tests {
     }
 }
 
-#[doc(hidden)]
+/// The testing prelude.
+/// Also imports `kvarn::prelude::*`.
 pub mod prelude {
     pub use super::{Server, ServerBuilder};
+    #[doc(hidden)]
     pub use kvarn::prelude::*;
     pub use reqwest;
 }
