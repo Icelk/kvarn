@@ -7,6 +7,8 @@
 
 use kvarn::prelude::*;
 
+type CertifiedKey = (rustls::Certificate, Arc<Box<dyn rustls::sign::SigningKey>>);
+
 macro_rules! impl_methods {
     ($($method: ident $name: ident),*) => {
         $(
@@ -20,11 +22,11 @@ macro_rules! impl_methods {
 }
 
 /// A port returned by [`ServerBuilder::run`] to connect to.
-#[derive(Debug)]
 pub struct Server {
     server: Arc<shutdown::Manager>,
-    certificate: Option<rustls::Certificate>,
+    certificate: Option<CertifiedKey>,
     port: u16,
+    handover: Option<PathBuf>,
 }
 impl Server {
     impl_methods!(get GET, post POST, put PUT, delete DELETE, head HEAD, options OPTIONS, connect CONNECT, patch PATCH, trace TRACE);
@@ -61,7 +63,7 @@ impl Server {
     /// Gets the certificate, if any.
     /// This dictates whether or not HTTPS should be on.
     pub fn cert(&self) -> Option<&rustls::Certificate> {
-        self.certificate.as_ref()
+        self.certificate.as_ref().map(|(cert, _)| cert)
     }
 
     /// Gets a [`shutdown::Manager`] which is [`Send`].
@@ -83,7 +85,8 @@ pub struct ServerBuilder {
     extensions: Extensions,
     options: host::Options,
     path: Option<PathBuf>,
-    handover: Option<PathBuf>,
+    handover: Option<(PathBuf, Option<u16>)>,
+    cert: Option<CertifiedKey>,
 }
 impl ServerBuilder {
     /// Creates a new builder with `extensions` and `options`,
@@ -101,6 +104,7 @@ impl ServerBuilder {
             options,
             path: None,
             handover: None,
+            cert: None,
         }
     }
     /// Disables HTTPS.
@@ -127,10 +131,63 @@ impl ServerBuilder {
     }
 
     /// Enables [handover](https://kvarn.org/shutdown-handover.) for this server.
+    /// If you are starting the server which will take over the requests, use [`Self::handover_from`] instead.
     /// The communication socket is at `path`.
     pub fn enable_handover(mut self, path: impl AsRef<Path>) -> Self {
-        self.handover = Some(path.as_ref().to_path_buf());
+        self.handover = Some((path.as_ref().to_path_buf(), None));
         self
+    }
+    /// "Steals" the requests from `previous`.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if [`Self::enable_handover`] wasn't called on `previous`'s [`ServerBuilder`].
+    pub fn handover_from(mut self, previous: &Server) -> Self {
+        self.handover = Some((
+            previous
+                .handover
+                .to_owned()
+                .expect("Previous server didn't have handover configured!"),
+            Some(previous.port()),
+        ));
+        println!("Previous port {}", previous.port());
+        self.cert = previous.certificate.to_owned();
+        self
+    }
+
+    async fn test_port_availability(port: u16) -> io::Result<()> {
+        match tokio::net::TcpStream::connect(SocketAddr::new(
+            IpAddr::V4(net::Ipv4Addr::LOCALHOST),
+            port,
+        ))
+        .await
+        {
+            Err(e) => match e.kind() {
+                io::ErrorKind::ConnectionRefused => Ok(()),
+                _ => panic!(
+                    "Spurious IO error while checking port availability: {:?}",
+                    e
+                ),
+            },
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "Something is listening on the port!",
+            )),
+        }
+    }
+    async fn get_port() -> u16 {
+        use rand::prelude::*;
+        let mut rng = rand::thread_rng();
+        let port_range = rand::distributions::Uniform::new(4096, 61440);
+
+        loop {
+            let port = port_range.sample(&mut rng);
+
+            if Self::test_port_availability(port).await.is_err() {
+                continue;
+            }
+            return port;
+        }
     }
 
     /// Starts a Kvarn server with the current configuraion.
@@ -138,86 +195,80 @@ impl ServerBuilder {
     /// The returned [`Server`] can make requests to the server, streamlining
     /// the process of testing Kvarn.
     pub async fn run(self) -> Server {
-        async fn test_port_availability(port: u16) -> io::Result<()> {
-            match tokio::net::TcpStream::connect(SocketAddr::new(
-                IpAddr::V4(net::Ipv4Addr::LOCALHOST),
-                port,
-            ))
-            .await
-            {
-                Err(e) => match e.kind() {
-                    io::ErrorKind::ConnectionRefused => Ok(()),
-                    _ => panic!(
-                        "Spurious IO error while checking port availability: {:?}",
-                        e
-                    ),
-                },
-                Ok(_) => Err(io::Error::new(
-                    io::ErrorKind::AddrInUse,
-                    "Something is listening on the port!",
-                )),
-            }
-        }
-
-        use rand::prelude::*;
-
         let Self {
             https,
             extensions,
             options,
             path,
             handover,
+            cert,
         } = self;
 
         let path = path.as_deref().unwrap_or(Path::new("tests"));
 
-        let host = if https {
-            let certificate =
-                rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
-            let cert = vec![rustls::Certificate(certificate.serialize_der().unwrap())];
-            let pk = rustls::PrivateKey(certificate.serialize_private_key_der());
-            let pk = Arc::new(rustls::sign::any_supported_type(&pk).unwrap());
+        let (host, certified_key) = if https {
+            let (cert, pk) = cert.unwrap_or_else(|| {
+                let self_signed_cert =
+                    rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+                let cert = rustls::Certificate(self_signed_cert.serialize_der().unwrap());
 
-            Host::from_cert_and_pk("localhost", cert, pk, path, extensions, options)
+                let pk = rustls::PrivateKey(self_signed_cert.serialize_private_key_der());
+                let pk = Arc::new(rustls::sign::any_supported_type(&pk).unwrap());
+                (cert, pk)
+            });
+
+            (
+                Host::from_cert_and_pk(
+                    "localhost",
+                    vec![cert.clone()],
+                    pk.clone(),
+                    path,
+                    extensions,
+                    options,
+                ),
+                Some((cert, pk)),
+            )
         } else {
-            Host::non_secure("localhost", path, extensions, options)
+            (
+                Host::non_secure("localhost", path, extensions, options),
+                None,
+            )
         };
 
-        let mut rng = rand::thread_rng();
-        let port_range = rand::distributions::Uniform::new(4096, 61440);
+        let data = Data::builder(host).build();
+
         loop {
-            let port = port_range.sample(&mut rng);
-
-            if test_port_availability(port).await.is_err() {
-                continue;
-            }
-
-            let certificate = host
-                .certificate
-                .as_ref()
-                .map(|cert_key| cert_key.cert[0].clone());
-            let data = Data::builder(host).build();
-            let port_descriptor = if https {
-                PortDescriptor::new(port, data)
+            let mut custom_port = false;
+            let port = if let Some((_, Some(port))) = &handover {
+                custom_port = true;
+                println!("Custom port!");
+                *port
             } else {
-                PortDescriptor::non_secure(port, data)
+                Self::get_port().await
+            };
+            println!("Running on {}", port);
+            let port_descriptor = if https {
+                PortDescriptor::new(port, data.clone())
+            } else {
+                PortDescriptor::non_secure(port, data.clone())
             };
             let mut config = RunConfig::new().add(port_descriptor);
-            if let Some(handover_path) = handover {
+            if let Some((handover_path, _)) = &handover {
                 config = config.set_handover_socket_path(handover_path);
             } else {
                 config = config.disable_handover();
             }
 
             // Last check for collisions
-            if test_port_availability(port).await.is_err() {
+            if !custom_port && Self::test_port_availability(port).await.is_err() {
                 continue;
             }
             let shutdown = run(config).await;
             return Server {
                 port,
-                certificate,
+                certificate: certified_key,
                 server: shutdown,
+                handover: handover.map(|(path, _)| path),
             };
         }
     }
