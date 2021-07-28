@@ -138,6 +138,27 @@ impl ServerBuilder {
     /// The returned [`Server`] can make requests to the server, streamlining
     /// the process of testing Kvarn.
     pub async fn run(self) -> Server {
+        async fn test_port_availability(port: u16) -> io::Result<()> {
+            match tokio::net::TcpStream::connect(SocketAddr::new(
+                IpAddr::V4(net::Ipv4Addr::LOCALHOST),
+                port,
+            ))
+            .await
+            {
+                Err(e) => match e.kind() {
+                    io::ErrorKind::ConnectionRefused => Ok(()),
+                    _ => panic!(
+                        "Spurious IO error while checking port availability: {:?}",
+                        e
+                    ),
+                },
+                Ok(_) => Err(io::Error::new(
+                    io::ErrorKind::AddrInUse,
+                    "Something is listening on the port!",
+                )),
+            }
+        }
+
         use rand::prelude::*;
 
         let Self {
@@ -166,21 +187,11 @@ impl ServerBuilder {
         let port_range = rand::distributions::Uniform::new(4096, 61440);
         loop {
             let port = port_range.sample(&mut rng);
-            match tokio::net::TcpStream::connect(SocketAddr::new(
-                IpAddr::V4(net::Ipv4Addr::LOCALHOST),
-                port,
-            ))
-            .await
-            {
-                Err(e) => match e.kind() {
-                    io::ErrorKind::ConnectionRefused => {}
-                    _ => panic!(
-                        "Spurious IO error while checking port availability: {:?}",
-                        e
-                    ),
-                },
-                Ok(_) => continue,
+
+            if test_port_availability(port).await.is_err() {
+                continue;
             }
+
             let certificate = host
                 .certificate
                 .as_ref()
@@ -196,6 +207,11 @@ impl ServerBuilder {
                 config = config.set_handover_socket_path(handover_path);
             } else {
                 config = config.disable_handover();
+            }
+
+            // Last check for collisions
+            if test_port_availability(port).await.is_err() {
+                continue;
             }
             let shutdown = run(config).await;
             return Server {
