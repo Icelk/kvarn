@@ -73,6 +73,15 @@ impl Server {
         Arc::clone(&self.server)
     }
 }
+impl Debug for Server {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Server")
+            .field("server", &self.server)
+            .field("port", &self.port)
+            .field("handover", &self.handover)
+            .finish()
+    }
+}
 impl Drop for Server {
     fn drop(&mut self) {
         self.server.shutdown();
