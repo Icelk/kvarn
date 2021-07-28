@@ -63,6 +63,13 @@ impl Server {
     pub fn cert(&self) -> Option<&rustls::Certificate> {
         self.certificate.as_ref()
     }
+
+    /// Gets a [`shutdown::Manager`] which is [`Send`].
+    ///
+    /// You can shut down Kvarn from another thread using this.
+    pub fn get_shutdown_manager(&self) -> Arc<shutdown::Manager> {
+        Arc::clone(&self.server)
+    }
 }
 impl Drop for Server {
     fn drop(&mut self) {
