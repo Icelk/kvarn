@@ -76,7 +76,7 @@ pub struct Manager {
     channel: (WatchSender<()>, WatchReceiver<()>),
 
     #[cfg(feature = "graceful-shutdown")]
-    handover_socket_path: Option<&'static str>,
+    handover_socket_path: Option<PathBuf>,
 }
 impl Manager {
     /// Creates a new shutdown manager with the capacity of the list of wakers set to `_capacity`.
@@ -182,10 +182,10 @@ impl Manager {
     /// Passes errors from [`WatchSender::send`].
     #[cfg(feature = "graceful-shutdown")]
     pub fn shutdown(&self) {
-        info!("Initiating shutdown.");
+        info!("Initiating shutdown. Handover path: {:?}", self.handover_socket_path);
         self.shutdown.store(true, Ordering::Release);
         #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-        std::fs::remove_file(self.handover_socket_path.unwrap_or(handover::SOCKET_PATH)).ok();
+        std::fs::remove_file(self.handover_socket_path.as_deref().unwrap_or(Path::new(handover::SOCKET_PATH))).ok();
 
         if self.connections.load(Ordering::Acquire) == 0 {
             self.wakers.notify();
@@ -210,7 +210,7 @@ impl Manager {
     /// Initiates the handover from a old instance to the one currently running.
     ///
     /// This sends a `shutdown` message, waits for a reply, and then starts listening.
-    pub(crate) async fn initiate_handover(manager: &Arc<Self>, path: Option<&'static str>) {
+    pub(crate) async fn initiate_handover(manager: &Arc<Self>, path: Option<PathBuf>) {
         #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
         {
             assert_eq!(
@@ -218,19 +218,22 @@ impl Manager {
                 "Cannot call `initiate_handover` twice!"
             );
 
-            let path = path.unwrap_or(handover::SOCKET_PATH);
+            let path = path.unwrap_or_else(|| PathBuf::from(handover::SOCKET_PATH));
 
             // This is OK, we only write once, and accessing isn't important to be timely.
             unsafe {
-                *(&manager.handover_socket_path as *const _ as *mut &'static str) = path;
+                *(&manager.handover_socket_path as *const _ as *mut Option<PathBuf>) = Some(path);
             }
 
-            match handover::send_to(b"shutdown", path).await.as_deref() {
+            let path = manager.handover_socket_path.as_deref().unwrap_or(Path::new(handover::SOCKET_PATH));
+
+            match handover::send_to(b"shutdown", &path).await.as_deref() {
                 handover::UnixResponse::Data(b"ok") | handover::UnixResponse::NotFound => {
                     let manager = Arc::clone(manager);
                     handover::start_at(
                         move |data| match data {
                             b"shutdown" => {
+                                info!("Got signal to shutdown over socket.");
                                 manager.shutdown();
                                 (true, Vec::from("ok"))
                             }
@@ -243,7 +246,7 @@ impl Manager {
                                 (false, Vec::from("error"))
                             }
                         },
-                        path,
+                        &path,
                     )
                     .await;
                 }
@@ -371,7 +374,7 @@ mod handover {
                             warn!("We couldn't write response in under 50 milliseconds.");
                             continue;
                         }
-                        if let Err(err) = connection.shutdown().await{
+                        if let Err(err) = connection.shutdown().await {
                             error!("Failed to flush content. {:?}", err);
                         }
                         if close {

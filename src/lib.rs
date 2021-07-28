@@ -828,7 +828,7 @@ pub enum BindIpVersion {
 pub struct RunConfig {
     ports: Vec<PortDescriptor>,
     handover: bool,
-    handover_socket_path: Option<&'static str>,
+    handover_socket_path: Option<PathBuf>,
 }
 impl RunConfig {
     /// Creates an empty [`RunConfig`].
@@ -857,8 +857,8 @@ impl RunConfig {
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
     /// If each application (as in an use for Kvarn) has it's own path, multiple can coexist.
-    pub fn set_handover_socket_path(mut self, path: &'static str) -> Self {
-        self.handover_socket_path = Some(path);
+    pub fn set_handover_socket_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.handover_socket_path = Some(path.as_ref().to_path_buf());
         self
     }
 }
