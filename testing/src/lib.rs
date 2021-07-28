@@ -83,6 +83,7 @@ pub struct ServerBuilder {
     extensions: Extensions,
     options: host::Options,
     path: Option<PathBuf>,
+    handover: Option<PathBuf>,
 }
 impl ServerBuilder {
     /// Creates a new builder with `extensions` and `options`,
@@ -99,6 +100,7 @@ impl ServerBuilder {
             extensions,
             options,
             path: None,
+            handover: None,
         }
     }
     /// Disables HTTPS.
@@ -124,6 +126,13 @@ impl ServerBuilder {
         self
     }
 
+    /// Enables [handover](https://kvarn.org/shutdown-handover.) for this server.
+    /// The communication socket is at `path`.
+    pub fn enable_handover(mut self, path: impl AsRef<Path>) -> Self {
+        self.handover = Some(path.as_ref().to_path_buf());
+        self
+    }
+
     /// Starts a Kvarn server with the current configuraion.
     ///
     /// The returned [`Server`] can make requests to the server, streamlining
@@ -136,6 +145,7 @@ impl ServerBuilder {
             extensions,
             options,
             path,
+            handover,
         } = self;
 
         let path = path.as_deref().unwrap_or(Path::new("tests"));
@@ -181,7 +191,12 @@ impl ServerBuilder {
             } else {
                 PortDescriptor::non_secure(port, data)
             };
-            let config = RunConfig::new().add(port_descriptor).disable_handover();
+            let mut config = RunConfig::new().add(port_descriptor);
+            if let Some(handover_path) = handover {
+                config = config.set_handover_socket_path(handover_path);
+            } else {
+                config = config.disable_handover();
+            }
             let shutdown = run(config).await;
             return Server {
                 port,
