@@ -32,10 +32,10 @@ async fn default_options() {
 fn get_extensions() -> Extensions {
     let mut extensions = Extensions::new();
     let cors = Cors::new()
-        .allow("/logo.svg", CorsAllowList::new().allow_all_origins())
+        .allow("/logo.svg", CorsAllowList::default().allow_all_origins())
         .allow(
             "/api/*",
-            CorsAllowList::new()
+            CorsAllowList::default()
                 .add_origin("https://icelk.dev")
                 .add_origin("http://kvarn.org")
                 .add_origin("https://kvarn.org")
@@ -44,7 +44,7 @@ fn get_extensions() -> Extensions {
         )
         .allow(
             "/images/*",
-            CorsAllowList::new()
+            CorsAllowList::new(time::Duration::from_secs(60 * 60 * 24 * 365))
                 .add_origin("https://example.org")
                 .add_origin("https://foo.bar"),
         )
@@ -142,17 +142,17 @@ async fn test_cors_options(
             .get("access-control-allow-headers")
             .and_then(|h| h.to_str().ok())
         {
-                let mut all_here = true;
-                for expected_header in headers {
-                    if !accepted_headers.contains(expected_header) {
-                        all_here = false;
-                        break;
-                    }
+            let mut all_here = true;
+            for expected_header in headers {
+                if !accepted_headers.contains(expected_header) {
+                    all_here = false;
+                    break;
                 }
-                println!("All headers here");
-                if !all_here {
-                    all_all_here = false;
-                }
+            }
+            println!("All headers here");
+            if !all_here {
+                all_all_here = false;
+            }
         }
         assert_eq!(all_all_here, valid_expected, "On line {}", line);
     } else {
@@ -284,4 +284,21 @@ async fn options() {
         line!(),
     )
     .await;
+
+    let max_age_response = server
+        .options("/images/my-funny-cat-pic.png")
+        .header("origin", "https://example.org")
+        .header("access-control-request-method", "GET")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        max_age_response
+            .headers()
+            .get("access-control-max-age")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        (60 * 60 * 24 * 365).to_string()
+    );
 }

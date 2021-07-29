@@ -451,7 +451,7 @@ impl Extensions {
 
                 let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
 
-                if let Some((methods, headers)) = allowed {
+                if let Some((methods, headers, cache_for)) = allowed {
                     let methods = methods
                         .iter()
                         .enumerate()
@@ -478,11 +478,22 @@ impl Extensions {
                     builder = builder
                         .header(
                             "access-control-allow-methods",
+                            // We know all the characters from [`Method::as_str`] are valid.
                             HeaderValue::from_maybe_shared(methods).unwrap(),
                         )
                         .header(
                             "access-control-allow-headers",
+                            // We know all the characters from [`HeaderName::as_str()`] are valid.
+                            // See https://docs.rs/http/0.2.4/http/header/struct.HeaderValue.html#impl-From%3CHeaderName%3E
                             HeaderValue::from_maybe_shared(headers).unwrap(),
+                        )
+                        .header(
+                            "access-control-max-age",
+                            // We know a number is valid
+                            HeaderValue::try_from(
+                                (cache_for.as_secs() + u64::from(cache_for.subsec_nanos() > 0))
+                                    .to_string(),
+                            ).unwrap(),
                         );
                 }
 
@@ -986,13 +997,13 @@ unsafe impl Sync for LazyRequestBody {}
 ///     Cors::new()
 ///         .allow(
 ///             "/images/*",
-///             CorsAllowList::new()
+///             CorsAllowList::new(time::Duration::from_secs(60*60*24*365))
 ///                 .add_origin("https://icelk.dev")
 ///                 .add_origin("https://kvarn.org")
 ///             )
 ///         .allow(
 ///             "/api/*",
-///             CorsAllowList::new()
+///             CorsAllowList::default()
 ///                 .add_origin("http://example.org")
 ///                 .add_method(Method::PUT)
 ///                 .add_method(Method::POST)
@@ -1039,7 +1050,13 @@ impl Cors {
         Arc::new(self)
     }
     /// Check if the (cross-origin) request's `origin` [`Uri`] is allowed by the CORS rules.
-    pub fn check_origin(&self, origin: &Uri, uri_path: &str) -> Option<(&[Method], &[HeaderName])> {
+    ///
+    /// See [`CorsAllowList::check`] for info about the return types.
+    pub fn check_origin(
+        &self,
+        origin: &Uri,
+        uri_path: &str,
+    ) -> Option<(&[Method], &[HeaderName], time::Duration)> {
         for (path, allow) in &self.rules {
             if path == uri_path
                 || (path
@@ -1051,17 +1068,22 @@ impl Cors {
         }
         None
     }
-    /// Check if the `headers` and `uri` is allowed with this ruleset.
+    /// Check if the [`Request::headers`] and [`Request::uri`] is allowed with this ruleset.
     ///
     /// > This will not check for errors in `access-control-request-headers`.
     ///
-    /// Use this over [`Self::check_origin`] becuse this checks for `same_origin` requests.
+    /// Use this over [`Self::check_origin`] because this checks for `same_origin` requests.
+    ///
+    /// See [`CorsAllowList::check`] for info about the return types.
     pub fn check_cors_request<T>(
         &self,
         request: &Request<T>,
-    ) -> Option<(&[Method], &[HeaderName])> {
-        let same_origin_allowed_headers =
-            (&[Method::GET, Method::HEAD, Method::OPTIONS][..], &[][..]);
+    ) -> Option<(&[Method], &[HeaderName], time::Duration)> {
+        let same_origin_allowed_headers = (
+            &[Method::GET, Method::HEAD, Method::OPTIONS][..],
+            &[][..],
+            time::Duration::from_secs(60 * 60 * 24 * 7),
+        );
         match request.headers().get("origin") {
             None => Some(same_origin_allowed_headers),
             Some(origin)
@@ -1085,14 +1107,14 @@ impl Cors {
         let uri_parts = {
             origin.split_once("://")
             // if let Some(pos) = origin.find("://") {
-                // if origin.find('.').map_or(false, |dot_pos| dot_pos > pos) {
-                    // // This is fine; it's on the find boundary
-                    // Some((origin.get(..pos).unwrap(), origin.get(pos + 3..).unwrap()))
-                // } else {
-                    // None
-                // }
+            // if origin.find('.').map_or(false, |dot_pos| dot_pos > pos) {
+            // // This is fine; it's on the find boundary
+            // Some((origin.get(..pos).unwrap(), origin.get(pos + 3..).unwrap()))
             // } else {
-                // None
+            // None
+            // }
+            // } else {
+            // None
             // }
         };
         let (origin_scheme, origin_authority) = match uri_parts {
@@ -1126,15 +1148,17 @@ pub struct CorsAllowList {
     allow_all_origins: bool,
     methods: Vec<Method>,
     headers: Vec<HeaderName>,
+    cache_for: time::Duration,
 }
 impl CorsAllowList {
-    /// Creates a empty CORS allow list.
-    pub fn new() -> Self {
+    /// Creates a empty CORS allow list with the client cache duration of `cache_for`.
+    pub fn new(cache_for: time::Duration) -> Self {
         Self {
             allowed: Vec::new(),
             allow_all_origins: false,
             methods: vec![Method::GET, Method::HEAD, Method::OPTIONS],
             headers: Vec::new(),
+            cache_for,
         }
     }
     /// Allows CORS request from `allowed_origin`.
@@ -1173,9 +1197,13 @@ impl CorsAllowList {
         self
     }
     /// Checks if the `origin` is allowed according to the allow list.
-    pub fn check(&self, origin: &Uri) -> Option<(&[Method], &[HeaderName])> {
+    ///
+    /// Returns [`Some`] if `origin` is allowed, with the [`Method`]s and [`HeaderName`]s
+    /// allowed, with a cache max-age of [`time::Duration`].
+    /// Returns [`None`] if `origin` isn't allowed.
+    pub fn check(&self, origin: &Uri) -> Option<(&[Method], &[HeaderName], time::Duration)> {
         if self.allow_all_origins {
-            return Some((&self.methods, &self.headers));
+            return Some((&self.methods, &self.headers, self.cache_for));
         }
         for allowed in &self.allowed {
             let scheme = allowed.scheme().map_or("https", |scheme| scheme.as_str());
@@ -1184,15 +1212,16 @@ impl CorsAllowList {
                 && allowed.port_u16() == origin.port_u16()
                 && Some(scheme) == origin.scheme().map(uri::Scheme::as_str)
             {
-                return Some((&self.methods, &self.headers));
+                return Some((&self.methods, &self.headers, self.cache_for));
             }
         }
         None
     }
 }
+/// The default `cache_for` is 1 hour.
 impl Default for CorsAllowList {
     fn default() -> Self {
-        Self::new()
+        Self::new(time::Duration::from_secs(60*60))
     }
 }
 
