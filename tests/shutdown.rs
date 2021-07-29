@@ -32,7 +32,6 @@ async fn basic() {
 
 #[tokio::test]
 async fn handover() {
-    env_logger::init();
     let socket_path = "handover_test.sock";
     let server = ServerBuilder::default()
         .http()
