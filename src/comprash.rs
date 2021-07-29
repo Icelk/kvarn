@@ -495,8 +495,10 @@ pub enum CompressPreference {
 /// assert_eq!(Err(CachePreferenceError::Invalid), "FULL".parse::<ClientCachePreference>());
 /// assert_eq!(Ok(ServerCachePreference::QueryMatters), "query-matters".parse());
 /// use std::convert::TryInto;
-/// assert_eq!(Ok(ClientCachePreference::MaxAge(42.try_into().unwrap())), "42s".parse());
-/// assert_eq!(Ok(ServerCachePreference::MaxAge(3600.try_into().unwrap())), "3600s".parse());
+/// assert_eq!(Ok(ClientCachePreference::MaxAge(time::Duration::from_secs(42))), "42s".parse());
+/// assert_eq!(Ok(ServerCachePreference::MaxAge(time::Duration::from_secs(3600))), "3600s".parse());
+/// assert_eq!(Err(CachePreferenceError::ZeroDuration), "0s".parse::<ClientCachePreference>());
+/// assert_eq!(Err(CachePreferenceError::ZeroDuration), "0s".parse::<ServerCachePreference>());
 /// ```
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum CachePreferenceError {
@@ -504,6 +506,8 @@ pub enum CachePreferenceError {
     Empty,
     /// Input string has an invalid syntax.
     Invalid,
+    /// Duration is zero
+    ZeroDuration,
 }
 
 /// The preference for caching the item on the server.
@@ -521,9 +525,9 @@ pub enum ServerCachePreference {
     QueryMatters,
     /// Query does not matter and will be discarded
     Full,
-    /// Sets a max age for the content, in seconds.
+    /// Sets a max age for the content.
     /// Query will be discarded in cache, same as [`Self::Full`].
-    MaxAge(std::num::NonZeroU32),
+    MaxAge(time::Duration),
 }
 impl ServerCachePreference {
     /// If `_response` should be cached.
@@ -567,7 +571,10 @@ impl str::FromStr for ServerCachePreference {
             _ => {
                 if let Some(integer) = s.strip_suffix('s') {
                     if let Ok(integer) = integer.parse() {
-                        return Ok(Self::MaxAge(integer));
+                        if integer == 0 {
+                            return Err(CachePreferenceError::ZeroDuration);
+                        }
+                        return Ok(Self::MaxAge(time::Duration::from_secs(integer)));
                     }
                 }
                 return Err(CachePreferenceError::Invalid);
@@ -586,8 +593,11 @@ pub enum ClientCachePreference {
     Changing,
     /// Will cache for 1 week
     Full,
-    /// Sets a max age for the content, in seconds
-    MaxAge(std::num::NonZeroU32),
+    /// Sets a max age for the content.
+    ///
+    /// Note that this must be in seconds when sending a header.
+    /// This will be rounded up.
+    MaxAge(time::Duration),
 }
 impl ClientCachePreference {
     /// Gets the [`HeaderValue`] representation of the preference.
@@ -598,10 +608,12 @@ impl ClientCachePreference {
             Self::None => HeaderValue::from_static("no-store"),
             Self::Changing => HeaderValue::from_static("max-age=120"),
             Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
-            Self::MaxAge(seconds) => {
+            Self::MaxAge(duration) => {
                 let bytes = build_bytes!(
                     b"public, max-age=",
-                    seconds.to_string().as_bytes(),
+                    (duration.as_secs() + u64::from(duration.subsec_nanos() > 0))
+                        .to_string()
+                        .as_bytes(),
                     b", immutable"
                 );
                 // We know the bytes are safe.
@@ -615,7 +627,10 @@ impl str::FromStr for ClientCachePreference {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(integer) = s.strip_suffix('s') {
             if let Ok(integer) = integer.parse() {
-                return Ok(Self::MaxAge(integer));
+                if integer == 0 {
+                    return Err(CachePreferenceError::ZeroDuration);
+                }
+                return Ok(Self::MaxAge(time::Duration::from_secs(integer)));
             }
         }
         Ok(match s {
