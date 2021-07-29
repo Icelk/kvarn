@@ -518,22 +518,24 @@ pub async fn handle_cache(
 
             let creation = *creation;
 
-            let if_modified_since: Option<time::DateTime<time::Utc>> =
-                if host.options.disable_if_modified_since {
-                    None
-                } else {
-                    request
-                        .headers()
-                        .get("if-modified-since")
-                        .and_then(|h| h.to_str().ok())
-                        .and_then(|s| time::NaiveDateTime::parse_from_str(s, parse::HTTP_DATE).ok())
-                        .map(|date_time| time::DateTime::from_utc(date_time, time::Utc))
-                };
+            let if_modified_since: Option<chrono::DateTime<chrono::Utc>> = if host
+                .options
+                .disable_if_modified_since
+            {
+                None
+            } else {
+                request
+                    .headers()
+                    .get("if-modified-since")
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|s| chrono::NaiveDateTime::parse_from_str(s, parse::HTTP_DATE).ok())
+                    .map(|date_time| chrono::DateTime::from_utc(date_time, chrono::Utc))
+            };
 
             let client_request_is_fresh = if_modified_since.map_or(false, |timestamp| {
                 // - 1s because the sent datetime floors the seconds, so the `creation`
                 // datetime is 0-1s ahead.
-                timestamp >= creation - time::Duration::seconds(1)
+                timestamp >= creation - chrono::Duration::seconds(1)
             });
 
             let mut response_data =
@@ -688,7 +690,7 @@ pub async fn handle_cache(
 
             if !host.options.disable_if_modified_since && should_cache {
                 let last_modified =
-                    HeaderValue::from_str(&time::Utc::now().format(parse::HTTP_DATE).to_string())
+                    HeaderValue::from_str(&chrono::Utc::now().format(parse::HTTP_DATE).to_string())
                         .expect("We know these bytes are valid.");
                 utils::replace_header(response.headers_mut(), "last-modified", last_modified);
             }

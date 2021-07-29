@@ -13,8 +13,7 @@ pub use kvarn_async::prelude::*;
 pub use kvarn_utils::prelude::*;
 
 // Commonly used external dependencies
-pub use mime::Mime;
-pub use mime_guess;
+pub use std::time;
 
 // Modules
 pub use crate::application;
@@ -73,6 +72,8 @@ pub mod internals {
     pub use error::default as default_error;
     pub use extensions::{ready, RetFut, RetSyncFut};
     pub use limiting::{Action as LimitAction, Manager as LimitManager};
+    pub use mime::Mime;
+    pub use mime_guess;
     pub use tokio::time::timeout;
     pub use utils::{
         PresentArguments, PresentArgumentsIter, PresentExtensions, PresentExtensionsIter,
@@ -88,10 +89,10 @@ pub mod threading {
     pub use tokio::task::{spawn, spawn_blocking, spawn_local};
 }
 
-/// **Prelude:** time
+/// **Prelude:** chrono
 ///
-/// Here, all relevant time items are imported.
-pub mod time {
+/// Here, all relevant time items from [`chrono`] are imported.
+pub mod chrono {
     pub use chrono::{
         Date, DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone,
         Timelike, Utc,

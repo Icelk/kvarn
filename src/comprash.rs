@@ -6,7 +6,7 @@
 //!
 //! The main type in this module is [`CompressedResponse`], a dynamically compressed
 //! response receiving correct headers and [`extensions`].
-use crate::prelude::{time::*, *};
+use crate::prelude::{chrono::*, *};
 use std::{
     borrow::Borrow,
     collections::hash_map::DefaultHasher,
