@@ -8,7 +8,7 @@ async fn basic() {
             ext.add_prepare_single(
                 "/slow-response".to_string(),
                 prepare!(_req, _host, _path, _addr {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    tokio::time::sleep(time::Duration::from_millis(100)).await;
                     FatResponse::no_cache(Response::new(Bytes::from_static(b"Finally here!")))
                 }),
             )
@@ -16,10 +16,10 @@ async fn basic() {
         .run()
         .await;
 
-    internals::timeout(std::time::Duration::from_millis(200), async move {
+    internals::timeout(time::Duration::from_millis(200), async move {
         let shutdown = server.get_shutdown_manager();
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tokio::time::sleep(time::Duration::from_millis(50)).await;
             shutdown.shutdown();
         });
 
@@ -61,11 +61,11 @@ async fn handover() {
             if !running_send.load(threading::Ordering::Relaxed) {
                 return;
             }
-            tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+            tokio::time::sleep(time::Duration::from_micros(100)).await;
         }
     });
     // Let's get some requests!
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(time::Duration::from_millis(100)).await;
     // Now handover.
     let server = ServerBuilder::default()
         .http()
@@ -73,14 +73,14 @@ async fn handover() {
         .run()
         .await;
     // Let this accept some requests
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(time::Duration::from_millis(100)).await;
     // The tell them to stop.
     running.store(false, threading::Ordering::Relaxed);
     // Shortly after, drop server, so it shuts down, removing the socket
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(time::Duration::from_millis(10)).await;
     drop(server);
     // Wait for the shutdown messages to be passed
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(time::Duration::from_millis(10)).await;
 
     assert!(!Path::new(socket_path).exists());
 }

@@ -310,7 +310,7 @@ mod tests {
     fn simple_request(server: &super::Server) {
         let response = server
             .get("")
-            .timeout(std::time::Duration::from_millis(100))
+            .timeout(time::Duration::from_millis(100))
             .send()
             .await
             .unwrap();

@@ -348,7 +348,7 @@ mod handover {
                     while let Ok((mut connection, _addr)) = listener.accept().await {
                         let mut data = Vec::new();
                         if timeout(
-                            std::time::Duration::from_millis(50),
+                            time::Duration::from_millis(50),
                             connection.read_to_end(&mut data),
                         )
                         .await
@@ -362,7 +362,7 @@ mod handover {
                         }
                         let (close, data) = handler(&data);
                         if timeout(
-                            std::time::Duration::from_millis(50),
+                            time::Duration::from_millis(50),
                             connection.write_all(&data),
                         )
                         .await

@@ -340,7 +340,7 @@ mod response {
             } else {
                 buffer.extend(&self.bytes);
                 if let Ok(result) = timeout(
-                    std::time::Duration::from_millis(250),
+                    time::Duration::from_millis(250),
                     async_bits::read_to_end_or_max(&mut buffer, &mut *self, len),
                 )
                 .await
