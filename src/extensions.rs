@@ -539,20 +539,20 @@ impl Extensions {
         add_sort_list!(self.prime, id, extension,);
     }
     /// Adds a prepare extension for a single URI.
-    pub fn add_prepare_single(&mut self, path: String, extension: Prepare) {
-        self.prepare_single.insert(path, extension);
+    pub fn add_prepare_single(&mut self, path: impl AsRef<str>, extension: Prepare) {
+        self.prepare_single.insert(path.as_ref().to_owned(), extension);
     }
     /// Adds a prepare extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, id: Id) {
         add_sort_list!(self.prepare_fn, id, predicate, extension,);
     }
     /// Adds a present internal extension, called with files starting with `!> `.
-    pub fn add_present_internal(&mut self, name: String, extension: Present) {
-        self.present_internal.insert(name, extension);
+    pub fn add_present_internal(&mut self, name: impl AsRef<str>, extension: Present) {
+        self.present_internal.insert(name.as_ref().to_owned(), extension);
     }
     /// Adds a present file extension, called with file extensions matching `name`.
-    pub fn add_present_file(&mut self, name: String, extension: Present) {
-        self.present_file.insert(name, extension);
+    pub fn add_present_file(&mut self, name: impl AsRef<str>, extension: Present) {
+        self.present_file.insert(name.as_ref().to_owned(), extension);
     }
     /// Adds a package extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_package(&mut self, extension: Package, id: Id) {
