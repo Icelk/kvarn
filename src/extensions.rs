@@ -1164,11 +1164,20 @@ impl CorsAllowList {
     /// Allows CORS request from `allowed_origin`.
     /// Note that the scheme (`https` / `http`) is sensitive.
     /// Use [`Self::add_origin_uri`] for a [`Uri`] input.
-    pub fn add_origin(self, allowed_origin: &'static str) -> Self {
-        self.add_origin_uri(Uri::from_static(allowed_origin))
+    ///
+    /// # Panics
+    ///
+    /// Panics if `allowed_origin` is not a valid [`Uri`]
+    /// or if it doesn't contain a host AND a scheme.
+    pub fn add_origin(self, allowed_origin: impl AsRef<str>) -> Self {
+        self.add_origin_uri(Uri::try_from(allowed_origin.as_ref()).unwrap())
     }
     /// Allows CORS request from `allowed_origin`.
     /// Note that the scheme (`https` / `http`) is sensitive.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `allowed_origin` doesn't contain a host AND a scheme.
     pub fn add_origin_uri(mut self, allowed_origin: Uri) -> Self {
         assert!(allowed_origin.host().is_some());
         assert!(allowed_origin.scheme().is_some());
