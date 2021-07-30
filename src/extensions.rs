@@ -848,7 +848,7 @@ impl<T> SuperUnsafePointer<T> {
     /// Read the docs of this struct for safety requirements.
     pub unsafe fn new(reference: &T) -> Self {
         Self {
-            pointer: reference as *const _ as *mut _,
+            pointer: utils::ref_to_mut(reference),
         }
     }
     /// Get a reference to the inner value.
