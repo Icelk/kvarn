@@ -186,3 +186,24 @@ fn push(
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn run() {
+        let mut extensions = Extensions::new();
+        mount(&mut extensions);
+        let _server = kvarn_testing::ServerBuilder::from(extensions).run().await;
+    }
+    #[test]
+    fn exclusive() {
+        let mut extensions = new();
+        extensions.add_post(Box::new(always), Id::new(-32, "HTTP/2 push"));
+
+        let debug = format!("{:?}", extensions);
+        assert_eq!(debug.match_indices("push").count(), 1);
+        mount(&mut extensions);
+        assert_eq!(debug.match_indices("push").count(), 1);
+    }
+}
