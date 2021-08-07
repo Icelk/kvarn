@@ -50,7 +50,7 @@ The name comes from the current plan to move core stuff into it's own crate.
 ## To do
 
 - [x] Full doc coverage (this took *way* too long...)
-- [ ] Partial test coverage
+- [x] Partial test coverage
 - [x] Extension macros
 - [x] Additional server-side cache options, including parsing `cache-control` header
 - [ ] Cache handling of Vary header (definitely the hardest)
