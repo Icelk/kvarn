@@ -1,11 +1,80 @@
+use std::collections::HashSet;
+
 use crate::*;
 
-pub fn push(
+/// Mounts a push extension with priority `-32`, overriding any other [`Post`] extension with that
+/// priority.
+///
+/// This only pushes new content to each connection every 2 minutes, not every time.
+pub fn mount(extensions: &mut Extensions) -> &mut Extensions {
+    let manager = Mutex::new(SmartPush::default());
+    extensions.add_post(
+        Box::new(move |request, host, response_pipe, bytes, addr| {
+            let manager = unsafe { extensions::SuperUnsafePointer::new(&manager) };
+            push(request, host, response_pipe, bytes, addr, Some(manager))
+        }),
+        Id::new(-32, "HTTP/2 push"),
+    );
+    extensions
+}
+
+pub fn always(
+    request: RequestWrapper,
+    host: HostWrapper,
+    response_pipe: ResponsePipeWrapperMut,
+    bytes: Bytes,
+    addr: SocketAddr,
+) -> RetFut<()> {
+    push(request, host, response_pipe, bytes, addr, None)
+}
+
+struct SmartPush {
+    db: HashSet<SocketAddr>,
+    last_clear: time::Instant,
+    clear_interval: time::Duration,
+    check_every_request: u32,
+    iteration: u32,
+}
+impl SmartPush {
+    fn new(clear_interval: time::Duration, check_every_request: u32) -> Self {
+        Self {
+            db: HashSet::new(),
+            last_clear: time::Instant::now(),
+            clear_interval,
+            check_every_request,
+            iteration: 0,
+        }
+    }
+    fn accept(&mut self, remote: SocketAddr) -> bool {
+        if self.iteration >= self.check_every_request {
+            let now = time::Instant::now();
+            let elapsed = now - self.last_clear;
+            if elapsed > self.clear_interval {
+                self.last_clear = now;
+                self.db.clear();
+            }
+        }
+        self.iteration += 1;
+
+        !self.db.contains(&remote)
+    }
+    fn register(&mut self, remote: SocketAddr) {
+        self.db.insert(remote);
+    }
+}
+impl Default for SmartPush {
+    fn default() -> Self {
+        Self::new(time::Duration::from_secs(60 * 2), 8)
+    }
+}
+
+fn push(
     request: RequestWrapper,
     host: HostWrapper,
     mut response_pipe: ResponsePipeWrapperMut,
     bytes: Bytes,
     addr: SocketAddr,
+    manager: Option<extensions::SuperUnsafePointer<Mutex<SmartPush>>>,
 ) -> RetFut<()> {
     use internals::*;
     Box::pin(async move {
@@ -13,6 +82,14 @@ pub fn push(
         #[allow(irrefutable_let_patterns)]
         if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
             return;
+        }
+
+        if let Some(manager) = manager.as_ref() {
+            let manager = unsafe { manager.get() };
+            let mut lock = manager.lock().await;
+            if !lock.accept(addr) {
+                return;
+            }
         }
 
         // If user agent is Firefox, return.
@@ -86,8 +163,6 @@ pub fn push(
 
                         let push_request = push_request.map(|_| kvarn::application::Body::Empty);
 
-                        // let pipe = kvarn::SendKind::Push(&mut response_pipe);
-
                         if let Err(err) = kvarn::handle_cache(
                             push_request,
                             addr,
@@ -103,6 +178,11 @@ pub fn push(
             }
             // Else, do nothing
             _ => {}
+        }
+        if let Some(manager) = manager.as_ref() {
+            let manager = unsafe { manager.get() };
+            let mut lock = manager.lock().await;
+            lock.register(addr);
         }
     })
 }

@@ -23,7 +23,7 @@ pub use reverse_proxy::{
 #[cfg(feature = "push")]
 pub mod push;
 #[cfg(feature = "push")]
-pub use push::push;
+pub use push::mount as mount_push;
 
 #[cfg(feature = "fastcgi-client")]
 pub mod fastcgi;
@@ -65,7 +65,7 @@ pub fn mount_all(extensions: &mut Extensions) {
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), Box::new(templates));
     #[cfg(feature = "push")]
-    extensions.add_post(Box::new(push), extensions::Id::new(-32, "HTTP/2 Push"));
+    push::mount(extensions);
 }
 
 // Ok, since it is used, just not by every extension, and #[CFG] would be too fragile for this.
