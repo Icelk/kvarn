@@ -54,6 +54,23 @@ pub fn new() -> Extensions {
 /// They will *always* get included in your server after calling this function.
 ///
 /// The priority of the `php` extension is `-8` and `-32` for the `push` extension.
+///
+/// # Examples
+///
+/// ```no_run
+/// use kvarn::prelude::*;
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() {
+/// let mut extensions = Extensions::new();
+/// kvarn_extensions::mount_all(&mut extensions);
+///
+/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// let data = Data::builder(host).build();
+/// let port_descriptor = PortDescriptor::new(8080, data);
+///
+/// let shutdown_manager = run(run_config![port_descriptor]).await;
+/// shutdown_manager.wait().await;
+/// # }
 pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_internal("download".to_string(), Box::new(download));
     extensions.add_present_internal("cache".to_string(), Box::new(cache));
@@ -194,4 +211,14 @@ pub fn force_cache(
             }
         }
     }), extensions::Id::new(16, "Adding cache-control header (force-cache)"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn all() {
+        let extensions = new();
+        let _server = kvarn_testing::ServerBuilder::from(extensions).run().await;
+    }
 }
