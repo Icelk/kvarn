@@ -55,7 +55,7 @@ The name comes from the current plan to move core stuff into it's own crate.
 - [x] Additional server-side cache options, including parsing `cache-control` header
 - [ ] Cache handling of Vary header (definitely the hardest)
 - [x] Byte ranges
-- [ ] `read_to_bytes()` performance
+- [x] `read_to_bytes()` performance
 - [x] Implement an easy-to-configure proxy extension in kvarn_extensions
 - [x] If-Modified-Since header to increase client cache performance
 - [x] Move core stuff

@@ -346,6 +346,9 @@ mod response {
                 .await
                 {
                     result?
+                }else {
+                    self.content_length = 0;
+                    return io::Error::new(io::ErrorKind::TimedOut, "Reading of request body timed out.");
                 }
             }
 

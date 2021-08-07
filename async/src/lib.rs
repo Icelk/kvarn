@@ -28,6 +28,9 @@ pub async fn read_to_end(buffer: &mut BytesMut, reader: impl AsyncRead + Unpin) 
 /// Reads from `reader` to `buffer` until it returns zero bytes or `max_length`
 /// is reached. [`BytesMut::len`] is used as a starting length of `buffer`.
 ///
+/// Note that the length of the read bytes can exceed `max_len`; it stops
+/// after having read `max_len` or higher.
+///
 /// # Errors
 ///
 /// Passes any errors emitted from `reader`.
@@ -36,6 +39,16 @@ pub async fn read_to_end_or_max(
     mut reader: impl AsyncRead + Unpin,
     max_len: usize,
 ) -> io::Result<()> {
+    fn reserve(read: usize, buffer: &mut BytesMut) {
+        let left = buffer.capacity() - read;
+        if left < 32 {
+            let additional = buffer.capacity().clamp(256, 1024 * 8);
+            buffer.reserve(additional);
+            // This is safe because of the trailing unsafe block.
+            unsafe { buffer.set_len(buffer.capacity()) };
+        }
+    }
+
     let mut read = buffer.len();
 
     if read >= max_len {
@@ -53,11 +66,7 @@ pub async fn read_to_end_or_max(
                     unsafe { buffer.set_len(read) };
                     return Ok(());
                 }
-                if read > buffer.len() - 512 {
-                    buffer.reserve(2048);
-                    // This is safe because of the trailing unsafe block.
-                    unsafe { buffer.set_len(buffer.capacity()) };
-                }
+                reserve(read, buffer);
             }
         }
     }
