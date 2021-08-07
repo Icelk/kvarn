@@ -16,7 +16,7 @@ categories = ["web-programming", "web-programming::http-server"]
 members = [
   "./",
   "extensions",
-  "kvarn_chute",
+  "chute",
   "utils",
   "async",
   "testing",
