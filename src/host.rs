@@ -218,13 +218,15 @@ impl Host {
                 let uri = request.uri();
                 let uri = {
                     let authority = uri.authority().map_or("", uri::Authority::as_str);
-                    let path = uri.query().unwrap_or("");
-                    let mut bytes = BytesMut::with_capacity(8 + authority.len() + path.len());
-                    bytes.extend(b"https://");
-                    bytes.extend(authority.as_bytes());
-                    bytes.extend(path.as_bytes());
+                    let bytes = build_bytes!(
+                        b"https://",
+                        authority.as_bytes(),
+                        uri.path().as_bytes(),
+                        uri.query().map_or(b"".as_ref(), |_| b"?".as_ref()),
+                        uri.query().map_or(b"".as_ref(), |q| q.as_bytes())
+                    );
                     // Ok, since we just introduced https:// in the start, which are valid bytes.
-                    unsafe { HeaderValue::from_maybe_shared_unchecked(bytes.freeze()) }
+                    unsafe { HeaderValue::from_maybe_shared_unchecked(bytes) }
                 };
 
                 let response = Response::builder()
@@ -245,26 +247,7 @@ impl Host {
                     && request.uri().port().is_none()
                 {
                     // redirect
-                    let mut uri = request.uri().clone().into_parts();
-
-                    let mut bytes = BytesMut::with_capacity(
-                        SPECIAL_PATH.len()
-                            + 1
-                            + request.uri().path().len()
-                            + request.uri().query().map_or(0, |s| s.len() + 1),
-                    );
-                    bytes.extend(SPECIAL_PATH.as_bytes());
-                    bytes.extend(b"?");
-                    bytes.extend(request.uri().path().as_bytes());
-                    if let Some(query) = request.uri().query() {
-                        bytes.extend(b"?");
-                        bytes.extend(query.as_bytes());
-                    }
-                    // it must be a valid Uri
-                    uri.path_and_query =
-                        Some(uri::PathAndQuery::from_maybe_shared(bytes.freeze()).unwrap());
-                    let uri = Uri::from_parts(uri).unwrap();
-                    Some(uri)
+                    Some(Uri::from_static(SPECIAL_PATH))
                 } else {
                     None
                 };
@@ -509,12 +492,7 @@ impl Data {
     #[inline]
     pub fn simple_non_secure(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
-            default: Host::non_secure(
-                default_host_name,
-                ".",
-                extensions,
-                Options::default(),
-            ),
+            default: Host::non_secure(default_host_name, ".", extensions, Options::default()),
             by_name: HashMap::new(),
             has_secure: false,
         }
