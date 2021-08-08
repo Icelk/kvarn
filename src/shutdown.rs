@@ -218,65 +218,71 @@ impl Manager {
     /// Initiates the handover from a old instance to the one currently running.
     ///
     /// This sends a `shutdown` message, waits for a reply, and then starts listening.
+    #[allow(unused_variables)]
     pub(crate) async fn initiate_handover(manager: &Arc<Self>, path: Option<PathBuf>) {
-        #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+        #[cfg(feature = "graceful-shutdown")]
         {
-            assert_eq!(
-                manager.handover_socket_path, None,
-                "Cannot call `initiate_handover` twice!"
-            );
+            #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+            {
+                assert_eq!(
+                    manager.handover_socket_path, None,
+                    "Cannot call `initiate_handover` twice!"
+                );
 
-            let path = path.unwrap_or_else(|| PathBuf::from(handover::SOCKET_PATH));
+                let path = path.unwrap_or_else(|| PathBuf::from(handover::SOCKET_PATH));
 
-            // This is OK, we only write once, and atomics aren't needed as
-            // accessing isn't important to be timely after value change.
-            unsafe {
-                *utils::ref_to_mut(&manager.handover_socket_path) = Some(path);
+                // This is OK, we only write once, and atomics aren't needed as
+                // accessing isn't important to be timely after value change.
+                unsafe {
+                    *utils::ref_to_mut(&manager.handover_socket_path) = Some(path);
+                }
+
+                let path = manager
+                    .handover_socket_path
+                    .as_deref()
+                    .unwrap_or(Path::new(handover::SOCKET_PATH));
+
+                match handover::send_to(b"shutdown", &path).await.as_deref() {
+                    handover::UnixResponse::Data(b"ok") | handover::UnixResponse::NotFound => {
+                        let manager = Arc::clone(manager);
+                        handover::start_at(
+                            move |data| match data {
+                                b"shutdown" => {
+                                    info!("Got signal to shutdown over socket.");
+                                    manager.shutdown();
+                                    (true, Vec::from("ok"))
+                                }
+                                _ => {
+                                    let data = data.get(..128).unwrap_or(data);
+                                    warn!(
+                                        "Got unexpected message on socket {:?}",
+                                        str::from_utf8(data).unwrap_or("BINARY")
+                                    );
+                                    (false, Vec::from("error"))
+                                }
+                            },
+                            &path,
+                        )
+                        .await;
+                    }
+                    handover::UnixResponse::Data(data) => {
+                        error!(
+                            "Got unexpected reply from previous Kvarn instance: {:?}",
+                            str::from_utf8(&data)
+                        );
+                    }
+                    handover::UnixResponse::Error => {
+                        error!(
+                            "Failed to message previous Kvarn instance. It might still be running."
+                        );
+                    }
+                };
             }
-
-            let path = manager
-                .handover_socket_path
-                .as_deref()
-                .unwrap_or(Path::new(handover::SOCKET_PATH));
-
-            match handover::send_to(b"shutdown", &path).await.as_deref() {
-                handover::UnixResponse::Data(b"ok") | handover::UnixResponse::NotFound => {
-                    let manager = Arc::clone(manager);
-                    handover::start_at(
-                        move |data| match data {
-                            b"shutdown" => {
-                                info!("Got signal to shutdown over socket.");
-                                manager.shutdown();
-                                (true, Vec::from("ok"))
-                            }
-                            _ => {
-                                let data = data.get(..128).unwrap_or(data);
-                                warn!(
-                                    "Got unexpected message on socket {:?}",
-                                    str::from_utf8(data).unwrap_or("BINARY")
-                                );
-                                (false, Vec::from("error"))
-                            }
-                        },
-                        &path,
-                    )
-                    .await;
-                }
-                handover::UnixResponse::Data(data) => {
-                    error!(
-                        "Got unexpected reply from previous Kvarn instance: {:?}",
-                        str::from_utf8(&data)
-                    );
-                }
-                handover::UnixResponse::Error => {
-                    error!("Failed to message previous Kvarn instance. It might still be running.");
-                }
-            };
         }
     }
 }
 
-#[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+#[cfg(all(feature = "graceful-shutdown", unix, not(target_os = "solaris"), not(target_os = "illumos")))]
 mod handover {
     use crate::prelude::*;
     use std::ops::Deref;
