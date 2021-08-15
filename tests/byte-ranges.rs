@@ -2,7 +2,7 @@ use bytes::BufMut;
 use kvarn::prelude::*;
 use kvarn_testing::prelude::*;
 
-    const DATA: &str = "This is a small document with a length of 50 bytes";
+const DATA: &str = "This is a small document with a length of 50 bytes";
 
 fn get_server() -> ServerBuilder {
     ServerBuilder::default().with_extensions(|ext| {
@@ -53,14 +53,33 @@ async fn byte_ranges() {
 async fn out_of_bounds() {
     let server = get_server().run().await;
 
-    let response = server.get("/").header("range", "bytes=50-100").send().await.unwrap();
-    assert_eq!(response.status(), reqwest::StatusCode::RANGE_NOT_SATISFIABLE);
-    assert_eq!(response.headers().get("reason").unwrap().to_str().unwrap(), "Range start after end of body")
+    let response = server
+        .get("/")
+        .header("range", "bytes=50-100")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::RANGE_NOT_SATISFIABLE
+    );
+    assert_eq!(
+        response.headers().get("reason").unwrap().to_str().unwrap(),
+        "Range start after end of body"
+    )
 }
 #[tokio::test]
 async fn end_before_start() {
     let server = get_server().run().await;
 
-    let response = server.get("/").header("range", "bytes=30-20").send().await.unwrap();
-    assert_eq!(response.status(), reqwest::StatusCode::RANGE_NOT_SATISFIABLE);
+    let response = server
+        .get("/")
+        .header("range", "bytes=30-20")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::RANGE_NOT_SATISFIABLE
+    );
 }

@@ -121,7 +121,8 @@ async fn body() {
         .header("content-type", "text/plain; encoding=utf-8")
         .body("This is the full body.")
         .send()
-        .await.unwrap();
+        .await
+        .unwrap();
 
     let body = vec![chars::SPACE; length];
     server
@@ -136,7 +137,8 @@ async fn body() {
         .header("content-type", "text/plain; encoding=utf-8")
         .body("This is the full body.")
         .send()
-        .await.unwrap();
+        .await
+        .unwrap();
 }
 
 fn get_extensions() -> Extensions {

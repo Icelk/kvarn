@@ -646,7 +646,10 @@ pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
             let split_using_parentheses = header_trimmed.contains("](");
             let heavily_trimmed = heavily_trimmed
                 .split(|c: char| {
-                    !(c.is_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace() || c.is_punctuation())
+                    !(c.is_alphanumeric()
+                        || c.is_ascii_punctuation()
+                        || c.is_whitespace()
+                        || c.is_punctuation())
                         || (split_using_parentheses && is_parenthesis(c))
                 })
                 .next()

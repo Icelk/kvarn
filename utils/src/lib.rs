@@ -463,7 +463,7 @@ pub fn method_has_response_body(method: &Method) -> bool {
 }
 
 /// Casts `&T` to `*mut T` for getting mutable access from a immutable reference.
-/// 
+///
 /// # Safety
 ///
 /// This functions isn't unsafe, but dereferencing the returned pointer is.

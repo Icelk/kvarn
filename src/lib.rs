@@ -60,9 +60,7 @@ pub mod shutdown;
 
 use prelude::{internals::*, networking::*, *};
 // When user only imports crate::* and not crate::prelude::*
-pub use comprash::{
-    ClientCachePreference, CompressPreference, CompressedResponse, ServerCachePreference,
-};
+pub use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
 pub use error::{default as default_error, default_response as default_error_response};
 #[doc(inline)]
 pub use extensions::Extensions;

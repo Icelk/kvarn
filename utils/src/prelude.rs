@@ -9,6 +9,7 @@ pub use http::{
     Uri, Version,
 };
 pub use log::{debug, error, info, log, trace, warn};
+pub use std::borrow::Cow;
 pub use std::cmp::{self, Ord, PartialOrd};
 pub use std::collections::HashMap;
 pub use std::convert::TryFrom;

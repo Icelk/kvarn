@@ -493,7 +493,8 @@ impl Extensions {
                             HeaderValue::try_from(
                                 (cache_for.as_secs() + u64::from(cache_for.subsec_nanos() > 0))
                                     .to_string(),
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                         );
                 }
 
@@ -540,7 +541,8 @@ impl Extensions {
     }
     /// Adds a prepare extension for a single URI.
     pub fn add_prepare_single(&mut self, path: impl AsRef<str>, extension: Prepare) {
-        self.prepare_single.insert(path.as_ref().to_owned(), extension);
+        self.prepare_single
+            .insert(path.as_ref().to_owned(), extension);
     }
     /// Adds a prepare extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, id: Id) {
@@ -548,11 +550,13 @@ impl Extensions {
     }
     /// Adds a present internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: impl AsRef<str>, extension: Present) {
-        self.present_internal.insert(name.as_ref().to_owned(), extension);
+        self.present_internal
+            .insert(name.as_ref().to_owned(), extension);
     }
     /// Adds a present file extension, called with file extensions matching `name`.
     pub fn add_present_file(&mut self, name: impl AsRef<str>, extension: Present) {
-        self.present_file.insert(name.as_ref().to_owned(), extension);
+        self.present_file
+            .insert(name.as_ref().to_owned(), extension);
     }
     /// Adds a package extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_package(&mut self, extension: Package, id: Id) {
@@ -826,7 +830,6 @@ macro_rules! get_unsafe_mut_wrapper {
 /// This type is used in the `move ||` part of extensions.
 #[repr(transparent)]
 #[must_use]
-#[allow(missing_debug_implementations)]
 pub struct SuperUnsafePointer<T> {
     pointer: *mut T,
 }
@@ -871,6 +874,26 @@ impl<T> SuperUnsafePointer<T> {
 }
 unsafe impl<T: Send> Send for SuperUnsafePointer<T> {}
 unsafe impl<T: Sync> Sync for SuperUnsafePointer<T> {}
+impl<T> Debug for SuperUnsafePointer<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SuperUnsafePointer")
+            .field("pointer", &"unsafe pointer".as_clean())
+            .finish()
+    }
+}
+impl<T> Clone for SuperUnsafePointer<T> {
+    fn clone(&self) -> Self {
+        // This is safe, as the new type adheres to the same guarantees
+        // as `self`.
+        unsafe { Self::new(self.get()) }
+    }
+}
+impl<T> PartialEq for SuperUnsafePointer<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.pointer == other.pointer
+    }
+}
+impl<T> Eq for SuperUnsafePointer<T> {}
 
 get_unsafe_wrapper!(RequestWrapper, FatRequest);
 get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
@@ -1230,7 +1253,7 @@ impl CorsAllowList {
 /// The default `cache_for` is 1 hour.
 impl Default for CorsAllowList {
     fn default() -> Self {
-        Self::new(time::Duration::from_secs(60*60))
+        Self::new(time::Duration::from_secs(60 * 60))
     }
 }
 

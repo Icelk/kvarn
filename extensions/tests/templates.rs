@@ -9,9 +9,12 @@ async fn basic() {
 [1]\
 ";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "1");
@@ -26,9 +29,12 @@ async fn non_existent() {
 Nothing here!\
 ";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "Nothing here!");
@@ -45,9 +51,12 @@ async fn several_files() {
 [1!]
 ";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "\\2\\2[2]\n111\n");
@@ -61,9 +70,12 @@ async fn non_closing() {
 [2!]\
 ";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "");
@@ -77,9 +89,12 @@ async fn escaping() {
 \\[2]
 [\n2\n]";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "[2]\n\\2\\2[2]");
@@ -91,9 +106,12 @@ async fn spaces_before_template() {
     let file = r"!> tmpl 3.txt
    [spaces]";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "   this contains spaces!");
@@ -108,12 +126,18 @@ this is complex
 [complex]
 data";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
-    assert_eq!(response.text().await.unwrap(), "this is complex\noh <b>so</b> complex\ndata");
+    assert_eq!(
+        response.text().await.unwrap(),
+        "this is complex\noh <b>so</b> complex\ndata"
+    );
 }
 
 #[cfg(feature = "templates")]
@@ -125,9 +149,12 @@ async fn tmpl_ignore() {
 [1!]
 data";
     let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single("/index.html".to_string(), prepare!(_req, _host, _path, _addr {
-        FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
-    }));
+    ext.add_prepare_single(
+        "/index.html".to_string(),
+        prepare!(_req, _host, _path, _addr {
+            FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
+        }),
+    );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "111\ndata");

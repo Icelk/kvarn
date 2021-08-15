@@ -479,13 +479,13 @@ impl<'a> Query<'a> {
     }
     /// Index can be any position in the array with the [`QueryPair::name`] set to `name`.
     fn iterate_to_last(&self, name: &str, mut index: usize) -> usize {
-            for pair in &self.pairs[index..] {
-                if pair.name() == name {
-                    index += 1;
-                } else {
-                    break;
-                }
+        for pair in &self.pairs[index..] {
+            if pair.name() == name {
+                index += 1;
+            } else {
+                break;
             }
+        }
         index
     }
     /// See [`Self::index_of`] and [`Self::iterate_to_first`].
@@ -660,7 +660,10 @@ impl CriticalRequestComponents {
     ///
     /// Will return a [`SanitizeError::RangeNotSatisfiable`] if the start of the range is greater
     /// than the length of the body.
-    pub async fn apply_to_response(&self, response: &mut Response<Bytes>) -> Result<(), SanitizeError> {
+    pub async fn apply_to_response(
+        &self,
+        response: &mut Response<Bytes>,
+    ) -> Result<(), SanitizeError> {
         if let Some((range_start, mut range_end)) = self.get_range() {
             // Clamp to length
             if range_end >= response.body().len() {

@@ -69,7 +69,9 @@ mod tests {
     #[tokio::test]
     async fn no_fs() {
         let server = ServerBuilder::from(crate::new())
-            .with_options(|options| {options.disable_fs();})
+            .with_options(|options| {
+                options.disable_fs();
+            })
             .run()
             .await;
 

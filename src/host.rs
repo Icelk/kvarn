@@ -749,3 +749,80 @@ pub fn get_certified_key(
 
     Ok((chain, Arc::new(key)))
 }
+
+pub(crate) type VaryTransformation = Pin<Box<dyn Fn(&str) -> Cow<'static, str>>>;
+pub(crate) struct VaryRule {
+    pub(crate) name: &'static str,
+    pub(crate) transformation: VaryTransformation,
+    pub(crate) default: &'static str,
+}
+/// Always adds `accept-encoding` and `range`
+pub struct VarySettings {
+    pub(crate) rules: Vec<VaryRule>,
+}
+impl VarySettings {
+    pub fn empty() -> Self {
+        Self { rules: Vec::new() }
+    }
+    /// Preserves the variants of documents with different `content-language` response headers.
+    ///
+    /// `ToDo`: more info about what this does
+    pub fn with_lang(mut self, possible_languages: Vec<&'static str>) -> Self {
+        self.add_rule(
+            "accept-language",
+            "content-language",
+            |header| Cow::Owned(header.to_owned()),
+            |request, transformed| {
+                if !possible_languages.iter().any(|lang| request.contains(lang)) {
+                    return true;
+                }
+                request.contains(transformed)
+            },
+        )
+    }
+    /// Preserves the variants of documents with different `content-type` response headers.
+    /// Only the essence of the Media Type is preserved.
+    ///
+    /// `ToDo`: Fix this. Mayby add something like `with_lang`? Or do we accept all?
+    /// Integrade these with the config file in the future?
+    pub fn with_content_type(mut self) -> Self {
+        self.add_rule("accept", "content-type", |header| {
+            let mime = header.parse::<Mime>();
+            match mime {
+                Ok(mime) => Cow::Owned(mime.essence_str().to_owned()),
+                Err(_) => Cow::Owned(header.to_owned()),
+            }
+        })
+    }
+    /// Add a custom rule.
+    /// Prefer to return a limited set of `&'static str` to minimize cache size.
+    /// If you generate [`String`]s, keep the amount of different strings.
+    /// The `request_header` is used when outputting the `vary` header
+    /// and for the internal cache.
+    ///
+    /// `transformation` takes `request_header` and narrows the variants down
+    /// to a finite number.
+    ///
+    /// If you have a large set or infinitely many variants outputted by `transformation`,
+    /// the cache will suffer. Consider disabling the cache for the files affected by this rule
+    /// to improve performance.
+    ///
+    /// What are the contracts needed for all the shit to not hit the fan?
+    /// What about the other functions in this struct?
+    /// - The `request...` must return true on the transformed response headers of the same request
+    /// it's providing.
+    pub fn add_rule(
+        mut self,
+        request_header: &'static str,
+        transformation: impl Fn(&str) -> Cow<'static, str> + 'static,
+        default: &'static str,
+    ) -> Self {
+        self.rules.push(VaryRule {
+            name: request_header,
+            response_header,
+            transformation: Box::pin(transformation),
+            request_matches_transformed: Box::pin(request_matches_transformed),
+        });
+        self
+    }
+}

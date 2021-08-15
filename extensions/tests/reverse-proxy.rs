@@ -158,11 +158,7 @@ async fn chunked_encoding() {
     .mount(&mut extensions);
     let proxy = ServerBuilder::from(extensions).run().await;
 
-    let response = proxy
-        .get("/api/chunked")
-        .send()
-        .await
-        .unwrap();
+    let response = proxy.get("/api/chunked").send().await.unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     assert_eq!(response.text().await.unwrap(), "hello world!");
