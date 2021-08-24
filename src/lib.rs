@@ -612,18 +612,26 @@ pub async fn handle_cache(
                         let path = if host.options.disable_fs {
                             None
                         } else {
-                            Some(utils::make_path(
-                                &host.path,
-                                host.options
-                                    .public_data_dir
-                                    .as_deref()
-                                    .unwrap_or_else(|| Path::new("public")),
-                                // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
-                                // We also are OK with all Uris, since we did a check on the
-                                // incoming and presume all internal extension changes are good.
-                                utils::parse::uri(request.uri().path()).unwrap(),
-                                None,
-                            ))
+                            if let Ok(decoded) =
+                                percent_encoding::percent_decode_str(request.uri().path())
+                                    .decode_utf8()
+                            {
+                                Some(utils::make_path(
+                                    &host.path,
+                                    host.options
+                                        .public_data_dir
+                                        .as_deref()
+                                        .unwrap_or_else(|| Path::new("public")),
+                                    // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
+                                    // We also are OK with all Uris, since we did a check on the
+                                    // incoming and presume all internal extension changes are good.
+                                    utils::parse::uri(&decoded).unwrap(),
+                                    None,
+                                ))
+                            } else {
+                                warn!("Invalid percent encoding in path.");
+                                None
+                            }
                         };
 
                         handle_request(&mut request, overide_uri.as_ref(), address, host, &path)
