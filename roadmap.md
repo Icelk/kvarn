@@ -78,7 +78,7 @@ for quickly adding secure and *extremely speedy* authentication.
 This is where Kvarn becomes cutting-edge.
 
 > Kvarn already has a good flexible design, so adding this is largely making
-> a glue-crate to make HTTP/3 accessible like it is in the `h2` crate.
+> a glue-crate to make HTTP/3 accessible like HTTP/2 is in the `h2` crate.
 
 ## To do
 
@@ -96,6 +96,8 @@ because `Wren` seems very fast and interesting, while `Lua` is simply a classic,
 Also, I'll maybe crate bindings for the Zend engine (PHP) and make a PHP crate. It would allow to run the PHP interpreter
 from within Kvarn, possibly improving performance.
 
+Another challenge is isolating requests while using one VM.
+
 ## To do
 
 - [ ] Make a good API in `kvarn_extensions` to add dynamic languages
@@ -106,4 +108,3 @@ from within Kvarn, possibly improving performance.
 - [ ] cfg
 - [ ] PHP bindings
 - [ ] PHP crate
-- [ ] isolating PHP requests while keeping VM alive.
