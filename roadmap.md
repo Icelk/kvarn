@@ -18,7 +18,7 @@ making any other async requests to a database or to proxy another server does no
 We have now reached this milestone, with HTTP/2, fast async IO, a new superior extension system, and nearly no code left from v0.1.0!
 This release is now currently running [icelk.dev](https://icelk.dev) and [kvarn.org](https://kvarn.org).
 
-This is a *real* performance uplift. It's essentially a complete rewrite of Kvarn.
+This is a _real_ performance uplift. It's essentially a complete rewrite of Kvarn.
 The pages at kvarn.org, especially the one about [extensions](https://kvarn.org/extensions/) and
 the [request pipeline](https://kvarn.org/pipeline.) should make the design choices more clear.
 It should be understandable even for non-programmers. It should make it easier to integrate with Kvarn.
@@ -29,49 +29,49 @@ It should be understandable even for non-programmers. It should make it easier t
 
 ## Left to do
 
-- [x] Tokio
-- [x] Async io
-- [x] Async extensions
-- [x] Flexible interface for HTTP versions
-- [x] HTTP/2
-- [x] limiting
-- [x] HEAD
-- [x] check routing and extensions.md plan
-- [x] more #[inline]
-- [x] Referrer header in `Extensions::new()`
-- [x] cfg (https, multithreading, http2)
+-   [x] Tokio
+-   [x] Async io
+-   [x] Async extensions
+-   [x] Flexible interface for HTTP versions
+-   [x] HTTP/2
+-   [x] limiting
+-   [x] HEAD
+-   [x] check routing and extensions.md plan
+-   [x] more #[inline]
+-   [x] Referrer header in `Extensions::new()`
+-   [x] cfg (https, multithreading, http2)
 
 # v0.3.0 Core
 
-This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small features necessary for a *solid* web server.
+This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small features necessary for a _solid_ web server.
 
 The name comes from the current plan to move core stuff into it's own crate.
 
 ## To do
 
-- [x] Full doc coverage (this took *way* too long...)
-- [x] Partial test coverage
-- [x] Extension macros
-- [x] Additional server-side cache options, including parsing `cache-control` header
-- [ ] Cache handling of Vary header (definitely the hardest)
-- [x] Byte ranges
-- [x] `read_to_bytes()` performance
-- [x] Implement an easy-to-configure proxy extension in kvarn_extensions
-- [x] If-Modified-Since header to increase client cache performance
-- [x] Move core stuff
-- [x] Smart push (so all other data isn't pushed on every request)
-- [x] Graceful shutdown and handover. Maintenance and updates are now a non-issue!
-- [x] IPv6
+-   [x] Full doc coverage (this took _way_ too long...)
+-   [x] Partial test coverage
+-   [x] Extension macros
+-   [x] Additional server-side cache options, including parsing `cache-control` header
+-   [ ] Cache handling of Vary header (definitely the hardest)
+-   [x] Byte ranges
+-   [x] `read_to_bytes()` performance
+-   [x] Implement an easy-to-configure proxy extension in kvarn_extensions
+-   [x] If-Modified-Since header to increase client cache performance
+-   [x] Move core stuff
+-   [x] Smart push (so all other data isn't pushed on every request)
+-   [x] Graceful shutdown and handover. Maintenance and updates are now a non-issue!
+-   [x] IPv6
 
 # v0.4.0 WebSockets & Auth
 
 This release should contain good WebSocket integration and an easy-to-use Auth API
-for quickly adding secure and *extremely speedy* authentication.
+for quickly adding secure and _extremely speedy_ authentication.
 
 ## To do
 
-- [ ] WebSocket integration
-- [ ] Authentication API in Layer 6
+-   [ ] WebSocket integration
+-   [ ] Authentication API in Layer 6
 
 # v0.5.0 HTTP/3
 
@@ -82,15 +82,15 @@ This is where Kvarn becomes cutting-edge.
 
 ## To do
 
-*Well...*
+_Well..._
 
-- [ ] HTTP/3 crate
-- [ ] HTTP/3 support in Kvarn
-- [ ] cfg to disable new feature
+-   [ ] HTTP/3 crate
+-   [ ] HTTP/3 support in Kvarn
+-   [ ] cfg to disable new feature
 
 # v0.6.0 DynLan
 
-This is where ***dyn***amic ***lan***guages are introduced to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
+This is where **_dyn_**amic **_lan_**guages are introduced to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
 because `Wren` seems very fast and interesting, while `Lua` is simply a classic, with JIT support in Rust.
 
 Also, I'll maybe crate bindings for the Zend engine (PHP) and make a PHP crate. It would allow to run the PHP interpreter
@@ -100,11 +100,11 @@ Another challenge is isolating requests while using one VM.
 
 ## To do
 
-- [ ] Make a good API in `kvarn_extensions` to add dynamic languages
+-   [ ] Make a good API in `kvarn_extensions` to add dynamic languages
     > Callbacks to Rust function like getting the cache
     > (or the contents of a file from the cache) will be the difficult part.
-- [ ] Wren
-- [ ] Lua
-- [ ] cfg
-- [ ] PHP bindings
-- [ ] PHP crate
+-   [ ] Wren
+-   [ ] Lua
+-   [ ] cfg
+-   [ ] PHP bindings
+-   [ ] PHP crate
