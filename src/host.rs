@@ -817,11 +817,13 @@ impl VarySettings {
         transformation: impl Fn(&str) -> Cow<'static, str> + 'static,
         default: &'static str,
     ) -> Self {
+        if self.rules.len() > 4 {
+            warn!("More than 4 headers affect the caching of requests. This will exponentially increase memory usage.")
+        }
         self.rules.push(VaryRule {
             name: request_header,
-            response_header,
             transformation: Box::pin(transformation),
-            request_matches_transformed: Box::pin(request_matches_transformed),
+            default,
         });
         self
     }

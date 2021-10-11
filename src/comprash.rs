@@ -514,7 +514,11 @@ impl VariedResponse {
     /// # Safety
     ///
     /// `settings` must not be dropped during the lifetime of this object.
-    pub fn new<T>(response: CompressedResponse, request: &Request<T>, settings: &host::VarySettings) -> Self {
+    pub fn new<T>(
+        response: CompressedResponse,
+        request: &Request<T>,
+        settings: &host::VarySettings,
+    ) -> Self {
         let mut available_headers = Vec::new();
         for rule in &settings.rules {
             if let Some(response_header) =
@@ -542,52 +546,11 @@ impl VariedResponse {
     }
     pub fn push_response(&mut self, response: CompressedResponse, params: VaryCacheParams) {
         debug_assert_eq!(self.reference_headers.len(), params.headers.len());
-        // let headers = {
-        // let mut headers = Vec::new();
-        // for reference in self.reference_headers.iter() {
-        // let response_header = &reference.transformed;
-        // if let Some(header) = response
-        // .get_identity()
-        // .headers()
-        // .get(*response_header)
-        // .map(HeaderValue::to_str)
-        // .and_then(Result::ok)
-        // {
-        // // This is safe because the type is `Pin` and `Host` is alive as long as the
-        // // Kvarn server.
-        // let transformation = unsafe { reference.transformation.get() };
-        // let header = transformation(header);
-        // headers.push(VaryHeader {
-        // name: &reference.name,
-        // transformed: header,
-        // });
-        // } else {
-        // warn!("Not all expected response headers found in new response with a `vary` header. All of {:?} expected.", self.reference_headers.iter().map(|pair| &pair.transformed));
-        // return;
-        // }
-        // }
-        // headers
-        // };
-
-        if self.contains_other(&headers) {
-            // warn!("Varied response has the same response headers as another request, but the request header transformation returned different. You need to look into those.");
-            // Duplicate, nothing to worry about.
-            return;
-        }
         let VaryCacheParams { position, headers } = params;
-        self.responses.insert(position, (response, headers))
-
-        // self.push(response, headers);
+        self.responses.insert(position, (response, headers));
     }
-    // fn push(&mut self, response: CompressedResponse, headers: Vec<VaryHeader>) {
-    // self.responses.push((response, headers));
-
-    // self.responses.sort_by_key(|pair| pair.1);
-    // }
-    fn contains_other(&self, other: &[VaryHeader]) -> bool {
-        self.responses
-            .binary_search_by_key(&other, |pair| &pair.1)
-            .is_ok()
+    fn get(&self, other: &[VaryHeader]) -> Result<usize, usize> {
+        self.responses.binary_search_by_key(&other, |pair| &pair.1)
     }
     pub fn get_by_request<T>(
         &self,
@@ -611,13 +574,18 @@ impl VariedResponse {
                         transformed: header,
                     });
                 } else {
-                    // warn!("Not all expected response headers found in new response with a `vary` header. All of {:?} expected.", self.reference_headers.iter().map(|pair| &pair.transformed));
-                    // return;
                     headers.push(Cow::Borrowed(reference.default))
                 }
             }
             headers
         };
+        match self.get(&headers) {
+            Ok(position) => Ok(self.responses[position]),
+            Err(sorted_position) => Err(VaryCacheParams {
+                position: sorted_position,
+                headers,
+            }),
+        }
     }
 }
 
