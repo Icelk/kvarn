@@ -94,6 +94,8 @@ fn push(
 
         // If user agent is Firefox, return.
         // This implementations of push doesn not work with Firefox!
+        // I do not know why. Any help is appreciated.
+        // Kvarn follows the HTTP/2 spec completely, according to h2spec.
         if unsafe { request.get_inner() }
             .headers()
             .get("user-agent")
