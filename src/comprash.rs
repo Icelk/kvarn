@@ -19,7 +19,7 @@ use std::{
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
 pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a response cache.
-pub type ResponseCache = Mutex<Cache<UriKey, CompressedResponse>>;
+pub type ResponseCache = Mutex<Cache<UriKey, VariedResponse>>;
 
 /// A path an optional query used in [`UriKey`]
 ///
@@ -171,12 +171,10 @@ pub fn do_compress(mime: &Mime, check_utf8: impl Fn() -> bool) -> bool {
 ///
 /// The compressed body is cached.
 /// It therefore uses `unsafe` to mutate the [`Option`]s containing the compressed data.
-/// This should be fine; we only write once, if the value is [`None].
-///
-/// This should (maybe) be replaced by a more general `vary` header solution soon.
+/// This should be fine; we only write once, if the value is [`None`].
 #[derive(Debug)]
 #[must_use]
-pub(crate) struct CompressedResponse {
+pub struct CompressedResponse {
     identity: Response<Bytes>,
     gzip: Option<Bytes>,
     br: Option<Bytes>,
@@ -481,32 +479,42 @@ impl CompressedResponse {
     }
 }
 
-type HeaderStr = Cow<'static, str>;
-
+/// A header that is subject to the `vary` header.
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord)]
-struct VaryHeader {
+pub(crate) struct VaryHeader {
     name: &'static str,
-    transformed: HeaderStr,
+    transformed: Cow<'static, str>,
 }
+/// A reference header to build [`VaryHeader`] against.
+///
+/// Contains the name of the header,
+/// how to get the header value to store,
+/// and a default if the header isn't available in the request.
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct VaryHeaderReference {
     name: &'static str,
-    transformed: HeaderStr,
     transformation: SuperUnsafePointer<host::VaryTransformation>,
     default: &'static str,
 }
+
+/// A list of [`VaryHeader`]s.
+///
+/// Used as all the [`VaryHeader`]s that govern the caching of a single response.
 type HeaderCollection = Vec<VaryHeader>;
+/// The parameters needed to cache a response.
+///
+/// Can be obtained from [`VariedResponse::get_by_request`].
 pub(crate) struct VaryCacheParams {
     position: usize,
     headers: HeaderCollection,
 }
 
 #[derive(Debug)]
-/// Gets the request headers present in the first response on this path,
-/// process which are present in both the request and the rules of [`host::VarySettings`],
-/// and use those headers as a key to the response.
-/// If a request with a response does not have the header, the default is used.
-pub(crate) struct VariedResponse {
+/// A collection of multiple responses depending on the headers the client sent,
+/// according to the `vary` header.
+///
+/// The caching of multiple responses per path is controlled using [`Host::vary`].
+pub struct VariedResponse {
     reference_headers: Vec<VaryHeaderReference>,
     responses: Vec<(CompressedResponse, HeaderCollection)>,
 }
@@ -514,26 +522,25 @@ impl VariedResponse {
     /// # Safety
     ///
     /// `settings` must not be dropped during the lifetime of this object.
-    pub fn new<T>(
+    /// Keeping the [`host`] alive (which contains the cache) is enough.
+    pub(crate) unsafe fn new<T>(
         response: CompressedResponse,
         request: &Request<T>,
         settings: &host::VarySettings,
     ) -> Self {
-        let mut available_headers = Vec::new();
-        for rule in &settings.rules {
-            if let Some(response_header) =
-                response.get_identity().headers().get(rule.response_header)
-            {
-                available_headers.push(VaryHeaderReference {
-                    name: rule.name,
-                    transformed: rule.response_header,
-                    // This is safe because the type is `Pin` and `Host` is alive as long as the
+        let available_headers = settings
+            .rules
+            .iter()
+            .map(|rule| {
+                VaryHeaderReference {
+                    name: rule.name(),
+                    // This is (mostly) safe because the type is `Pin` and `Host` is alive as long as the
                     // Kvarn server.
-                    transformation: unsafe { SuperUnsafePointer::new(&rule.transformation) },
-                    default: rule.default,
-                });
-            }
-        }
+                    transformation: SuperUnsafePointer::new(rule.transformation()),
+                    default: rule.default(),
+                }
+            })
+            .collect();
         let mut me = Self {
             reference_headers: available_headers,
             responses: Vec::new(),
@@ -544,18 +551,23 @@ impl VariedResponse {
 
         me
     }
-    pub fn push_response(&mut self, response: CompressedResponse, params: VaryCacheParams) {
+    pub(crate) fn push_response(
+        &mut self,
+        response: CompressedResponse,
+        params: VaryCacheParams,
+    ) -> &(CompressedResponse, HeaderCollection) {
         debug_assert_eq!(self.reference_headers.len(), params.headers.len());
         let VaryCacheParams { position, headers } = params;
         self.responses.insert(position, (response, headers));
+        &self.responses[position]
     }
     fn get(&self, other: &[VaryHeader]) -> Result<usize, usize> {
         self.responses.binary_search_by_key(&other, |pair| &pair.1)
     }
-    pub fn get_by_request<T>(
+    pub(crate) fn get_by_request<T>(
         &self,
         request: &Request<T>,
-    ) -> Result<CompressedResponse, VaryCacheParams> {
+    ) -> Result<&(CompressedResponse, HeaderCollection), VaryCacheParams> {
         let headers = {
             let mut headers = Vec::new();
             // Check every stored in here,
@@ -568,24 +580,34 @@ impl VariedResponse {
                     .map(HeaderValue::to_str)
                     .and_then(Result::ok)
                 {
+                    // SAFETY: guaranteed by [`Self::new`]
+                    let transformation = unsafe { reference.transformation.get() };
                     let header = transformation(header);
                     headers.push(VaryHeader {
                         name: &reference.name,
                         transformed: header,
                     });
                 } else {
-                    headers.push(Cow::Borrowed(reference.default))
+                    headers.push(VaryHeader {
+                        name: &reference.name,
+                        transformed: Cow::Borrowed(reference.default),
+                    })
                 }
             }
             headers
         };
         match self.get(&headers) {
-            Ok(position) => Ok(self.responses[position]),
+            Ok(position) => Ok(&self.responses[position]),
             Err(sorted_position) => Err(VaryCacheParams {
                 position: sorted_position,
                 headers,
             }),
         }
+    }
+    pub(crate) fn first(&self) -> &CompressedResponse {
+        // We know there will be at least one; the [`Self::new`] method always inserts one
+        // response.
+        &self.responses.iter().next().unwrap().0
     }
 }
 
@@ -859,23 +881,29 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
     ///
     /// See [`HashMap::get`] for more info.
     #[inline]
-    pub fn get<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&V>
+    pub fn get<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&mut V>
     where
         K: Borrow<Q>,
     {
-        self.get_with_lifetime(key).map(|v| &v.0)
+        self.get_with_lifetime(key).map(|v| &mut v.0)
     }
     /// Gets the [`CacheItem`] at `key` from the cache.
     /// Consider using [`Self::get`] for most operations.
     ///
     /// This includes all lifetime information about the item in the cache.
     /// See [`CacheItem`] for more info about this.
-    pub fn get_with_lifetime<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&CacheItem<V>>
+    pub fn get_with_lifetime<Q: ?Sized + Hash + Eq>(
+        &mut self,
+        key: &Q,
+    ) -> CacheOut<&mut CacheItem<V>>
     where
         K: Borrow<Q>,
     {
+        // Here for borrowing issues after `self.map.get_mut`.
+        // See the SAFETY note bellow.
+        let ptr: *const _ = self;
         // maybe set tokio timers to remove items instead?
-        match self.map.get(key) {
+        match self.map.get_mut(key) {
             Some(value_and_lifetime)
                 if value_and_lifetime.1 .1.map_or(true, |lifetime| {
                     Utc::now() - value_and_lifetime.1 .0 <= lifetime
@@ -887,7 +915,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
                 // SAFETY: No other have a reference to self; the other branches are just that,
                 // other branches, and their references are returned, so this code isn't ran.
                 #[allow(clippy::cast_ref_to_mut)]
-                unsafe { &mut *(self as *const _ as *mut Cache<K, V>) }.remove(key);
+                unsafe { &mut *(ptr as *mut Cache<K, V>) }.remove(key);
                 CacheOut::None
             }
             None => CacheOut::None,
@@ -975,23 +1003,23 @@ impl<K: Eq + Hash, V, H: Hasher> Cache<K, V, H> {
         });
     }
 }
-impl<K: Eq + Hash, H: Hasher> Cache<K, CompressedResponse, H> {
+impl<K: Eq + Hash, H: Hasher> Cache<K, VariedResponse, H> {
     /// Caches a [`CompressedResponse`] and returns the previous response, if any.
-    pub fn cache(&mut self, key: K, response: CompressedResponse) -> CacheOut<CompressedResponse> {
-        let lifetime = parse::CacheControl::from_headers(response.get_identity().headers())
+    pub fn cache(&mut self, key: K, response: VariedResponse) -> CacheOut<VariedResponse> {
+        let lifetime = parse::CacheControl::from_headers(response.first().get_identity().headers())
             .ok()
             .as_ref()
             .and_then(parse::CacheControl::as_freshness)
             .map(|s| Duration::seconds(s as i64));
 
-        let identity = response.get_identity().body();
+        let identity = response.first().get_identity().body();
         let identity_fragment = &identity[identity.len().saturating_sub(512)..];
         self.feed_hasher(identity_fragment);
 
         debug!("Inserted item to cache with lifetime {:?}", lifetime);
 
         self.insert(
-            response.get_identity().body().len(),
+            response.first().get_identity().body().len(),
             key,
             response,
             lifetime,

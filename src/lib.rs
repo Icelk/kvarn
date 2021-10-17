@@ -466,6 +466,94 @@ pub async fn handle_cache(
     mut pipe: SendKind<'_>,
     host: &Host,
 ) -> io::Result<()> {
+    /// Get a [`comprash::CompressedResponse`].
+    ///
+    /// # Errors
+    ///
+    /// Returns errors from [`Extensions::resolve_present`].
+    async fn get_response(
+        request: &mut Request<application::Body>,
+        host: &Host,
+        sanitize_data: &Result<CriticalRequestComponents, SanitizeError>,
+        address: SocketAddr,
+        overide_uri: Option<&Uri>,
+    ) -> io::Result<(
+        comprash::CompressedResponse,
+        ClientCachePreference,
+        ServerCachePreference,
+        Option<ResponsePipeFuture>,
+        comprash::PathQuery,
+    )> {
+        let path_query = comprash::PathQuery::from_uri(request.uri());
+        let (mut resp, mut client_cache, mut server_cache, compress, future) =
+            match sanitize_data {
+                Ok(_) => {
+                    let path = if host.options.disable_fs {
+                        None
+                    } else {
+                        if let Ok(decoded) =
+                            percent_encoding::percent_decode_str(request.uri().path()).decode_utf8()
+                        {
+                            Some(utils::make_path(
+                                &host.path,
+                                host.options
+                                    .public_data_dir
+                                    .as_deref()
+                                    .unwrap_or_else(|| Path::new("public")),
+                                // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
+                                // We also are OK with all Uris, since we did a check on the
+                                // incoming and presume all internal extension changes are good.
+                                utils::parse::uri(&decoded).unwrap(),
+                                None,
+                            ))
+                        } else {
+                            warn!("Invalid percent encoding in path.");
+                            None
+                        }
+                    };
+
+                    handle_request(request, overide_uri, address, host, &path).await?
+                }
+                Err(err) => error::sanitize_error_into_response(*err, host).await,
+            }
+            .into_parts();
+
+        host.extensions
+            .resolve_present(
+                request,
+                &mut resp,
+                &mut client_cache,
+                &mut server_cache,
+                host,
+                address,
+            )
+            .await?;
+
+        let extension = match Path::new(request.uri().path())
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+        {
+            Some(ext) => ext,
+            None => match host.options.extension_default.as_ref() {
+                Some(ext) => ext.as_str(),
+                None => "",
+            },
+        };
+        Ok((
+            comprash::CompressedResponse::new(
+                resp,
+                compress,
+                client_cache,
+                extension,
+                host.options.disable_client_cache,
+            ),
+            client_cache,
+            server_cache,
+            future,
+            path_query,
+        ))
+    }
+
     let sanitize_data = utils::sanitize_request(&request);
 
     let overide_uri = host
@@ -516,6 +604,7 @@ pub async fn handle_cache(
 
             let creation = *creation;
 
+            // Handle `if-modified-since` header.
             let if_modified_since: Option<chrono::DateTime<chrono::Utc>> = if host
                 .options
                 .disable_if_modified_since
@@ -541,12 +630,28 @@ pub async fn handle_cache(
                 // but `if_modified_since` is `None` and therefore `client_request` is false
                 // if the option is enabled, as defined in the if in the `if_modified_since`
                 // definition.
-                if  client_request_is_fresh {
+                if client_request_is_fresh {
                     drop(lock);
                     let mut response = Response::new(Bytes::new());
                     *response.status_mut() = StatusCode::NOT_MODIFIED;
                     (response, Bytes::new(), None)
                 } else {
+                    let (resp, vary, future) = match resp.get_by_request(&request) {
+                        Ok((cr, h)) => (cr, h, None),
+                        Err(params) => {
+                            let (compressed_response, _, _ ,future, _) = get_response(
+                                &mut request,
+                                host,
+                                &sanitize_data,
+                                address,
+                                overide_uri.as_ref()
+                            )
+                            .await?;
+
+                            let (cr, v) = resp.push_response(compressed_response, params);
+                            (cr, v, future)
+                        }
+                    };
                     let response = match resp.clone_preferred(&request) {
                         Err(message) => {
                             error::default(
@@ -561,7 +666,7 @@ pub async fn handle_cache(
                     let identity_body = Bytes::clone(resp.get_identity().body());
                     drop(lock);
 
-                    (response, identity_body, None)
+                    (response, identity_body, future)
                 };
             if !host.options.disable_if_modified_since {
                 let last_modified =
@@ -580,13 +685,13 @@ pub async fn handle_cache(
                 host: &Host,
                 server_cache: ServerCachePreference,
                 path_query: PathQuery,
-                response: CompressedResponse,
+                response: comprash::VariedResponse,
                 method: &Method,
                 future: &Option<T>,
             ) -> bool {
                 if future.is_none() {
                     if let Some(response_cache) = &host.response_cache {
-                        if server_cache.cache(response.get_identity(), method) {
+                        if server_cache.cache(response.first().get_identity(), method) {
                             let mut lock = response_cache.lock().await;
                             let key = if server_cache.query_matters() {
                                 comprash::UriKey::PathQuery(path_query)
@@ -605,70 +710,15 @@ pub async fn handle_cache(
             }
 
             drop(lock);
-            let path_query = comprash::PathQuery::from_uri(request.uri());
-            let (mut resp, mut client_cache, mut server_cache, compress, future) =
-                match sanitize_data.as_ref() {
-                    Ok(_) => {
-                        let path = if host.options.disable_fs {
-                            None
-                        } else {
-                            if let Ok(decoded) =
-                                percent_encoding::percent_decode_str(request.uri().path())
-                                    .decode_utf8()
-                            {
-                                Some(utils::make_path(
-                                    &host.path,
-                                    host.options
-                                        .public_data_dir
-                                        .as_deref()
-                                        .unwrap_or_else(|| Path::new("public")),
-                                    // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
-                                    // We also are OK with all Uris, since we did a check on the
-                                    // incoming and presume all internal extension changes are good.
-                                    utils::parse::uri(&decoded).unwrap(),
-                                    None,
-                                ))
-                            } else {
-                                warn!("Invalid percent encoding in path.");
-                                None
-                            }
-                        };
 
-                        handle_request(&mut request, overide_uri.as_ref(), address, host, &path)
-                            .await?
-                    }
-                    Err(err) => error::sanitize_error_into_response(*err, host).await,
-                }
-                .into_parts();
-
-            host.extensions
-                .resolve_present(
-                    &mut request,
-                    &mut resp,
-                    &mut client_cache,
-                    &mut server_cache,
-                    host,
-                    address,
-                )
-                .await?;
-
-            let extension = match Path::new(request.uri().path())
-                .extension()
-                .and_then(std::ffi::OsStr::to_str)
-            {
-                Some(ext) => ext,
-                None => match host.options.extension_default.as_ref() {
-                    Some(ext) => ext.as_str(),
-                    None => "",
-                },
-            };
-            let compressed_response = comprash::CompressedResponse::new(
-                resp,
-                compress,
-                client_cache,
-                extension,
-                host.options.disable_client_cache,
-            );
+            let (compressed_response, _, server_cache, future, path_query) = get_response(
+                &mut request,
+                host,
+                &sanitize_data,
+                address,
+                overide_uri.as_ref(),
+            )
+            .await?;
 
             let mut response = match compressed_response.clone_preferred(&request) {
                 Err(message) => {
@@ -684,17 +734,25 @@ pub async fn handle_cache(
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
-            let should_cache = maybe_cache(
+            let vary_rules = host.vary.rules_from_request(&request);
+
+            // SAFETY: The requirements are met; the cache we're storing this is is part of the
+            // `host`; the `host` will outlive this struct.
+            let varied_response = unsafe {
+                comprash::VariedResponse::new(compressed_response, &request, vary_rules.as_ref())
+            };
+
+            let cached = maybe_cache(
                 host,
                 server_cache,
                 path_query,
-                compressed_response,
+                varied_response,
                 request.method(),
                 &future,
             )
             .await;
 
-            if !host.options.disable_if_modified_since && should_cache {
+            if !host.options.disable_if_modified_since && cached {
                 let last_modified =
                     HeaderValue::from_str(&chrono::Utc::now().format(parse::HTTP_DATE).to_string())
                         .expect("We know these bytes are valid.");

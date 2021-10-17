@@ -62,6 +62,8 @@ pub struct Host {
     /// Having this host-specific enables different virtual
     /// hosts to have varying degrees of strictness.
     pub limiter: LimitManager,
+    /// Settings for handling caching of responses with the `vary` header.
+    pub vary: Vary,
 
     /// Other settings.
     pub options: Options,
@@ -140,6 +142,7 @@ impl Host {
             response_cache: Some(Mutex::new(Cache::default())),
             options,
             limiter: LimitManager::default(),
+            vary: Vary::default(),
         }
     }
     /// Creates a new [`Host`] without a certificate.
@@ -162,6 +165,7 @@ impl Host {
             response_cache: Some(Mutex::new(Cache::default())),
             options,
             limiter: LimitManager::default(),
+            vary: Vary::default(),
         }
     }
 
@@ -750,71 +754,73 @@ pub fn get_certified_key(
     Ok((chain, Arc::new(key)))
 }
 
-pub(crate) type VaryTransformation = Pin<Box<dyn Fn(&str) -> Cow<'static, str>>>;
+/// The transformation on a request header to get the
+/// "key" header value to store in the cache (in the [`comprash::HeaderCollection`]).
+// It's a `Arc` to enable cloning of `VaryRule`.
+pub(crate) type VaryTransformation = Pin<Arc<dyn Fn(&str) -> Cow<'static, str> + Send + Sync>>;
+
+/// A rule for how to handle a single varied header.
+///
+/// Takes the name of the request header,
+/// how to get the header to cache using,
+/// and a default.
+#[derive(Clone)]
 pub(crate) struct VaryRule {
-    pub(crate) name: &'static str,
-    pub(crate) transformation: VaryTransformation,
-    pub(crate) default: &'static str,
+    name: &'static str,
+    transformation: VaryTransformation,
+    default: &'static str,
 }
-/// Always adds `accept-encoding` and `range`
+impl Debug for VaryRule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VaryRule")
+            .field("name", &self.name)
+            .field("transformation", &"[ transformation Fn ]".as_clean())
+            .field("default", &self.default)
+            .finish()
+    }
+}
+impl VaryRule{
+    pub(crate) fn name(&self) -> &'static str {
+        self.name
+    }
+    pub(crate) fn default(&self) -> &'static str {
+        self.default
+    }
+    pub(crate) fn transformation(&self) -> &VaryTransformation {
+        &self.transformation
+    }
+}
+
+/// The rules for handling and caching a request/response.
+#[derive(Debug, Clone, Default)]
 pub struct VarySettings {
     pub(crate) rules: Vec<VaryRule>,
 }
 impl VarySettings {
+    /// Returns an empty set of rules.
+    /// Will not cache any variants, except compressed.
     pub fn empty() -> Self {
         Self { rules: Vec::new() }
     }
-    /// Preserves the variants of documents with different `content-language` response headers.
-    ///
-    /// `ToDo`: more info about what this does
-    pub fn with_lang(mut self, possible_languages: Vec<&'static str>) -> Self {
-        self.add_rule(
-            "accept-language",
-            "content-language",
-            |header| Cow::Owned(header.to_owned()),
-            |request, transformed| {
-                if !possible_languages.iter().any(|lang| request.contains(lang)) {
-                    return true;
-                }
-                request.contains(transformed)
-            },
-        )
-    }
-    /// Preserves the variants of documents with different `content-type` response headers.
-    /// Only the essence of the Media Type is preserved.
-    ///
-    /// `ToDo`: Fix this. Mayby add something like `with_lang`? Or do we accept all?
-    /// Integrade these with the config file in the future?
-    pub fn with_content_type(mut self) -> Self {
-        self.add_rule("accept", "content-type", |header| {
-            let mime = header.parse::<Mime>();
-            match mime {
-                Ok(mime) => Cow::Owned(mime.essence_str().to_owned()),
-                Err(_) => Cow::Owned(header.to_owned()),
-            }
-        })
-    }
     /// Add a custom rule.
-    /// Prefer to return a limited set of `&'static str` to minimize cache size.
-    /// If you generate [`String`]s, keep the amount of different strings.
+    ///
     /// The `request_header` is used when outputting the `vary` header
     /// and for the internal cache.
     ///
-    /// `transformation` takes `request_header` and narrows the variants down
-    /// to a finite number.
+    /// `transformation` takes `request_header` and (hopefully, for performance)
+    /// narrows the variants down to a finite number.
+    ///
+    /// > Prefer to return a limited set of strings from the transformation to
+    /// > minimize cache size. If you generate [`String`]s,
+    /// > limit the amount of different strings.
     ///
     /// If you have a large set or infinitely many variants outputted by `transformation`,
     /// the cache will suffer. Consider disabling the cache for the files affected by this rule
     /// to improve performance.
-    ///
-    /// What are the contracts needed for all the shit to not hit the fan?
-    /// What about the other functions in this struct?
-    /// - The `request...` must return true on the transformed response headers of the same request
-    /// it's providing.
     pub fn add_rule(
         mut self,
         request_header: &'static str,
-        transformation: impl Fn(&str) -> Cow<'static, str> + 'static,
+        transformation: impl Fn(&str) -> Cow<'static, str> + Send + Sync + 'static,
         default: &'static str,
     ) -> Self {
         if self.rules.len() > 4 {
@@ -822,9 +828,76 @@ impl VarySettings {
         }
         self.rules.push(VaryRule {
             name: request_header,
-            transformation: Box::pin(transformation),
+            transformation: Arc::pin(transformation),
             default,
         });
         self
+    }
+}
+/// A set of rules for the `vary` header.
+///
+/// See [`VarySettings::add_rule`] on adding rules
+/// and [`extensions::RuleSet::add`] for linking the [`VarySettings`] to paths.
+///
+/// # Examples
+///
+/// ```
+/// fn test_lang (header: &str) -> &'static str {
+///     let mut langs = utils::list_header(header);
+///     langs.sort_by(|l1, l2| {
+///         l2.quality
+///             .partial_cmp(&l1.quality)
+///             .unwrap_or(cmp::Ordering::Equal)
+///     });
+///
+///     for lang in &langs {
+///         // We take the first language; the values are sorted by quality, so the highest will be
+///         // chosen.
+///         match lang {
+///             "sv" => return "sv",
+///             "en_GB" | "en" => return "en_GB",
+///             _ => ()
+///         }
+///     }
+///     "en_GB"
+/// }
+/// icelk_host.vary.allow(
+///     "/test_lang",
+///     host::VarySettings::empty().add_rule(
+///         "accept-language",
+///         |header| Cow::Borrowed(test_lang(header)),
+///         "en_GB",
+///     ),
+/// );
+/// icelk_host.extensions.add_prepare_single(
+///     "/test_lang",
+///     prepare!(req, _host, _path, _addr {
+///         let æ = req
+///             .headers()
+///             .get("accept-language")
+///             .map(HeaderValue::to_str)
+///             .and_then(Result::ok)
+///             .map_or(false, |header| test_lang(header) == "sv");
+///
+///         let body = if æ {
+///             "Hej!"
+///         } else {
+///             "Hello."
+///         };
+///
+///         FatResponse::cache(Response::new(Bytes::from_static(body.as_bytes())))
+///     }),
+/// );
+/// ```
+#[must_use]
+pub type Vary = extensions::RuleSet<VarySettings>;
+impl Vary {
+    /// Gets the [`VarySettings`] from the ruleset using the path of `request`.
+    pub fn rules_from_request<'a, T>(&'a self, request: &Request<T>) -> Cow<'a, VarySettings> {
+        if let Some(rules) = self.get(request.uri().path()) {
+            Cow::Borrowed(rules)
+        } else {
+            Cow::Owned(VarySettings::default())
+        }
     }
 }

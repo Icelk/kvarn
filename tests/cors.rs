@@ -32,8 +32,8 @@ async fn default_options() {
 fn get_extensions() -> Extensions {
     let mut extensions = Extensions::new();
     let cors = Cors::new()
-        .allow("/logo.svg", CorsAllowList::default().allow_all_origins())
-        .allow(
+        .add("/logo.svg", CorsAllowList::default().allow_all_origins())
+        .add(
             "/api/*",
             CorsAllowList::default()
                 .add_origin("https://icelk.dev")
@@ -42,7 +42,7 @@ fn get_extensions() -> Extensions {
                 .add_method(Method::PUT)
                 .add_method(Method::DELETE),
         )
-        .allow(
+        .add(
             "/images/*",
             CorsAllowList::new(time::Duration::from_secs(60 * 60 * 24 * 365))
                 .add_origin("https://example.org")

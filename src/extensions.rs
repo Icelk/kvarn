@@ -1034,46 +1034,8 @@ unsafe impl Sync for LazyRequestBody {}
 ///                 .add_method(Method::POST)
 ///         );
 /// ```
-#[must_use]
-#[derive(Debug)]
-pub struct Cors {
-    rules: Vec<(String, CorsAllowList)>,
-}
+pub type Cors = RuleSet<CorsAllowList>;
 impl Cors {
-    /// Creates a new CORS ruleset without any rules.
-    /// All CORS requests are rejected.
-    pub fn new() -> Self {
-        Self { rules: Vec::new() }
-    }
-    /// Allows requests from the `allow_list` to access `path`.
-    ///
-    /// By default, `path` will only match requests with the exact path.
-    /// This can be changed by appending `*` to the end of the path, which
-    /// will then check if the request path start with `path`.
-    pub fn allow(mut self, path: impl AsRef<str>, allow_list: CorsAllowList) -> Self {
-        let path = path.as_ref().to_owned();
-
-        self.rules.push((path, allow_list));
-
-        self.rules.sort_by(|a, b| {
-            use std::cmp::Ordering;
-            if a.0.ends_with('*') == b.0.ends_with('*') {
-                b.0.len().cmp(&a.0.len())
-            } else if a.0.ends_with('*') {
-                Ordering::Greater
-            } else {
-                Ordering::Less
-            }
-        });
-
-        self
-    }
-    /// Puts `self` in a [`Arc`].
-    /// Useful for adding the CORS ruleset with [`Extensions::add_cors`].
-    #[must_use]
-    pub fn build(self) -> Arc<Self> {
-        Arc::new(self)
-    }
     /// Check if the (cross-origin) request's `origin` [`Uri`] is allowed by the CORS rules.
     ///
     /// See [`CorsAllowList::check`] for info about the return types.
@@ -1082,16 +1044,7 @@ impl Cors {
         origin: &Uri,
         uri_path: &str,
     ) -> Option<(&[Method], &[HeaderName], time::Duration)> {
-        for (path, allow) in &self.rules {
-            if path == uri_path
-                || (path
-                    .strip_suffix('*')
-                    .map_or(false, |path| uri_path.starts_with(path)))
-            {
-                return allow.check(origin);
-            }
-        }
-        None
+        self.get(uri_path).and_then(|cal| cal.check(origin))
     }
     /// Check if the [`Request::headers`] and [`Request::uri`] is allowed with this ruleset.
     ///
@@ -1154,7 +1107,74 @@ impl Cors {
             .map_or(false, |authority| authority == origin_authority)
     }
 }
-impl Default for Cors {
+
+/// A set of rules applicable to certain paths.
+/// See the note at [`Self::new`] on how paths are matched.
+#[must_use]
+#[derive(Debug)]
+pub struct RuleSet<R> {
+    rules: Vec<(String, R)>,
+}
+impl<R> RuleSet<R> {
+    /// Creates a new ruleset without any rules.
+    pub fn new() -> Self {
+        Self { rules: Vec::new() }
+    }
+    /// Adds `rule` to `path`.
+    ///
+    /// To use this with [`Host::vary`], use [`Self::add_mut`], which this uses internally.
+    ///
+    /// By default, `path` will only match requests with the exact path.
+    /// This can be changed by appending `*` to the end of the path, which
+    /// will then check if the request path start with `path`.
+    pub fn add(mut self, path: impl AsRef<str>, rule: R) -> Self {
+        self.add_mut(path, rule);
+        self
+    }
+    /// Same as [`Self::add`] but operating on a mutable reference.
+    pub fn add_mut(&mut self, path: impl AsRef<str>, rule: R) -> &mut Self {
+        let path = path.as_ref().to_owned();
+
+        self.rules.push((path, rule));
+
+        self.rules.sort_by(|a, b| {
+            use std::cmp::Ordering;
+            if a.0.ends_with('*') == b.0.ends_with('*') {
+                b.0.len().cmp(&a.0.len())
+            } else if a.0.ends_with('*') {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            }
+        });
+
+        self
+    }
+
+    /// Puts `self` in a [`Arc`].
+    ///
+    /// Useful for e.g. adding a [`Cors`] ruleset with [`Extensions::add_cors`].
+    #[must_use]
+    pub fn arc(self) -> Arc<Self> {
+        Arc::new(self)
+    }
+    /// Gets the rule (if any) at `uri_path`.
+    ///
+    /// For info about how this is matched, see [`Self::add`].
+    pub fn get(&self, uri_path: &str) -> Option<&R> {
+        for (path, allow) in &self.rules {
+            if path == uri_path
+                || (path
+                    .strip_suffix('*')
+                    .map_or(false, |path| uri_path.starts_with(path)))
+            {
+                return Some(allow);
+            }
+        }
+        None
+    }
+}
+impl<T> Default for RuleSet<T> {
     fn default() -> Self {
         Self::new()
     }
@@ -1165,7 +1185,7 @@ impl Default for Cors {
 /// Multiple allow lists can be added to a [`Cors`] instance.
 /// See the example at [`Cors`].
 ///
-/// Use [`Cors::allow`] to add a rule.
+/// Use [`RuleSet::add`] to add a rule.
 #[must_use]
 #[derive(Debug)]
 pub struct CorsAllowList {
