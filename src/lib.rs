@@ -33,13 +33,13 @@
 #![allow(
     // I WANT A LONG fn!
     clippy::too_many_lines,
-    // I know what I'm doing with unwraps.
+    // I know what I'm doing with unwraps. They should all be motivated.
     clippy::missing_panics_doc,
-    // when a parameter of a function is prefixed due to cfg in fn
+    // When a parameter of a function is prefixed due to `#[cfg]` in an fn.
     clippy::used_underscore_binding,
-    // same as ↑
+    // Same as ↑.
     clippy::unused_self,
-    // When a enum variant has been conditionally compiled away
+    // When a enum variant has been conditionally compiled away.
     irrefutable_let_patterns,
 )]
 #![doc(html_favicon_url = "https://kvarn.org/favicon.svg")]
