@@ -48,7 +48,7 @@ fn get_extensions() -> Extensions {
                 .add_origin("https://example.org")
                 .add_origin("https://foo.bar"),
         )
-        .build();
+        .arc();
 
     extensions.add_cors(cors);
     extensions

@@ -1020,13 +1020,13 @@ unsafe impl Sync for LazyRequestBody {}
 /// // Also allow all requests from `http://example.org` access to the api.
 /// let cors =
 ///     Cors::new()
-///         .allow(
+///         .add(
 ///             "/images/*",
 ///             CorsAllowList::new(time::Duration::from_secs(60*60*24*365))
 ///                 .add_origin("https://icelk.dev")
 ///                 .add_origin("https://kvarn.org")
 ///             )
-///         .allow(
+///         .add(
 ///             "/api/*",
 ///             CorsAllowList::default()
 ///                 .add_origin("http://example.org")

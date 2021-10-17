@@ -842,6 +842,10 @@ impl VarySettings {
 /// # Examples
 ///
 /// ```
+/// use kvarn::prelude::*;
+///
+/// # #[tokio::test]
+/// # async fn example() {
 /// fn test_lang (header: &str) -> &'static str {
 ///     let mut langs = utils::list_header(header);
 ///     langs.sort_by(|l1, l2| {
@@ -853,7 +857,7 @@ impl VarySettings {
 ///     for lang in &langs {
 ///         // We take the first language; the values are sorted by quality, so the highest will be
 ///         // chosen.
-///         match lang {
+///         match lang.value {
 ///             "sv" => return "sv",
 ///             "en_GB" | "en" => return "en_GB",
 ///             _ => ()
@@ -861,7 +865,10 @@ impl VarySettings {
 ///     }
 ///     "en_GB"
 /// }
-/// icelk_host.vary.allow(
+///
+/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+///
+/// host.vary.add_mut(
 ///     "/test_lang",
 ///     host::VarySettings::empty().add_rule(
 ///         "accept-language",
@@ -869,7 +876,7 @@ impl VarySettings {
 ///         "en_GB",
 ///     ),
 /// );
-/// icelk_host.extensions.add_prepare_single(
+/// host.extensions.add_prepare_single(
 ///     "/test_lang",
 ///     prepare!(req, _host, _path, _addr {
 ///         let æ = req
@@ -888,6 +895,12 @@ impl VarySettings {
 ///         FatResponse::cache(Response::new(Bytes::from_static(body.as_bytes())))
 ///     }),
 /// );
+///
+/// let data = Data::builder(host).build();
+/// let port_descriptor = PortDescriptor::new(8080, data);
+///
+/// let shutdown_manager = run(run_config![port_descriptor]).await;
+/// # }
 /// ```
 #[must_use]
 pub type Vary = extensions::RuleSet<VarySettings>;
