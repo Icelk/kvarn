@@ -1,6 +1,6 @@
 //! Here, all extensions code is housed.
 //!
-//! Check out [extensions.md](https://github.com/Icelk/kvarn/tree/main/extensions.md) for more info.
+//! Check out [the page about extensions at kvarn.org](https://kvarn.org/extensions/) for more info.
 //!
 //! If you want to make new extensions for others to use, make sure to check other extensions,
 //! so the priorities are valid. This can be done by using the debug implementation on [`Extensions`].
@@ -225,12 +225,12 @@ impl Extensions {
     }
     /// Creates a new [`Extensions`] and adds a few essential extensions.
     ///
-    /// For now the following extensions are added. The number in parentheses are the priority.
-    /// - a Prime extension (-64) redirecting the user from `<path>/` to `<path>/index.html` and
-    ///   `<path>.` to `<path>.html` is included.
+    /// For now the following extensions are added. The number in parentheses is the priority.
+    /// - A Prime extension (-64) redirecting the user from `<path>/` to `<path>/index.html` and
+    ///   `<path>.` to `<path>.html`.
     ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
-    /// - Package extension (8) to set `Referrer-Policy` header to `no-referrer` for max security and privacy.
-    ///   This is only done when no other `Referrer-Policy` header has been set earlier in the response.
+    /// - A Package extension (8) to set `referrer-policy` header to `no-referrer` for max security and privacy.
+    ///   This is only done when no other `referrer-policy` header has been set earlier in the response.
     /// - A CORS extension to deny all CORS requests. See [`Self::add_cors`] for CORS management.
     pub fn new() -> Self {
         let mut new = Self::empty();
@@ -1009,6 +1009,8 @@ unsafe impl Sync for LazyRequestBody {}
 /// A [CORS](https://en.wikipedia.org/wiki/Cross-origin_resource_sharing) ruleset for Kvarn.
 ///
 /// Use [`Extensions::add_cors`] to allow selected CORS requests.
+///
+/// By default, Kvarn uses a empty [`RuleSet`]; all CORS requests are rejected.
 ///
 /// # Examples
 ///
