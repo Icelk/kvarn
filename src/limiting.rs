@@ -1,4 +1,4 @@
-//! Limits traffic from a ip address to partially mitigate attacks.
+//! Limits traffic from a IP address to partially mitigate attacks.
 //!
 //! Kvarn's limiting is smart; when a client first makes to many requests,
 //! a hardcoded `429 Too Many Requests` is sent back (taking virtually null resources).
