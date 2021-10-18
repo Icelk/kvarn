@@ -859,11 +859,11 @@ impl VarySettings {
 ///         // chosen.
 ///         match lang.value {
 ///             "sv" => return "sv",
-///             "en_GB" | "en" => return "en_GB",
+///             "en-GB" | "en" => return "en-GB",
 ///             _ => ()
 ///         }
 ///     }
-///     "en_GB"
+///     "en-GB"
 /// }
 ///
 /// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
@@ -873,7 +873,7 @@ impl VarySettings {
 ///     host::VarySettings::empty().add_rule(
 ///         "accept-language",
 ///         |header| Cow::Borrowed(test_lang(header)),
-///         "en_GB",
+///         "en-GB",
 ///     ),
 /// );
 /// host.extensions.add_prepare_single(
