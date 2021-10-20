@@ -264,7 +264,7 @@ pub mod read {
             if read_more(&mut buffer, &mut reader, read, max_len).await? == 0 {
                 break;
             };
-            if !(valid_method(&buffer) || valid_version(&buffer)) {
+            if !(utils::valid_method(&buffer) || utils::valid_version(&buffer)) {
                 return Err(Error::Syntax);
             }
 

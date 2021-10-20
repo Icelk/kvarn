@@ -10,7 +10,7 @@ pub fn mount(extensions: &mut Extensions) -> &mut Extensions {
     let manager = Mutex::new(SmartPush::default());
     extensions.add_post(
         Box::new(move |request, host, response_pipe, bytes, addr| {
-            let manager = unsafe { extensions::SuperUnsafePointer::new(&manager) };
+            let manager = unsafe { utils::SuperUnsafePointer::new(&manager) };
             push(request, host, response_pipe, bytes, addr, Some(manager))
         }),
         Id::new(-32, "HTTP/2 push"),
@@ -74,7 +74,7 @@ fn push(
     mut response_pipe: ResponsePipeWrapperMut,
     bytes: Bytes,
     addr: SocketAddr,
-    manager: Option<extensions::SuperUnsafePointer<Mutex<SmartPush>>>,
+    manager: Option<utils::SuperUnsafePointer<Mutex<SmartPush>>>,
 ) -> RetFut<()> {
     use internals::*;
     Box::pin(async move {

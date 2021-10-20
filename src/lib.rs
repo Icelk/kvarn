@@ -475,7 +475,7 @@ pub async fn handle_cache(
     async fn get_response(
         request: &mut Request<application::Body>,
         host: &Host,
-        sanitize_data: &Result<CriticalRequestComponents, SanitizeError>,
+        sanitize_data: &Result<utils::CriticalRequestComponents, SanitizeError>,
         address: SocketAddr,
         overide_uri: Option<&Uri>,
     ) -> io::Result<(

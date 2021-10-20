@@ -3,6 +3,7 @@
 //! This includes all the imports from [`kvarn_utils::prelude`].
 //! It also imports async-related [`std`] items and the common [`tokio`] items.
 
+pub use kvarn_utils as utils;
 pub use kvarn_utils::prelude::*;
 pub use std::{
     future::Future,

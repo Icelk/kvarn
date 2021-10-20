@@ -676,7 +676,8 @@ impl CriticalRequestComponents {
             let len = response.body().len().to_string();
             let start = range_start.to_string();
             let end = (range_end - 1).to_string();
-            let bytes = build_bytes!(start.as_bytes(), b"-", end.as_bytes(), b"/", len.as_bytes());
+            let bytes =
+                crate::build_bytes!(start.as_bytes(), b"-", end.as_bytes(), b"/", len.as_bytes());
 
             crate::replace_header(
                 response.headers_mut(),
@@ -691,7 +692,7 @@ impl CriticalRequestComponents {
                 *response.status_mut() = StatusCode::PARTIAL_CONTENT;
             }
         } else if !response.body().is_empty() {
-            replace_header_static(response.headers_mut(), "accept-ranges", "bytes")
+            crate::replace_header_static(response.headers_mut(), "accept-ranges", "bytes");
         }
         Ok(())
     }

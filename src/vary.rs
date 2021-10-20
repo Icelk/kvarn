@@ -12,6 +12,7 @@
 
 use crate::prelude::*;
 use comprash::CompressedResponse;
+use utils::SuperUnsafePointer;
 
 /// The transformation on a request header to get the
 /// "key" header value to store in the cache (in the [`comprash::HeaderCollection`]).
