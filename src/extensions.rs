@@ -1082,6 +1082,7 @@ impl<R> RuleSet<R> {
     /// Gets the rule (if any) at `uri_path`.
     ///
     /// For info about how this is matched, see [`Self::add`].
+    #[must_use]
     pub fn get(&self, uri_path: &str) -> Option<&R> {
         for (path, allow) in &self.rules {
             if path == uri_path

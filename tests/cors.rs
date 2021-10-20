@@ -91,7 +91,7 @@ async fn test_cors_options(
     let mut request = server
         .options(path.as_ref())
         .header("origin", origin.as_ref());
-    if methods.len() > 0 {
+    if !methods.is_empty() {
         let mut methods =
             methods
                 .iter()
@@ -105,7 +105,7 @@ async fn test_cors_options(
         methods.pop();
         request = request.header("access-control-request-method", methods);
     }
-    if headers.len() > 0 {
+    if !headers.is_empty() {
         let mut headers = headers.iter().fold(String::new(), |mut s, header| {
             s.push_str(header);
             s.push_str(", ");

@@ -83,7 +83,10 @@ impl LimitManager {
     /// for the limits to clear after the user has reached `max_requests`.
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
         Self {
-            connection_map_and_time: Arc::new(Mutex::new((HashMap::new(), std::time::Instant::now()))),
+            connection_map_and_time: Arc::new(Mutex::new((
+                HashMap::new(),
+                std::time::Instant::now(),
+            ))),
             max_requests,
             check_every,
             reset_seconds,
@@ -127,7 +130,9 @@ impl LimitManager {
     /// It only [`atomic::AtomicUsize::fetch_add`] else, with [`atomic::Ordering::Relaxed`].
     /// This is less reliable, but faster. We do not require this to be to be exact.
     pub async fn register(&self, addr: IpAddr) -> Action {
-        if self.check_every == usize::MAX || self.iteration.fetch_add(1, atomic::Ordering::Relaxed) + 1 < self.check_every {
+        if self.check_every == usize::MAX
+            || self.iteration.fetch_add(1, atomic::Ordering::Relaxed) + 1 < self.check_every
+        {
             Action::Passed
         } else {
             self.iteration.store(0, atomic::Ordering::Release);

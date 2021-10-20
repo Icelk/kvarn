@@ -267,8 +267,8 @@ impl Manager {
                     }
                     handover::UnixResponse::Data(data) => {
                         error!(
-                            "Got unexpected reply from previous Kvarn instance: {:?}",
-                            str::from_utf8(&data)
+                            "Got unexpected reply from previous Kvarn instance:\u{a0}{:?}",
+                            str::from_utf8(data)
                         );
                     }
                     handover::UnixResponse::Error => {
@@ -282,7 +282,12 @@ impl Manager {
     }
 }
 
-#[cfg(all(feature = "graceful-shutdown", unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+#[cfg(all(
+    feature = "graceful-shutdown",
+    unix,
+    not(target_os = "solaris"),
+    not(target_os = "illumos")
+))]
 mod handover {
     use crate::prelude::*;
     use std::ops::Deref;
@@ -307,7 +312,7 @@ mod handover {
             match self {
                 Self::NotFound => UnixResponse::NotFound,
                 Self::Error => UnixResponse::Error,
-                Self::Data(t) => UnixResponse::Data(t.deref()),
+                Self::Data(t) => UnixResponse::Data(&**t),
             }
         }
     }

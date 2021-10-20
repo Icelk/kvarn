@@ -415,7 +415,7 @@ impl<'a> SendKind<'a> {
 
                 // Process post extensions
                 host.extensions
-                    .resolve_post(&request, identity_body, response_pipe, address, host)
+                    .resolve_post(request, identity_body, response_pipe, address, host)
                     .await;
 
                 // Close the pipe.
@@ -491,26 +491,24 @@ pub async fn handle_cache(
                 Ok(_) => {
                     let path = if host.options.disable_fs {
                         None
+                    } else if let Ok(decoded) =
+                        percent_encoding::percent_decode_str(request.uri().path()).decode_utf8()
+                    {
+                        Some(utils::make_path(
+                            &host.path,
+                            host.options
+                                .public_data_dir
+                                .as_deref()
+                                .unwrap_or_else(|| Path::new("public")),
+                            // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
+                            // We also are OK with all Uris, since we did a check on the
+                            // incoming and presume all internal extension changes are good.
+                            utils::parse::uri(&decoded).unwrap(),
+                            None,
+                        ))
                     } else {
-                        if let Ok(decoded) =
-                            percent_encoding::percent_decode_str(request.uri().path()).decode_utf8()
-                        {
-                            Some(utils::make_path(
-                                &host.path,
-                                host.options
-                                    .public_data_dir
-                                    .as_deref()
-                                    .unwrap_or_else(|| Path::new("public")),
-                                // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
-                                // We also are OK with all Uris, since we did a check on the
-                                // incoming and presume all internal extension changes are good.
-                                utils::parse::uri(&decoded).unwrap(),
-                                None,
-                            ))
-                        } else {
-                            warn!("Invalid percent encoding in path.");
-                            None
-                        }
+                        warn!("Invalid percent encoding in path.");
+                        None
                     };
 
                     handle_request(request, overide_uri, address, host, &path).await?
@@ -637,7 +635,7 @@ pub async fn handle_cache(
                     *response.status_mut() = StatusCode::NOT_MODIFIED;
                     (response, Bytes::new(), None)
                 } else {
-                    let (resp, vary, future) = match resp.get_by_request(&request) {
+                    let (resp, _vary, future) = match resp.get_by_request(&request) {
                         Ok((cr, h)) => (cr, h, None),
                         Err(params) => {
                             let (compressed_response, _, _ ,future, _) = get_response(
@@ -803,7 +801,7 @@ pub async fn handle_request(
     {
         if let Some(resp) = host
             .extensions
-            .resolve_prepare(request, overide_uri, &host, path, address)
+            .resolve_prepare(request, overide_uri, host, path, address)
             .await
         {
             let resp = resp.into_parts();
@@ -898,6 +896,7 @@ pub struct RunConfig {
 }
 impl RunConfig {
     /// Creates an empty [`RunConfig`].
+    #[must_use]
     pub fn new() -> Self {
         RunConfig {
             ports: vec![],
@@ -907,6 +906,7 @@ impl RunConfig {
     }
 
     /// Adds a [`PortDescriptor`] to the Kvarn server.
+    #[must_use]
     pub fn add(mut self, port_descriptor: PortDescriptor) -> Self {
         self.ports.push(port_descriptor);
         self
@@ -914,6 +914,7 @@ impl RunConfig {
     /// Disables [handover](https://kvarn.org/shutdown-handover.) for the instance of Kvarn.
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
+    #[must_use]
     pub fn disable_handover(mut self) -> Self {
         self.handover = false;
         self

@@ -211,14 +211,14 @@ fn get_extensions() -> Extensions {
                 acc
             });
 
-            let bytes = build_bytes!(start.as_bytes(), title.as_bytes(), middle.as_bytes(), &content, end.as_bytes());
+            let bytes = build_bytes!(start.as_bytes(), title.as_bytes(), middle.as_bytes(), content, end.as_bytes());
             *present_data.response_mut().body_mut() = bytes;
         }),
     );
     extensions.add_package(
         package!(response, _request, _host {
             response.headers_mut().insert("fun-header", HeaderValue::from_static("why not?"));
-            replace_header_static(response.headers_mut(), "content-security-policy", "default-src 'self'; style-src 'unsafe-inline' 'self'");
+            utils::replace_header_static(response.headers_mut(), "content-security-policy", "default-src 'self'; style-src 'unsafe-inline' 'self'");
         }),
         extensions::Id::new(-1024, "add headers"),
     );

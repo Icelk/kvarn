@@ -59,6 +59,7 @@ pub struct Settings {
 impl Settings {
     /// Returns an empty set of rules.
     /// Will not cache any variants, except compressed.
+    #[must_use]
     pub fn empty() -> Self {
         Self { rules: Vec::new() }
     }
@@ -268,7 +269,7 @@ impl VariedResponse {
             let mut headers = Vec::new();
             // Check every stored in here,
             // and if header isn't there, accept.
-            for reference in self.reference_headers.iter() {
+            for reference in &self.reference_headers {
                 let name = reference.name;
                 if let Some(header) = request
                     .headers()
@@ -280,12 +281,12 @@ impl VariedResponse {
                     let transformation = unsafe { reference.transformation.get() };
                     let header = transformation(header);
                     headers.push(Header {
-                        name: &reference.name,
+                        name: reference.name,
                         transformed: header,
                     });
                 } else {
                     headers.push(Header {
-                        name: &reference.name,
+                        name: reference.name,
                         transformed: Cow::Borrowed(reference.default),
                     })
                 }
@@ -303,6 +304,6 @@ impl VariedResponse {
     pub(crate) fn first(&self) -> &CompressedResponse {
         // We know there will be at least one; the [`Self::new`] method always inserts one
         // response.
-        &self.responses.iter().next().unwrap().0
+        &self.responses.get(0).unwrap().0
     }
 }

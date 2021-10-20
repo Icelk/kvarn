@@ -352,7 +352,7 @@ impl CompressedResponse {
             .unwrap();
             utils::replace_header(headers, "content-type", content_type);
         }
-        let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(&response.body()).is_ok();
+        let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(response.body()).is_ok();
 
         // Looks a lot better.
         #[allow(clippy::single_match_else)]
@@ -876,7 +876,7 @@ impl<K: Eq + Hash, H: Hasher> Cache<K, VariedResponse, H> {
             .ok()
             .as_ref()
             .and_then(parse::CacheControl::as_freshness)
-            .map(|s| Duration::seconds(s as i64));
+            .map(|s| Duration::seconds(i64::from(s)));
 
         let identity = response.first().get_identity().body();
         let identity_fragment = &identity[identity.len().saturating_sub(512)..];
