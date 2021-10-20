@@ -551,6 +551,12 @@ impl<T> PartialEq for SuperUnsafePointer<T> {
 }
 impl<T> Eq for SuperUnsafePointer<T> {}
 
+/// Checks `byte` if it's a valid byte for [`HeaderValue`]s.
+#[must_use]
+pub fn is_valid_header_value_byte(byte: u8) -> bool {
+    (32..127).contains(&byte) || byte == b'\t'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

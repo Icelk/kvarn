@@ -78,6 +78,12 @@ impl Settings {
     /// If you have a large set or infinitely many variants outputted by `transformation`,
     /// the cache will suffer. Consider disabling the cache for the files affected by this rule
     /// to improve performance.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the `request_header` contains invalid bytes.
+    /// All of the bytes must satisfy `b >= 32 && b < 127 || b == b'\t'` where b is a byte.
+    /// See [`utils::is_valid_header_value_byte`].
     pub fn add_rule(
         mut self,
         request_header: &'static str,
@@ -87,6 +93,13 @@ impl Settings {
         if self.rules.len() > 4 {
             warn!("More than 4 headers affect the caching of requests. This will exponentially increase memory usage.");
         }
+        for byte in request_header.as_bytes().iter().copied() {
+            assert!(
+                utils::is_valid_header_value_byte(byte),
+                "A Vary request header contains invalid bytes."
+            );
+        }
+
         self.rules.push(Rule {
             name: request_header,
             transformation: Arc::pin(transformation),
@@ -95,6 +108,7 @@ impl Settings {
         self
     }
 }
+
 /// A set of rules for the `vary` header.
 ///
 /// See [`Settings::add_rule`] on adding rules
@@ -175,7 +189,48 @@ impl Vary {
     }
 }
 
+/// Creates a `vary` response header from the slice of [`Header`]s.
+///
+/// Consider using [`apply_vary_header`] instead.
+#[must_use]
+fn get_header(headers: &[Header]) -> HeaderValue {
+    use bytes::BufMut;
+
+    let always_add = &b"accept-encoding, range"[..];
+
+    let len = headers
+        .iter()
+        .fold(0, |acc, header| acc + header.name.len())
+        + headers.len() * 2
+        + always_add.len();
+    println!("Predicted len {}", len);
+
+    let mut bytes = BytesMut::with_capacity(len);
+
+    bytes.put(always_add);
+
+    for header in headers.iter() {
+        bytes.put(&b", "[..]);
+        bytes.put(header.name.as_bytes());
+    }
+
+    println!("Len {}", bytes.len());
+
+    // SAFETY: [`Header`] is guaranteed to only contain valid bytes, as stated in
+    // [`Settings::add_rule`].
+    unsafe { HeaderValue::from_maybe_shared_unchecked(bytes) }
+}
+
+/// Converts and applies the varied `headers` to the `response`.
+pub(crate) fn apply_header<T>(response: &mut Response<T>, headers: &[Header]) {
+    let header = get_header(headers);
+    utils::replace_header(response.headers_mut(), "vary", header);
+}
+
 /// A header that is subject to the `vary` header.
+///
+/// The `name` must not contains chars [0..=32] | [127].
+/// See [`utils::is_valid_header_value_byte`].
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub(crate) struct Header {
     name: &'static str,
@@ -260,38 +315,39 @@ impl VariedResponse {
     fn get(&self, other: &[Header]) -> Result<usize, usize> {
         self.responses.binary_search_by_key(&other, |pair| &pair.1)
     }
+    fn get_headers_for_request<T>(&self, request: &Request<T>) -> HeaderCollection {
+        let mut headers = Vec::new();
+        // Check every stored in here,
+        // and if header isn't there, accept.
+        for reference in &self.reference_headers {
+            let name = reference.name;
+            if let Some(header) = request
+                .headers()
+                .get(name)
+                .map(HeaderValue::to_str)
+                .and_then(Result::ok)
+            {
+                // SAFETY: guaranteed by [`Self::new`]
+                let transformation = unsafe { reference.transformation.get() };
+                let header = transformation(header);
+                headers.push(Header {
+                    name: reference.name,
+                    transformed: header,
+                });
+            } else {
+                headers.push(Header {
+                    name: reference.name,
+                    transformed: Cow::Borrowed(reference.default),
+                });
+            }
+        }
+        headers
+    }
     pub(crate) fn get_by_request<T>(
         &self,
         request: &Request<T>,
     ) -> Result<&(CompressedResponse, HeaderCollection), CacheParams> {
-        let headers = {
-            let mut headers = Vec::new();
-            // Check every stored in here,
-            // and if header isn't there, accept.
-            for reference in &self.reference_headers {
-                let name = reference.name;
-                if let Some(header) = request
-                    .headers()
-                    .get(name)
-                    .map(HeaderValue::to_str)
-                    .and_then(Result::ok)
-                {
-                    // SAFETY: guaranteed by [`Self::new`]
-                    let transformation = unsafe { reference.transformation.get() };
-                    let header = transformation(header);
-                    headers.push(Header {
-                        name: reference.name,
-                        transformed: header,
-                    });
-                } else {
-                    headers.push(Header {
-                        name: reference.name,
-                        transformed: Cow::Borrowed(reference.default),
-                    });
-                }
-            }
-            headers
-        };
+        let headers = self.get_headers_for_request(request);
         match self.get(&headers) {
             Ok(position) => Ok(&self.responses[position]),
             Err(sorted_position) => Err(CacheParams {
@@ -300,9 +356,9 @@ impl VariedResponse {
             }),
         }
     }
-    pub(crate) fn first(&self) -> &CompressedResponse {
+    pub(crate) fn first(&self) -> &(CompressedResponse, HeaderCollection) {
         // We know there will be at least one; the [`Self::new`] method always inserts one
         // response.
-        &self.responses.get(0).unwrap().0
+        self.responses.get(0).unwrap()
     }
 }

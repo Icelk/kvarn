@@ -872,20 +872,20 @@ impl<K: Eq + Hash, V, H: Hasher> Cache<K, V, H> {
 impl<K: Eq + Hash, H: Hasher> Cache<K, VariedResponse, H> {
     /// Caches a [`CompressedResponse`] and returns the previous response, if any.
     pub fn cache(&mut self, key: K, response: VariedResponse) -> CacheOut<VariedResponse> {
-        let lifetime = parse::CacheControl::from_headers(response.first().get_identity().headers())
+        let lifetime = parse::CacheControl::from_headers(response.first().0.get_identity().headers())
             .ok()
             .as_ref()
             .and_then(parse::CacheControl::as_freshness)
             .map(|s| Duration::seconds(i64::from(s)));
 
-        let identity = response.first().get_identity().body();
+        let identity = response.first().0.get_identity().body();
         let identity_fragment = &identity[identity.len().saturating_sub(512)..];
         self.feed_hasher(identity_fragment);
 
         debug!("Inserted item to cache with lifetime {:?}", lifetime);
 
         self.insert(
-            response.first().get_identity().body().len(),
+            response.first().0.get_identity().body().len(),
             key,
             response,
             lifetime,

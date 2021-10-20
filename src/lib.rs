@@ -653,7 +653,7 @@ pub async fn handle_cache(
                             (cr, v, future)
                         }
                     };
-                    let response = match resp.clone_preferred(&request) {
+                    let mut response = match resp.clone_preferred(&request) {
                         Err(message) => {
                             error::default(
                                 StatusCode::NOT_ACCEPTABLE,
@@ -664,6 +664,9 @@ pub async fn handle_cache(
                         }
                         Ok(response) => response,
                     };
+
+                    vary::apply_header(&mut response, &vary);
+
                     let identity_body = Bytes::clone(resp.get_identity().body());
                     drop(lock);
 
@@ -692,7 +695,7 @@ pub async fn handle_cache(
             ) -> bool {
                 if future.is_none() {
                     if let Some(response_cache) = &host.response_cache {
-                        if server_cache.cache(response.first().get_identity(), method) {
+                        if server_cache.cache(response.first().0.get_identity(), method) {
                             let mut lock = response_cache.lock().await;
                             let key = if server_cache.query_matters() {
                                 comprash::UriKey::PathQuery(path_query)
@@ -721,6 +724,15 @@ pub async fn handle_cache(
             )
             .await?;
 
+            let vary_rules = host.vary.rules_from_request(&request);
+
+            // SAFETY: The requirements are met; the cache we're storing this is is part of the
+            // `host`; the `host` will outlive this struct.
+            let varied_response =
+                unsafe { VariedResponse::new(compressed_response, &request, vary_rules.as_ref()) };
+
+            let compressed_response = &varied_response.first().0;
+
             let mut response = match compressed_response.clone_preferred(&request) {
                 Err(message) => {
                     error::default(
@@ -735,12 +747,8 @@ pub async fn handle_cache(
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
-            let vary_rules = host.vary.rules_from_request(&request);
-
-            // SAFETY: The requirements are met; the cache we're storing this is is part of the
-            // `host`; the `host` will outlive this struct.
-            let varied_response =
-                unsafe { VariedResponse::new(compressed_response, &request, vary_rules.as_ref()) };
+            let vary = &varied_response.first().1;
+            vary::apply_header(&mut response, vary);
 
             let cached = maybe_cache(
                 host,
