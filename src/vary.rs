@@ -1,7 +1,17 @@
-//! Vary!
-use crate::comprash::CompressedResponse;
-use crate::extensions::SuperUnsafePointer;
+//! Vary header handling in Kvarn.
+//!
+//! You (as a user of Kvarn or extension author),
+//! can add rules for headers which caches the response depending on their values.
+//!
+//! Indexed by request headers, which are modified by callbacks, specific to each header.
+//!
+//! See the example at [`Vary`] for an example implementation where
+//! we have two pages, one in English and one in Swedish.
+//! They are served depending on the user's preference.
+//! All the responses are cached, so the [`Prepare`] extension will be called at most once.
+
 use crate::prelude::*;
+use comprash::CompressedResponse;
 
 /// The transformation on a request header to get the
 /// "key" header value to store in the cache (in the [`comprash::HeaderCollection`]).
