@@ -119,7 +119,7 @@ impl Settings {
 ///
 /// host.vary.add_mut(
 ///     "/test_lang",
-///     host::VarySettings::empty().add_rule(
+///     vary::Settings::empty().add_rule(
 ///         "accept-language",
 ///         |header| Cow::Borrowed(test_lang(header)),
 ///         "en-GB",
