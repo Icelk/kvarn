@@ -138,7 +138,7 @@ pub async fn run(ports: RunConfig) -> Arc<shutdown::Manager> {
             #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
             {
                 if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
-                    error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.")
+                    error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.");
                 }
             }
             socket.bind(address).expect("Failed to bind address");
@@ -181,7 +181,7 @@ pub async fn run(ports: RunConfig) -> Arc<shutdown::Manager> {
         let future = async move {
             accept(listener, descriptor, &shutdown_manager)
                 .await
-                .expect("Failed to accept message!")
+                .expect("Failed to accept message!");
         };
 
         tokio::spawn(future);
@@ -569,6 +569,8 @@ pub async fn handle_cache(
         None
     };
 
+    // For clarity
+    #[allow(clippy::option_if_let_else)]
     let cached = if let Some(lock) = &mut lock {
         // copy of [`UriKey::call_all`].
         // I got the message
@@ -635,7 +637,7 @@ pub async fn handle_cache(
                     *response.status_mut() = StatusCode::NOT_MODIFIED;
                     (response, Bytes::new(), None)
                 } else {
-                    let (resp, _vary, future) = match resp.get_by_request(&request) {
+                    let (resp, vary, future) = match resp.get_by_request(&request) {
                         Ok((cr, h)) => (cr, h, None),
                         Err(params) => {
                             let (compressed_response, _, _ ,future, _) = get_response(
@@ -907,8 +909,8 @@ impl RunConfig {
 
     /// Adds a [`PortDescriptor`] to the Kvarn server.
     #[must_use]
-    pub fn add(mut self, port_descriptor: PortDescriptor) -> Self {
-        self.ports.push(port_descriptor);
+    pub fn bind(mut self, port: PortDescriptor) -> Self {
+        self.ports.push(port);
         self
     }
     /// Disables [handover](https://kvarn.org/shutdown-handover.) for the instance of Kvarn.

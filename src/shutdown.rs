@@ -188,6 +188,7 @@ impl Manager {
         );
         self.shutdown.store(true, Ordering::Release);
         #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+        #[allow(clippy::or_fun_call)]
         std::fs::remove_file(
             self.handover_socket_path
                 .as_deref()
@@ -198,7 +199,7 @@ impl Manager {
         if self.connections.load(Ordering::Acquire) == 0 {
             self.wakers.notify();
 
-            drop(self.channel.0.send(()))
+            drop(self.channel.0.send(()));
         }
     }
     /// Waits for Kvarn to enter the `shutdown` state.
@@ -237,6 +238,7 @@ impl Manager {
                     *utils::ref_to_mut(&manager.handover_socket_path) = Some(path);
                 }
 
+                #[allow(clippy::or_fun_call)]
                 let path = manager
                     .handover_socket_path
                     .as_deref()
@@ -246,20 +248,17 @@ impl Manager {
                     handover::UnixResponse::Data(b"ok") | handover::UnixResponse::NotFound => {
                         let manager = Arc::clone(manager);
                         handover::start_at(
-                            move |data| match data {
-                                b"shutdown" => {
-                                    info!("Got signal to shutdown over socket.");
-                                    manager.shutdown();
-                                    (true, Vec::from("ok"))
-                                }
-                                _ => {
-                                    let data = data.get(..128).unwrap_or(data);
-                                    warn!(
-                                        "Got unexpected message on socket {:?}",
-                                        str::from_utf8(data).unwrap_or("BINARY")
-                                    );
-                                    (false, Vec::from("error"))
-                                }
+                            move |data| if let b"shutdown" = data {
+                                info!("Got signal to shutdown over socket.");
+                                manager.shutdown();
+                                (true, Vec::from("ok"))
+                            } else {
+                                let data = data.get(..128).unwrap_or(data);
+                                warn!(
+                                    "Got unexpected message on socket {:?}",
+                                    str::from_utf8(data).unwrap_or("BINARY")
+                                );
+                                (false, Vec::from("error"))
                             },
                             &path,
                         )

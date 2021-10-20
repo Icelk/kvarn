@@ -85,7 +85,7 @@ impl Settings {
         default: &'static str,
     ) -> Self {
         if self.rules.len() > 4 {
-            warn!("More than 4 headers affect the caching of requests. This will exponentially increase memory usage.")
+            warn!("More than 4 headers affect the caching of requests. This will exponentially increase memory usage.");
         }
         self.rules.push(Rule {
             name: request_header,
@@ -168,11 +168,10 @@ pub type Vary = extensions::RuleSet<Settings>;
 impl Vary {
     /// Gets the [`VarySettings`] from the ruleset using the path of `request`.
     pub fn rules_from_request<'a, T>(&'a self, request: &Request<T>) -> Cow<'a, Settings> {
-        if let Some(rules) = self.get(request.uri().path()) {
-            Cow::Borrowed(rules)
-        } else {
-            Cow::Owned(Settings::default())
-        }
+        self.get(request.uri().path()).map_or_else(
+            || Cow::Owned(Settings::default()),
+            |rules| Cow::Borrowed(rules),
+        )
     }
 }
 
@@ -288,7 +287,7 @@ impl VariedResponse {
                     headers.push(Header {
                         name: reference.name,
                         transformed: Cow::Borrowed(reference.default),
-                    })
+                    });
                 }
             }
             headers

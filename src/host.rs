@@ -122,6 +122,8 @@ impl Host {
     ///     host::Options::default(),
     /// )
     /// ```
+    // The rustls function requires it.
+    #[allow(clippy::redundant_allocation)]
     #[cfg(feature = "https")]
     pub fn from_cert_and_pk(
         host_name: &'static str,
@@ -716,6 +718,12 @@ impl From<io::Error> for CertificateError {
     }
 }
 
+/// A pair of [`rustls::Certificate`] and [`sign::SigningKey`].
+///
+/// Returned from [`get_certified_key`].
+#[cfg(feature = "https")]
+pub type CertKeyPair = (Vec<rustls::Certificate>, Arc<Box<dyn sign::SigningKey>>);
+
 /// Extracts a [`sign::CertifiedKey`] from `cert_path` and `private_key_path`.
 ///
 /// # Errors
@@ -725,7 +733,7 @@ impl From<io::Error> for CertificateError {
 pub fn get_certified_key(
     cert_path: impl AsRef<Path>,
     private_key_path: impl AsRef<Path>,
-) -> Result<(Vec<rustls::Certificate>, Arc<Box<dyn sign::SigningKey>>), CertificateError> {
+) -> Result<CertKeyPair, CertificateError> {
     let mut chain = io::BufReader::new(std::fs::File::open(&cert_path)?);
     let mut private_key = io::BufReader::new(std::fs::File::open(&private_key_path)?);
 

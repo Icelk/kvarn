@@ -345,7 +345,7 @@ mod response {
                 )
                 .await
                 {
-                    result?
+                    result?;
                 } else {
                     self.content_length = 0;
                     return Err(io::Error::new(

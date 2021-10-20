@@ -422,7 +422,7 @@ impl Extensions {
                             response.headers_mut(),
                             "access-control-allow-origin",
                             origin.clone(),
-                        )
+                        );
                     }
                 }
                 ready(())
@@ -585,7 +585,7 @@ impl Extensions {
             .await
             {
                 if prime.path().starts_with("/./") {
-                    uri = Some(prime)
+                    uri = Some(prime);
                 } else {
                     *request.uri_mut() = prime;
                 }
@@ -1160,7 +1160,7 @@ impl CorsAllowList {
     /// to request using `allowed_method`.
     pub fn add_method(mut self, allowed_method: Method) -> Self {
         if !self.methods.contains(&allowed_method) {
-            self.methods.push(allowed_method)
+            self.methods.push(allowed_method);
         }
         self
     }
@@ -1168,7 +1168,7 @@ impl CorsAllowList {
     /// to send the `allowed_header` in the request.
     pub fn add_header(mut self, allowed_header: HeaderName) -> Self {
         if !self.headers.contains(&allowed_header) {
-            self.headers.push(allowed_header)
+            self.headers.push(allowed_header);
         }
         self
     }

@@ -734,7 +734,7 @@ impl<K, V> Cache<K, V, DefaultHasher> {
     /// Clears the cache.
     #[inline]
     pub fn clear(&mut self) {
-        self.map.clear()
+        self.map.clear();
     }
 }
 impl<K, V> Default for Cache<K, V> {

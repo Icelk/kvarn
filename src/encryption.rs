@@ -240,7 +240,7 @@ mod tokio_tls {
         pub(crate) fn shutdown_read(&mut self) {
             match *self {
                 TlsState::WriteShutdown | TlsState::FullyShutdown => {
-                    *self = TlsState::FullyShutdown
+                    *self = TlsState::FullyShutdown;
                 }
                 _ => *self = TlsState::ReadShutdown,
             }
