@@ -815,85 +815,6 @@ macro_rules! get_unsafe_mut_wrapper {
         get_unsafe_mut_wrapper!($main, $return, stringify!($return));
     };
 }
-/// **Should only be used from within Kvarn!**
-/// A super-unsafe pointer. Must be used with great care.
-///
-/// # Safety
-///
-/// The safety of this struct requires you to
-/// 1. make sure the lifetime of the `reference` lives longer than all references returned by
-///    [`Self::get`] and [`Self::get_mut`].
-/// 2. make sure no other references exist.
-///    You can use [`Self::new_mut`] to garantuee this.
-///
-/// This type implements `Send + Sync` to allow it to cross `async` boundarys.
-/// This type is used in the `move ||` part of extensions.
-#[repr(transparent)]
-#[must_use]
-pub struct SuperUnsafePointer<T> {
-    pointer: *mut T,
-}
-impl<T> SuperUnsafePointer<T> {
-    /// Creates a new pointer from a mutable reference.
-    ///
-    /// # Safety
-    ///
-    /// Read the docs of this struct for safety requirements.
-    ///
-    /// The compiler guarantees exclusive mutable access.
-    pub fn new_mut(reference: &mut T) -> Self {
-        Self { pointer: reference }
-    }
-    /// Creates a new pointer from a reference.
-    ///
-    /// # Safety
-    ///
-    /// Read the docs of this struct for safety requirements.
-    pub unsafe fn new(reference: &T) -> Self {
-        Self {
-            pointer: utils::ref_to_mut(reference),
-        }
-    }
-    /// Get a reference to the inner value.
-    ///
-    /// # Safety
-    ///
-    /// Read the docs of this struct for safety requirements.
-    #[must_use]
-    pub unsafe fn get(&self) -> &T {
-        &*self.pointer
-    }
-    /// Get a mutable reference to the inner value.
-    ///
-    /// # Safety
-    ///
-    /// Read the docs of this struct for safety requirements.
-    pub unsafe fn get_mut(&mut self) -> &mut T {
-        &mut *self.pointer
-    }
-}
-unsafe impl<T: Send> Send for SuperUnsafePointer<T> {}
-unsafe impl<T: Sync> Sync for SuperUnsafePointer<T> {}
-impl<T> Debug for SuperUnsafePointer<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SuperUnsafePointer")
-            .field("pointer", &"unsafe pointer".as_clean())
-            .finish()
-    }
-}
-impl<T> Clone for SuperUnsafePointer<T> {
-    fn clone(&self) -> Self {
-        // This is safe, as the new type adheres to the same guarantees
-        // as `self`.
-        unsafe { Self::new(self.get()) }
-    }
-}
-impl<T> PartialEq for SuperUnsafePointer<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.pointer == other.pointer
-    }
-}
-impl<T> Eq for SuperUnsafePointer<T> {}
 
 get_unsafe_wrapper!(RequestWrapper, FatRequest);
 get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
@@ -1323,6 +1244,7 @@ mod macros {
     macro_rules! extension {
         (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $code:block) => {{
             use $crate::extensions::*;
+            use $crate::prelude::utils::SuperUnsafePointer;
             #[allow(unused_mut)]
             Box::new(move |
                 $(mut $wrapper_param: $wrapper_param_type,)*
