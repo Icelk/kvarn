@@ -595,7 +595,7 @@ pub async fn handle_cache(
         None
     };
 
-    #[allow(clippy::single_match_else)]
+    #[allow(clippy::single_match_else, clippy::unnested_or_patterns)]
     let (response, identity, future) = match cached {
         Some((resp, (creation, _)))
             if sanitize_data.is_ok()
@@ -739,9 +739,8 @@ pub async fn handle_cache(
 
             // SAFETY: The requirements are met; the cache we're storing this is is part of the
             // `host`; the `host` will outlive this struct.
-            let varied_response = unsafe {
-                VariedResponse::new(compressed_response, &request, vary_rules.as_ref())
-            };
+            let varied_response =
+                unsafe { VariedResponse::new(compressed_response, &request, vary_rules.as_ref()) };
 
             let cached = maybe_cache(
                 host,

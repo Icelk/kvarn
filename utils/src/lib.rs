@@ -331,7 +331,7 @@ pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
     name: K,
     new: &'static str,
 ) {
-    replace_header(headers, name, HeaderValue::from_static(new))
+    replace_header(headers, name, HeaderValue::from_static(new));
 }
 /// Removes all headers from `headers` with `name`.
 #[inline]
@@ -418,7 +418,7 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
         headers,
         "content-length",
         HeaderValue::from_str(len.to_string().as_str()).unwrap(),
-    )
+    );
 }
 /// Gets the body length of a `response`.
 ///
@@ -553,6 +553,7 @@ impl<T> Eq for SuperUnsafePointer<T> {}
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::prelude::*;
 
     #[test]

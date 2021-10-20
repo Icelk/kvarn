@@ -380,12 +380,12 @@ impl<'a> QueryPair<'a> {
     /// Gets the name of the query pair
     #[must_use]
     pub fn name(&self) -> &str {
-        &self.name
+        self.name
     }
     /// Gets the value of the query pair
     #[must_use]
     pub fn value(&self) -> &str {
-        &self.value
+        self.value
     }
 }
 impl<'a> Display for QueryPair<'a> {
@@ -530,7 +530,7 @@ impl<'a> QueryPairIter<'a> {
             self.pos = Some(self.back_pos.map_or_else(
                 || self.query.find_first(self.name).unwrap_or(usize::MAX),
                 |last| self.query.iterate_to_first(self.name, last),
-            ))
+            ));
         }
     }
     fn ensure_back_pos(&mut self) {
@@ -543,7 +543,7 @@ impl<'a> QueryPairIter<'a> {
                         .unwrap_or(usize::MAX)
                 },
                 |first| self.query.iterate_to_last(self.name, first),
-            ))
+            ));
         }
     }
 }
@@ -758,7 +758,7 @@ pub fn sanitize_request<T>(
         if start >= end {
             return Err(SanitizeError::RangeNotSatisfiable);
         }
-        data.range = Some((start, end + 1))
+        data.range = Some((start, end + 1));
     }
     Ok(data)
 }

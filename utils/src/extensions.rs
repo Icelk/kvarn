@@ -2,7 +2,7 @@
 
 use crate::{
     chars::{AMPERSAND, BANG, CR, LF, PIPE, SPACE},
-    *,
+    str, Arc, Bytes, Debug,
 };
 
 /// Magic number for [`Present`](https://kvarn.org/extensions/#present) extension.
@@ -83,10 +83,10 @@ impl PresentExtensions {
                 // We have to borrow same mutably, which isn't possible in closures.
                 #[allow(clippy::option_if_let_else)]
                 if let Some(name) = last_name {
-                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(name, span))
+                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(name, span));
                 } else {
                     last_name = Some((start, len));
-                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(span, span))
+                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(span, span));
                 }
                 if byte == CR {
                     has_cr = true;
@@ -123,7 +123,7 @@ impl PresentExtensions {
     #[inline]
     pub fn iter(&self) -> PresentExtensionsIter {
         PresentExtensionsIter {
-            data: Self::clone(&self),
+            data: Self::clone(self),
             index: 0,
         }
     }
@@ -169,7 +169,7 @@ impl Iterator for PresentExtensionsIter {
         }
         // Cannot change name ↑ on last item; the end of each *peeks* forward one. If it's next to the end, add one.
         if self.index + 1 == self.data.extensions.len() {
-            self.index += 1
+            self.index += 1;
         };
         Some(PresentArguments {
             data: PresentExtensions::clone(&self.data),

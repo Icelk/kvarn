@@ -542,6 +542,7 @@ impl ServerCachePreference {
             Self::None => false,
             Self::QueryMatters | Self::Full | Self::MaxAge(_) => true,
         };
+        #[allow(clippy::unnested_or_patterns)]
         let of_response = !matches!(_response.status().as_u16(), 400..=403 | 405..=499)
             && matches!(_method, &Method::GET | &Method::HEAD);
         of_self && of_response
