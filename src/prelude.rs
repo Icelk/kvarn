@@ -22,6 +22,7 @@ pub use crate::encryption;
 pub use crate::extensions;
 pub use crate::host;
 pub use crate::limiting;
+pub use crate::vary;
 pub use kvarn_async as async_bits;
 pub use kvarn_utils as utils;
 
@@ -61,7 +62,7 @@ pub mod networking {
 /// **This is not part of the public API and may change rapidly**
 pub mod internals {
     use super::{
-        application, async_bits, comprash, encryption, error, extensions, limiting, utils,
+        application, async_bits, comprash, encryption, error, extensions, limiting, utils, vary,
     };
     pub use application::{
         Body, HttpConnection, PushedResponsePipe, ResponseBodyPipe, ResponsePipe,
@@ -78,6 +79,7 @@ pub mod internals {
     pub use utils::{
         PresentArguments, PresentArgumentsIter, PresentExtensions, PresentExtensionsIter,
     };
+    pub use vary::{VariedResponse, Vary};
 }
 
 /// **Prelude:** internal

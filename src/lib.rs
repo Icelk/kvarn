@@ -57,6 +57,7 @@ pub mod limiting;
 pub mod prelude;
 pub mod read;
 pub mod shutdown;
+pub mod vary;
 
 use prelude::{internals::*, networking::*, *};
 // When user only imports crate::* and not crate::prelude::*
@@ -685,7 +686,7 @@ pub async fn handle_cache(
                 host: &Host,
                 server_cache: ServerCachePreference,
                 path_query: PathQuery,
-                response: comprash::VariedResponse,
+                response: VariedResponse,
                 method: &Method,
                 future: &Option<T>,
             ) -> bool {
@@ -739,7 +740,7 @@ pub async fn handle_cache(
             // SAFETY: The requirements are met; the cache we're storing this is is part of the
             // `host`; the `host` will outlive this struct.
             let varied_response = unsafe {
-                comprash::VariedResponse::new(compressed_response, &request, vary_rules.as_ref())
+                VariedResponse::new(compressed_response, &request, vary_rules.as_ref())
             };
 
             let cached = maybe_cache(
