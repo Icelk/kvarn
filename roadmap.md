@@ -53,7 +53,7 @@ The name comes from the current plan to move core stuff into it's own crate.
 -   [x] Partial test coverage
 -   [x] Extension macros
 -   [x] Additional server-side cache options, including parsing `cache-control` header
--   [ ] Cache handling of Vary header (definitely the hardest)
+-   [x] Cache handling of Vary header (definitely the hardest)
 -   [x] Byte ranges
 -   [x] `read_to_bytes()` performance
 -   [x] Implement an easy-to-configure proxy extension in kvarn_extensions
@@ -62,6 +62,8 @@ The name comes from the current plan to move core stuff into it's own crate.
 -   [x] Smart push (so all other data isn't pushed on every request)
 -   [x] Graceful shutdown and handover. Maintenance and updates are now a non-issue!
 -   [x] IPv6
+-   [x] CI
+-   [ ] CD
 
 # v0.4.0 WebSockets & Auth
 
