@@ -213,7 +213,7 @@ impl ServerBuilder {
             cert,
         } = self;
 
-        let path = path.as_deref().unwrap_or(Path::new("tests"));
+        let path = path.as_deref().unwrap_or_else(|| Path::new("tests"));
 
         let (host, certified_key) = if https {
             let (cert, pk) = cert.unwrap_or_else(|| {
@@ -261,7 +261,7 @@ impl ServerBuilder {
             } else {
                 PortDescriptor::non_secure(port, data.clone())
             };
-            let mut config = RunConfig::new().add(port_descriptor);
+            let mut config = RunConfig::new().bind(port_descriptor);
             if let Some((handover_path, _)) = &handover {
                 config = config.set_handover_socket_path(handover_path);
             } else {

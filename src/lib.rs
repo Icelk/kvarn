@@ -893,7 +893,7 @@ pub enum BindIpVersion {
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
 /// let config = RunConfig::new()
-///     .add(port_descriptor)
+///     .bind(port_descriptor)
 ///     .set_handover_socket_path("/tmp/kvarn-instance-1.sock");
 /// run(config).await.shutdown();
 /// # };
@@ -958,7 +958,7 @@ impl Default for RunConfig {
 #[macro_export]
 macro_rules! run_config {
     ($($port_descriptor:expr),+ $(,)?) => {
-        $crate::RunConfig::new()$(.add($port_descriptor))+
+        $crate::RunConfig::new()$(.bind($port_descriptor))+
     };
 }
 

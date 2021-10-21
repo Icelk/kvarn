@@ -78,6 +78,8 @@ async fn test_cors_response(response: reqwest::Response, valid_expected: bool, l
         );
     }
 }
+
+#[allow(clippy::too_many_arguments)]
 async fn test_cors_options(
     server: &Server,
     path: impl AsRef<str>,

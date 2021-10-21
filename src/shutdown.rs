@@ -248,17 +248,19 @@ impl Manager {
                     handover::UnixResponse::Data(b"ok") | handover::UnixResponse::NotFound => {
                         let manager = Arc::clone(manager);
                         handover::start_at(
-                            move |data| if let b"shutdown" = data {
-                                info!("Got signal to shutdown over socket.");
-                                manager.shutdown();
-                                (true, Vec::from("ok"))
-                            } else {
-                                let data = data.get(..128).unwrap_or(data);
-                                warn!(
-                                    "Got unexpected message on socket {:?}",
-                                    str::from_utf8(data).unwrap_or("BINARY")
-                                );
-                                (false, Vec::from("error"))
+                            move |data| {
+                                if let b"shutdown" = data {
+                                    info!("Got signal to shutdown over socket.");
+                                    manager.shutdown();
+                                    (true, Vec::from("ok"))
+                                } else {
+                                    let data = data.get(..128).unwrap_or(data);
+                                    warn!(
+                                        "Got unexpected message on socket {:?}",
+                                        str::from_utf8(data).unwrap_or("BINARY")
+                                    );
+                                    (false, Vec::from("error"))
+                                }
                             },
                             &path,
                         )
