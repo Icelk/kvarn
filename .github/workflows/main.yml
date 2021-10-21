@@ -39,7 +39,7 @@ jobs:
                   command: clippy
                   args: --all-targets --all-features -- -D warnings
             - name: Checking doc references
-              run: test -z $(cargo doc --workspace --no-deps -q 2>&1)
+              run: test -z "$(cargo doc --no-deps -q 2>&1 | head -n 1)"
             - name: Testing
               uses: actions-rs/cargo@v1
               with:
