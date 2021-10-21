@@ -56,7 +56,8 @@ jobs:
                   override: true
             - name: Checking out sources
               uses: actions/checkout@v1
-            - name: Checking Rust code
+            - uses: Swatinem/rust-cache@v1
+            - name: Compiling
               uses: actions-rs/cargo@v1
               with:
                   command: rustc
