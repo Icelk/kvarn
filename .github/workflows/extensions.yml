@@ -24,6 +24,11 @@ jobs:
             - uses: Swatinem/rust-cache@v1
             - name: Installing clippy
               run: rustup component add clippy
+            - name: Running rustfmt
+              uses: actions-rs/cargo@v1
+              with:
+                  command: fmt
+                  args: -- --check
             - name: Checking project will all features
               uses: actions-rs/cargo@v1
               with:
