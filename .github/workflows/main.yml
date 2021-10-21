@@ -1,0 +1,59 @@
+name: Continuous Integration
+
+on:
+    push:
+        paths-ignore:
+            - "extensions/**"
+        paths:
+            - "**.rs"
+            - "**.toml"
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Installing Rust toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  override: true
+            - name: Checking out sources
+              uses: actions/checkout@v1
+            - uses: Swatinem/rust-cache@v1
+            - name: Installing clippy
+              run: rustup component add clippy
+            - name: Checking project
+              uses: actions-rs/cargo@v1
+              with:
+                  command: clippy
+                  args: -- -D warnings
+            - name: Checking project will all features
+              uses: actions-rs/cargo@v1
+              with:
+                  command: clippy
+                  args: --all-targets --all-features -- -D warnings
+
+    build:
+        needs: [check]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Installing Rust toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  override: true
+            - name: Checking out sources
+              uses: actions/checkout@v1
+            - name: Checking Rust code
+              uses: actions-rs/cargo@v1
+              with:
+                  command: rustc
+                  args: --release -- --crate-type rlib
+            - name: Upload rlib artefact
+              uses: actions/upload-artifact@v2
+              with:
+                  name: libkvarn.rlib
+                  path: target/release/libkvarn.rlib
