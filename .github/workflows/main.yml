@@ -28,6 +28,8 @@ jobs:
               with:
                   command: fmt
                   args: -- --check
+            - name: Checking doc references
+              run: test -z $(cargo doc --workspace --no-deps -q)
             - name: Checking project
               uses: actions-rs/cargo@v1
               with:
