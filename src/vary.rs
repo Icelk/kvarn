@@ -15,8 +15,8 @@ use comprash::CompressedResponse;
 use utils::SuperUnsafePointer;
 
 /// The transformation on a request header to get the
-/// "key" header value to store in the cache (in the [`comprash::HeaderCollection`]).
-// It's a `Arc` to enable cloning of `VaryRule`.
+/// "key" header value to store in the cache (in the [`HeaderCollection`]).
+// It's a `Arc` to enable cloning of `Rule`.
 pub(crate) type Transformation = Pin<Arc<dyn Fn(&str) -> Cow<'static, str> + Send + Sync>>;
 
 /// A rule for how to handle a single varied header.
@@ -32,7 +32,7 @@ pub(crate) struct Rule {
 }
 impl Debug for Rule {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("VaryRule")
+        f.debug_struct("Rule")
             .field("name", &self.name)
             .field("transformation", &"[ transformation Fn ]".as_clean())
             .field("default", &self.default)
@@ -180,7 +180,7 @@ impl Settings {
 #[must_use]
 pub type Vary = extensions::RuleSet<Settings>;
 impl Vary {
-    /// Gets the [`VarySettings`] from the ruleset using the path of `request`.
+    /// Gets the [`Settings`] from the ruleset using the path of `request`.
     pub fn rules_from_request<'a, T>(&'a self, request: &Request<T>) -> Cow<'a, Settings> {
         self.get(request.uri().path()).map_or_else(
             || Cow::Owned(Settings::default()),
@@ -191,7 +191,7 @@ impl Vary {
 
 /// Creates a `vary` response header from the slice of [`Header`]s.
 ///
-/// Consider using [`apply_vary_header`] instead.
+/// Consider using [`apply_header`] instead.
 #[must_use]
 fn get_header(headers: &[Header]) -> HeaderValue {
     use bytes::BufMut;
@@ -229,14 +229,14 @@ pub(crate) fn apply_header<T>(response: &mut Response<T>, headers: &[Header]) {
 
 /// A header that is subject to the `vary` header.
 ///
-/// The `name` must not contains chars [0..=32] | [127].
+/// The `name` must not contains chars [0..=32] | 127.
 /// See [`utils::is_valid_header_value_byte`].
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub(crate) struct Header {
     name: &'static str,
     transformed: Cow<'static, str>,
 }
-/// A reference header to build [`VaryHeader`] against.
+/// A reference header to build [`Header`] against.
 ///
 /// Contains the name of the header,
 /// how to get the header value to store,
