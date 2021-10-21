@@ -4,9 +4,7 @@ on:
     push:
         paths-ignore:
             - "extensions/**"
-        paths:
-            - "**.rs"
-            - "**.toml"
+            - "chute/**"
 
 env:
     CARGO_TERM_COLOR: always
