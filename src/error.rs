@@ -1,13 +1,6 @@
-//! Utility functions to provide solid solutions for common problems.
+//! Utility functions to generate error responses.
 //!
-//! This includes
-//! - [`WriteableBytes`] for when you want to use [`Bytes`]
-//!   as a [`Vec`], with tailored allocations
-//! - [`CleanDebug`] to get the [`Display`] implementation when
-//!   implementing [`Debug`] for a struct (see the Debug implementation for [`Host`])
-//! - Async cached access to the file system
-//! - Default errors which can be customised in `<host_dir>/errors/<status_code>.html`
-//! - And several [`http`] helper functions.
+//! Default errors can be overridden using the files at `<host_dir>/errors/<status_code>.html`
 
 use crate::prelude::*;
 
