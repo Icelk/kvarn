@@ -665,7 +665,7 @@ pub async fn handle_cache(
                         Ok(response) => response,
                     };
 
-                    vary::apply_header(&mut response, &vary);
+                    vary::apply_header(&mut response, vary);
 
                     let identity_body = Bytes::clone(resp.get_identity().body());
                     drop(lock);
