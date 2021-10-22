@@ -24,13 +24,8 @@ jobs:
             - name: Checking out sources
               uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
-            - name: Installing clippy
-              run: rustup component add clippy
-            - name: Checking project
-              uses: actions-rs/cargo@v1
-              with:
-                  command: clippy
-                  args: -- -D warnings
+            - name: Checking project will all features
+              run: cargo clippy -- -D warnings
 
     build:
         needs: [check]
@@ -45,12 +40,9 @@ jobs:
               uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
             - name: Compiling
-              uses: actions-rs/cargo@v1
-              with:
-                  command: rustc
-                  args: --release
+              run: cargo rustc --release
             - name: Upload bin artefact
               uses: actions/upload-artifact@v2
               with:
                   name: chute
-                  path: /home/runner/work/kvarn/kvarn/target/release/kvarn_chute
+                  path: target/release/kvarn_chute
