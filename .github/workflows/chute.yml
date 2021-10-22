@@ -10,7 +10,7 @@ env:
 
 defaults:
     run:
-        working-directory: extensions
+        working-directory: chute
 
 jobs:
     check:
