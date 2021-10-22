@@ -60,6 +60,8 @@ jobs:
               with:
                   command: rustc
                   args: --release -- --crate-type rlib
+            - name: Change directory to git root
+              run: cd ..
             - name: Upload rlib artefact
               uses: actions/upload-artifact@v2
               with:
