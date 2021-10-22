@@ -1,29 +1,50 @@
+[![crates.io version](https://img.shields.io/crates/v/kvarn)](https://crates.io/crates/kvarn)
+![lines of code](https://img.shields.io/tokei/lines/github/Icelk/kvarn)
+![license](https://img.shields.io/github/license/Icelk/kvarn)
+[![CI status](https://img.shields.io/github/workflow/status/Icelk/kvarn/Continuous%20Integration)](https://github.com/Icelk/kvarn/actions)
+[![open issues](https://img.shields.io/github/issues-raw/Icelk/kvarn)](https://github.com/Icelk/kvarn/issues)
+
 <img align="right" width="25%" src="https://kvarn.org/logo.svg">
 
-# Kvarn
+# [Kvarn](https://kvarn.org/)
 
 > An extensible and efficient forwards thinking web server.
-
-See the [roadmap](roadmap.md) or visit [kvarn.org](https://kvarn.org/)
 
 Kvarn is a modular web server, designed from the ground up without excessive dependencies.
 It supports several types of [extensions](https://kvarn.org/extensions/) to make it your own.
 
-The path of requests are documented in the [pipeline](https://kvarn.org/pipeline.) web page which should make integration easier.
+See the [roadmap](roadmap.md) or visit [kvarn.org](https://kvarn.org/) for more info.
 
 # Current state
 
-> Kvarn is under rapid development, so small breaking changes happens.
-> v0.3.0 will bring a relatively stable API.
+Now that `v0.3.0` is out, a stable API is available and the crate is on [crates.io](https://crates.io/crates/kvarn)
 
-Kvarn ism at the time of writing, very bare-bones. I want to keep it this way, to try to make it as fast as possible.
-This, [at least for now](https://kvarn.org/config.), means you'll have to configure it at compile-time
+[At least for now](https://kvarn.org/config.) you'll have to configure Kvarn through code
 (e.g. add extensions from [`kvarn_extensions`](kvarn_extensions/README.md) and configuring hosts).
 
-v0.2.0 will have two major dependencies; Rustls and Tokio.
+To use the latest and greatest
+(with regular breaking changes, follow the progress at the
+[reference implementation](https://github.com/Icelk/kvarn-reference) for solutions)
+you can add Kvarn using this Git repo.
 
-I use Rustls to handle encryption; the community can manage security better than one person.
-The second, Tokio, is to provide a blazing fast asynchronous runtime, which will make authoring extensions a lot easier.
+## Dependencies
+
+To increase security, build-times, reliability, and speed, I use the minimal reasonable number of dependencies.
+
+The two heavy-hitters are `tokio` (async runtime for async networking, file access, and extensions) and `rustls` (for encryption, optional if you want to run a unsafe (often local) web server).
+`brotli` and `flate2` are enabled by default to provide compression, but can be turned off.
+`h2` provides optional (but *strongly preferred*) support for the HTTP/2 protocol.
+
+# Downloads
+
+If you want to download the `.rlib` files, they are published in [actions](https://github.com/Icelk/kvarn/actions) after each good commit.
+Click the topmost run for
+[Kvarn](https://github.com/Icelk/kvarn/actions/workflows/main.yml) or
+[Kvarn extensions](https://github.com/Icelk/kvarn/actions/workflows/extensions.yml)
+and download the appropriate artefact.
+
+For Kvarn chute downloads, go [here](https://github.com/Icelk/kvarn/actions/workflows/chute.yml)
+and download the artefact from the topmost job.
 
 # Contributing
 
@@ -31,3 +52,4 @@ This library, and all other sub-projects, are distributed under the Apache Licen
 So must all contributions also be.
 
 Images and logos are under my copyright unless explicitly stated otherwise.
+You are free to use them if reasonable credit is given. I reserve the right to order you to remove any use at will.
