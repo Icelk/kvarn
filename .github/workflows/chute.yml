@@ -37,6 +37,7 @@ jobs:
               with:
                   toolchain: stable
                   override: true
+                  profile: minimal
             - name: Checking out sources
               uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1

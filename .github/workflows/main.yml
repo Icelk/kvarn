@@ -27,8 +27,6 @@ jobs:
             - name: Checking out sources
               uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
-            - name: Installing clippy
-              run: rustup component add clippy
             - name: Running rustfmt
               uses: actions-rs/cargo@v1
               with:
@@ -60,6 +58,7 @@ jobs:
               with:
                   toolchain: stable
                   override: true
+                  profile: minimal
             - name: Checking out sources
               uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
