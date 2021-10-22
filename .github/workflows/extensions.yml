@@ -64,4 +64,4 @@ jobs:
               uses: actions/upload-artifact@v2
               with:
                   name: libextensions.rlib
-                  path: target/release/libkvarn_extensions.rlib
+                  path: ../target/release/libkvarn_extensions.rlib

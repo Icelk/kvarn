@@ -53,4 +53,4 @@ jobs:
               uses: actions/upload-artifact@v2
               with:
                   name: chute
-                  path: /target/release/kvarn_chute
+                  path: ../target/release/kvarn_chute
