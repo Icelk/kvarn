@@ -4,6 +4,7 @@ on:
     push:
         paths:
             - "chute/**"
+            - ".github/workflows/chute.yml"
 
 env:
     CARGO_TERM_COLOR: always

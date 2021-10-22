@@ -6,6 +6,7 @@ on:
             - "chute/**"
             - "tests/**"
             - "testing/**"
+            - ".github/workflows/chute.yml"
 
 env:
     CARGO_TERM_COLOR: always
