@@ -5,8 +5,12 @@ on:
         paths-ignore:
             - "extensions/**"
             - "chute/**"
+            - "url_crawl/**"
             - ".github/workflows/chute.yml"
             - ".github/workflows/extensions.yml"
+            - "README.md"
+            - "roadmap.md"
+            - "LICENSE"
 
 env:
     CARGO_TERM_COLOR: always
