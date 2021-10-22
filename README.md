@@ -17,7 +17,7 @@ See the [roadmap](roadmap.md) or visit [kvarn.org](https://kvarn.org/) for more 
 
 # Current state
 
-Now that `v0.3.0` is out, a stable API is available and the crate is on [crates.io](https://crates.io/crates/kvarn)
+Now that `v0.3.0` is out, a stable API is available and the crate is on [crates.io](https://crates.io/crates/kvarn).
 
 [At least for now](https://kvarn.org/config.) you'll have to configure Kvarn through code
 (e.g. add extensions from [`kvarn_extensions`](kvarn_extensions/README.md) and configuring hosts).
@@ -43,7 +43,7 @@ Click the topmost run for
 [Kvarn extensions](https://github.com/Icelk/kvarn/actions/workflows/extensions.yml)
 and download the appropriate artefact.
 
-For Kvarn chute downloads, go [here](https://github.com/Icelk/kvarn/actions/workflows/chute.yml)
+For Kvarn chute downloads for Linux, go [here](https://github.com/Icelk/kvarn/actions/workflows/chute.yml)
 and download the artefact from the topmost job.
 
 # Contributing
