@@ -280,7 +280,8 @@ impl EstablishedConnection {
                         }
                     }
 
-                    let chunked = utils::header_eq(response.headers(), "transfer-encoding", "chunked");
+                    let chunked =
+                        utils::header_eq(response.headers(), "transfer-encoding", "chunked");
                     let len = if chunked {
                         usize::MAX
                     } else {
@@ -495,7 +496,11 @@ impl Manager {
                     host
                 );
 
-                utils::replace_header_static(empty_req.headers_mut(), "accept-encoding", "identity");
+                utils::replace_header_static(
+                    empty_req.headers_mut(),
+                    "accept-encoding",
+                    "identity",
+                );
 
                 if utils::header_eq(empty_req.headers(), "connection", "keep-alive") {
                     utils::replace_header_static(empty_req.headers_mut(), "connection", "close");

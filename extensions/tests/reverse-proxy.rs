@@ -38,10 +38,9 @@ async fn basic() {
     let modify: kvarn_extensions::reverse_proxy::ModifyRequestFn = Arc::new(move |request, _| {
         let path = Arc::clone(&path);
 
-        request.headers_mut().insert(
-            "proxy",
-            HeaderValue::from_static("Kvarn"),
-        );
+        request
+            .headers_mut()
+            .insert("proxy", HeaderValue::from_static("Kvarn"));
 
         // We know this is a good path and query; we've just removed the first x bytes.
         let stripped_path = request.uri().path().get(path.as_str().len()..);
