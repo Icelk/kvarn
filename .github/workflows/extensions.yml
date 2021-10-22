@@ -5,6 +5,13 @@ on:
         paths:
             - "extensions/**"
 
+env:
+    CARGO_TERM_COLOR: always
+
+defaults:
+    run:
+        working-directory: extensions
+
 jobs:
     check:
         runs-on: ubuntu-latest
@@ -21,21 +28,17 @@ jobs:
               run: rustup component add clippy
             - name: Running rustfmt
               uses: actions-rs/cargo@v1
-              working-directory: extensions
               with:
                   command: fmt
                   args: -- --check
             - name: Checking project will all features
               uses: actions-rs/cargo@v1
-              working-directory: extensions
               with:
                   command: clippy
                   args: --all-targets --all-features -- -D warnings
             - name: Checking doc references
-              working-directory: extensions
               run: test -z "$(cargo doc --no-deps --document-private-items -q 2>&1 | head -n 1)"
             - name: Testing
-              working-directory: extensions
               uses: actions-rs/cargo@v1
               with:
                   command: test
@@ -54,7 +57,6 @@ jobs:
             - uses: Swatinem/rust-cache@v1
             - name: Compiling
               uses: actions-rs/cargo@v1
-              working-directory: extensions
               with:
                   command: rustc
                   args: --release -- --crate-type rlib
@@ -64,4 +66,4 @@ jobs:
               uses: actions/upload-artifact@v2
               with:
                   name: libextensions.rlib
-                  path: target/release/libkvarn_extensions.rlib
+                  path: /home/runner/work/kvarn/kvarn/target/release/libkvarn_extensions.rlib
