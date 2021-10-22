@@ -35,8 +35,6 @@ jobs:
     build:
         needs: [check]
         runs-on: ubuntu-latest
-        defaults:
-            working-directory: chute
         steps:
             - name: Installing Rust toolchain
               uses: actions-rs/toolchain@v1
