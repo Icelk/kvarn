@@ -5,6 +5,8 @@ on:
         paths-ignore:
             - "extensions/**"
             - "chute/**"
+            - ".github/workflows/chute.yml"
+            - ".github/workflows/extensions.yml"
 
 env:
     CARGO_TERM_COLOR: always
