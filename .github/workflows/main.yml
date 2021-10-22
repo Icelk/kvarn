@@ -8,6 +8,7 @@ on:
             - "url_crawl/**"
             - ".github/workflows/chute.yml"
             - ".github/workflows/extensions.yml"
+            - ".github/dependabot.yml"
             - "README.md"
             - "roadmap.md"
             - "LICENSE"
