@@ -8,11 +8,13 @@ on:
 env:
     CARGO_TERM_COLOR: always
 
+defaults:
+    run:
+        working-directory: extensions
+
 jobs:
     check:
         runs-on: ubuntu-latest
-        defaults:
-            working-directory: extensions
         steps:
             - name: Installing Rust toolchain
               uses: actions-rs/toolchain@v1
