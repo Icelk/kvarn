@@ -4,7 +4,7 @@ pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
     box_fut!({
         let data = unsafe { data.get_inner() };
         let bytes = Bytes::copy_from_slice(
-            &handle_template(data.args(), &data.response().body(), data.host()).await,
+            &handle_template(data.args(), data.response().body(), data.host()).await,
         );
         *data.response_mut().body_mut() = bytes;
     })
@@ -171,7 +171,7 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
             if name_end.checked_sub(name_start + 2).is_some() {
                 // Check if we have a valid UTF-8 string
                 if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
-                    let mut buffer = std::mem::replace(&mut buffer, Vec::new());
+                    let mut buffer = std::mem::take(&mut buffer);
                     for _ in 0..newline_size {
                         buffer.pop();
                     }

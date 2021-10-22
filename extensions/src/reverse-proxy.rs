@@ -280,14 +280,14 @@ impl EstablishedConnection {
                         }
                     }
 
-                    let chunked = header_eq(response.headers(), "transfer-encoding", "chunked");
+                    let chunked = utils::header_eq(response.headers(), "transfer-encoding", "chunked");
                     let len = if chunked {
                         usize::MAX
                     } else {
-                        get_body_length_response(&response, Some(request.method()))
+                        utils::get_body_length_response(&response, Some(request.method()))
                     };
 
-                    let (mut head, body) = split_response(response);
+                    let (mut head, body) = utils::split_response(response);
 
                     let body = if len == 0 || len <= body.len() {
                         body
@@ -316,7 +316,7 @@ impl EstablishedConnection {
                         }
 
                         if chunked {
-                            remove_all_headers(head.headers_mut(), "transfer-encoding");
+                            utils::remove_all_headers(head.headers_mut(), "transfer-encoding");
                             info!("Decoding chunked transfer-encoding.");
                         }
                         buffer.freeze()
@@ -480,7 +480,7 @@ impl Manager {
         extensions.add_prepare_fn(
             self.when,
             prepare!(req, host, _path, _addr, move |connection, modify| {
-                let mut empty_req = empty_clone_request(&req);
+                let mut empty_req = utils::empty_clone_request(req);
                 let mut bytes = return_status!(
                     req.body_mut().read_to_bytes().await.ok(),
                     StatusCode::BAD_GATEWAY,
@@ -495,10 +495,10 @@ impl Manager {
                     host
                 );
 
-                replace_header_static(empty_req.headers_mut(), "accept-encoding", "identity");
+                utils::replace_header_static(empty_req.headers_mut(), "accept-encoding", "identity");
 
-                if header_eq(empty_req.headers(), "connection", "keep-alive") {
-                    replace_header_static(empty_req.headers_mut(), "connection", "close");
+                if utils::header_eq(empty_req.headers(), "connection", "keep-alive") {
+                    utils::replace_header_static(empty_req.headers_mut(), "connection", "close");
                 }
 
                 *empty_req.version_mut() = Version::HTTP_11;
@@ -512,9 +512,9 @@ impl Manager {
                 let mut response = match connection.request(&empty_req, &bytes).await {
                     Ok(mut response) => {
                         let headers = response.headers_mut();
-                        remove_all_headers(headers, "keep-alive");
-                        if !header_eq(headers, "connection", "upgrade") {
-                            remove_all_headers(headers, "connection");
+                        utils::remove_all_headers(headers, "keep-alive");
+                        if !utils::header_eq(headers, "connection", "upgrade") {
+                            utils::remove_all_headers(headers, "connection");
                         }
 
                         FatResponse::cache(response)

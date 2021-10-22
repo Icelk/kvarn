@@ -40,7 +40,7 @@ async fn basic() {
 
         request.headers_mut().insert(
             "proxy",
-            HeaderValue::from_maybe_shared(format!("Kvarn")).unwrap(),
+            HeaderValue::from_static("Kvarn"),
         );
 
         // We know this is a good path and query; we've just removed the first x bytes.
