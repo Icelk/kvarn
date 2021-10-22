@@ -351,7 +351,7 @@ pub fn process_document<P: AsRef<Path>>(
         .expect("we tried to split the beginning of MarkDown on a character boundary, or the input file isn't valid UTF-8");
 
     let mut headers = Vec::new();
-    get_headers(&mut headers, &input);
+    get_headers(&mut headers, input);
 
     let mut tags: Tags = HashMap::new();
     tags.insert(
