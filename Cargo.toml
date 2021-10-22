@@ -38,7 +38,7 @@ mime_guess = "^2"
 percent-encoding = "^2.1.0"
 rustls = { version = "^0.19", optional = true }
 tokio = { version = "^1", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
-webpki = { version = "^0.21", optional = true }
+webpki = { version = "^0.22", optional = true }
 
 [features]
 default = ["all-http", "all-compression", "graceful-shutdown"]
