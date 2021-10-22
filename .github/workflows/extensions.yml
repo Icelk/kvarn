@@ -5,9 +5,6 @@ on:
         paths:
             - "extensions/**"
 
-defaults:
-    run:
-
 jobs:
     check:
         runs-on: ubuntu-latest
