@@ -24,24 +24,14 @@ jobs:
             - name: Checking out sources
               uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
-            - name: Installing clippy
-              run: rustup component add clippy
             - name: Running rustfmt
-              uses: actions-rs/cargo@v1
-              with:
-                  command: fmt
-                  args: -- --check
+              run: cargo fmt -- --check
             - name: Checking project will all features
-              uses: actions-rs/cargo@v1
-              with:
-                  command: clippy
-                  args: --all-targets --all-features -- -D warnings
+              run: cargo clippy --all-targets --all-features -- -D warnings
             - name: Checking doc references
               run: test -z "$(cargo doc --no-deps --document-private-items -q 2>&1 | head -n 1)"
             - name: Testing
-              uses: actions-rs/cargo@v1
-              with:
-                  command: test
+              run: cargo test
 
     build:
         needs: [check]
@@ -52,18 +42,14 @@ jobs:
               with:
                   toolchain: stable
                   override: true
+                  profile: minimal
             - name: Checking out sources
               uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
             - name: Compiling
-              uses: actions-rs/cargo@v1
-              with:
-                  command: rustc
-                  args: --release -- --crate-type rlib
-            - name: List files
-              run: pwd && ls -R ..
+              run: cargo rustc --release -- --crate-type rlib
             - name: Upload rlib artefact
               uses: actions/upload-artifact@v2
               with:
                   name: libextensions.rlib
-                  path: /home/runner/work/kvarn/kvarn/target/release/libkvarn_extensions.rlib
+                  path: target/release/libkvarn_extensions.rlib
