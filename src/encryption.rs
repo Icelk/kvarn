@@ -90,7 +90,7 @@ impl Encryption {
     /// Gets the protocol version.
     ///
     /// If the stream is `TLS`, it's safe to `unwrap()` the returned value;
-    /// `This returns None until the version is agreed.`, from the [`rustls::Session`]
+    /// `This returns None until the version is agreed.`, from the [`rustls::ServerConnection`]
     /// docs means that a version must be available post-handshake,
     /// which [`Encryption`] is guaranteed to be.
     ///

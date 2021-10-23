@@ -32,7 +32,7 @@ use rustls::{
 /// See [`run()`].
 #[must_use]
 pub struct Host {
-    /// The name of the host, will be used in matching the requests [SNI hostname](rustls::ClientHello::server_name())
+    /// The name of the host, will be used in matching the requests [SNI hostname](rustls::server::ClientHello::server_name())
     /// and `host` header to get the requested host to handle the request.
     pub name: &'static str,
     /// The certificate of this host, if any.
@@ -466,7 +466,7 @@ impl DataBuilder {
 /// If only a default is specified, all requests, (e.g. those who lack a `host` header,
 /// have none, or all other values of the header) are channelled to the default.
 ///
-/// If the feature `https` is enabled, [`rustls::ResolvesServerCert`] in implemented
+/// If the feature `https` is enabled, [`rustls::server::ResolvesServerCert`] in implemented
 /// using this default and host name pattern.
 #[derive(Debug)]
 #[must_use]
