@@ -95,8 +95,6 @@ pub enum HttpConnection {
 /// The inner variables are streams. To get the bytes, use [`Body::read_to_bytes()`] when needed.
 ///
 /// Also see [`FatRequest`].
-///
-/// `ToDo`: trailers
 #[derive(Debug)]
 pub enum Body {
     /// An empty body.
