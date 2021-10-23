@@ -752,7 +752,7 @@ pub fn get_certified_key(
         });
     }
     let key = match private_keys.into_iter().next() {
-        Some(key) => rustls::PrivateKey{0: key},
+        Some(key) => rustls::PrivateKey(key),
         None => return Err(CertificateError::NoKey),
     };
 
@@ -762,7 +762,7 @@ pub fn get_certified_key(
         Err(_) => return Err(CertificateError::ImproperCertificateFormat),
     };
 
-    let chain = chain.into_iter().map(|cert| rustls::Certificate{0: cert}).collect();
+    let chain = chain.into_iter().map(rustls::Certificate).collect();
 
     Ok((chain, key))
 }
