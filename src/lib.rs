@@ -278,10 +278,12 @@ pub async fn handle_connection(
     // LAYER 2
     #[cfg(feature = "https")]
     let encrypted = {
-        encryption::Encryption::new_tcp(stream, descriptors.server_config.clone()).await.map_err(|err| match err {
-            encryption::Error::Io(io) => io,
-            encryption::Error::Tls(tls) => io::Error::new(io::ErrorKind::InvalidData, tls),
-        })
+        encryption::Encryption::new_tcp(stream, descriptors.server_config.clone())
+            .await
+            .map_err(|err| match err {
+                encryption::Error::Io(io) => io,
+                encryption::Error::Tls(tls) => io::Error::new(io::ErrorKind::InvalidData, tls),
+            })
     }?;
     #[cfg(not(feature = "https"))]
     let encrypted = encryption::Encryption::new_tcp(stream);

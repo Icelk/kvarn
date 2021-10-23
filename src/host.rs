@@ -576,7 +576,6 @@ impl Data {
     #[inline]
     #[must_use]
     pub fn make_config(self: &Arc<Self>) -> ServerConfig {
-
         let mut config = ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
