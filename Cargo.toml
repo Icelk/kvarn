@@ -36,7 +36,8 @@ log = "^0.4"
 mime = "^0.3"
 mime_guess = "^2"
 percent-encoding = "^2.1.0"
-rustls = { version = "^0.19", optional = true }
+rustls = { version = "^0.20", optional = true }
+rustls-pemfile = { version = "^0.2", optional = true }
 tokio = { version = "^1", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
 webpki = { version = "^0.22", optional = true }
 
@@ -55,7 +56,7 @@ br = ["brotli"]
 gzip = ["flate2"]
 
 # HTTP standards
-https = ["rustls", "webpki"]
+https = ["rustls", "rustls-pemfile", "webpki"]
 http2 = ["h2", "https"]
 
 # Multi threading

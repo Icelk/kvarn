@@ -7,7 +7,7 @@
 
 use kvarn::prelude::*;
 
-type CertifiedKey = (rustls::Certificate, Arc<Box<dyn rustls::sign::SigningKey>>);
+type CertifiedKey = (rustls::Certificate, Arc<dyn rustls::sign::SigningKey>);
 
 macro_rules! impl_methods {
     ($($method: ident $name: ident),*) => {
@@ -222,7 +222,7 @@ impl ServerBuilder {
                 let cert = rustls::Certificate(self_signed_cert.serialize_der().unwrap());
 
                 let pk = rustls::PrivateKey(self_signed_cert.serialize_private_key_der());
-                let pk = Arc::new(rustls::sign::any_supported_type(&pk).unwrap());
+                let pk = rustls::sign::any_supported_type(&pk).unwrap();
                 (cert, pk)
             });
 
