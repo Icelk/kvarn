@@ -277,13 +277,17 @@ pub async fn handle_connection(
 ) -> io::Result<()> {
     // LAYER 2
     #[cfg(feature = "https")]
-    let encrypted =
-        encryption::Encryption::new_tcp(stream, descriptors.server_config.as_ref()).await?;
+    let encrypted = {
+        encryption::Encryption::new_tcp(stream, descriptors.server_config.clone()).await.map_err(|err| match err {
+            encryption::Error::Io(io) => io,
+            encryption::Error::Tls(tls) => io::Error::new(io::ErrorKind::InvalidData, tls),
+        })
+    }?;
     #[cfg(not(feature = "https"))]
     let encrypted = encryption::Encryption::new_tcp(stream);
 
     let version =
-        match encrypted.get_alpn_protocol() {
+        match encrypted.alpn_protocol() {
             Some(b"h2") => Version::HTTP_2,
             None | Some(b"http/1.1") => Version::HTTP_11,
             Some(b"http/1.0") => Version::HTTP_10,
@@ -293,7 +297,7 @@ pub async fn handle_connection(
                 "HTTP version not supported. Something is probably wrong with your alpn config.",
             )),
         };
-    let hostname = encrypted.get_sni_hostname().map(str::to_string);
+    let hostname = encrypted.sni_hostname().map(str::to_string);
     debug!("New connection requesting hostname '{:?}'", hostname);
 
     // LAYER 3

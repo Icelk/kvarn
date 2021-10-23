@@ -16,7 +16,8 @@
 use crate::prelude::{internals::*, *};
 #[cfg(feature = "https")]
 use rustls::{
-    internal::pemfile, sign, ClientHello, NoClientAuth, ResolvesServerCert, ServerConfig,
+    server::{ClientHello, ResolvesServerCert},
+    sign, ServerConfig,
 };
 
 /// A set of settings for a [virtual host](https://en.wikipedia.org/wiki/Virtual_hosting),
@@ -36,7 +37,7 @@ pub struct Host {
     pub name: &'static str,
     /// The certificate of this host, if any.
     #[cfg(feature = "https")]
-    pub certificate: Option<sign::CertifiedKey>,
+    pub certificate: Option<Arc<sign::CertifiedKey>>,
     /// Base path of all data for this host.
     ///
     /// If you enabled the `fs` feature (enabled by default),
@@ -128,7 +129,7 @@ impl Host {
     pub fn from_cert_and_pk(
         host_name: &'static str,
         cert: Vec<rustls::Certificate>,
-        pk: Arc<Box<dyn sign::SigningKey>>,
+        pk: Arc<dyn sign::SigningKey>,
         path: impl AsRef<Path>,
         extensions: Extensions,
         options: Options,
@@ -137,7 +138,7 @@ impl Host {
 
         Self {
             name: host_name,
-            certificate: Some(cert),
+            certificate: Some(Arc::new(cert)),
             path: path.as_ref().to_path_buf(),
             extensions,
             file_cache: Some(Mutex::new(Cache::default())),
@@ -575,9 +576,11 @@ impl Data {
     #[inline]
     #[must_use]
     pub fn make_config(self: &Arc<Self>) -> ServerConfig {
-        let mut config = ServerConfig::new(NoClientAuth::new());
-        let arc = Arc::clone(self);
-        config.cert_resolver = arc;
+
+        let mut config = ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_cert_resolver(self.clone());
         config.alpn_protocols = alpn();
         config
     }
@@ -685,11 +688,11 @@ impl Data {
 #[cfg(feature = "https")]
 impl ResolvesServerCert for Data {
     #[inline]
-    fn resolve(&self, client_hello: ClientHello<'_>) -> Option<sign::CertifiedKey> {
+    fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<sign::CertifiedKey>> {
         // Mostly returns true, since we have a default
         // Will however return false if certificate is not present
         // in found host or default host.
-        self.maybe_get_or_default(client_hello.server_name().map(|n| n.into()))
+        self.maybe_get_or_default(client_hello.server_name())
             .certificate
             .clone()
     }
@@ -722,7 +725,7 @@ impl From<io::Error> for CertificateError {
 ///
 /// Returned from [`get_certified_key`].
 #[cfg(feature = "https")]
-pub type CertKeyPair = (Vec<rustls::Certificate>, Arc<Box<dyn sign::SigningKey>>);
+pub type CertKeyPair = (Vec<rustls::Certificate>, Arc<dyn sign::SigningKey>);
 
 /// Extracts a [`sign::CertifiedKey`] from `cert_path` and `private_key_path`.
 ///
@@ -738,26 +741,28 @@ pub fn get_certified_key(
     let mut private_key = io::BufReader::new(std::fs::File::open(&private_key_path)?);
 
     let mut private_keys = Vec::with_capacity(4);
-    private_keys.extend(match pemfile::pkcs8_private_keys(&mut private_key) {
+    private_keys.extend(match rustls_pemfile::pkcs8_private_keys(&mut private_key) {
         Ok(key) => key,
-        Err(()) => return Err(CertificateError::ImproperPrivateKeyFormat),
+        Err(_) => return Err(CertificateError::ImproperPrivateKeyFormat),
     });
     if private_keys.is_empty() {
-        private_keys.extend(match pemfile::rsa_private_keys(&mut private_key) {
+        private_keys.extend(match rustls_pemfile::rsa_private_keys(&mut private_key) {
             Ok(key) => key,
-            Err(()) => return Err(CertificateError::ImproperPrivateKeyFormat),
+            Err(_) => return Err(CertificateError::ImproperPrivateKeyFormat),
         });
     }
-    let key = match private_keys.get(0) {
-        Some(key) => key,
+    let key = match private_keys.into_iter().next() {
+        Some(key) => rustls::PrivateKey{0: key},
         None => return Err(CertificateError::NoKey),
     };
 
-    let key = sign::any_supported_type(key).map_err(|_| CertificateError::InvalidPrivateKey)?;
-    let chain = match pemfile::certs(&mut chain) {
+    let key = sign::any_supported_type(&key).map_err(|_| CertificateError::InvalidPrivateKey)?;
+    let chain = match rustls_pemfile::certs(&mut chain) {
         Ok(cert) => cert,
-        Err(()) => return Err(CertificateError::ImproperCertificateFormat),
+        Err(_) => return Err(CertificateError::ImproperCertificateFormat),
     };
 
-    Ok((chain, Arc::new(key)))
+    let chain = chain.into_iter().map(|cert| rustls::Certificate{0: cert}).collect();
+
+    Ok((chain, key))
 }
