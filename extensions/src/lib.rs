@@ -65,11 +65,11 @@ pub fn new() -> Extensions {
 /// let mut extensions = Extensions::new();
 /// kvarn_extensions::mount_all(&mut extensions);
 ///
-/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
 /// let data = Data::builder(host).build();
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
-/// let shutdown_manager = run(run_config![port_descriptor]).await;
+/// let shutdown_manager = run_config![port_descriptor].execute().await;
 /// shutdown_manager.wait().await;
 /// # }
 pub fn mount_all(extensions: &mut Extensions) {
