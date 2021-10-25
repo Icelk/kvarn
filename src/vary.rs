@@ -203,7 +203,6 @@ fn get_header(headers: &[Header]) -> HeaderValue {
         .fold(0, |acc, header| acc + header.name.len())
         + headers.len() * 2
         + always_add.len();
-    println!("Predicted len {}", len);
 
     let mut bytes = BytesMut::with_capacity(len);
 
@@ -213,8 +212,6 @@ fn get_header(headers: &[Header]) -> HeaderValue {
         bytes.put(&b", "[..]);
         bytes.put(header.name.as_bytes());
     }
-
-    println!("Len {}", bytes.len());
 
     // SAFETY: [`Header`] is guaranteed to only contain valid bytes, as stated in
     // [`Settings::add_rule`].
