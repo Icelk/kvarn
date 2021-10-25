@@ -220,7 +220,9 @@ impl Extensions {
     pub fn new() -> Self {
         let mut new = Self::empty();
 
-        new.with_uri_redirect().with_no_referrer().with_disallow_cors();
+        new.with_uri_redirect()
+            .with_no_referrer()
+            .with_disallow_cors();
 
         new
     }
