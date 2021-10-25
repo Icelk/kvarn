@@ -520,6 +520,62 @@ impl Extensions {
         self
     }
 
+    /// Adds a [`Prepare`] and a [`Prime`] extension (with a priority of `4`) which redirects requests using HTTP to HTTPS
+    /// with a [`StatusCode::TEMPORARY_REDIRECT`].
+    ///
+    /// For more info about how it works, see the source of this function.
+    #[cfg(feature = "https")]
+    pub fn with_http_to_https_redirect(&mut self) -> &mut Self {
+        const SPECIAL_PATH: &str = "/./to_https";
+        self.extensions.add_prepare_single(
+            SPECIAL_PATH.to_string(),
+            Box::new(|mut request, _, _, _| {
+                // "/./ path" is special; it will not be accepted from outside; any path containing './' gets rejected.
+                // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
+                let request: &FatRequest = unsafe { request.get_inner() };
+                let uri = request.uri();
+                let uri = {
+                    let authority = uri.authority().map_or("", uri::Authority::as_str);
+                    let bytes = build_bytes!(
+                        b"https://",
+                        authority.as_bytes(),
+                        uri.path().as_bytes(),
+                        uri.query().map_or(b"".as_ref(), |_| b"?".as_ref()),
+                        uri.query().map_or(b"".as_ref(), |q| q.as_bytes())
+                    );
+                    // Ok, since we just introduced https:// in the start, which are valid bytes.
+                    unsafe { HeaderValue::from_maybe_shared_unchecked(bytes) }
+                };
+
+                let response = Response::builder()
+                    .status(StatusCode::TEMPORARY_REDIRECT)
+                    .header("location", uri);
+                // Unwrap is ok; we know this is valid.
+                ready(
+                    FatResponse::cache(response.body(Bytes::new()).unwrap())
+                        .with_server_cache(ServerCachePreference::None)
+                        .with_compress(CompressPreference::None),
+                )
+            }),
+        );
+        self.extensions.add_prime(
+            Box::new(|request, _, _| {
+                let request: &FatRequest = unsafe { request.get_inner() };
+                let uri = if request.uri().scheme_str() == Some("http")
+                    && request.uri().port().is_none()
+                {
+                    // redirect
+                    Some(Uri::from_static(SPECIAL_PATH))
+                } else {
+                    None
+                };
+                ready(uri)
+            }),
+            extensions::Id::new(4, "Redirecting to HTTPS"),
+        );
+        self
+    }
+
     /// Adds a prime extension. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prime(&mut self, extension: Prime, id: Id) {
         add_sort_list!(self.prime, id, extension,);
