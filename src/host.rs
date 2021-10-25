@@ -93,7 +93,7 @@ impl Host {
     ) -> Result<Self, (CertificateError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
-            Ok((cert, pk)) => Ok(Self::from_cert_and_pk(
+            Ok((cert, pk)) => Ok(Self::cert_and_pk(
                 host_name, cert, pk, path, extensions, options,
             )),
             Err(err) => Err((err, Self::non_secure(host_name, path, extensions, options))),
@@ -126,7 +126,7 @@ impl Host {
     // The rustls function requires it.
     #[allow(clippy::redundant_allocation)]
     #[cfg(feature = "https")]
-    pub fn from_cert_and_pk(
+    pub fn cert_and_pk(
         host_name: &'static str,
         cert: Vec<rustls::Certificate>,
         pk: Arc<dyn sign::SigningKey>,
@@ -179,7 +179,7 @@ impl Host {
     ///
     /// Consider [`Host::enable_hsts`] to harden the system.
     #[cfg(feature = "https")]
-    pub fn with_http_redirect(
+    pub fn http_redirect(
         host_name: &'static str,
         cert_path: impl AsRef<Path>,
         private_key_path: impl AsRef<Path>,
@@ -196,7 +196,7 @@ impl Host {
             options,
         ) {
             Ok(mut host) => {
-                host.set_http_redirect_to_https();
+                host.with_http_to_https_redirect();
                 host
             }
             Err((err, host_without_cert)) => {
@@ -214,7 +214,7 @@ impl Host {
     ///
     /// For more info about how it works, see the source of this function.
     #[cfg(feature = "https")]
-    pub fn set_http_redirect_to_https(&mut self) -> &mut Self {
+    pub fn with_http_to_https_redirect(&mut self) -> &mut Self {
         const SPECIAL_PATH: &str = "/./to_https";
         self.extensions.add_prepare_single(
             SPECIAL_PATH.to_string(),
@@ -276,7 +276,7 @@ impl Host {
     ///
     /// Also see [hstspreload.org](https://hstspreload.org/)
     #[cfg(feature = "https")]
-    pub fn enable_hsts(&mut self) -> &mut Self {
+    pub fn with_hsts(&mut self) -> &mut Self {
         self.extensions.add_package(
             Box::new(|mut response, request, _| {
                 let response: &mut Response<_> = unsafe { response.get_inner() };
@@ -348,14 +348,16 @@ impl Host {
 impl Debug for Host {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("Host");
-        d.field("host_name", &self.name);
+        d.field("name", &self.name);
         #[cfg(feature = "https")]
         d.field("certificate", &"[internal certificate]".as_clean());
         d.field("path", &self.path);
         d.field("extensions", &"[internal extension data]".as_clean());
         d.field("file_cache", &"[internal cache]".as_clean());
         d.field("response_cache", &"[internal cache]".as_clean());
-        d.field("settings", &self.options);
+        d.field("limiter", &self.limiter);
+        d.field("vary", &self.vary);
+        d.field("options", &self.options);
         d.finish()
     }
 }
