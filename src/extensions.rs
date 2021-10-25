@@ -182,7 +182,6 @@ macro_rules! add_sort_list {
 /// See [extensions.md](../extensions.md) for more info.
 ///
 /// `ToDo`: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
-#[allow(missing_debug_implementations)]
 #[must_use]
 pub struct Extensions {
     prime: Vec<(Id, Prime)>,
