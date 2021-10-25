@@ -9,26 +9,12 @@
 //! let extensions = Extensions::new();
 //! println!("The currently mounted extensions: {:#?}", extensions);
 //! ```
-//!
-//! ## Unsafe pointers
-//!
-//! This modules contains extensive usage of unsafe pointers.
-//!
-//! ### Background
-//!
-//! In the extension code, I sometimes have to pass references of data to `Futures` to avoid cloning,
-//! which sometimes is not an option (such as when a `TcpStream` is part of said data).
-//! You cannot share references with `Futures`, and so I've opted to go the unsafe route. Literally.
-//!
-//! ### Safety
-//!
-//! In this module, there are several `Wrapper` types. They ***must not*** be stored.
-//! It's safe to get the underlying type inside the extension which received the data;
-//! the future is awaited and the referenced data is guaranteed to not be touched by
-//! anyone but the receiving extension. If you use it later, the data can be used
-//! or have been dropped.
 
 use crate::prelude::{internals::*, *};
+use wrappers::{
+    EmptyResponseWrapperMut, HostWrapper, PathOptionWrapper, PresentDataWrapper, RequestWrapper,
+    RequestWrapperMut, ResponseBodyPipeWrapperMut, ResponsePipeWrapperMut,
+};
 
 /// A return type for a `dyn` [`Future`].
 ///
@@ -759,72 +745,6 @@ impl Debug for Extensions {
     }
 }
 
-macro_rules! get_unsafe_wrapper {
-    ($main:ident, $return:ty, $ret_str:expr) => {
-        #[doc = "A wrapper type for `"]
-        #[doc = $ret_str]
-        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
-        #[allow(missing_debug_implementations)]
-        #[must_use]
-        pub struct $main(*const $return);
-        impl $main {
-            pub(crate) fn new(data: &$return) -> Self {
-                Self(data)
-            }
-            /// # Safety
-            ///
-            /// See [module level documentation](crate::extensions).
-            #[inline]
-            #[must_use = "must use extracted reference"]
-            pub unsafe fn get_inner(&self) -> &$return {
-                &*self.0
-            }
-        }
-        unsafe impl Send for $main {}
-        unsafe impl Sync for $main {}
-    };
-    ($main:ident, $return:ty) => {
-        get_unsafe_wrapper!($main, $return, stringify!($return));
-    };
-}
-macro_rules! get_unsafe_mut_wrapper {
-    ($main:ident, $return:ty, $ret_str:expr) => {
-        #[doc = "A wrapper type for `"]
-        #[doc = $ret_str]
-        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
-        #[allow(missing_debug_implementations)]
-        #[must_use]
-        pub struct $main(*mut $return);
-        impl $main {
-            pub(crate) fn new(data: &mut $return) -> Self {
-                Self(data)
-            }
-            /// # Safety
-            ///
-            /// See [module level documentation](crate::extensions).
-            #[inline]
-            #[must_use = "must use extracted reference"]
-            pub unsafe fn get_inner(&mut self) -> &mut $return {
-                &mut *self.0
-            }
-        }
-        unsafe impl Send for $main {}
-        unsafe impl Sync for $main {}
-    };
-    ($main:ident, $return:ty) => {
-        get_unsafe_mut_wrapper!($main, $return, stringify!($return));
-    };
-}
-
-get_unsafe_wrapper!(RequestWrapper, FatRequest);
-get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
-get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
-get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, ResponsePipe);
-get_unsafe_wrapper!(HostWrapper, Host);
-get_unsafe_wrapper!(PathOptionWrapper, Option<PathBuf>);
-get_unsafe_mut_wrapper!(PresentDataWrapper, PresentData);
-get_unsafe_mut_wrapper!(ResponseBodyPipeWrapperMut, ResponseBodyPipe);
-
 /// Add data pretending to present state in creating the response.
 ///
 /// Can be acquired from [`PresentDataWrapper`].
@@ -1201,6 +1121,94 @@ impl Default for CorsAllowList {
     }
 }
 
+/// ## Unsafe pointers
+///
+/// This modules contains extensive usage of unsafe pointers.
+///
+/// ### Background
+///
+/// In the extension code, I sometimes have to pass references of data to `Futures` to avoid cloning,
+/// which sometimes is not an option (such as when a `TcpStream` is part of said data).
+/// You cannot share references with `Futures`, and so I've opted to go the unsafe route. Literally.
+/// Various contracts ensure this isn't unsafe or UB.
+///
+/// ### Safety
+///
+/// In this module, there are several `Wrapper` types. They ***must not*** be stored.
+/// It's safe to get the underlying type inside the extension which received the data;
+/// the future is awaited and the referenced data is guaranteed to not be touched by
+/// anyone but the receiving extension. If you use it later, the data can be used
+/// or have been dropped.
+pub mod wrappers {
+    use super::{FatRequest, Host, PathBuf, PresentData, Response, ResponseBodyPipe, ResponsePipe};
+
+    macro_rules! get_unsafe_wrapper {
+    ($main:ident, $return:ty, $ret_str:expr) => {
+        #[doc = "A wrapper type for `"]
+        #[doc = $ret_str]
+        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[allow(missing_debug_implementations)]
+        #[must_use]
+        pub struct $main(*const $return);
+        impl $main {
+            pub(crate) fn new(data: &$return) -> Self {
+                Self(data)
+            }
+            /// # Safety
+            ///
+            /// See [module level documentation](crate::extensions).
+            #[inline]
+            #[must_use = "must use extracted reference"]
+            pub unsafe fn get_inner(&self) -> &$return {
+                &*self.0
+            }
+        }
+        unsafe impl Send for $main {}
+        unsafe impl Sync for $main {}
+    };
+    ($main:ident, $return:ty) => {
+        get_unsafe_wrapper!($main, $return, stringify!($return));
+    };
+}
+    macro_rules! get_unsafe_mut_wrapper {
+    ($main:ident, $return:ty, $ret_str:expr) => {
+        #[doc = "A wrapper type for `"]
+        #[doc = $ret_str]
+        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+        #[allow(missing_debug_implementations)]
+        #[must_use]
+        pub struct $main(*mut $return);
+        impl $main {
+            pub(crate) fn new(data: &mut $return) -> Self {
+                Self(data)
+            }
+            /// # Safety
+            ///
+            /// See [module level documentation](crate::extensions).
+            #[inline]
+            #[must_use = "must use extracted reference"]
+            pub unsafe fn get_inner(&mut self) -> &mut $return {
+                &mut *self.0
+            }
+        }
+        unsafe impl Send for $main {}
+        unsafe impl Sync for $main {}
+    };
+    ($main:ident, $return:ty) => {
+        get_unsafe_mut_wrapper!($main, $return, stringify!($return));
+    };
+}
+
+    get_unsafe_wrapper!(RequestWrapper, FatRequest);
+    get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
+    get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
+    get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, ResponsePipe);
+    get_unsafe_wrapper!(HostWrapper, Host);
+    get_unsafe_wrapper!(PathOptionWrapper, Option<PathBuf>);
+    get_unsafe_mut_wrapper!(PresentDataWrapper, PresentData);
+    get_unsafe_mut_wrapper!(ResponseBodyPipeWrapperMut, ResponseBodyPipe);
+}
+
 mod macros {
     /// Makes a pinned future, compatible with [`crate::RetFut`] and [`crate::RetSyncFut`]
     ///
@@ -1244,7 +1252,7 @@ mod macros {
     #[macro_export]
     macro_rules! extension {
         (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $code:block) => {{
-            use $crate::extensions::*;
+            use $crate::extensions::{*, wrappers::*};
             use $crate::prelude::utils::SuperUnsafePointer;
             #[allow(unused_mut)]
             Box::new(move |

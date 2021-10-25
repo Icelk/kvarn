@@ -509,8 +509,8 @@ impl<'a> SendKind<'a> {
 
                 if let Some(future) = future {
                     future(
-                        extensions::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
-                        extensions::HostWrapper::new(host),
+                        extensions::wrappers::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
+                        extensions::wrappers::HostWrapper::new(host),
                     )
                     .await;
                 }
@@ -540,8 +540,8 @@ impl<'a> SendKind<'a> {
                 }
                 if let Some(future) = future {
                     future(
-                        extensions::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
-                        extensions::HostWrapper::new(host),
+                        extensions::wrappers::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
+                        extensions::wrappers::HostWrapper::new(host),
                     )
                     .await;
                 }
