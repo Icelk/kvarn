@@ -50,7 +50,7 @@ fn get_extensions() -> Extensions {
         )
         .arc();
 
-    extensions.add_cors(cors);
+    extensions.with_cors(cors);
     extensions
 }
 async fn test_cors_response(response: reqwest::Response, valid_expected: bool, line: u32) {

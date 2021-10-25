@@ -220,7 +220,7 @@ impl Extensions {
     pub fn new() -> Self {
         let mut new = Self::empty();
 
-        new.add_uri_redirect().add_no_referrer().add_disallow_cors();
+        new.with_uri_redirect().with_no_referrer().with_disallow_cors();
 
         new
     }
@@ -230,7 +230,7 @@ impl Extensions {
     /// This routs the requests according to [`host::Options::folder_default`] and
     /// [`host::Options::extension_default`].
     /// See respective documentation for more info.
-    pub fn add_uri_redirect(&mut self) -> &mut Self {
+    pub fn with_uri_redirect(&mut self) -> &mut Self {
         self.add_prime(
             Box::new(|request, host, _| {
                 enum Ending {
@@ -294,7 +294,7 @@ impl Extensions {
     /// Adds a [`Package`] extension to set the `referrer-policy` to `no-referrer`
     /// for maximum privacy and security.
     /// This is added when calling [`Extensions::new`].
-    pub fn add_no_referrer(&mut self) -> &mut Self {
+    pub fn with_no_referrer(&mut self) -> &mut Self {
         self.add_package(
             Box::new(|mut response, _, _| {
                 let response: &mut Response<()> = unsafe { response.get_inner() };
@@ -311,7 +311,7 @@ impl Extensions {
     }
     /// Adds extensions to disallow all CORS requests.
     /// This is added when calling [`Extensions::new`].
-    pub fn add_disallow_cors(&mut self) -> &mut Self {
+    pub fn with_disallow_cors(&mut self) -> &mut Self {
         self.add_prime(
             Box::new(|request, _, _| {
                 box_fut!({
@@ -370,8 +370,8 @@ impl Extensions {
     /// Overrides the default handling (deny all) of CORS requests to be `cors_settings`.
     ///
     /// See [`Cors`] for an example and more info.
-    pub fn add_cors(&mut self, cors_settings: Arc<Cors>) -> &mut Self {
-        self.add_disallow_cors();
+    pub fn with_cors(&mut self, cors_settings: Arc<Cors>) -> &mut Self {
+        self.with_disallow_cors();
 
         let options_cors_settings = Arc::clone(&cors_settings);
         let package_cors_settings = Arc::clone(&cors_settings);
