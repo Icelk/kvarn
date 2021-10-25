@@ -34,9 +34,8 @@ impl PathQuery {
     pub fn path(&self) -> &str {
         &self.string[..self.query_start]
     }
-    /// Get the optional query segment. Will never be empty.
-    ///
-    /// `ToDo`: Make test of ↑
+    /// Get the optional query segment.
+    /// `&str` will never be empty if the return value is [`None`].
     #[inline]
     #[must_use]
     pub fn query(&self) -> Option<&str> {
@@ -903,5 +902,39 @@ impl<K: Eq + Hash> Cache<K, Bytes> {
 
         // Bytes are not cleared from cache.
         self.insert(contents.len(), key, contents, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_query_empty_query_1 () {
+        let uri: Uri = "https://kvarn.org/index.html?".parse().unwrap();
+        let path_query = PathQuery::from(&uri);
+
+        assert_eq!(path_query.query(), None);
+    }
+    #[test]
+    fn path_query_empty_query_2 () {
+        let uri: Uri = "https://kvarn.org/index.html?hi".parse().unwrap();
+        let path_query = PathQuery::from(&uri);
+
+        assert_eq!(path_query.query(), Some("hi"));
+    }
+    #[test]
+    fn path_query_empty_query_3 () {
+        let uri: Uri = "https://kvarn.org/index.html??".parse().unwrap();
+        let path_query = PathQuery::from(&uri);
+
+        assert_eq!(path_query.query(), Some("?"));
+    }
+    #[test]
+    fn path_query_empty_query_4 () {
+        let uri: Uri = "https://kvarn.org/".parse().unwrap();
+        let path_query = PathQuery::from(&uri);
+
+        assert_eq!(path_query.query(), None);
     }
 }
