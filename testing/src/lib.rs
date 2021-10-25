@@ -238,10 +238,7 @@ impl ServerBuilder {
                 Some((cert, pk)),
             )
         } else {
-            (
-                Host::unsecure("localhost", path, extensions, options),
-                None,
-            )
+            (Host::unsecure("localhost", path, extensions, options), None)
         };
 
         let data = Data::builder(host).build();

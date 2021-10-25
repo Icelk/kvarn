@@ -93,9 +93,7 @@ impl Host {
     ) -> Result<Self, (CertificateError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
-            Ok((cert, pk)) => Ok(Self::new(
-                host_name, cert, pk, path, extensions, options,
-            )),
+            Ok((cert, pk)) => Ok(Self::new(host_name, cert, pk, path, extensions, options)),
             Err(err) => Err((err, Self::unsecure(host_name, path, extensions, options))),
         }
     }

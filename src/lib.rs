@@ -462,7 +462,10 @@ impl<'a> SendKind<'a> {
         request: &FatRequest,
         host: &Host,
         future: Option<
-            impl FnOnce(extensions::ResponseBodyPipeWrapperMut, extensions::HostWrapper) -> F,
+            impl FnOnce(
+                extensions::wrappers::ResponseBodyPipeWrapperMut,
+                extensions::wrappers::HostWrapper,
+            ) -> F,
         >,
         address: SocketAddr,
         data: Option<utils::CriticalRequestComponents>,
