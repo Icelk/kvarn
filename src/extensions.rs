@@ -216,7 +216,7 @@ impl Extensions {
     ///   This was earlier part of parsing of the path, but was moved to an extension for consistency and performance; now `/`, `index.`, and `index.html` is the same entity in cache.
     /// - A Package extension (8) to set `referrer-policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `referrer-policy` header has been set earlier in the response.
-    /// - A CORS extension to deny all CORS requests. See [`Self::add_cors`] for CORS management.
+    /// - A CORS extension to deny all CORS requests. See [`Self::with_cors`] for CORS management.
     pub fn new() -> Self {
         let mut new = Self::empty();
 
@@ -904,7 +904,7 @@ unsafe impl Sync for LazyRequestBody {}
 
 /// A [CORS](https://en.wikipedia.org/wiki/Cross-origin_resource_sharing) ruleset for Kvarn.
 ///
-/// Use [`Extensions::add_cors`] to allow selected CORS requests.
+/// Use [`Extensions::with_cors`] to allow selected CORS requests.
 ///
 /// By default, Kvarn uses a empty [`RuleSet`]; all CORS requests are rejected.
 ///
@@ -1049,7 +1049,7 @@ impl<R> RuleSet<R> {
 
     /// Puts `self` in a [`Arc`].
     ///
-    /// Useful for e.g. adding a [`Cors`] ruleset with [`Extensions::add_cors`].
+    /// Useful for e.g. adding a [`Cors`] ruleset with [`Extensions::with_cors`].
     #[must_use]
     pub fn arc(self) -> Arc<Self> {
         Arc::new(self)

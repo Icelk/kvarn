@@ -1,7 +1,7 @@
 //! Graceful shutdown for Kvarn.
 //!
 //! This is handled through a [`Manager`] and several helper structs.
-//! The `Manager` is returned from [`run`] and can be awaited
+//! The `Manager` is returned from [`RunConfig::execute`] and can be awaited
 //! to pause execution till the server is shut down.
 //! It is also used to trigger a shutdown.
 use crate::prelude::{threading::*, *};

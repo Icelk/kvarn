@@ -15,7 +15,7 @@
 //!
 //! # Getting started
 //!
-//! The main function to call is [`run`]. See the example at [`run`]
+//! To get started, configure a [`RunConfig`]. See the example at [`RunConfig::execute`]
 //! on how to get a simple web server running.
 //!
 //! A battle-tested reference implementation can be found at [GitHub](https://github.com/Icelk/kvarn-reference/).
@@ -67,7 +67,7 @@ pub use error::{default as default_error, default_response as default_error_resp
 pub use extensions::{Extensions, Id};
 pub use read::{file as read_file, file_cached as read_file_cached};
 
-/// Configuration for [`Self::run`].
+/// Configuration for [`Self::execute`].
 /// This mainly consists of an array of [`PortDescriptor`]s.
 ///
 /// It also allows control of [handover](https://kvarn.org/shutdown-handover.).
@@ -78,7 +78,7 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 ///
 /// # Examples
 ///
-/// See [`Self::run`] as it uses this, created by a macro invocation.
+/// See [`Self::execute`] as it uses this, created by a macro invocation.
 ///
 /// ```
 /// # use kvarn::prelude::*;

@@ -29,7 +29,7 @@ use rustls::{
 ///
 /// # Examples
 ///
-/// See [`run()`].
+/// See [`RunConfig::execute()`].
 #[must_use]
 pub struct Host {
     /// The name of the host, will be used in matching the requests [SNI hostname](rustls::server::ClientHello::server_name())
@@ -400,7 +400,7 @@ impl DataBuilder {
     }
     /// Puts the inner [`Data`] in a [`Arc`] and returns it.
     ///
-    /// This works great with the overall flow of Kvarn. See [`run()`] for an example.
+    /// This works great with the overall flow of Kvarn. See [`RunConfig::execute()`] for an example.
     #[inline]
     pub fn build(self) -> Arc<Data> {
         Arc::new(self.into_inner())
