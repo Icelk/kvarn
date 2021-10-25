@@ -11,6 +11,7 @@
 #![deny(clippy::all)]
 
 use kvarn::{extensions::*, prelude::*};
+use wrappers::*;
 
 #[cfg(feature = "reverse-proxy")]
 #[path = "reverse-proxy.rs"]
