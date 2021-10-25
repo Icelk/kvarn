@@ -74,16 +74,16 @@ impl Host {
     /// Will read certificates in the specified locations
     /// and return an non-secure host if parsing fails.
     ///
-    /// To achieve greater security, use [`Host::with_http_redirect`] and call [`Host::enable_hsts`].
+    /// To achieve greater security, use [`Host::with_http_to_https_redirect`] and call [`Host::with_hsts`].
     ///
-    /// See [`Host::non_secure`] for a non-failing function,
+    /// See [`Host::unsecure`] for a non-failing function,
     /// available regardless of features.
     ///
     /// # Errors
     ///
     /// Will return any error from [`get_certified_key()`] with a [`Host`] containing no certificates.
     #[cfg(feature = "https")]
-    pub fn new(
+    pub fn try_read_fs(
         host_name: &'static str,
         cert_path: impl AsRef<Path>,
         private_key_path: impl AsRef<Path>,
@@ -93,10 +93,10 @@ impl Host {
     ) -> Result<Self, (CertificateError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
-            Ok((cert, pk)) => Ok(Self::cert_and_pk(
+            Ok((cert, pk)) => Ok(Self::new(
                 host_name, cert, pk, path, extensions, options,
             )),
-            Err(err) => Err((err, Self::non_secure(host_name, path, extensions, options))),
+            Err(err) => Err((err, Self::unsecure(host_name, path, extensions, options))),
         }
     }
     /// Creates a new [`Host`] from the [`rustls`]
@@ -107,7 +107,7 @@ impl Host {
     ///
     /// # Examples
     ///
-    /// ```nocomplie
+    /// ```nocompile
     /// let certificate =
     ///     rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
     /// let cert = vec![rustls::Certificate(certificate.serialize_der().unwrap())];
@@ -123,11 +123,9 @@ impl Host {
     ///     host::Options::default(),
     /// )
     /// ```
-    // The rustls function requires it.
-    #[allow(clippy::redundant_allocation)]
     #[cfg(feature = "https")]
-    pub fn cert_and_pk(
-        host_name: &'static str,
+    pub fn new(
+        name: &'static str,
         cert: Vec<rustls::Certificate>,
         pk: Arc<dyn sign::SigningKey>,
         path: impl AsRef<Path>,
@@ -137,7 +135,7 @@ impl Host {
         let cert = sign::CertifiedKey::new(cert, pk);
 
         Self {
-            name: host_name,
+            name,
             certificate: Some(Arc::new(cert)),
             path: path.as_ref().to_path_buf(),
             extensions,
@@ -152,7 +150,7 @@ impl Host {
     ///
     /// This host will only support non-encrypted HTTP/1 connections.
     /// Consider enabling the `https` flag and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
-    pub fn non_secure(
+    pub fn unsecure(
         host_name: &'static str,
         path: impl AsRef<Path>,
         extensions: Extensions,
@@ -172,14 +170,15 @@ impl Host {
         }
     }
 
-    /// Same as [`Host::new`] with [`Host::set_http_redirect_to_https`].
-    ///
-    /// If [`Host::new`] returns an error, we log it as an [`log::Level::Error`]
+    /// Same as [`Host::try_read_fs`] with [`Host::with_http_to_https_redirect`].
+    /// This does however consider the error from [`Host::try_read_fs`] to be ok.
+    /// We log it as an [`log::Level::Error`]
     /// and continue without encryption.
     ///
-    /// Consider [`Host::enable_hsts`] to harden the system.
+    /// Consider running [`Host::try_read_fs`] with [`Host::with_http_to_https_redirect`]
+    /// and [`Host::with_hsts`] to harden the system.
     #[cfg(feature = "https")]
-    pub fn http_redirect(
+    pub fn http_redirect_or_unsecure(
         host_name: &'static str,
         cert_path: impl AsRef<Path>,
         private_key_path: impl AsRef<Path>,
@@ -187,7 +186,7 @@ impl Host {
         extensions: Extensions,
         options: Options,
     ) -> Self {
-        match Host::new(
+        match Host::try_read_fs(
             host_name,
             cert_path,
             private_key_path,
@@ -501,7 +500,7 @@ impl Data {
     #[inline]
     pub fn simple_non_secure(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
-            default: Host::non_secure(default_host_name, ".", extensions, Options::default()),
+            default: Host::unsecure(default_host_name, ".", extensions, Options::default()),
             by_name: HashMap::new(),
             has_secure: false,
         }
