@@ -28,24 +28,6 @@ pub struct PathQuery {
     query_start: usize,
 }
 impl PathQuery {
-    /// Converts a [`Uri`] using one allocation.
-    pub fn from_uri(uri: &Uri) -> Self {
-        match uri.query() {
-            Some(query) => {
-                let mut string = String::with_capacity(uri.path().len() + query.len());
-                string.push_str(uri.path());
-                string.push_str(query);
-                Self {
-                    string,
-                    query_start: uri.path().len(),
-                }
-            }
-            None => Self {
-                string: uri.path().to_string(),
-                query_start: uri.path().len(),
-            },
-        }
-    }
     /// Get the path segment.
     #[inline]
     #[must_use]
@@ -76,6 +58,26 @@ impl PathQuery {
         self.string
     }
 }
+/// Converts a [`Uri`] using one allocation.
+impl From<&Uri> for PathQuery {
+    fn from(uri: &Uri) -> Self {
+        match uri.query() {
+            Some(query) => {
+                let mut string = String::with_capacity(uri.path().len() + query.len());
+                string.push_str(uri.path());
+                string.push_str(query);
+                Self {
+                    string,
+                    query_start: uri.path().len(),
+                }
+            }
+            None => Self {
+                string: uri.path().to_string(),
+                query_start: uri.path().len(),
+            },
+        }
+    }
+}
 
 /// A key for an Uri used in [`ResponseCache`].
 ///
@@ -100,7 +102,7 @@ impl UriKey {
     /// if [`Self::call_all`] is called on it.
     #[inline]
     pub fn path_and_query(uri: &Uri) -> Self {
-        Self::PathQuery(PathQuery::from_uri(uri))
+        Self::PathQuery(PathQuery::from(uri))
     }
 
     /// Tries to get type `T` from `callback` using current variant and other variants with fewer data.

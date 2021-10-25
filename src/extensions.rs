@@ -253,8 +253,8 @@ impl Extensions {
                     Slash,
                     Other,
                 }
-                impl Ending {
-                    fn from_uri(uri: &Uri) -> Self {
+                impl From<&Uri> for Ending {
+                    fn from(uri: &Uri) -> Self {
                         if uri.path().ends_with('.') {
                             Self::Dot
                         } else if uri.path().ends_with('/') {
@@ -266,7 +266,7 @@ impl Extensions {
                 }
                 let uri: &Uri = unsafe { request.get_inner() }.uri();
                 let host: &Host = unsafe { host.get_inner() };
-                let append = match Ending::from_uri(uri) {
+                let append = match Ending::from(uri) {
                     Ending::Other => return ready(None),
                     Ending::Dot => host.options.extension_default.as_deref().unwrap_or("html"),
                     Ending::Slash => host
