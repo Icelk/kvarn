@@ -67,6 +67,210 @@ pub use error::{default as default_error, default_response as default_error_resp
 pub use extensions::{Extensions, Id};
 pub use read::{file as read_file, file_cached as read_file_cached};
 
+/// Configuration for [`Self::run`].
+/// This mainly consists of an array of [`PortDescriptor`]s.
+///
+/// It also allows control of [handover](https://kvarn.org/shutdown-handover.).
+///
+/// Will bind a [`TcpListener`] on every `port` added using [`Self::bind`]
+///
+/// > This ↑ will change when HTTP/3 support arrives, then Udp will also be used.
+///
+/// # Examples
+///
+/// See [`Self::run`] as it uses this, created by a macro invocation.
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// # async {
+/// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// let data = Data::builder(host).build();
+/// let port_descriptor = PortDescriptor::new(8080, data);
+///
+/// let config = RunConfig::new()
+///     .bind(port_descriptor)
+///     .set_handover_socket_path("/tmp/kvarn-instance-1.sock");
+/// config.execute().await.shutdown();
+/// # };
+/// ```
+#[derive(Debug)]
+pub struct RunConfig {
+    ports: Vec<PortDescriptor>,
+    handover: bool,
+    handover_socket_path: Option<PathBuf>,
+}
+impl RunConfig {
+    /// Creates an empty [`RunConfig`].
+    #[must_use]
+    pub fn new() -> Self {
+        RunConfig {
+            ports: vec![],
+            handover: true,
+            handover_socket_path: None,
+        }
+    }
+
+    /// Adds a [`PortDescriptor`] to the Kvarn server.
+    #[must_use]
+    pub fn bind(mut self, port: PortDescriptor) -> Self {
+        self.ports.push(port);
+        self
+    }
+    /// Disables [handover](https://kvarn.org/shutdown-handover.) for the instance of Kvarn.
+    ///
+    /// This can enable multiple Kvarn servers to run on the same machine.
+    #[must_use]
+    pub fn disable_handover(mut self) -> Self {
+        self.handover = false;
+        self
+    }
+    /// Sets the path of the socket where the [handover](https://kvarn.org/shutdown-handover.)
+    /// is managed.
+    ///
+    /// This can enable multiple Kvarn servers to run on the same machine.
+    /// If each application (as in an use for Kvarn) has it's own path, multiple can coexist.
+    pub fn set_handover_socket_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.handover_socket_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Run the Kvarn web server on `ports`.
+    ///
+    /// This is the last step in getting Kvarn spinning.
+    /// You can interact with the caches through the [`Host`] and [`Data`] you created, and
+    /// the returned [`shutdown::Manager`], if you have the `graceful-shutdown` feature enabled.
+    ///
+    /// # Examples
+    ///
+    /// Will start a bare-bones web server on port `8080`, using the dir `web` to serve files.
+    ///
+    /// > **Note:** it uses `web` to serve files only if the feature `fs` is enabled. Place them in `web/public`
+    /// > to access them in your user-agent.
+    /// > It's done this way to enable you to have domain-specific files not being public to the web,
+    /// > and for a place to store other important files. Kvarn extensions' template system will in this case
+    /// > read template files from `web/templates`.
+    ///
+    /// ```no_run
+    /// use kvarn::prelude::*;
+    ///
+    /// # async {
+    /// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
+    /// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+    /// // Create a set of virtual hosts (`Data`) with `host` as the default.
+    /// let data = Data::builder(host).build();
+    /// // Bind port 8080 with `data`.
+    /// let port_descriptor = PortDescriptor::new(8080, data);
+    ///
+    /// // Run with the configured ports.
+    /// let shutdown_manager = run_config![port_descriptor].execute().await;
+    /// // Waits for shutdown.
+    /// shutdown_manager.wait().await;
+    /// # };
+    /// ```
+    pub async fn execute(self) -> Arc<shutdown::Manager> {
+        let RunConfig {
+            ports,
+            handover,
+            handover_socket_path,
+        } = self;
+        info!("Starting server on {} ports.", ports.len());
+
+        let len = ports.len();
+        let mut shutdown_manager = shutdown::Manager::new(len);
+
+        let mut listeners = Vec::with_capacity(len * 2);
+        for descriptor in ports {
+            fn create_listener(
+                create_socket: impl Fn() -> TcpSocket,
+                address: SocketAddr,
+                shutdown_manager: &mut shutdown::Manager,
+            ) -> AcceptManager {
+                let socket = create_socket();
+                #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+                {
+                    if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
+                        error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.");
+                    }
+                }
+                socket.bind(address).expect("Failed to bind address");
+
+                let listener = socket
+                    .listen(1024)
+                    .expect("Failed to listen on bound address.");
+
+                shutdown_manager.add_listener(listener)
+            }
+
+            let descriptor = Arc::new(descriptor);
+
+            if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
+                let listener = create_listener(
+                    || {
+                        TcpSocket::new_v4()
+                            .expect("Failed to create a new IPv4 socket configuration")
+                    },
+                    net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into(),
+                    &mut shutdown_manager,
+                );
+                listeners.push((listener, Arc::clone(&descriptor)));
+            }
+            if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
+                let listener = create_listener(
+                    || {
+                        TcpSocket::new_v6()
+                            .expect("Failed to create a new IPv6 socket configuration")
+                    },
+                    SocketAddr::new(IpAddr::V6(net::Ipv6Addr::LOCALHOST), descriptor.port),
+                    &mut shutdown_manager,
+                );
+                listeners.push((listener, descriptor));
+            }
+        }
+
+        let shutdown_manager = shutdown_manager.build();
+
+        if handover {
+            shutdown::Manager::initiate_handover(&shutdown_manager, handover_socket_path).await;
+        }
+
+        for (listener, descriptor) in listeners {
+            let shutdown_manager = Arc::clone(&shutdown_manager);
+            let future = async move {
+                accept(listener, descriptor, &shutdown_manager)
+                    .await
+                    .expect("Failed to accept message!");
+            };
+
+            tokio::spawn(future);
+        }
+
+        shutdown_manager
+    }
+}
+impl Default for RunConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+/// Creates a [`RunConfig`] from [`PortDescriptor`]s.
+/// This allows you to configure the [`RunConfig`] and then [`RunConfig::execute`] the server.
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// # let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// # let data = Data::builder(host).build();
+/// # let port1 = PortDescriptor::new(8080, Arc::clone(&data));
+/// # let port2 = PortDescriptor::new(8081, data);
+/// let server = run_config!(port1, port2);
+#[macro_export]
+macro_rules! run_config {
+    ($($port_descriptor:expr),+ $(,)?) => {
+        $crate::RunConfig::new()$(.bind($port_descriptor))+
+    };
+}
+
 macro_rules! ret_log_app_error {
     ($e:expr) => {
         match $e {
@@ -77,117 +281,6 @@ macro_rules! ret_log_app_error {
             Ok(val) => val,
         }
     };
-}
-
-/// Run the Kvarn web server on `ports`.
-///
-/// Will bind a [`TcpListener`] on every `port` in [`PortDescriptor`].
-///
-/// > This ↑ will change when HTTP/3 support arrives, then Udp will also be used.
-///
-/// This is the last step in getting Kvarn spinning.
-/// You can interact with the caches through the [`Host`] and [`Data`] you created, and
-/// the returned [`shutdown::Manager`], if you have the `graceful-shutdown` feature enabled.
-///
-/// # Examples
-///
-/// Will start a bare-bones web server on port `8080`, using the dir `web` to serve files.
-///
-/// > **Note:** it uses `web` to serve files only if the feature `fs` is enabled. Place them in `web/public`
-/// > to access them in your user-agent.
-/// > It's done this way to enable you to have domain-specific files not being public to the web,
-/// > and for a place to store other important files. Kvarn extensions' template system will in this case
-/// > read template files from `web/templates`.
-///
-/// ```no_run
-/// use kvarn::prelude::*;
-///
-/// # async {
-/// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
-/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// // Create a set of virtual hosts (`Data`) with `host` as the default.
-/// let data = Data::builder(host).build();
-/// // Bind port 8080 with `data`.
-/// let port_descriptor = PortDescriptor::new(8080, data);
-///
-/// // Run with the configured ports.
-/// let shutdown_manager = run(run_config![port_descriptor]).await;
-/// // Waits for shutdown.
-/// shutdown_manager.wait().await;
-/// # };
-/// ```
-pub async fn run(ports: RunConfig) -> Arc<shutdown::Manager> {
-    let RunConfig {
-        ports,
-        handover,
-        handover_socket_path,
-    } = ports;
-    info!("Starting server on {} ports.", ports.len());
-
-    let len = ports.len();
-    let mut shutdown_manager = shutdown::Manager::new(len);
-
-    let mut listeners = Vec::with_capacity(len * 2);
-    for descriptor in ports {
-        fn create_listener(
-            create_socket: impl Fn() -> TcpSocket,
-            address: SocketAddr,
-            shutdown_manager: &mut shutdown::Manager,
-        ) -> AcceptManager {
-            let socket = create_socket();
-            #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-            {
-                if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
-                    error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.");
-                }
-            }
-            socket.bind(address).expect("Failed to bind address");
-
-            let listener = socket
-                .listen(1024)
-                .expect("Failed to listen on bound address.");
-
-            shutdown_manager.add_listener(listener)
-        }
-
-        let descriptor = Arc::new(descriptor);
-
-        if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
-            let listener = create_listener(
-                || TcpSocket::new_v4().expect("Failed to create a new IPv4 socket configuration"),
-                net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into(),
-                &mut shutdown_manager,
-            );
-            listeners.push((listener, Arc::clone(&descriptor)));
-        }
-        if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
-            let listener = create_listener(
-                || TcpSocket::new_v6().expect("Failed to create a new IPv6 socket configuration"),
-                SocketAddr::new(IpAddr::V6(net::Ipv6Addr::LOCALHOST), descriptor.port),
-                &mut shutdown_manager,
-            );
-            listeners.push((listener, descriptor));
-        }
-    }
-
-    let shutdown_manager = shutdown_manager.build();
-
-    if handover {
-        shutdown::Manager::initiate_handover(&shutdown_manager, handover_socket_path).await;
-    }
-
-    for (listener, descriptor) in listeners {
-        let shutdown_manager = Arc::clone(&shutdown_manager);
-        let future = async move {
-            accept(listener, descriptor, &shutdown_manager)
-                .await
-                .expect("Failed to accept message!");
-        };
-
-        tokio::spawn(future);
-    }
-
-    shutdown_manager
 }
 
 async fn accept(
@@ -491,7 +584,7 @@ pub async fn handle_cache(
         Option<ResponsePipeFuture>,
         comprash::PathQuery,
     )> {
-        let path_query = comprash::PathQuery::from_uri(request.uri());
+        let path_query = comprash::PathQuery::from(request.uri());
         let (mut resp, mut client_cache, mut server_cache, compress, future) =
             match sanitize_data {
                 Ok(_) => {
@@ -876,92 +969,6 @@ pub enum BindIpVersion {
     V6,
     /// Bind to IPv4 and IPv6
     Both,
-}
-
-/// Configuration for [`run`].
-/// This mainly consists of an array of [`PortDescriptor`]s.
-///
-/// It also allows control of [handover](https://kvarn.org/shutdown-handover.).
-///
-/// # Examples
-///
-/// See [`run`] as it uses this, created by a macro invocation.
-///
-/// ```
-/// # use kvarn::prelude::*;
-/// # async {
-/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// let data = Data::builder(host).build();
-/// let port_descriptor = PortDescriptor::new(8080, data);
-///
-/// let config = RunConfig::new()
-///     .bind(port_descriptor)
-///     .set_handover_socket_path("/tmp/kvarn-instance-1.sock");
-/// run(config).await.shutdown();
-/// # };
-/// ```
-#[derive(Debug)]
-pub struct RunConfig {
-    ports: Vec<PortDescriptor>,
-    handover: bool,
-    handover_socket_path: Option<PathBuf>,
-}
-impl RunConfig {
-    /// Creates an empty [`RunConfig`].
-    #[must_use]
-    pub fn new() -> Self {
-        RunConfig {
-            ports: vec![],
-            handover: true,
-            handover_socket_path: None,
-        }
-    }
-
-    /// Adds a [`PortDescriptor`] to the Kvarn server.
-    #[must_use]
-    pub fn bind(mut self, port: PortDescriptor) -> Self {
-        self.ports.push(port);
-        self
-    }
-    /// Disables [handover](https://kvarn.org/shutdown-handover.) for the instance of Kvarn.
-    ///
-    /// This can enable multiple Kvarn servers to run on the same machine.
-    #[must_use]
-    pub fn disable_handover(mut self) -> Self {
-        self.handover = false;
-        self
-    }
-    /// Sets the path of the socket where the [handover](https://kvarn.org/shutdown-handover.)
-    /// is managed.
-    ///
-    /// This can enable multiple Kvarn servers to run on the same machine.
-    /// If each application (as in an use for Kvarn) has it's own path, multiple can coexist.
-    pub fn set_handover_socket_path(mut self, path: impl AsRef<Path>) -> Self {
-        self.handover_socket_path = Some(path.as_ref().to_path_buf());
-        self
-    }
-}
-impl Default for RunConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-/// Creates a [`RunConfig`] from [`PortDescriptor`]s.
-///
-/// # Examples
-///
-/// ```
-/// # use kvarn::prelude::*;
-/// # let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// # let data = Data::builder(host).build();
-/// # let port1 = PortDescriptor::new(8080, Arc::clone(&data));
-/// # let port2 = PortDescriptor::new(8081, data);
-/// let config = run_config!(port1, port2);
-#[macro_export]
-macro_rules! run_config {
-    ($($port_descriptor:expr),+ $(,)?) => {
-        $crate::RunConfig::new()$(.bind($port_descriptor))+
-    };
 }
 
 /// Describes port, certificate, and host data for

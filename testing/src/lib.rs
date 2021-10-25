@@ -227,7 +227,7 @@ impl ServerBuilder {
             });
 
             (
-                Host::from_cert_and_pk(
+                Host::new(
                     "localhost",
                     vec![cert.clone()],
                     pk.clone(),
@@ -239,7 +239,7 @@ impl ServerBuilder {
             )
         } else {
             (
-                Host::non_secure("localhost", path, extensions, options),
+                Host::unsecure("localhost", path, extensions, options),
                 None,
             )
         };
@@ -272,7 +272,7 @@ impl ServerBuilder {
             if !custom_port && Self::test_port_availability(port).await.is_err() {
                 continue;
             }
-            let shutdown = run(config).await;
+            let shutdown = config.execute().await;
             return Server {
                 port,
                 certificate: certified_key,
