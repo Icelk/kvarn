@@ -169,10 +169,16 @@ impl HttpConnection {
                 Ok(Self::Http1(Arc::new(Mutex::new(stream))))
             }
             #[cfg(feature = "http2")]
-            Version::HTTP_2 => match h2::server::handshake(stream).await {
-                Ok(connection) => Ok(HttpConnection::Http2(Box::new(connection))),
-                Err(err) => Err(Error::H2(err)),
-            },
+            Version::HTTP_2 => {
+                let result = h2::server::Builder::new()
+                    .max_concurrent_streams(512)
+                    .handshake(stream)
+                    .await;
+                match result {
+                    Ok(connection) => Ok(HttpConnection::Http2(Box::new(connection))),
+                    Err(err) => Err(Error::H2(err)),
+                }
+            }
             #[cfg(not(feature = "http2"))]
             Version::HTTP_2 => Err(Error::VersionNotSupported),
             _ => Err(Error::VersionNotSupported),
