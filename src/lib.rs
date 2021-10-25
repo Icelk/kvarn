@@ -517,7 +517,7 @@ pub async fn handle_cache(
                         None
                     };
 
-                    handle_request(request, overide_uri, address, host, &path).await?
+                    handle_request(request, overide_uri, address, host, &path).await
                 }
                 Err(err) => error::sanitize_error_into_response(*err, host).await,
             }
@@ -794,17 +794,13 @@ pub async fn handle_cache(
 /// Handles a single request and returns response with cache and compress preference.
 ///
 /// This is [layer 5](https://kvarn.org/pipeline.#layer-5--pathing)
-///
-/// # Errors
-///
-/// ~~Will return any errors from reading from the body of `request`.~~ Currently, does not return any errors.
 pub async fn handle_request(
     request: &mut Request<application::Body>,
     overide_uri: Option<&Uri>,
     address: net::SocketAddr,
     host: &Host,
     path: &Option<PathBuf>,
-) -> io::Result<FatResponse> {
+) -> FatResponse {
     let mut response = None;
     let mut client_cache = None;
     let mut server_cache = None;
@@ -866,7 +862,7 @@ pub async fn handle_request(
     maybe_with!(response, compress, with_compress);
     maybe_with!(response, future, with_future);
 
-    Ok(response)
+    response
 }
 
 /// Which version of the [Internet Protocol](https://en.wikipedia.org/wiki/Internet_Protocol)
