@@ -275,7 +275,7 @@ macro_rules! ret_log_app_error {
     ($e:expr) => {
         match $e {
             Err(err) => {
-                error!("An error occurred while sending a request. {:?}", &err);
+                error!("An error occurred while sending a response. {:?}", &err);
                 return Err(err.into());
             }
             Ok(val) => val,
@@ -317,7 +317,7 @@ async fn accept(
                     tokio::spawn(async move {
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.add_connection();
-                        if let Err(err) = handle_connection(socket, addr, descriptor, || {
+                        let _result = handle_connection(socket, addr, descriptor, || {
                             #[cfg(feature = "graceful-shutdown")]
                             {
                                 !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
@@ -327,13 +327,7 @@ async fn accept(
                                 true
                             }
                         })
-                        .await
-                        {
-                            warn!(
-                                "An error occurred in the main processing function {:?}",
-                                err
-                            );
-                        }
+                        .await;
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.remove_connection();
                     });
@@ -413,9 +407,12 @@ pub async fn handle_connection(
             LimitAction::Send => {
                 let (mut response, body) = utils::split_response(limiting::get_too_many_requests());
                 response_pipe.ensure_version_and_length(&mut response, body.len());
+
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
+
                 ret_log_app_error!(body_pipe.send_with_maybe_close(body, true).await);
+
                 continue;
             }
             LimitAction::Passed => {}
