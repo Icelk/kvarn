@@ -527,7 +527,7 @@ impl Extensions {
     #[cfg(feature = "https")]
     pub fn with_http_to_https_redirect(&mut self) -> &mut Self {
         const SPECIAL_PATH: &str = "/./to_https";
-        self.extensions.add_prepare_single(
+        self.add_prepare_single(
             SPECIAL_PATH.to_string(),
             Box::new(|mut request, _, _, _| {
                 // "/./ path" is special; it will not be accepted from outside; any path containing './' gets rejected.
@@ -558,7 +558,7 @@ impl Extensions {
                 )
             }),
         );
-        self.extensions.add_prime(
+        self.add_prime(
             Box::new(|request, _, _| {
                 let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = if request.uri().scheme_str() == Some("http")
