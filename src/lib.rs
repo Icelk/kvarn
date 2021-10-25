@@ -64,7 +64,7 @@ use prelude::{internals::*, networking::*, *};
 pub use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
 pub use error::{default as default_error, default_response as default_error_response};
 #[doc(inline)]
-pub use extensions::Extensions;
+pub use extensions::{Extensions, Id};
 pub use read::{file as read_file, file_cached as read_file_cached};
 
 macro_rules! ret_log_app_error {
