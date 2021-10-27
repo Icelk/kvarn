@@ -975,6 +975,9 @@ pub enum BindIpVersion {
 
 /// Describes port, certificate, and host data for
 /// a single port to bind.
+///
+/// See the note at the bottom of [`Host`] for an explanation
+/// about the relationship between [`Self::new`] and [`Self::unsecure`].
 #[derive(Clone)]
 #[must_use]
 pub struct PortDescriptor {
