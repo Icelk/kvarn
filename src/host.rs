@@ -402,7 +402,7 @@ impl DataBuilder {
     /// Adds `host` to the builder.
     /// This will match the `host` header and SNI hostname for [`Host.name`].
     #[inline]
-    pub fn add_host(mut self, host: Host) -> Self {
+    pub fn insert(mut self, host: Host) -> Self {
         self.check_secure(&host);
         self.0.by_name.insert(host.name, host);
         self
