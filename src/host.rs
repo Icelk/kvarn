@@ -29,7 +29,7 @@ use rustls::{
 ///
 /// Let's talk about the relations of [`Host::unsecure`] and [`PortDescriptor::unsecure`].
 /// A host can be secure and contain a certificate (if the `https` feature is enabled).
-/// A ['PortDescriptor'] can accept HTTPS or HTTP requests. [`PortDescriptor::new`] will
+/// A [`PortDescriptor`] can accept HTTPS or HTTP requests. [`PortDescriptor::new`] will
 /// set up the descriptor to accept only HTTP requests if none of the hosts contains a certificate.
 /// It accepts only HTTPS messages if any of the hosts have a certificate. Then, connections to
 /// all the other hosts with no certificate are rejected.
