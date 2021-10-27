@@ -220,7 +220,7 @@ impl RunConfig {
                         TcpSocket::new_v6()
                             .expect("Failed to create a new IPv6 socket configuration")
                     },
-                    SocketAddr::new(IpAddr::V6(net::Ipv6Addr::LOCALHOST), descriptor.port),
+                    SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), descriptor.port),
                     &mut shutdown_manager,
                 );
                 listeners.push((listener, descriptor));
