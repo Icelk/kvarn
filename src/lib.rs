@@ -311,7 +311,9 @@ async fn accept(
                         }
                         LimitAction::Send | LimitAction::Passed => {}
                     }
+
                     let descriptor = Arc::clone(&descriptor);
+
                     #[cfg(feature = "graceful-shutdown")]
                     let shutdown_manager = Arc::clone(shutdown_manager);
                     tokio::spawn(async move {
@@ -1060,7 +1062,7 @@ impl PortDescriptor {
 }
 impl Debug for PortDescriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut s = f.debug_struct("HostDescriptor");
+        let mut s = f.debug_struct("PortDescriptor");
         s.field("port", &self.port);
 
         #[cfg(feature = "https")]
@@ -1072,7 +1074,9 @@ impl Debug for PortDescriptor {
                 .map(|_| "certificate".as_clean()),
         );
 
-        s.field("host_data", &self.data).finish()
+        s.field("data", &self.data)
+            .field("version", &self.version)
+            .finish()
     }
 }
 
