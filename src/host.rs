@@ -408,7 +408,7 @@ impl DataBuilder {
         self
     }
     /// Adds a default `host` which is the fallback for all requests with a requested host
-    /// which does not match any host added using [`Self::add_host`].
+    /// which does not match any host added using [`Self::insert`].
     ///
     /// **NOTE:** This should be used with care as all secure connections to this server
     /// with a SNI hostname that is not registered in this [`Data`], the client will get
