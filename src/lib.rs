@@ -84,7 +84,7 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 /// # use kvarn::prelude::*;
 /// # async {
 /// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// let data = Data::builder(host).build();
+/// let data = Data::builder().insert(host).build();
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
 /// let config = RunConfig::new()
@@ -157,7 +157,7 @@ impl RunConfig {
     /// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
     /// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
     /// // Create a set of virtual hosts (`Data`) with `host` as the default.
-    /// let data = Data::builder(host).build();
+    /// let data = Data::builder().insert(host).build();
     /// // Bind port 8080 with `data`.
     /// let port_descriptor = PortDescriptor::new(8080, data);
     ///
@@ -260,7 +260,7 @@ impl Default for RunConfig {
 /// ```
 /// # use kvarn::prelude::*;
 /// # let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// # let data = Data::builder(host).build();
+/// # let data = Data::builder().insert(host).build();
 /// # let port1 = PortDescriptor::new(8080, Arc::clone(&data));
 /// # let port2 = PortDescriptor::new(8081, data);
 /// let server = run_config!(port1, port2);

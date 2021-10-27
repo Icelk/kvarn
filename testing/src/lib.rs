@@ -241,7 +241,7 @@ impl ServerBuilder {
             (Host::unsecure("localhost", path, extensions, options), None)
         };
 
-        let data = Data::builder(host).build();
+        let data = Data::builder().insert(host).build();
 
         loop {
             let mut custom_port = false;
@@ -256,7 +256,7 @@ impl ServerBuilder {
             let port_descriptor = if https {
                 PortDescriptor::new(port, data.clone())
             } else {
-                PortDescriptor::non_secure(port, data.clone())
+                PortDescriptor::unsecure(port, data.clone())
             };
             let mut config = RunConfig::new().bind(port_descriptor);
             if let Some((handover_path, _)) = &handover {
