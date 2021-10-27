@@ -1032,7 +1032,7 @@ impl PortDescriptor {
     }
     /// Creates a new non-secure descriptor for `port` with `host_data`.
     /// Does not try to assign a certificate.
-    pub fn non_secure(port: u16, host_data: Arc<Data>) -> Self {
+    pub fn unsecure(port: u16, host_data: Arc<Data>) -> Self {
         Self {
             port,
             #[cfg(feature = "https")]
