@@ -45,6 +45,8 @@ pub enum Error {
     IllegalName,
     /// There are illegal bytes in a [`HeaderValue`]
     IllegalValue,
+    /// No host was found and no [`DataBuilder::default`] was specified.
+    NoHost,
 }
 impl Error {
     /// Gets a string representation of [`Error`].
@@ -62,6 +64,7 @@ impl Error {
             Self::Syntax => "invalid syntax of data. The input might unexpectedly be encrypted (HTTPS) or compressed (HTTP/2)",
             Self::IllegalName => "header name invalid",
             Self::IllegalValue => "header value invalid",
+            Self::NoHost => "the host could not be resolved",
         }
     }
 }
@@ -83,7 +86,8 @@ impl From<Error> for io::Error {
             | Error::InvalidStatusCode
             | Error::Syntax
             | Error::IllegalName
-            | Error::IllegalValue => io::Error::new(io::ErrorKind::InvalidData, err.as_str()),
+            | Error::IllegalValue
+            | Error::NoHost => io::Error::new(io::ErrorKind::InvalidData, err.as_str()),
             Error::Done => io::Error::new(io::ErrorKind::BrokenPipe, err.as_str()),
         }
     }

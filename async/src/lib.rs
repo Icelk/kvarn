@@ -289,7 +289,7 @@ pub mod read {
     pub async fn request<R: AsyncRead + Unpin>(
         mut stream: impl std::ops::DerefMut<Target = R>,
         max_len: usize,
-        default_host: &[u8],
+        default_host: Option<&[u8]>,
         scheme: &str,
     ) -> Result<(Request<()>, Bytes), Error> {
         let buffer = read_headers(&mut *stream, max_len).await?;
@@ -379,10 +379,15 @@ pub mod read {
             return Err(Error::NoPath);
         }
 
-        let host = parsed
+        let host = if let Some(host) = parsed
             .headers_ref()
             .and_then(|headers| headers.get(header::HOST).map(HeaderValue::as_bytes))
-            .unwrap_or(default_host);
+            .or(default_host)
+        {
+            host
+        } else {
+            return Err(Error::NoHost);
+        };
 
         let uri = {
             let mut uri =

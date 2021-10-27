@@ -194,7 +194,7 @@ impl HttpConnection {
     /// Returns any errors emitted from [`h2::server::Connection::accept()`].
     pub async fn accept(
         &mut self,
-        default_host: &[u8],
+        default_host: Option<&[u8]>,
     ) -> Result<(Request<Body>, ResponsePipe), Error> {
         match self {
             Self::Http1(stream) => {
@@ -227,7 +227,7 @@ mod request {
     pub(crate) async fn parse_http_1(
         stream: Arc<Mutex<Encryption>>,
         max_len: usize,
-        default_host: &[u8],
+        default_host: Option<&[u8]>,
     ) -> Result<Request<Body>, Error> {
         let scheme = match &*stream.lock().await {
             Encryption::Tcp(_) => "http",

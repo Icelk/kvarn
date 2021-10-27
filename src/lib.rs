@@ -298,13 +298,7 @@ async fn accept(
             AcceptAction::Shutdown => return Ok(()),
             AcceptAction::Accept(result) => match result {
                 Ok((socket, addr)) => {
-                    match descriptor
-                        .data
-                        .get_default()
-                        .limiter
-                        .register(addr.ip())
-                        .await
-                    {
+                    match descriptor.data.limiter().register(addr.ip()).await {
                         LimitAction::Drop => {
                             drop(socket);
                             return Ok(());
@@ -361,13 +355,13 @@ async fn accept(
 pub async fn handle_connection(
     stream: TcpStream,
     address: SocketAddr,
-    descriptors: Arc<PortDescriptor>,
+    descriptor: Arc<PortDescriptor>,
     mut continue_accepting: impl FnMut() -> bool,
 ) -> io::Result<()> {
     // LAYER 2
     #[cfg(feature = "https")]
     let encrypted = {
-        encryption::Encryption::new_tcp(stream, descriptors.server_config.clone())
+        encryption::Encryption::new_tcp(stream, descriptor.server_config.clone())
             .await
             .map_err(|err| match err {
                 encryption::Error::Io(io) => io,
@@ -399,11 +393,25 @@ pub async fn handle_connection(
     info!("Accepting requests from {}", address);
 
     while let Ok((request, mut response_pipe)) = http
-        .accept(descriptors.data.get_default().name.as_bytes())
+        .accept(
+            descriptor
+                .data
+                .get_default()
+                .map(|host| host.name.as_bytes()),
+        )
         .await
     {
         trace!("Got request {:#?}", request);
-        let host = descriptors.data.smart_get(&request, hostname.as_deref());
+        let host = if let Some(host) = descriptor.data.smart_get(&request, hostname.as_deref()) {
+            host
+        } else {
+            info!(
+                "Failed to get host: {}",
+                utils::parse::Error::NoHost.as_str()
+            );
+            return Ok(());
+        };
+
         match host.limiter.register(address.ip()).await {
             LimitAction::Drop => return Ok(()),
             LimitAction::Send => {

@@ -4,14 +4,9 @@
 //! which are needed to run a domain.
 //!
 //! This also implements the logic needed for [`rustls`] to resolve which [`Host`]
-//! to use for a connection. This is done by having a default and
-//! other defined by their SNI (or `host` header in HTTP/1).
-//!
-//! This tactic might change in the future; if you have two domains pointing
-//! to a single Kvarn server, say `icelk.dev` and `kvarn.org`, but only `kvarn.org`
-//! is set up, the client will get a certificate error when going to `icelk.dev`.
-//! Therefore, I think the user of this library should have a choice to reject connections
-//! to a [`Host`] which isn't explicitly associated with said domain.
+//! to use for a connection. This is done by having an optional default and
+//! other defined by their SNI (or `host` header in HTTP/1). If no host is matched,
+//! the request is dropped, like when a [unsecure connection is sent to a secure port](Host).
 
 use crate::prelude::{internals::*, *};
 #[cfg(feature = "https")]
@@ -404,10 +399,46 @@ impl Default for Options {
 #[must_use]
 pub struct DataBuilder(Data);
 impl DataBuilder {
-    /// Adds `host` to the builder. See [`Data::add_host`], which is called internally.
+    /// Adds `host` to the builder.
+    /// This will match the `host` header and SNI hostname for [`Host.name`].
     #[inline]
     pub fn add_host(mut self, host: Host) -> Self {
-        self.0.add_host(host.name, host);
+        self.check_secure(&host);
+        self.0.by_name.insert(host.name, host);
+        self
+    }
+    /// Adds a default `host` which is the fallback for all requests with a requested host
+    /// which does not match any host added using [`Self::add_host`].
+    ///
+    /// **NOTE:** This should be used with care as all secure connections to this server
+    /// with a SNI hostname that is not registered in this [`Data`], the client will get
+    /// a security warning, as the certificate of the default host is used.
+    /// This is fine with HTTP, as that only delivers the website.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this function is called twice on the same struct.
+    /// You should only set the default once.
+    #[inline]
+    pub fn default(mut self, host: Host) -> Self {
+        assert!(
+            self.0.default.is_none(),
+            "Can not set default host multiple times."
+        );
+        self.check_secure(&host);
+        self.0.default = Some(host);
+        self
+    }
+    fn check_secure(&mut self, host: &Host) {
+        if host.is_secure() {
+            self.0.has_secure = true;
+        }
+    }
+    /// Sets the limiter used before any data is read. Only when the [`LimitManager`] returns
+    /// [`LimitAction::Drop`] will this do anything here.
+    #[inline]
+    pub fn set_pre_host_limiter(mut self, limiter: LimitManager) -> Self {
+        self.0.pre_host_limiter = limiter;
         self
     }
     /// Puts the inner [`Data`] in a [`Arc`] and returns it.
@@ -435,56 +466,45 @@ impl DataBuilder {
 #[derive(Debug)]
 #[must_use]
 pub struct Data {
-    default: Host,
+    default: Option<Host>,
     by_name: HashMap<&'static str, Host>,
     has_secure: bool,
+    pre_host_limiter: LimitManager,
 }
 impl Data {
     /// Creates a new [`DataBuilder`] with `default_host` as the default.
     #[inline]
-    pub fn builder(default_host: Host) -> DataBuilder {
+    pub fn builder() -> DataBuilder {
         DataBuilder(Self {
-            has_secure: default_host.is_secure(),
-            default: default_host,
+            has_secure: false,
+            default: None,
             by_name: HashMap::new(),
+            pre_host_limiter: LimitManager::default(),
         })
     }
-    /// Creates a new [`Data`] with `default_host` as the default.
-    /// Consider using [`Data::builder`] for a more ergonomic API.
-    #[inline]
-    pub fn new(default_host: Host) -> Self {
-        Self {
-            has_secure: default_host.is_secure(),
-            default: default_host,
-            by_name: HashMap::new(),
-        }
-    }
     /// Creates a `Host` without certification, using the directories `./public` and `./templates`.
+    /// The host is the default. See [`host`] for more info.
     #[inline]
     pub fn simple_non_secure(default_host_name: &'static str, extensions: Extensions) -> Self {
         Self {
-            default: Host::unsecure(default_host_name, ".", extensions, Options::default()),
+            default: Some(Host::unsecure(
+                default_host_name,
+                ".",
+                extensions,
+                Options::default(),
+            )),
             by_name: HashMap::new(),
             has_secure: false,
+            pre_host_limiter: LimitManager::default(),
         }
-    }
-    /// Adds a [`Host`] to self.
-    ///
-    /// `host_name` should often be [`Host.name`].
-    #[inline]
-    pub fn add_host(&mut self, host_name: &'static str, host_data: Host) {
-        if host_data.is_secure() {
-            self.has_secure = true;
-        }
-        self.by_name.insert(host_name, host_data);
     }
 
     /// Returns a reference to the default [`Host`].
     ///
     /// Use [`Data::smart_get`] to get the appropriate host.
     #[inline]
-    pub fn get_default(&self) -> &Host {
-        &self.default
+    pub fn get_default(&self) -> Option<&Host> {
+        self.default.as_ref()
     }
     /// Gets a [`Host`] by name.
     #[inline]
@@ -493,13 +513,13 @@ impl Data {
     }
     /// Gets a [`Host`] by name, and returns the [`default`](Data::get_default) if none were found.
     #[inline]
-    pub fn get_or_default(&self, host: &str) -> &Host {
-        self.get_host(host).unwrap_or_else(|| self.get_default())
+    pub fn get_or_default(&self, host: &str) -> Option<&Host> {
+        self.get_host(host).or_else(|| self.get_default())
     }
     /// Gets a [`Host`] by name, if any, and returns it or the [`default`](Data::get_default)
     /// if `maybe_host` is [`None`] or [`Data::get_or_default`] returns [`None`].
     #[inline]
-    pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> &Host {
+    pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> Option<&Host> {
         match maybe_host {
             Some(host) => self.get_or_default(host),
             None => self.get_default(),
@@ -511,7 +531,7 @@ impl Data {
         &'a self,
         request: &Request<Body>,
         sni_hostname: Option<&str>,
-    ) -> &'a Host {
+    ) -> Option<&'a Host> {
         fn get_header(headers: &HeaderMap) -> Option<&str> {
             headers
                 .get(header::HOST)
@@ -548,17 +568,27 @@ impl Data {
         config
     }
 
+    /// Gets the `pre_host_limiter` to manage limits before any of the request is read, or even a
+    /// TLS session is initiated.
+    pub(crate) fn limiter(&self) -> &LimitManager {
+        &self.pre_host_limiter
+    }
+
     /// Clears all response caches.
     #[inline]
     pub async fn clear_response_caches(&self) {
-        if let Some(cache) = &self.default.response_cache {
-            // Handle default host
+        // Handle default host
+        if let Some(cache) = self
+            .default
+            .as_ref()
+            .and_then(|h| h.response_cache.as_ref())
+        {
             cache.lock().await.clear();
-            // All other
-            for host in self.by_name.values() {
-                if let Some(cache) = &host.response_cache {
-                    cache.lock().await.clear();
-                }
+        }
+        // All other
+        for host in self.by_name.values() {
+            if let Some(cache) = &host.response_cache {
+                cache.lock().await.clear();
             }
         }
     }
@@ -578,7 +608,11 @@ impl Data {
         let mut cleared = false;
         if host.is_empty() || host == "default" {
             found = true;
-            if let Some(cache) = &self.default.response_cache {
+            if let Some(cache) = self
+                .default
+                .as_ref()
+                .and_then(|h| h.response_cache.as_ref())
+            {
                 let mut lock = cache.lock().await;
                 if key
                     .call_all(|key| lock.remove(key).into_option())
@@ -606,7 +640,7 @@ impl Data {
     /// Clears all file caches.
     #[inline]
     pub async fn clear_file_caches(&self) {
-        if let Some(cache) = &self.default.file_cache {
+        if let Some(cache) = self.default.as_ref().and_then(|h| h.file_cache.as_ref()) {
             cache.lock().await.clear();
         }
         for host in self.by_name.values() {
@@ -621,7 +655,7 @@ impl Data {
     /// Though, it's not blocking.
     pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
         let mut found = false;
-        if let Some(cache) = &self.default.file_cache {
+        if let Some(cache) = self.default.as_ref().and_then(|h| h.file_cache.as_ref()) {
             if cache
                 .lock()
                 .await
@@ -656,8 +690,8 @@ impl ResolvesServerCert for Data {
         // Will however return false if certificate is not present
         // in found host or default host.
         self.maybe_get_or_default(client_hello.server_name())
-            .certificate
-            .clone()
+            .and_then(|host| host.certificate.as_ref())
+            .cloned()
     }
 }
 
