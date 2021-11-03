@@ -20,7 +20,7 @@ See the [roadmap](roadmap.md) or visit [kvarn.org](https://kvarn.org/) for more 
 Now that `v0.3.0` is out, a stable API is available and the crate is on [crates.io](https://crates.io/crates/kvarn).
 
 [At least for now](https://kvarn.org/config.) you'll have to configure Kvarn through code
-(e.g. add extensions from [`kvarn_extensions`](kvarn_extensions/README.md) and configuring hosts).
+(e.g. add extensions from [`kvarn_extensions`](extensions/README.md) and configuring hosts).
 
 To use the latest and greatest
 (with regular breaking changes, follow the progress at the
