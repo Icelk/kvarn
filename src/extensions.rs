@@ -1353,6 +1353,9 @@ mod macros {
     }
     /// Will make a prepare extension.
     ///
+    /// > The `path` will be [`None`] if and only if [`Options::disable_fs`] is true *or* percent
+    /// > decoding failed. `request.uri().path()` will not have it's percent encoding decoded.
+    ///
     /// See example bellow. Where `times_called` is defined in the arguments of the macro, you can enter several `Arc`s to capture from the environment.
     /// They will be cloned before being moved to the future, mitigating the error `cannot move out of 'times_called', a captured variable in an 'Fn' closure`.
     /// **Only `Arc`s** will work, since the variable has to be `Send` and `Sync`.
