@@ -11,7 +11,7 @@
 //! - Five types of extensions, all backed with intuitive macros
 //! - Optional encryption with [`rustls`](https://docs.rs/rustls)
 //! - Several checks for illegal requests
-//! - `cache-control` and [`kvarn-cache-control`](parse::CacheControl::from_kvarn_cache_control) header limits server cache lifetimes
+//! - [`cache-control`](parse::CacheControl::from_cache_control) and [`kvarn-cache-control`](parse::CacheControl::from_kvarn_cache_control) header limits server cache lifetimes
 //!
 //! # Getting started
 //!
