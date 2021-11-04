@@ -1465,10 +1465,10 @@ impl CspValue {
     #[must_use]
     pub fn as_str(&self) -> &str {
         match self {
-            Self::None => "none",
-            Self::Same => "self",
-            Self::UnsafeInline => "unsafe-inline",
-            Self::UnsafeEval => "unsafe-eval",
+            Self::None => "'none'",
+            Self::Same => "'self'",
+            Self::UnsafeInline => "'unsafe-inline'",
+            Self::UnsafeEval => "'unsafe-eval'",
             Self::Uri(s) => s,
             Self::Scheme(scheme) => scheme.as_str(),
         }
