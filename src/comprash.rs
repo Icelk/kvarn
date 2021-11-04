@@ -408,13 +408,15 @@ impl CompressedResponse {
             .version(response.version())
             .status(response.status());
         let mut map = response.headers().clone();
-        let headers = &mut map;
-        debug!(
-            "Changing content-encoding from {:?}. Has content-type {:?}",
-            headers.get("content-encoding"),
-            headers.get("content-type"),
-        );
-        utils::replace_header(headers, "content-encoding", compression);
+        if !new_data.is_empty() {
+            let headers = &mut map;
+            debug!(
+                "Changing content-encoding from {:?}. Has content-type {:?}",
+                headers.get("content-encoding"),
+                headers.get("content-type"),
+            );
+            utils::replace_header(headers, "content-encoding", compression);
+        }
         *builder.headers_mut().unwrap() = map;
         builder.body(new_data).unwrap()
     }
