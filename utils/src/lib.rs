@@ -466,7 +466,7 @@ pub fn method_has_response_body(method: &Method) -> bool {
 ///
 /// # Safety
 ///
-/// This functions isn't unsafe, but dereferencing the returned pointer is.
+/// This function isn't unsafe, but dereferencing the returned pointer is.
 pub fn ref_to_mut<T>(reference: &T) -> *mut T {
     reference as *const T as *mut T
 }
