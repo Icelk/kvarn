@@ -1225,6 +1225,12 @@ macro_rules! csp_rules {
                 #[doc = "Overrides the directive described bellow."]
                 #[doc = "By default, Kvarn protects against XSS attacks by sending some defaults."]
                 #[doc = ""]
+                #[doc = "# Panics"]
+                #[doc = ""]
+                #[doc = "May panic if [`CspValue::Uri`] contains invalid bytes."]
+                #[doc = ""]
+                #[doc = "# Info"]
+                #[doc = ""]
                 $(#[$docs])*
                 pub fn $directive(mut self, values: Vec<CspValue>) -> Self {
                     Self::check_values(&values);
