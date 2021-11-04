@@ -1178,6 +1178,258 @@ impl Default for CorsAllowList {
     }
 }
 
+macro_rules! csp_rules {
+    (
+        $(
+            $(#[$docs:meta])*
+            ($directive:ident, $default:expr, $($name:expr)+)
+        )+
+    ) => {
+        /// A rule for [CSP](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy)
+        /// which covers all directives.
+        #[derive(Debug, Clone)]
+        #[must_use]
+        pub struct CspRule {
+            $($directive: Vec<CspValue>,)+
+        }
+        impl CspRule {
+            $(
+                #[doc = "Overrides the directive described bellow."]
+                #[doc = "By default, Kvarn protects against XSS attacks by sending some defaults."]
+                #[doc = ""]
+                $(#[$docs])*
+                pub fn $directive(mut self, values: Vec<CspValue>) -> Self {
+                    Self::check_values(&values);
+
+                    self.$directive = values;
+                    self
+                }
+            )+
+
+            /// Returns [`None`] if all the directives are empty.
+            /// Else, returns a list of all directives and their values.
+            #[must_use]
+            pub fn to_header(&self) -> Option<HeaderValue> {
+                use bytes::BufMut;
+                // TODO: Optimize to use only 1 allocation.
+                // This should be fine for now, as this shouldn't have very many rules, but it
+                // would be optimal.
+                // This could be done by creating a iter of all the fields of this struct and
+                // flattening the iter with the iter of respective values to use the `utils::join`
+                // fn.
+
+                let mut len = 0;
+                let mut empty = true;
+
+                {
+                    $(
+                        $(
+                            len += self.$directive
+                                .iter()
+                                .map(|value| value.as_str().len() + 1)
+                                .sum::<usize>() + $name.len() + 2;
+
+                            if !self.$directive.is_empty() {
+                                empty = false;
+                            }
+                        )+
+                    )+
+                }
+
+                if empty {
+                    return None;
+                }
+
+                let mut bytes = BytesMut::with_capacity(len);
+
+                {
+                    $(
+                        let s = utils::join(self.$directive.iter().map(CspValue::as_str), " ");
+                        $(
+                            if !bytes.is_empty() {
+                                bytes.put_slice(b"; ");
+                            }
+                            bytes.put($name.as_bytes());
+                            bytes.put_u8(chars::SPACE);
+                            bytes.put(s.as_bytes());
+                        )+
+                    )+
+                }
+
+                // SAFETY: This is safe because of the contract on adding of `CspValue`s always
+                // containing valid bytes.
+                // See [`CspRule::check_values`], which is called whenever any new values are added
+                // here.
+                let header = unsafe { HeaderValue::from_maybe_shared_unchecked(bytes) };
+                Some(header)
+            }
+        }
+        impl Default for CspRule {
+            fn default() -> Self {
+                CspRule {
+                    $($directive: $default,)+
+                }
+            }
+        }
+    };
+}
+
+csp_rules! {
+    /// Fallback for frame-src and worker-src.
+    ///
+    /// Defines the valid sources for web workers and nested browsing contexts loaded using elements such as <frame> and <iframe>.
+    (child_src, vec![], "child-src")
+
+    /// Restricts the URLs which can be loaded using script interfaces
+    (connect_src, vec![], "connect-src")
+
+    /// Serves as a fallback for the other fetch directives.
+    (default_src, vec![CspValue::Same], "default-src")
+
+    /// Specifies valid sources for fonts loaded using @font-face.
+    (font_src, vec![], "font-src")
+
+    /// Specifies valid sources for nested browsing contexts loading using elements such as <frame> and <iframe>.
+    (frame_src, vec![], "frame-src")
+
+    /// Specifies valid sources of images and favicons.
+    (img_src, vec![], "img-src")
+
+    /// Specifies valid sources of application manifest files.
+    (manifest_src, vec![], "manifest-src")
+
+    /// Specifies valid sources for loading media using the <audio> , <video> and <track> elements.
+    (media_src, vec![], "media-src")
+
+    /// Specifies valid sources for the <object>, <embed>, and <applet> elements.
+    ///
+    /// > Note: Elements controlled by object-src are perhaps coincidentally considered legacy HTML elements and are not receiving new standardized features (such as the security attributes sandbox or allow for <iframe>). Therefore it is recommended to restrict this fetch-directive (e.g., explicitly set object-src 'none' if possible).
+    (object_src, vec![], "object-src")
+
+    /// Specifies valid sources to be prefetched or prerendered.
+    (prefetch_src, vec![], "prefetch-src")
+
+    /// Fallback for all script_*.
+    ///
+    /// Specifies valid sources for JavaScript.
+    (script_src, vec![], "script-src")
+
+    /// Specifies valid sources for JavaScript <script> elements.
+    (script_src_elem, vec![], "script-src-elem")
+
+    /// Specifies valid sources for JavaScript inline event handlers.
+    (script_src_attr, vec![], "script-src-attr")
+
+    /// Fallback for all style_*.
+    ///
+    /// Specifies valid sources for stylesheets.
+    (style_src, vec![], "style-src")
+
+    /// Specifies valid sources for stylesheets <style> elements and <link> elements with rel="stylesheet".
+    (style_src_elem, vec![], "style-src-elem")
+
+    /// Specifies valid sources for inline styles applied to individual DOM elements.
+    (style_src_attr, vec![CspValue::Same, CspValue::UnsafeInline], "style-src-attr")
+
+    /// Specifies valid sources for Worker, SharedWorker, or ServiceWorker scripts.
+    (worker_src, vec![], "worker-src")
+
+    /// Restricts the URLs which can be used in a document's <base> element.
+    (base_uri, vec![], "base-uri")
+
+    /// Enables a sandbox for the requested resource similar to the <iframe> sandbox attribute.
+    (sandbox, vec![], "sandbox")
+
+    /// Restricts the URLs which can be used as the target of a form submissions from a given context.
+    (form_action, vec![], "form-action")
+
+    /// Specifies valid parents that may embed a page using <frame>, <iframe>, <object>, <embed>, or <applet>.
+    (frame_ancestors, vec![], "frame-ancestors")
+
+    /// Restricts the URLs to which a document can initiate navigation by any means, including <form> (if form-action is not specified), <a>, window.location, window.open, etc.
+    (navigate_to, vec![], "navigate-to")
+
+    /// Instructs the user agent to report attempts to violate the Content Security Policy. These [violation reports](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP#violation_report_syntax) consist of JSON documents sent via an HTTP `POST` request to the specified URI.
+    ///
+    /// Use [`CspValue::Uri`] as `value` to supply the path of the violation report endpoint.
+    (report, vec![], "report-to" "report-uri")
+
+    /// Requires the use of SRI for scripts or styles on the page.
+    (require_sri_for, vec![], "require-sri-for")
+
+    /// Enforces Trusted Types at the DOM XSS injection sinks.
+    (require_trusted_types_for, vec![], "require-trused-types-for")
+
+    /// Used to specify an allow-list of Trusted Types policies. Trusted Types allows applications to lock down DOM XSS injection sinks to only accept non-spoofable, typed values in place of strings.
+    (trusted_types, vec![], "trusted-types")
+
+    /// Instructs user agents to treat all of a site's insecure URLs (those served over HTTP) as though they have been replaced with secure URLs (those served over HTTPS). This directive is intended for web sites with large numbers of insecure legacy URLs that need to be rewritten.
+    (upgrade_insecure_requests, vec![], "upgrade-insecure-requests")
+}
+
+impl CspRule {
+    /// Guarantees the [`CspValue`] can be converted into a [`HeaderValue`].
+    ///
+    /// The Scheme option can only contain bytes also valid in `HeaderValue`.
+    /// This is part of the HTTP spec.
+    fn check_values(values: &[CspValue]) {
+        for byte in values
+            .iter()
+            .filter_map(|value| match value {
+                CspValue::Uri(s) => Some(s.as_bytes().iter()),
+                _ => None,
+            })
+            .flatten()
+            .copied()
+        {
+            assert!(
+                utils::is_valid_header_value_byte(byte),
+                "Value of CspValue::Uri contains invalid bytes."
+            );
+        }
+    }
+}
+
+/// <https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy#values>
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum CspValue {
+    /// `none`
+    /// Won't allow loading of any resources.
+    None,
+    /// `self`,
+    /// Only allow resources from the current origin.
+    Same,
+    /// `unsafe-inline`
+    /// Allow use of inline resources.
+    UnsafeInline,
+    /// `unsafe-eval`
+    /// Allow use of dynamic code evaluation such as eval, setImmediate, and window.execScript.
+    UnsafeEval,
+    /// `host`
+    /// Only allow loading of resources from a specific host, with optional scheme, port, and path.
+    ///
+    /// Also used for [`CspRule::report`]. Then, only a path should be supplied.
+    Uri(String),
+    /// Only allow loading of resources over a specific scheme, should always end with `:`. e.g. `https:`, `http:`, `data:` etc.
+    Scheme(uri::Scheme),
+}
+impl CspValue {
+    /// Returns a string representing `self`.
+    ///
+    /// See [`CspValue`] for what will be returned.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::None => "none",
+            Self::Same => "self",
+            Self::UnsafeInline => "unsafe-inline",
+            Self::UnsafeEval => "unsafe-eval",
+            Self::Uri(s) => s,
+            Self::Scheme(scheme) => scheme.as_str(),
+        }
+    }
+}
+
 /// ## Unsafe pointers
 ///
 /// This modules contains extensive usage of unsafe pointers.
