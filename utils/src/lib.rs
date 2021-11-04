@@ -236,7 +236,7 @@ pub fn make_path(
 #[must_use]
 pub fn hardcoded_error_body(code: http::StatusCode, message: Option<&[u8]>) -> Bytes {
     // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
-    let mut body = BytesMut::with_capacity(200);
+    let mut body = BytesMut::with_capacity(200 + message.map_or(0, |slice| slice.len()));
     // Get code and reason!
     let reason = code.canonical_reason();
 
