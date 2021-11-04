@@ -298,7 +298,7 @@ pub struct ValueSet {
 }
 impl ValueSet {
     /// Creates a empty set of [`Value`]s.
-    /// 
+    ///
     /// Consider using [`Default::default()`] instead,
     /// as it includes [`Value::Same`] which is almost always wanted.
     #[inline]
