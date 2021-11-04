@@ -31,7 +31,8 @@ pub use crate::*;
 pub use comprash::UriKey;
 pub use error::{default as default_error, default_response as default_error_response};
 pub use extensions::{
-    Cors, CorsAllowList, Package, Post, Prepare, Present, Prime, ResponsePipeFuture,
+    Cors, CorsAllowList, Csp, CspRule, CspValue, Package, Post, Prepare, Present, Prime,
+    ResponsePipeFuture,
 };
 pub use host::{Data, Host};
 pub use read::{file as read_file, file_cached as read_file_cached};
