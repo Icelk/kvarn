@@ -1320,7 +1320,7 @@ macro_rules! csp_rules {
 csp_rules! {
     /// Fallback for frame-src and worker-src.
     ///
-    /// Defines the valid sources for web workers and nested browsing contexts loaded using elements such as <frame> and <iframe>.
+    /// Defines the valid sources for web workers and nested browsing contexts loaded using elements such as `<frame>` and `<iframe>`.
     (child_src, vec![], "child-src")
 
     /// Restricts the URLs which can be loaded using script interfaces
@@ -1332,7 +1332,7 @@ csp_rules! {
     /// Specifies valid sources for fonts loaded using @font-face.
     (font_src, vec![], "font-src")
 
-    /// Specifies valid sources for nested browsing contexts loading using elements such as <frame> and <iframe>.
+    /// Specifies valid sources for nested browsing contexts loading using elements such as `<frame>` and `<iframe>`.
     (frame_src, vec![], "frame-src")
 
     /// Specifies valid sources of images and favicons.
@@ -1341,12 +1341,12 @@ csp_rules! {
     /// Specifies valid sources of application manifest files.
     (manifest_src, vec![], "manifest-src")
 
-    /// Specifies valid sources for loading media using the <audio> , <video> and <track> elements.
+    /// Specifies valid sources for loading media using the `<audio>`, `<video>` and `<track>` elements.
     (media_src, vec![], "media-src")
 
-    /// Specifies valid sources for the <object>, <embed>, and <applet> elements.
+    /// Specifies valid sources for the `<object>`, `<embed>`, and `<applet>` elements.
     ///
-    /// > Note: Elements controlled by object-src are perhaps coincidentally considered legacy HTML elements and are not receiving new standardized features (such as the security attributes sandbox or allow for <iframe>). Therefore it is recommended to restrict this fetch-directive (e.g., explicitly set object-src 'none' if possible).
+    /// > Note: Elements controlled by object-src are perhaps coincidentally considered legacy HTML elements and are not receiving new standardized features (such as the security attributes sandbox or allow for `<iframe>`). Therefore it is recommended to restrict this fetch-directive (e.g., explicitly set object-src 'none' if possible).
     (object_src, vec![], "object-src")
 
     /// Specifies valid sources to be prefetched or prerendered.
@@ -1357,7 +1357,7 @@ csp_rules! {
     /// Specifies valid sources for JavaScript.
     (script_src, vec![], "script-src")
 
-    /// Specifies valid sources for JavaScript <script> elements.
+    /// Specifies valid sources for JavaScript `<script>` elements.
     (script_src_elem, vec![], "script-src-elem")
 
     /// Specifies valid sources for JavaScript inline event handlers.
@@ -1366,30 +1366,30 @@ csp_rules! {
     /// Fallback for all style_*.
     ///
     /// Specifies valid sources for stylesheets.
-    (style_src, vec![], "style-src")
+    (style_src, vec![CspValue::Same, CspValue::UnsafeInline], "style-src")
 
-    /// Specifies valid sources for stylesheets <style> elements and <link> elements with rel="stylesheet".
+    /// Specifies valid sources for stylesheets `<style>` elements and `<link>` elements with rel="stylesheet".
     (style_src_elem, vec![], "style-src-elem")
 
     /// Specifies valid sources for inline styles applied to individual DOM elements.
-    (style_src_attr, vec![CspValue::Same, CspValue::UnsafeInline], "style-src-attr")
+    (style_src_attr, vec![], "style-src-attr")
 
     /// Specifies valid sources for Worker, SharedWorker, or ServiceWorker scripts.
     (worker_src, vec![], "worker-src")
 
-    /// Restricts the URLs which can be used in a document's <base> element.
+    /// Restricts the URLs which can be used in a document's `<base>` element.
     (base_uri, vec![], "base-uri")
 
-    /// Enables a sandbox for the requested resource similar to the <iframe> sandbox attribute.
+    /// Enables a sandbox for the requested resource similar to the `<iframe>` sandbox attribute.
     (sandbox, vec![], "sandbox")
 
     /// Restricts the URLs which can be used as the target of a form submissions from a given context.
     (form_action, vec![], "form-action")
 
-    /// Specifies valid parents that may embed a page using <frame>, <iframe>, <object>, <embed>, or <applet>.
+    /// Specifies valid parents that may embed a page using `<frame>`, `<iframe>`, `<object>`, `<embed>`, or `<applet>`.
     (frame_ancestors, vec![], "frame-ancestors")
 
-    /// Restricts the URLs to which a document can initiate navigation by any means, including <form> (if form-action is not specified), <a>, window.location, window.open, etc.
+    /// Restricts the URLs to which a document can initiate navigation by any means, including `<form>` (if form-action is not specified), `<a>`, window.location, window.open, etc.
     (navigate_to, vec![], "navigate-to")
 
     /// Instructs the user agent to report attempts to violate the Content Security Policy. These [violation reports](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP#violation_report_syntax) consist of JSON documents sent via an HTTP `POST` request to the specified URI.
