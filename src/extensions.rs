@@ -1390,7 +1390,9 @@ impl CspRule {
     }
 }
 
-/// <https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy#values>
+/// The values for all directives in [`CspRule`].
+///
+/// See [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy#values) for more details.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CspValue {
     /// `none`
@@ -1429,6 +1431,11 @@ impl CspValue {
         }
     }
 }
+
+/// A [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy) ruleset.
+///
+/// See [`CspRule`] for directives and [`CspValue`] for the values you can set.
+pub type Csp = RuleSet<CspRule>;
 
 /// ## Unsafe pointers
 ///
