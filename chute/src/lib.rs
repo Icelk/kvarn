@@ -632,10 +632,21 @@ pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
         matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
     }
     let mut in_code = false;
-    for line in input.lines() {
+    for (line, next_line) in input.lines().zip(input.lines().skip(1).map(Some)) {
         let trimmed = line.trim();
         let header_trimmed = trimmed.trim_start_matches('#');
-        let indent = trimmed.len() - header_trimmed.len();
+        let indent = (trimmed.len() - header_trimmed.len())
+            .wrapping_sub(1)
+            .min(next_line.map_or(usize::MAX, |next_line| {
+                if !trimmed.is_empty()
+                    && (next_line.trim().starts_with("---") || next_line.trim().starts_with("==="))
+                {
+                    0
+                } else {
+                    usize::MAX
+                }
+            }))
+            .wrapping_add(1);
 
         if trimmed.starts_with("```") {
             in_code = !in_code;
