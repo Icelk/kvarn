@@ -18,7 +18,7 @@ macro_rules! csp_rules {
         #[derive(Debug, Clone)]
         #[must_use]
         pub struct Rule {
-            $($directive: Vec<Value>,)+
+            $($directive: ValueSet,)+
         }
         impl Rule {
             /// Creates a new, empty CSP rule.
@@ -26,9 +26,10 @@ macro_rules! csp_rules {
             /// Populate it with the various directive methods.
             ///
             /// Consider using [`Self::default`] to get sensible defaults.
+            #[inline]
             pub fn new() -> Self {
                 Self {
-                    $($directive: vec![],)+
+                    $($directive: ValueSet::new(),)+
                 }
             }
             $(
@@ -42,8 +43,9 @@ macro_rules! csp_rules {
                 #[doc = "# Info"]
                 #[doc = ""]
                 $(#[$docs])*
-                pub fn $directive(mut self, values: Vec<CspValue>) -> Self {
-                    Self::check_values(&values);
+                #[inline]
+                pub fn $directive(mut self, values: ValueSet) -> Self {
+                    Self::check_values(&values.list);
 
                     self.$directive = values;
                     self
@@ -69,17 +71,19 @@ macro_rules! csp_rules {
                     $(
                         $(
                             {
-                                let me_len = if self.$directive.is_empty() {
+                                let me_len = if self.$directive.list.is_empty() {
                                     0
                                 } else {
                                     $name.len() + 2
                                 };
-                                len += self.$directive
+                                len += self
+                                    .$directive
+                                    .list
                                     .iter()
                                     .map(|value| value.as_str().len() + 1)
                                     .sum::<usize>() + me_len;
 
-                                if !self.$directive.is_empty() {
+                                if !self.$directive.list.is_empty() {
                                     empty = false;
                                 }
                             }
@@ -95,8 +99,8 @@ macro_rules! csp_rules {
 
                 {
                     $(
-                        if !self.$directive.is_empty() {
-                            let s = utils::join(self.$directive.iter().map(CspValue::as_str), " ");
+                        if !self.$directive.list.is_empty() {
+                            let s = utils::join(self.$directive.list.iter().map(CspValue::as_str), " ");
                             $(
                                 if !bytes.is_empty() {
                                     bytes.put_slice(b"; ");
@@ -131,93 +135,93 @@ csp_rules! {
     /// Fallback for frame-src and worker-src.
     ///
     /// Defines the valid sources for web workers and nested browsing contexts loaded using elements such as `<frame>` and `<iframe>`.
-    (child_src, vec![], "child-src")
+    (child_src, ValueSet::new(), "child-src")
 
     /// Restricts the URLs which can be loaded using script interfaces
-    (connect_src, vec![], "connect-src")
+    (connect_src, ValueSet::new(), "connect-src")
 
     /// Serves as a fallback for the other fetch directives.
-    (default_src, vec![Value::Same], "default-src")
+    (default_src, ValueSet::default(), "default-src")
 
     /// Specifies valid sources for fonts loaded using @font-face.
-    (font_src, vec![], "font-src")
+    (font_src, ValueSet::new(), "font-src")
 
     /// Specifies valid sources for nested browsing contexts loading using elements such as `<frame>` and `<iframe>`.
-    (frame_src, vec![], "frame-src")
+    (frame_src, ValueSet::new(), "frame-src")
 
     /// Specifies valid sources of images and favicons.
-    (img_src, vec![], "img-src")
+    (img_src, ValueSet::new(), "img-src")
 
     /// Specifies valid sources of application manifest files.
-    (manifest_src, vec![], "manifest-src")
+    (manifest_src, ValueSet::new(), "manifest-src")
 
     /// Specifies valid sources for loading media using the `<audio>`, `<video>` and `<track>` elements.
-    (media_src, vec![], "media-src")
+    (media_src, ValueSet::new(), "media-src")
 
     /// Specifies valid sources for the `<object>`, `<embed>`, and `<applet>` elements.
     ///
     /// > Note: Elements controlled by object-src are perhaps coincidentally considered legacy HTML elements and are not receiving new standardized features (such as the security attributes sandbox or allow for `<iframe>`). Therefore it is recommended to restrict this fetch-directive (e.g., explicitly set object-src 'none' if possible).
-    (object_src, vec![], "object-src")
+    (object_src, ValueSet::new(), "object-src")
 
     /// Specifies valid sources to be prefetched or prerendered.
-    (prefetch_src, vec![], "prefetch-src")
+    (prefetch_src, ValueSet::new(), "prefetch-src")
 
     /// Fallback for all script_*.
     ///
     /// Specifies valid sources for JavaScript.
-    (script_src, vec![], "script-src")
+    (script_src, ValueSet::new(), "script-src")
 
     /// Specifies valid sources for JavaScript `<script>` elements.
-    (script_src_elem, vec![], "script-src-elem")
+    (script_src_elem, ValueSet::new(), "script-src-elem")
 
     /// Specifies valid sources for JavaScript inline event handlers.
-    (script_src_attr, vec![], "script-src-attr")
+    (script_src_attr, ValueSet::new(), "script-src-attr")
 
     /// Fallback for all style_*.
     ///
     /// Specifies valid sources for stylesheets.
-    (style_src, vec![Value::Same, Value::UnsafeInline], "style-src")
+    (style_src, ValueSet::default().unsafe_inline(), "style-src")
 
     /// Specifies valid sources for stylesheets `<style>` elements and `<link>` elements with rel="stylesheet".
-    (style_src_elem, vec![], "style-src-elem")
+    (style_src_elem, ValueSet::new(), "style-src-elem")
 
     /// Specifies valid sources for inline styles applied to individual DOM elements.
-    (style_src_attr, vec![], "style-src-attr")
+    (style_src_attr, ValueSet::new(), "style-src-attr")
 
     /// Specifies valid sources for Worker, SharedWorker, or ServiceWorker scripts.
-    (worker_src, vec![], "worker-src")
+    (worker_src, ValueSet::new(), "worker-src")
 
     /// Restricts the URLs which can be used in a document's `<base>` element.
-    (base_uri, vec![], "base-uri")
+    (base_uri, ValueSet::new(), "base-uri")
 
     /// Enables a sandbox for the requested resource similar to the `<iframe>` sandbox attribute.
-    (sandbox, vec![], "sandbox")
+    (sandbox, ValueSet::new(), "sandbox")
 
     /// Restricts the URLs which can be used as the target of a form submissions from a given context.
-    (form_action, vec![], "form-action")
+    (form_action, ValueSet::new(), "form-action")
 
     /// Specifies valid parents that may embed a page using `<frame>`, `<iframe>`, `<object>`, `<embed>`, or `<applet>`.
-    (frame_ancestors, vec![], "frame-ancestors")
+    (frame_ancestors, ValueSet::new(), "frame-ancestors")
 
     /// Restricts the URLs to which a document can initiate navigation by any means, including `<form>` (if form-action is not specified), `<a>`, window.location, window.open, etc.
-    (navigate_to, vec![], "navigate-to")
+    (navigate_to, ValueSet::new(), "navigate-to")
 
     /// Instructs the user agent to report attempts to violate the Content Security Policy. These [violation reports](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP#violation_report_syntax) consist of JSON documents sent via an HTTP `POST` request to the specified URI.
     ///
     /// Use [`CspValue::Uri`] as `value` to supply the path of the violation report endpoint.
-    (report, vec![], "report-to" "report-uri")
+    (report, ValueSet::new(), "report-to" "report-uri")
 
     /// Requires the use of SRI for scripts or styles on the page.
-    (require_sri_for, vec![], "require-sri-for")
+    (require_sri_for, ValueSet::new(), "require-sri-for")
 
     /// Enforces Trusted Types at the DOM XSS injection sinks.
-    (require_trusted_types_for, vec![], "require-trused-types-for")
+    (require_trusted_types_for, ValueSet::new(), "require-trused-types-for")
 
     /// Used to specify an allow-list of Trusted Types policies. Trusted Types allows applications to lock down DOM XSS injection sinks to only accept non-spoofable, typed values in place of strings.
-    (trusted_types, vec![], "trusted-types")
+    (trusted_types, ValueSet::new(), "trusted-types")
 
     /// Instructs user agents to treat all of a site's insecure URLs (those served over HTTP) as though they have been replaced with secure URLs (those served over HTTPS). This directive is intended for web sites with large numbers of insecure legacy URLs that need to be rewritten.
-    (upgrade_insecure_requests, vec![], "upgrade-insecure-requests")
+    (upgrade_insecure_requests, ValueSet::new(), "upgrade-insecure-requests")
 }
 
 impl Rule {
@@ -285,9 +289,80 @@ impl Value {
     }
 }
 
+/// A set of [`Value`]s.
+/// Makes it easier to build the [`Rule`].
+#[must_use]
+#[derive(Debug, Clone)]
+pub struct ValueSet {
+    list: Vec<Value>,
+}
+impl ValueSet {
+    /// Creates a empty set of [`Value`]s.
+    /// 
+    /// Consider using [`Default::default()`] instead,
+    /// as it includes [`Value::Same`] which is almost always wanted.
+    #[inline]
+    pub fn new() -> Self {
+        Self { list: vec![] }
+    }
+    /// A set of [`Value`]s with only [`Value::None`].
+    #[inline]
+    pub fn none() -> Self {
+        Self::new().push(Value::None)
+    }
+    /// Adds [`Value::UnsafeInline`] to `self`.
+    #[inline]
+    pub fn unsafe_inline(self) -> Self {
+        self.push(Value::UnsafeInline)
+    }
+    /// Adds [`Value::UnsafeEval`] to `self`.
+    #[inline]
+    pub fn unsafe_eval(self) -> Self {
+        self.push(Value::UnsafeEval)
+    }
+    /// Adds `uri` to `self`.
+    #[inline]
+    pub fn uri(self, uri: impl AsRef<str>) -> Self {
+        self.push(Value::Uri(uri.as_ref().to_string()))
+    }
+    /// Adds `scheme` to `self`.
+    #[inline]
+    pub fn scheme(self, scheme: uri::Scheme) -> Self {
+        self.push(Value::Scheme(scheme))
+    }
+    /// Pushes another `value` to the set of values of `self`.
+    #[inline]
+    pub fn push(mut self, value: Value) -> Self {
+        self.list.push(value);
+        self
+    }
+}
+impl Default for ValueSet {
+    fn default() -> Self {
+        Self {
+            list: vec![Value::Same],
+        }
+    }
+}
+
 /// A [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy) ruleset.
 ///
 /// See [`CspRule`] for directives and [`CspValue`] for the values you can set.
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// let mut extensions = Extensions::new();
+/// extensions.with_csp(
+/// Csp::new()
+///     .add(
+///         "*",
+///         CspRule::new().img_src(CspValueSet::default().uri("https://kvarn.org")),
+///     )
+///     .arc(),
+/// );
+/// ```
 pub type Csp = RuleSet<CspRule>;
 impl Default for Csp {
     fn default() -> Self {
