@@ -2,7 +2,7 @@
 name = "kvarn"
 version = "0.2.0"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2018"
+edition = "2021"
 description = "An extensible and forward-thinking web server for the future."
 homepage = "https://kvarn.org/"
 repository = "https://github.com/Icelk/kvarn/"
