@@ -104,7 +104,7 @@ impl Id {
         }
     }
     /// Always inserts this extension.
-    /// If an extensions with the same Id exist, the Id is decremented and tried again.
+    /// If an extension with the same `priority` exist, the `priority` is decremented and tried again.
     pub fn no_override(mut self) -> Self {
         self.no_override = true;
         self
@@ -217,12 +217,15 @@ impl Extensions {
     /// - A Package extension (8) to set `referrer-policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `referrer-policy` header has been set earlier in the response.
     /// - A CORS extension to deny all CORS requests. See [`Self::with_cors`] for CORS management.
+    /// - The default [`Csp`] which only allows requests from `self` and allows unsafe inline
+    ///   styles. **This should to a large extent mitigate XSS.**
     pub fn new() -> Self {
         let mut new = Self::empty();
 
         new.with_uri_redirect()
             .with_no_referrer()
-            .with_disallow_cors();
+            .with_disallow_cors()
+            .with_csp(Csp::default().arc());
 
         new
     }
@@ -519,6 +522,25 @@ impl Extensions {
             Id::new(16_777_215, "Provides CORS preflight request support"),
         );
 
+        self
+    }
+    /// Sets the set of rules to handle
+    /// [CSP](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy).
+    pub fn with_csp(&mut self, csp: Arc<Csp>) -> &mut Self {
+        self.add_package(
+            package!(response, request, _host, move |csp| {
+                if let Some(rule) = csp.get(request.uri().path()) {
+                    if let Some(header) = rule.to_header() {
+                        utils::replace_header(
+                            response.headers_mut(),
+                            "content-security-policy",
+                            header,
+                        );
+                    }
+                }
+            }),
+            Id::new(128, "Add content security policy header"),
+        );
         self
     }
 
@@ -1568,6 +1590,7 @@ mod macros {
     #[macro_export]
     macro_rules! extension {
         (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $code:block) => {{
+            #[allow(unused_imports)]
             use $crate::extensions::{*, wrappers::*};
             use $crate::prelude::utils::SuperUnsafePointer;
             #[allow(unused_mut)]
