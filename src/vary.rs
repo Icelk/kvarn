@@ -188,6 +188,11 @@ impl Vary {
         )
     }
 }
+impl Default for Vary {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Creates a `vary` response header from the slice of [`Header`]s.
 ///

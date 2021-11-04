@@ -1095,11 +1095,7 @@ impl<R> RuleSet<R> {
         None
     }
 }
-impl<T> Default for RuleSet<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+
 /// A CORS allow list which allowes hosts, methods, and headers from a associated path.
 /// This is a builder-like struct.
 /// Use the `add_*` methods to add allowed origins, methods, and headers.
@@ -1458,6 +1454,11 @@ impl CspValue {
 ///
 /// See [`CspRule`] for directives and [`CspValue`] for the values you can set.
 pub type Csp = RuleSet<CspRule>;
+impl Default for Csp {
+    fn default() -> Self {
+        Self::new().add("*", CspRule::default())
+    }
+}
 
 /// ## Unsafe pointers
 ///
