@@ -45,7 +45,7 @@ pub enum Error {
     IllegalName,
     /// There are illegal bytes in a [`HeaderValue`]
     IllegalValue,
-    /// No host was found and no [`DataBuilder::default`] was specified.
+    /// No host was found and no default host was specified.
     NoHost,
 }
 impl Error {
