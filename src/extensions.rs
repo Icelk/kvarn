@@ -1258,13 +1258,20 @@ macro_rules! csp_rules {
                 {
                     $(
                         $(
-                            len += self.$directive
-                                .iter()
-                                .map(|value| value.as_str().len() + 1)
-                                .sum::<usize>() + $name.len() + 2;
+                            {
+                                let me_len = if self.$directive.is_empty() {
+                                    0
+                                } else {
+                                    $name.len() + 2
+                                };
+                                len += self.$directive
+                                    .iter()
+                                    .map(|value| value.as_str().len() + 1)
+                                    .sum::<usize>() + me_len;
 
-                            if !self.$directive.is_empty() {
-                                empty = false;
+                                if !self.$directive.is_empty() {
+                                    empty = false;
+                                }
                             }
                         )+
                     )+
@@ -1278,15 +1285,17 @@ macro_rules! csp_rules {
 
                 {
                     $(
-                        let s = utils::join(self.$directive.iter().map(CspValue::as_str), " ");
-                        $(
-                            if !bytes.is_empty() {
-                                bytes.put_slice(b"; ");
-                            }
-                            bytes.put($name.as_bytes());
-                            bytes.put_u8(chars::SPACE);
-                            bytes.put(s.as_bytes());
-                        )+
+                        if !self.$directive.is_empty() {
+                            let s = utils::join(self.$directive.iter().map(CspValue::as_str), " ");
+                            $(
+                                if !bytes.is_empty() {
+                                    bytes.put_slice(b"; ");
+                                }
+                                bytes.put($name.as_bytes());
+                                bytes.put_u8(chars::SPACE);
+                                bytes.put(s.as_bytes());
+                            )+
+                        }
                     )+
                 }
 
