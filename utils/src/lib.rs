@@ -557,6 +557,37 @@ pub fn is_valid_header_value_byte(byte: u8) -> bool {
     (32..127).contains(&byte) || byte == b'\t'
 }
 
+/// Joins the items in `iter` with a `separator` using 1 allocation.
+///
+/// `separator` can be `""` to concatenate the items of `iter`.
+///
+/// This will [`Clone`] `iter`, as we need to count the length of the strings in `iter` and then
+/// use them. This should be cheap for most iterators.
+pub fn join<S: AsRef<str>, I: Iterator<Item = S> + Clone>(
+    iter: I,
+    separator: impl AsRef<str>,
+) -> String {
+    // The adding of `separator.len()` in the map is to add the length of the `separator` after
+    // each item, then removing 1 at the end.
+    let length = iter
+        .clone()
+        .map(|s| s.as_ref().len() + separator.as_ref().len())
+        .sum::<usize>()
+        // Saturating if `iter.len()` is 0.
+        .saturating_sub(separator.as_ref().len());
+
+    let mut string = String::with_capacity(length);
+
+    for (pos, s) in iter.enumerate() {
+        if pos != 0 {
+            string += separator.as_ref();
+        }
+        string += s.as_ref();
+    }
+
+    string
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
