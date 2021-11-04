@@ -404,11 +404,17 @@ impl DataBuilder {
     #[inline]
     pub fn insert(mut self, host: Host) -> Self {
         self.check_secure(&host);
+        if self.0.first.is_none() {
+            self.0.first = Some(host.name);
+        }
         self.0.by_name.insert(host.name, host);
         self
     }
     /// Adds a default `host` which is the fallback for all requests with a requested host
     /// which does not match any host added using [`Self::insert`].
+    ///
+    /// > This is not needed when debugging, as the first [`Host`] to be inserted is used
+    /// > for requests to `localhost`.
     ///
     /// **NOTE:** This should be used with care as all secure connections to this server
     /// with a SNI hostname that is not registered in this [`Data`], the client will get
@@ -461,6 +467,8 @@ impl DataBuilder {
 /// If only a default is specified, all requests, (e.g. those who lack a `host` header,
 /// have none, or all other values of the header) are channelled to the default.
 ///
+/// > When called as `localhost`, the first is always used.
+///
 /// If the feature `https` is enabled, [`rustls::server::ResolvesServerCert`] in implemented
 /// using this default and host name pattern.
 #[derive(Debug)]
@@ -468,6 +476,7 @@ impl DataBuilder {
 pub struct Data {
     default: Option<Host>,
     by_name: HashMap<&'static str, Host>,
+    first: Option<&'static str>,
     has_secure: bool,
     pre_host_limiter: LimitManager,
 }
@@ -476,9 +485,10 @@ impl Data {
     #[inline]
     pub fn builder() -> DataBuilder {
         DataBuilder(Self {
-            has_secure: false,
             default: None,
             by_name: HashMap::new(),
+            first: None,
+            has_secure: false,
             pre_host_limiter: LimitManager::default(),
         })
     }
@@ -494,6 +504,7 @@ impl Data {
                 Options::default(),
             )),
             by_name: HashMap::new(),
+            first: None,
             has_secure: false,
             pre_host_limiter: LimitManager::default(),
         }
@@ -514,7 +525,15 @@ impl Data {
     /// Gets a [`Host`] by name, and returns the [`default`](Data::get_default) if none were found.
     #[inline]
     pub fn get_or_default(&self, host: &str) -> Option<&Host> {
-        self.get_host(host).or_else(|| self.get_default())
+        self.get_host(host)
+            .or_else(|| self.get_default())
+            .or_else(|| {
+                if host.split(':').next() == Some("localhost") {
+                    self.first.and_then(|host| self.get_host(host))
+                } else {
+                    None
+                }
+            })
     }
     /// Gets a [`Host`] by name, if any, and returns it or the [`default`](Data::get_default)
     /// if `maybe_host` is [`None`] or [`Data::get_or_default`] returns [`None`].
