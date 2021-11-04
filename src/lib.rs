@@ -49,6 +49,8 @@
 // Module declaration
 pub mod application;
 pub mod comprash;
+pub mod cors;
+pub mod csp;
 pub mod encryption;
 pub mod error;
 pub mod extensions;
