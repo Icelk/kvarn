@@ -1211,6 +1211,16 @@ macro_rules! csp_rules {
             $($directive: Vec<CspValue>,)+
         }
         impl CspRule {
+            /// Creates a new, empty CSP rule.
+            ///
+            /// Populate it with the various directive methods.
+            ///
+            /// Consider using [`Self::default`] to get sensible defaults.
+            pub fn new() -> Self {
+                Self {
+                    $($directive: vec![],)+
+                }
+            }
             $(
                 #[doc = "Overrides the directive described bellow."]
                 #[doc = "By default, Kvarn protects against XSS attacks by sending some defaults."]
