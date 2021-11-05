@@ -832,10 +832,10 @@ pub mod wrappers {
     use super::{FatRequest, Host, PathBuf, PresentData, Response, ResponseBodyPipe, ResponsePipe};
 
     macro_rules! get_unsafe_wrapper {
-    ($main:ident, $return:ty, $ret_str:expr) => {
-        #[doc = "A wrapper type for `"]
-        #[doc = $ret_str]
-        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+    ($main:ident, $return:ty, $link:ty) => {
+        #[doc = "A wrapper type for [`"]
+        #[doc = stringify!($link)]
+        #[doc = "`].\n\nSee [module level documentation](crate::extensions) for more information."]
         #[allow(missing_debug_implementations)]
         #[must_use]
         pub struct $main(*const $return);
@@ -845,7 +845,7 @@ pub mod wrappers {
             }
             /// # Safety
             ///
-            /// See [module level documentation](crate::extensions).
+            /// See [module level documentation](crate::extensions::wrappers).
             #[inline]
             #[must_use = "must use extracted reference"]
             pub unsafe fn get_inner(&self) -> &$return {
@@ -856,14 +856,14 @@ pub mod wrappers {
         unsafe impl Sync for $main {}
     };
     ($main:ident, $return:ty) => {
-        get_unsafe_wrapper!($main, $return, stringify!($return));
+        get_unsafe_wrapper!($main, $return, $return);
     };
 }
     macro_rules! get_unsafe_mut_wrapper {
-    ($main:ident, $return:ty, $ret_str:expr) => {
-        #[doc = "A wrapper type for `"]
-        #[doc = $ret_str]
-        #[doc = "`.\n\nSee [module level documentation](crate::extensions) for more information."]
+    ($main:ident, $return:ty, $link:ty) => {
+        #[doc = "A wrapper type for [`"]
+        #[doc = stringify!($link)]
+        #[doc = "`].\n\nSee [module level documentation](crate::extensions::wrappers) for more information."]
         #[allow(missing_debug_implementations)]
         #[must_use]
         pub struct $main(*mut $return);
@@ -873,7 +873,7 @@ pub mod wrappers {
             }
             /// # Safety
             ///
-            /// See [module level documentation](crate::extensions).
+            /// See [module level documentation](crate::extensions::wrappers).
             #[inline]
             #[must_use = "must use extracted reference"]
             pub unsafe fn get_inner(&mut self) -> &mut $return {
@@ -884,13 +884,13 @@ pub mod wrappers {
         unsafe impl Sync for $main {}
     };
     ($main:ident, $return:ty) => {
-        get_unsafe_mut_wrapper!($main, $return, stringify!($return));
+        get_unsafe_mut_wrapper!($main, $return, $return);
     };
 }
 
     get_unsafe_wrapper!(RequestWrapper, FatRequest);
     get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
-    get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>);
+    get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>, Response);
     get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, ResponsePipe);
     get_unsafe_wrapper!(HostWrapper, Host);
     get_unsafe_wrapper!(PathOptionWrapper, Option<PathBuf>);
