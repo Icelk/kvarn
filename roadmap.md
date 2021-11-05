@@ -41,7 +41,7 @@ It should be understandable even for non-programmers. It should make it easier t
 -   [x] Referrer header in `Extensions::new()`
 -   [x] cfg (https, multithreading, http2)
 
-# v0.3.0 Core
+# v0.3.0 Ext
 
 This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small features necessary for a _solid_ web server.
 
