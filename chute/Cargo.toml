@@ -1,10 +1,16 @@
 [package]
-name = "kvarn_chute"
-version = "0.2.0"
+name = "kvarn-chute"
+version = "0.1.0"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2021"
+rust-version = "1.56"
+description = "A MarkDown converter designed to use the Kvarn templating engine."
+readme = "README.md"
+homepage = "https://kvarn.org/chute/"
+repository = "https://github.com/Icelk/kvarn/"
+license = "MIT OR Apache-2.0"
+keywords = ["markdown", "kvarn-extension", "kvarn", "templates"]
+categories = ["command-line-utilities", "text-processing"]
 
 [dependencies]
 pulldown-cmark = { version = "^0.8", default-features = false, features = ["simd"] }
