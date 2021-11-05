@@ -16,7 +16,7 @@ categories = ["template-engine"]
 kvarn = { version = "^0.3", default-features = false }
 fastcgi-client = { version = "^0.1", optional = true }
 tokio = { version = "^1.13", optional = true, features = ["net", "io-util"] }
-url_crawl = { path = "../url_crawl", optional = true }
+url_crawl = { version = "^0.1", optional = true }
 async_chunked_transfer = "^1.4"
 
 [features]
