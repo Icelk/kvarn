@@ -28,12 +28,29 @@ pub type RetSyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
 
 /// A prime extension.
 ///
-/// See [module level documentation](extensions) and the extensions.md link for more info.
+/// Can be created using the [`prime!`] macro.
+///
+/// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
+///
+/// # Arguments
+///
+/// - An immutable reference to the request.
+/// - An immutable reference to the host this request is to.
+/// - The [`SocketAddr`] of the requester.
 pub type Prime =
     Box<(dyn Fn(RequestWrapper, HostWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
 /// A prepare extension.
 ///
-/// See [module level documentation](extensions) and the extensions.md link for more info.
+/// Can be created using the [`prepare!`] macro.
+///
+/// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
+///
+/// # Arguments
+///
+/// - A mutable reference to the request.
+/// - An immutable reference to the host this request is to.
+/// - An [`Option`] of a [`Path`]. See the docs at [`prepare!`] for when this is [`None`].
+/// - The [`SocketAddr`] of the requester.
 pub type Prepare = Box<
     (dyn Fn(RequestWrapperMut, HostWrapper, PathOptionWrapper, SocketAddr) -> RetFut<FatResponse>
          + Sync
@@ -41,16 +58,44 @@ pub type Prepare = Box<
 >;
 /// A present extension.
 ///
-/// See [module level documentation](extensions) and the extensions.md link for more info.
+/// Can be created using the [`present!`] macro.
+///
+/// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
+///
+/// # Arguments
+///
+/// [`PresentData`] contains all the references to the data needed.
+///
+/// > The use of a separate struct for all the references is a product of the previous design,
+/// > before the macros and [`utils::SuperUnsafePointer`]s. Then, you had to do the `unsafe` dereferencing
+/// > yourself. Only having to dereference one struct was easier.
 pub type Present = Box<(dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync + Send)>;
 /// A package extension.
 ///
-/// See [module level documentation](extensions) and the extensions.md link for more info.
+/// Can be created using the [`package!`] macro.
+///
+/// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
+///
+/// # Arguments
+///
+/// - A mutable reference to a [`Response`] without the body.
+/// - An immutable reference to the request.
+/// - An immutable reference to the host this request is to.
 pub type Package =
     Box<(dyn Fn(EmptyResponseWrapperMut, RequestWrapper, HostWrapper) -> RetFut<()> + Sync + Send)>;
 /// A post extension.
 ///
-/// See [module level documentation](extensions) and the extensions.md link for more info.
+/// Can be created using the [`post!`] macro.
+///
+/// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
+///
+/// # Arguments
+///
+/// - An immutable reference to the request.
+/// - An immutable reference to the host this request is to.
+/// - A mutable reference to the [`ResponsePipe`].
+/// - The plain text of the body of the response.
+/// - The [`SocketAddr`] of the requester.
 pub type Post = Box<
     (dyn Fn(RequestWrapper, HostWrapper, ResponsePipeWrapperMut, Bytes, SocketAddr) -> RetFut<()>
          + Sync
