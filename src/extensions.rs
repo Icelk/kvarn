@@ -224,9 +224,9 @@ macro_rules! add_sort_list {
 }
 
 /// Contains all extensions.
-/// See [extensions.md](../extensions.md) for more info.
+/// See [kvarn.org on extensions](https://kvarn.org/extensions/) for more info.
 ///
-/// `ToDo`: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
+/// `TODO`: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
 #[must_use]
 pub struct Extensions {
     prime: Vec<(Id, Prime)>,
@@ -416,34 +416,34 @@ impl Extensions {
         self
     }
 
-    /// Adds a prime extension. Higher [`Id::priority()`] extensions are ran first.
+    /// Adds a [`Prime`] extension.
     pub fn add_prime(&mut self, extension: Prime, id: Id) {
         add_sort_list!(self.prime, id, extension,);
     }
-    /// Adds a prepare extension for a single URI.
+    /// Adds a [`Prepare`] extension for a single URI.
     pub fn add_prepare_single(&mut self, path: impl AsRef<str>, extension: Prepare) {
         self.prepare_single
             .insert(path.as_ref().to_owned(), extension);
     }
-    /// Adds a prepare extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
+    /// Adds a [`Prepare`] extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, id: Id) {
         add_sort_list!(self.prepare_fn, id, predicate, extension,);
     }
-    /// Adds a present internal extension, called with files starting with `!> `.
+    /// Adds a [`Present`] internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: impl AsRef<str>, extension: Present) {
         self.present_internal
             .insert(name.as_ref().to_owned(), extension);
     }
-    /// Adds a present file extension, called with file extensions matching `name`.
+    /// Adds a [`Present`] file extension, called with file extensions matching `name`.
     pub fn add_present_file(&mut self, name: impl AsRef<str>, extension: Present) {
         self.present_file
             .insert(name.as_ref().to_owned(), extension);
     }
-    /// Adds a package extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
+    /// Adds a [`Package`] extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_package(&mut self, extension: Package, id: Id) {
         add_sort_list!(self.package, id, extension,);
     }
-    /// Adds a post extension, used for HTTP/2 push Higher [`Id::priority()`] extensions are ran first.
+    /// Adds a [`Post`] extension, used for HTTP/2 push Higher [`Id::priority()`] extensions are ran first.
     pub fn add_post(&mut self, extension: Post, id: Id) {
         add_sort_list!(self.post, id, extension,);
     }
