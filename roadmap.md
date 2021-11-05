@@ -63,7 +63,8 @@ The name comes from the current plan to move core stuff into it's own crate.
 -   [x] Graceful shutdown and handover. Maintenance and updates are now a non-issue!
 -   [x] IPv6
 -   [x] CI
--   [ ] CD
+-   [x] Content Security Policy
+-   [x] Major workflow updates
 
 # v0.4.0 WebSockets & Auth
 
@@ -74,6 +75,7 @@ for quickly adding secure and _extremely speedy_ authentication.
 
 -   [ ] WebSocket integration
 -   [ ] Authentication API in Layer 6
+    -   [ ] Add `web-programming::websocket` to `Cargo.toml#categories`
 
 # v0.5.0 HTTP/3
 
