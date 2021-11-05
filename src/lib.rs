@@ -664,6 +664,71 @@ pub async fn handle_cache(
         ))
     }
 
+    async fn maybe_cache<T>(
+        host: &Host,
+        server_cache: ServerCachePreference,
+        path_query: PathQuery,
+        response: VariedResponse,
+        method: &Method,
+        future: &Option<T>,
+    ) -> bool {
+        if future.is_none() {
+            if let Some(response_cache) = &host.response_cache {
+                if server_cache.cache(response.first().0.get_identity(), method) {
+                    let mut lock = response_cache.lock().await;
+                    let key = if server_cache.query_matters() {
+                        comprash::UriKey::PathQuery(path_query)
+                    } else {
+                        comprash::UriKey::Path(path_query.into_path())
+                    };
+                    info!("Caching uri {:?}!", &key);
+                    lock.cache(key, response);
+                    return true;
+                }
+            }
+        } else {
+            info!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
+        }
+        false
+    }
+
+    type CacheMutexGuard<'a> = Option<tokio::sync::MutexGuard<'a, Cache<UriKey, VariedResponse>>>;
+    async fn get_lock(host: &Host) -> CacheMutexGuard<'_> {
+        if let Some(response_cache) = &host.response_cache {
+            Some(response_cache.lock().await)
+        } else {
+            None
+        }
+    }
+    type Cached<'a> = (
+        Option<&'a mut (
+            VariedResponse,
+            (chrono::DateTime<chrono::Utc>, Option<chrono::Duration>),
+        )>,
+        UriKey,
+    );
+    fn get_cached<'a>(lock: &'a mut CacheMutexGuard, uri_key: UriKey) -> Cached<'a> {
+        // For clarity
+        #[allow(clippy::option_if_let_else)]
+        if let Some(lock) = lock {
+            // Some
+            if lock.get_with_lifetime(&uri_key).into_option().is_some() {
+                (lock.get_with_lifetime(&uri_key).into_option(), uri_key)
+            } else {
+                match uri_key {
+                    UriKey::Path(_) => (None, uri_key),
+                    UriKey::PathQuery(p) => {
+                        let p = UriKey::Path(p.into_path());
+                        let t = lock.get_with_lifetime(&p).into_option();
+                        (t, p)
+                    }
+                }
+            }
+        } else {
+            (None, uri_key)
+        }
+    }
+
     let sanitize_data = utils::sanitize_request(&request);
 
     let overide_uri = host
@@ -671,44 +736,14 @@ pub async fn handle_cache(
         .resolve_prime(&mut request, host, address)
         .await;
 
-    let path_query =
+    let uri_key =
         comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
 
-    let mut lock = if let Some(response_cache) = &host.response_cache {
-        Some(response_cache.lock().await)
-    } else {
-        None
-    };
-
-    // For clarity
-    #[allow(clippy::option_if_let_else)]
-    let cached = if let Some(lock) = &mut lock {
-        // copy of [`UriKey::call_all`].
-        // I got the message
-        // ```
-        // captured variable cannot escape `FnMut` closure body
-        // `FnMut` closures only have access to their captured variables while they are executing...
-        // ...therefore, they cannot allow references to captured variables to escape
-        // ```
-        // and had to inline it.
-        match lock.get_with_lifetime(&path_query).into_option() {
-            Some(t) => Some(t),
-            None => match path_query {
-                UriKey::Path(_) => None,
-                UriKey::PathQuery(p) => {
-                    let p = UriKey::Path(p.into_path());
-                    let t = lock.get_with_lifetime(&p).into_option();
-                    t
-                }
-            },
-        }
-    } else {
-        None
-    };
+    let mut lock = get_lock(host).await;
 
     #[allow(clippy::single_match_else, clippy::unnested_or_patterns)]
-    let (response, identity, future) = match cached {
-        Some((resp, (creation, _)))
+    let (response, identity, future) = match get_cached(&mut lock, uri_key) {
+        (Some((resp, (creation, _))), uri_key)
             if sanitize_data.is_ok()
                 && matches!(request.method(), &Method::GET | &Method::HEAD) =>
         {
@@ -737,52 +772,95 @@ pub async fn handle_cache(
                 timestamp >= creation - chrono::Duration::seconds(1)
             });
 
-            let mut response_data =
-                // We don't need to check for `host.options.disable_if_modified_since`
-                // but `if_modified_since` is `None` and therefore `client_request` is false
-                // if the option is enabled, as defined in the if in the `if_modified_since`
-                // definition.
-                if client_request_is_fresh {
-                    drop(lock);
-                    let mut response = Response::new(Bytes::new());
-                    *response.status_mut() = StatusCode::NOT_MODIFIED;
-                    (response, Bytes::new(), None)
-                } else {
-                    let (resp, vary, future) = match resp.get_by_request(&request) {
-                        Ok((cr, h)) => (cr, h, None),
-                        Err(params) => {
-                            let (compressed_response, _, _ ,future, _) = get_response(
+            // We don't need to check for `host.options.disable_if_modified_since`
+            // but `if_modified_since` is `None` and therefore `client_request` is false
+            // if the option is enabled, as defined in the if in the `if_modified_since`
+            // definition.
+            let mut response_data = if client_request_is_fresh {
+                drop(lock);
+                let mut response = Response::new(Bytes::new());
+                *response.status_mut() = StatusCode::NOT_MODIFIED;
+                (response, Bytes::new(), None)
+            } else {
+                let (resp_vary, future) = match resp.get_by_request(&request) {
+                    Ok(arc) => {
+                        let arc = Arc::clone(arc);
+                        drop(lock);
+                        (arc, None)
+                    }
+                    Err(params) => {
+                        // Drop lock during response creation
+                        drop(lock);
+                        let (compressed_response, _, server_cache, future, path_query) =
+                            get_response(
                                 &mut request,
                                 host,
                                 &sanitize_data,
                                 address,
-                                overide_uri.as_ref()
+                                overide_uri.as_ref(),
                             )
                             .await?;
 
-                            let (cr, v) = resp.push_response(compressed_response, params);
-                            (cr, v, future)
-                        }
-                    };
-                    let mut response = match resp.clone_preferred(&request) {
-                        Err(message) => {
-                            error::default(
-                                StatusCode::NOT_ACCEPTABLE,
-                                Some(host),
-                                Some(message.as_bytes()),
-                            )
-                            .await
-                        }
-                        Ok(response) => response,
-                    };
+                        let mut lock = get_lock(host).await;
+                        // Try to get back varied response. If not there, recreate it, as the
+                        // match-arm below does.
+                        let arc = match get_cached(&mut lock, uri_key) {
+                            (Some((resp, _)), _) => {
+                                Arc::clone(resp.push_response(compressed_response, params))
+                            }
+                            (None, _) => {
+                                let vary_rules = host.vary.rules_from_request(&request);
 
-                    vary::apply_header(&mut response, vary);
+                                // SAFETY: The requirements are met; the cache we're storing this is is part of the
+                                // `host`; the `host` will outlive this struct.
+                                let varied_response = unsafe {
+                                    VariedResponse::new(
+                                        compressed_response,
+                                        &request,
+                                        vary_rules.as_ref(),
+                                    )
+                                };
 
-                    let identity_body = Bytes::clone(resp.get_identity().body());
-                    drop(lock);
+                                let arc = Arc::clone(varied_response.first());
 
-                    (response, identity_body, future)
+                                maybe_cache(
+                                    host,
+                                    server_cache,
+                                    path_query,
+                                    varied_response,
+                                    request.method(),
+                                    &future,
+                                )
+                                .await;
+
+                                arc
+                            }
+                        };
+
+                        (arc, future)
+                    }
                 };
+                let (resp, vary) = &*resp_vary;
+                // Here, the lock is always (irrelevant of which arm the code runs) dropped, which
+                // enables us to do computationally heavy things, such as compression.
+                let mut response = match resp.clone_preferred(&request) {
+                    Err(message) => {
+                        error::default(
+                            StatusCode::NOT_ACCEPTABLE,
+                            Some(host),
+                            Some(message.as_bytes()),
+                        )
+                        .await
+                    }
+                    Ok(response) => response,
+                };
+
+                vary::apply_header(&mut response, vary);
+
+                let identity_body = Bytes::clone(resp.get_identity().body());
+
+                (response, identity_body, future)
+            };
             if !host.options.disable_if_modified_since {
                 let last_modified =
                     HeaderValue::from_str(&creation.format(parse::HTTP_DATE).to_string())
@@ -796,55 +874,24 @@ pub async fn handle_cache(
             response_data
         }
         _ => {
-            async fn maybe_cache<T>(
-                host: &Host,
-                server_cache: ServerCachePreference,
-                path_query: PathQuery,
-                response: VariedResponse,
-                method: &Method,
-                future: &Option<T>,
-            ) -> bool {
-                if future.is_none() {
-                    if let Some(response_cache) = &host.response_cache {
-                        if server_cache.cache(response.first().0.get_identity(), method) {
-                            let mut lock = response_cache.lock().await;
-                            let key = if server_cache.query_matters() {
-                                comprash::UriKey::PathQuery(path_query)
-                            } else {
-                                comprash::UriKey::Path(path_query.into_path())
-                            };
-                            info!("Caching uri {:?}!", &key);
-                            lock.cache(key, response);
-                            return true;
-                        }
-                    }
-                } else {
-                    info!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
-                }
-                false
-            }
-
             drop(lock);
 
-            let (compressed_response, _, server_cache, future, path_query) = get_response(
-                &mut request,
-                host,
-                &sanitize_data,
-                address,
-                overide_uri.as_ref(),
-            )
-            .await?;
+            let request: &mut Request<application::Body> = &mut request;
+            let sanitize_data = &sanitize_data;
+            let overide_uri = overide_uri.as_ref();
+            let (compressed_response, _, server_cache, future, path_query) =
+                get_response(request, host, sanitize_data, address, overide_uri).await?;
 
-            let vary_rules = host.vary.rules_from_request(&request);
+            let vary_rules = host.vary.rules_from_request(request);
 
             // SAFETY: The requirements are met; the cache we're storing this is is part of the
             // `host`; the `host` will outlive this struct.
             let varied_response =
-                unsafe { VariedResponse::new(compressed_response, &request, vary_rules.as_ref()) };
+                unsafe { VariedResponse::new(compressed_response, request, vary_rules.as_ref()) };
 
             let compressed_response = &varied_response.first().0;
 
-            let mut response = match compressed_response.clone_preferred(&request) {
+            let mut response = match compressed_response.clone_preferred(request) {
                 Err(message) => {
                     error::default(
                         StatusCode::NOT_ACCEPTABLE,

@@ -269,7 +269,7 @@ pub(crate) struct CacheParams {
 /// The caching of multiple responses per path is controlled using [`Host::vary`].
 pub struct VariedResponse {
     reference_headers: Vec<ReferenceHeader>,
-    responses: Vec<(CompressedResponse, HeaderCollection)>,
+    responses: Vec<Arc<(CompressedResponse, HeaderCollection)>>,
 }
 impl VariedResponse {
     /// # Safety
@@ -308,10 +308,11 @@ impl VariedResponse {
         &mut self,
         response: CompressedResponse,
         params: CacheParams,
-    ) -> &(CompressedResponse, HeaderCollection) {
+    ) -> &Arc<(CompressedResponse, HeaderCollection)> {
         debug_assert_eq!(self.reference_headers.len(), params.headers.len());
         let CacheParams { position, headers } = params;
-        self.responses.insert(position, (response, headers));
+        self.responses
+            .insert(position, Arc::new((response, headers)));
         &self.responses[position]
     }
     fn get(&self, other: &[Header]) -> Result<usize, usize> {
@@ -348,7 +349,7 @@ impl VariedResponse {
     pub(crate) fn get_by_request<T>(
         &self,
         request: &Request<T>,
-    ) -> Result<&(CompressedResponse, HeaderCollection), CacheParams> {
+    ) -> Result<&Arc<(CompressedResponse, HeaderCollection)>, CacheParams> {
         let headers = self.get_headers_for_request(request);
         match self.get(&headers) {
             Ok(position) => Ok(&self.responses[position]),
@@ -358,7 +359,7 @@ impl VariedResponse {
             }),
         }
     }
-    pub(crate) fn first(&self) -> &(CompressedResponse, HeaderCollection) {
+    pub(crate) fn first(&self) -> &Arc<(CompressedResponse, HeaderCollection)> {
         // We know there will be at least one; the [`Self::new`] method always inserts one
         // response.
         self.responses.get(0).unwrap()
