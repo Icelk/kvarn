@@ -2,9 +2,14 @@
 name = "url_crawl"
 version = "0.1.0"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+edition = "2021"
+rust-version = "1.56"
+description = "URL crawler for HTML code."
+readme = "README.md"
+homepage = "https://kvarn.org/"
+repository = "https://github.com/Icelk/kvarn/"
+license = "Apache-2.0"
+categories = ["web-programming", "parsing"]
 
 [dependencies]
 select = "^0.5"
