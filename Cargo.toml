@@ -3,14 +3,16 @@ name = "kvarn"
 version = "0.2.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
-description = "An extensible and forward-thinking web server for the future."
+rust-version = "1.56"
+description = "A forward-thinking fast web server designed to fit your needs, efficiently."
+# main branch documentation
+# documentation = "https://doc.kvarn.org/kvarn/"
+readme = "README.md"
 homepage = "https://kvarn.org/"
 repository = "https://github.com/Icelk/kvarn/"
 license = "Apache-2.0"
 keywords = ["web", "web-server", "web-application", "web-framework"]
 categories = ["web-programming", "web-programming::http-server"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace]
 members = [
