@@ -1262,22 +1262,22 @@ impl Debug for FatResponse {
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "windows")]
-pub const SERVER: &str = "Kvarn/0.2.0 (Windows)";
+pub const SERVER: &str = "Kvarn/0.3.0 (Windows)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "macos")]
-pub const SERVER: &str = "Kvarn/0.2.0 (macOS)";
+pub const SERVER: &str = "Kvarn/0.3.0 (macOS)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "linux")]
-pub const SERVER: &str = "Kvarn/0.2.0 (Linux)";
+pub const SERVER: &str = "Kvarn/0.3.0 (Linux)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "freebsd")]
-pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
+pub const SERVER: &str = "Kvarn/0.3.0 (FreeBSD)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
@@ -1287,4 +1287,4 @@ pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
     target_os = "linux",
     target_os = "freebsd"
 )))]
-pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
+pub const SERVER: &str = "Kvarn/0.3.0 (unknown OS)";

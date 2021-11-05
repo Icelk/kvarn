@@ -493,7 +493,8 @@ pub enum CompressPreference {
 /// # Examples
 ///
 /// ```
-/// # use kvarn::prelude::{*, comprash::CachePreferenceError};
+/// # use kvarn::prelude::{*, comprash::CachePreferenceError, comprash::ServerCachePreference,
+/// comprash::ClientCachePreference};
 /// assert_eq!(Err(CachePreferenceError::Empty), "".parse::<ServerCachePreference>());
 /// assert_eq!(Err(CachePreferenceError::Invalid), "FULL".parse::<ClientCachePreference>());
 /// assert_eq!(Ok(ServerCachePreference::QueryMatters), "query-matters".parse());

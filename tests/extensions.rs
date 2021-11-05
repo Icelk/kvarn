@@ -184,7 +184,7 @@ fn get_extensions() -> Extensions {
                 addr.ip()
             );
             let response = Response::new(Bytes::copy_from_slice(content.as_bytes()));
-            FatResponse::new(response, ServerCachePreference::None)
+            FatResponse::new(response, comprash::ServerCachePreference::None)
         }),
     );
 
