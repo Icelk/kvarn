@@ -15,5 +15,5 @@ categories = ["web-programming", "asynchronous"]
 [dependencies]
 bytes = "^1"
 http = "^0.2"
-kvarn_utils = "^0.3"
+kvarn_utils = { path = "../utils" }
 tokio = { version = "^1.13", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
