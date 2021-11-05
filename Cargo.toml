@@ -32,10 +32,10 @@ flate2 = { version = "^1", optional = true }
 futures = "^0.3"
 h2 = { version = "^0.3", default-features = false, optional = true }
 http = "^0.2"
-# kvarn_utils = { path = "utils" }
-# kvarn_async = { path = "async" }
-kvarn_utils = "^0.3"
-kvarn_async = "^0.3"
+kvarn_utils = { path = "utils" }
+kvarn_async = { path = "async" }
+# kvarn_utils = "^0.3"
+# kvarn_async = "^0.3"
 log = "^0.4"
 mime = "^0.3"
 mime_guess = "^2"
@@ -70,5 +70,5 @@ mt = ["tokio/rt-multi-thread"]
 graceful-shutdown = []
 
 [dev-dependencies]
-# kvarn_testing = { path = "testing" }
-kvarn_testing = "^0.3"
+kvarn_testing = { path = "testing" }
+# kvarn_testing = "^0.3"
