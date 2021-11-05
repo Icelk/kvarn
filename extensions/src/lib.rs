@@ -112,7 +112,10 @@ pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
 pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
     fn parse<'a, I: Iterator<Item = &'a str>>(
         iter: I,
-    ) -> (Option<comprash::ClientCachePreference>, Option<comprash::ServerCachePreference>) {
+    ) -> (
+        Option<comprash::ClientCachePreference>,
+        Option<comprash::ServerCachePreference>,
+    ) {
         let mut c = None;
         let mut s = None;
         for arg in iter {
