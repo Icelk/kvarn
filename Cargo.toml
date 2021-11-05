@@ -25,7 +25,7 @@ members = [
 [dependencies]
 brotli = { version = "^3", optional = true }
 bytes = "^1"
-chrono = "^0.4"
+chrono = "^0.4.19"
 flate2 = { version = "^1", optional = true }
 futures = "^0.3"
 h2 = { version = "^0.3", default-features = false, optional = true }
@@ -38,7 +38,7 @@ mime_guess = "^2"
 percent-encoding = "^2.1.0"
 rustls = { version = "^0.20", optional = true }
 rustls-pemfile = { version = "^0.2", optional = true }
-tokio = { version = "^1", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
+tokio = { version = "^1.13", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
 webpki = { version = "^0.22", optional = true }
 
 [features]
