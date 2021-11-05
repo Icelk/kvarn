@@ -582,7 +582,7 @@ impl Manager {
 
                     response = response
                         .with_future(future)
-                        .with_compress(CompressPreference::None);
+                        .with_compress(comprash::CompressPreference::None);
                 }
 
                 response
