@@ -967,7 +967,7 @@ mod macros {
         }}
     }
 
-    /// Will make a prime extension.
+    /// Will make a [`Prime`](super::Prime) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
     ///
@@ -984,7 +984,7 @@ mod macros {
             extension!(|$request: RequestWrapper, $host: HostWrapper | $addr: SocketAddr|, $($($clone)*)*, $code)
         }
     }
-    /// Will make a prepare extension.
+    /// Will make a [`Prepare`](super::Prepare) extension.
     ///
     /// > The `path` will be [`None`] if and only if [`crate::host::Options::disable_fs`] is true *or* percent
     /// > decoding failed. `request.uri().path()` will not have it's percent encoding decoded.
@@ -1034,7 +1034,7 @@ mod macros {
             )
         }
     }
-    /// Will make a present extension.
+    /// Will make a [`Present`](super::Present) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
     ///
@@ -1051,7 +1051,7 @@ mod macros {
             extension!(|$data: PresentDataWrapper | |, $($($clone)*)*, $code)
         }
     }
-    /// Will make a package extension.
+    /// Will make a [`Package`](super::Package) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
     ///
@@ -1069,7 +1069,7 @@ mod macros {
             extension!(|$response: EmptyResponseWrapperMut, $request: RequestWrapper, $host: HostWrapper | |, $($($clone)*)*, $code)
         }
     }
-    /// Will make a post extension.
+    /// Will make a [`Post`](super::Post) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
     ///
