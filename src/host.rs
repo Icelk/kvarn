@@ -714,6 +714,21 @@ impl ResolvesServerCert for Data {
     }
 }
 
+/// All the supported ALPN protocols.
+///
+/// > ***Note:** this is often not needed, as the ALPN protocols
+/// are set in [`host::Data::make_config()`].*
+#[must_use]
+pub fn alpn() -> Vec<Vec<u8>> {
+    #[allow(unused_mut)]
+    let mut vec = Vec::with_capacity(4);
+    #[cfg(feature = "http2")]
+    {
+        vec.push(b"h2".to_vec());
+    }
+    vec
+}
+
 /// An error regarding creation of a [`rustls::sign::CertifiedKey`].
 #[cfg(feature = "https")]
 #[derive(Debug)]

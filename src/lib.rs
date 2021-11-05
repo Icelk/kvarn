@@ -1288,18 +1288,3 @@ pub const SERVER: &str = "Kvarn/0.2.0 (FreeBSD)";
     target_os = "freebsd"
 )))]
 pub const SERVER: &str = "Kvarn/0.2.0 (unknown OS)";
-
-/// All the supported ALPN protocols.
-///
-/// > ***Note:** this is often not needed, as the ALPN protocols
-/// are set in [`host::Data::make_config()`].*
-#[must_use]
-pub fn alpn() -> Vec<Vec<u8>> {
-    #[allow(unused_mut)]
-    let mut vec = Vec::with_capacity(4);
-    #[cfg(feature = "http2")]
-    {
-        vec.push(b"h2".to_vec());
-    }
-    vec
-}
