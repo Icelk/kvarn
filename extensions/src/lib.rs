@@ -112,7 +112,7 @@ pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
 pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
     fn parse<'a, I: Iterator<Item = &'a str>>(
         iter: I,
-    ) -> (Option<ClientCachePreference>, Option<ServerCachePreference>) {
+    ) -> (Option<comprash::ClientCachePreference>, Option<comprash::ServerCachePreference>) {
         let mut c = None;
         let mut s = None;
         for arg in iter {
@@ -172,8 +172,8 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
                 }
             }
         }
-        *data.server_cache_preference() = kvarn::comprash::ServerCachePreference::None;
-        *data.client_cache_preference() = kvarn::comprash::ClientCachePreference::Changing;
+        *data.server_cache_preference() = comprash::ServerCachePreference::None;
+        *data.client_cache_preference() = comprash::ClientCachePreference::Changing;
 
         if !matched {
             // If it does not match, set the response to 404
@@ -196,7 +196,7 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
 /// The priority for the [`Package`] extension is `16`
 pub fn force_cache(
     extensions: &mut Extensions,
-    rules: &'static [(&'static str, ClientCachePreference)],
+    rules: &'static [(&'static str, comprash::ClientCachePreference)],
 ) {
     extensions.add_package(package!(response, req, _host {
         let extension = req.uri().path().split('.').last();

@@ -57,7 +57,7 @@ macro_rules! csp_rules {
             #[must_use]
             pub fn to_header(&self) -> Option<HeaderValue> {
                 use bytes::BufMut;
-                // TODO: Optimize to use only 1 allocation.
+                // `TODO`: Optimize to use only 1 allocation.
                 // This should be fine for now, as this shouldn't have very many rules, but it
                 // would be optimal.
                 // This could be done by creating a iter of all the fields of this struct and

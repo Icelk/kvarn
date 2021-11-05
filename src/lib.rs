@@ -61,11 +61,10 @@ pub mod read;
 pub mod shutdown;
 pub mod vary;
 
+use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
 use prelude::{internals::*, networking::*, *};
-// When user only imports crate::* and not crate::prelude::*
-pub use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
+// When user only imports kvarn::* and not kvarn::prelude::*
 pub use error::{default as default_error, default_response as default_error_response};
-#[doc(inline)]
 pub use extensions::{Extensions, Id};
 pub use read::{file as read_file, file_cached as read_file_cached};
 
