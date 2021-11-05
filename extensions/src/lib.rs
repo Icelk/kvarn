@@ -26,7 +26,7 @@ pub mod push;
 #[cfg(feature = "push")]
 pub use push::mount as mount_push;
 
-#[cfg(feature = "fastcgi-client")]
+#[cfg(feature = "kvarn-fastcgi-client")]
 pub mod fastcgi;
 
 #[cfg(feature = "php")]

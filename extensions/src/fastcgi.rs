@@ -1,10 +1,10 @@
 use crate::*;
-use fastcgi_client::{Client, Params};
+use kvarn_fastcgi_client::{Client, Params};
 use std::borrow::Cow;
 
 pub enum FastcgiError {
     FailedToConnect(io::Error),
-    FailedToDoRequest(fastcgi_client::ClientError),
+    FailedToDoRequest(kvarn_fastcgi_client::ClientError),
     NoStdout,
 }
 pub async fn connect(
@@ -50,7 +50,7 @@ pub async fn connect(
         .set_content_type("")
         .set_content_length(&len);
 
-    let request = fastcgi_client::Request::new(params, body);
+    let request = kvarn_fastcgi_client::Request::new(params, body);
 
     match client.execute(request).await {
         Ok(output) => match output.get_stdout() {

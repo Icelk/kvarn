@@ -14,16 +14,16 @@ categories = ["template-engine"]
 [dependencies]
 # kvarn = { path = "../", default-features = false }
 kvarn = { version = "^0.3", default-features = false }
-fastcgi-client = { version = "^0.1", optional = true }
+kvarn-fastcgi-client = { version = "^0.1", optional = true }
 tokio = { version = "^1.13", optional = true, features = ["net", "io-util"] }
-url_crawl = { version = "^0.1", optional = true }
+url-crawl = { version = "^0.1", optional = true }
 async_chunked_transfer = "^1.4"
 
 [features]
 default = ["php", "templates", "push"]
-php = ["fastcgi-client", "tokio"]
+php = ["kvarn-fastcgi-client", "tokio"]
 templates = []
-push = ["url_crawl"]
+push = ["url-crawl"]
 reverse-proxy = ["tokio"]
 
 [dev-dependencies]
