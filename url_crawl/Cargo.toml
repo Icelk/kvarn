@@ -1,5 +1,5 @@
 [package]
-name = "url_crawl"
+name = "url-crawl"
 version = "0.1.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
