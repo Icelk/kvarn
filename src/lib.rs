@@ -61,7 +61,6 @@ pub mod read;
 pub mod shutdown;
 pub mod vary;
 
-use comprash::{ClientCachePreference, CompressPreference, ServerCachePreference};
 use prelude::{internals::*, networking::*, *};
 // When user only imports kvarn::* and not kvarn::prelude::*
 pub use error::{default as default_error, default_response as default_error_response};
@@ -590,8 +589,8 @@ pub async fn handle_cache(
         overide_uri: Option<&Uri>,
     ) -> io::Result<(
         comprash::CompressedResponse,
-        ClientCachePreference,
-        ServerCachePreference,
+        comprash::ClientCachePreference,
+        comprash::ServerCachePreference,
         Option<ResponsePipeFuture>,
         comprash::PathQuery,
     )> {
@@ -665,7 +664,7 @@ pub async fn handle_cache(
 
     async fn maybe_cache<T>(
         host: &Host,
-        server_cache: ServerCachePreference,
+        server_cache: comprash::ServerCachePreference,
         path_query: PathQuery,
         response: VariedResponse,
         method: &Method,
@@ -1149,9 +1148,9 @@ pub type FatRequest = Request<application::Body>;
 /// automatically handled.
 pub struct FatResponse {
     response: Response<Bytes>,
-    client: ClientCachePreference,
-    server: ServerCachePreference,
-    compress: CompressPreference,
+    client: comprash::ClientCachePreference,
+    server: comprash::ServerCachePreference,
+    compress: comprash::CompressPreference,
 
     future: Option<ResponsePipeFuture>,
 }
@@ -1159,19 +1158,22 @@ impl FatResponse {
     /// Creates a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
     ///
     /// Choose
-    /// - [`ServerCachePreference::Full`] if the page is one regularly accessed,
-    /// - [`ServerCachePreference::None`] if the page is rarely accessed or if the runtime cost of
+    /// - [`comprash::ServerCachePreference::Full`] if the page is one regularly accessed,
+    /// - [`comprash::ServerCachePreference::None`] if the page is rarely accessed or if the runtime cost of
     ///   getting the page is minimal.
-    /// - [`ServerCachePreference::QueryMatters`] should be avoided. It should be used when
+    /// - [`comprash::ServerCachePreference::QueryMatters`] should be avoided. It should be used when
     ///   you have a page dictated by the query. Consider using a [`Prime`] extension
     ///   to make all requests act as only one of a few queries to increase performance
     ///   by reducing cache size.
-    pub fn new(response: Response<Bytes>, server_cache_preference: ServerCachePreference) -> Self {
+    pub fn new(
+        response: Response<Bytes>,
+        server_cache_preference: comprash::ServerCachePreference,
+    ) -> Self {
         Self {
             response,
-            client: ClientCachePreference::Full,
+            client: comprash::ClientCachePreference::Full,
             server: server_cache_preference,
-            compress: CompressPreference::Full,
+            compress: comprash::CompressPreference::Full,
 
             future: None,
         }
@@ -1180,7 +1182,7 @@ impl FatResponse {
     ///
     /// Use the `with_*` methods to change the defaults.
     pub fn cache(response: Response<Bytes>) -> Self {
-        Self::new(response, ServerCachePreference::Full)
+        Self::new(response, comprash::ServerCachePreference::Full)
     }
     /// Creates a new [`FatResponse`] with all cache preferences set to `None`,
     /// compress preference set to `Full`, and no `Future`.
@@ -1189,24 +1191,24 @@ impl FatResponse {
     pub fn no_cache(response: Response<Bytes>) -> Self {
         Self {
             response,
-            client: ClientCachePreference::None,
-            server: ServerCachePreference::None,
-            compress: CompressPreference::Full,
+            client: comprash::ClientCachePreference::None,
+            server: comprash::ServerCachePreference::None,
+            compress: comprash::CompressPreference::Full,
             future: None,
         }
     }
     /// Sets the inner [`ClientCachePreference`].
-    pub fn with_client_cache(mut self, preference: ClientCachePreference) -> Self {
+    pub fn with_client_cache(mut self, preference: comprash::ClientCachePreference) -> Self {
         self.client = preference;
         self
     }
     /// Sets the inner [`ServerCachePreference`].
-    pub fn with_server_cache(mut self, preference: ServerCachePreference) -> Self {
+    pub fn with_server_cache(mut self, preference: comprash::ServerCachePreference) -> Self {
         self.server = preference;
         self
     }
     /// Sets the inner [`CompressPreference`].
-    pub fn with_compress(mut self, preference: CompressPreference) -> Self {
+    pub fn with_compress(mut self, preference: comprash::CompressPreference) -> Self {
         self.compress = preference;
         self
     }
@@ -1220,9 +1222,9 @@ impl FatResponse {
         self,
     ) -> (
         Response<Bytes>,
-        ClientCachePreference,
-        ServerCachePreference,
-        CompressPreference,
+        comprash::ClientCachePreference,
+        comprash::ServerCachePreference,
+        comprash::CompressPreference,
         Option<ResponsePipeFuture>,
     ) {
         (

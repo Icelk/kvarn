@@ -393,8 +393,8 @@ impl Extensions {
                 // Unwrap is ok; we know this is valid.
                 ready(
                     FatResponse::cache(response.body(Bytes::new()).unwrap())
-                        .with_server_cache(ServerCachePreference::None)
-                        .with_compress(CompressPreference::None),
+                        .with_server_cache(comprash::ServerCachePreference::None)
+                        .with_compress(comprash::CompressPreference::None),
                 )
             }),
         );
@@ -518,8 +518,8 @@ impl Extensions {
         &self,
         request: &mut Request<Body>,
         response: &mut Response<Bytes>,
-        client_cache_preference: &mut ClientCachePreference,
-        server_cache_preference: &mut ServerCachePreference,
+        client_cache_preference: &mut comprash::ClientCachePreference,
+        server_cache_preference: &mut comprash::ServerCachePreference,
         host: &Host,
         address: SocketAddr,
     ) -> io::Result<()> {
@@ -654,8 +654,8 @@ pub struct PresentData {
     host: *const Host,
     path: Option<*const Path>,
     // Regarding response
-    server_cache_preference: *mut ServerCachePreference,
-    client_cache_preference: *mut ClientCachePreference,
+    server_cache_preference: *mut comprash::ServerCachePreference,
+    client_cache_preference: *mut comprash::ClientCachePreference,
     response: *mut Response<Bytes>,
     // Regarding extension
     args: PresentArguments,
@@ -683,11 +683,11 @@ impl PresentData {
         unsafe { self.path.map(|p| &*p) }
     }
     #[inline]
-    pub fn server_cache_preference(&mut self) -> &mut ServerCachePreference {
+    pub fn server_cache_preference(&mut self) -> &mut comprash::ServerCachePreference {
         unsafe { &mut *self.server_cache_preference }
     }
     #[inline]
-    pub fn client_cache_preference(&mut self) -> &mut ClientCachePreference {
+    pub fn client_cache_preference(&mut self) -> &mut comprash::ClientCachePreference {
         unsafe { &mut *self.client_cache_preference }
     }
     #[inline]

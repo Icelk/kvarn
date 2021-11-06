@@ -60,5 +60,5 @@ pub async fn default(
 #[inline]
 pub async fn default_response(code: StatusCode, host: &Host, message: Option<&str>) -> FatResponse {
     FatResponse::cache(default(code, Some(host), message.map(str::as_bytes)).await)
-        .with_server_cache(ServerCachePreference::None)
+        .with_server_cache(comprash::ServerCachePreference::None)
 }

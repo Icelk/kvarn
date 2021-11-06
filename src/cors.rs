@@ -240,7 +240,7 @@ impl Extensions {
                         .status(StatusCode::FORBIDDEN)
                         .body(Bytes::from_static(b"CORS request denied"))
                         .expect("we know this is a good request.");
-                    FatResponse::new(response, ServerCachePreference::Full)
+                    FatResponse::new(response, comprash::ServerCachePreference::Full)
                 })
             }),
         );
@@ -328,7 +328,7 @@ impl Extensions {
                             .status(StatusCode::FORBIDDEN)
                             .body(Bytes::from_static(b"CORS request denied"))
                             .expect("we know this is a good request.");
-                        FatResponse::new(response, ServerCachePreference::Full)
+                        FatResponse::new(response, comprash::ServerCachePreference::Full)
                     });
                 }
 
@@ -390,7 +390,10 @@ impl Extensions {
                         ))
                         .expect("this is a good response.")
                 });
-                ready(FatResponse::new(response, ServerCachePreference::None))
+                ready(FatResponse::new(
+                    response,
+                    comprash::ServerCachePreference::None,
+                ))
             }),
         );
 
