@@ -528,7 +528,11 @@ impl Data {
         self.get_host(host)
             .or_else(|| self.get_default())
             .or_else(|| {
-                if host.split(':').next() == Some("localhost") {
+                let base_host = host.split(':').next();
+                if base_host == Some("localhost")
+                    || base_host == Some("127.0.0.1")
+                    || base_host == Some("::1")
+                {
                     self.first.and_then(|host| self.get_host(host))
                 } else {
                     None
