@@ -1198,17 +1198,17 @@ impl FatResponse {
             future: None,
         }
     }
-    /// Sets the inner [`ClientCachePreference`].
+    /// Sets the inner [`comprash::ClientCachePreference`].
     pub fn with_client_cache(mut self, preference: comprash::ClientCachePreference) -> Self {
         self.client = preference;
         self
     }
-    /// Sets the inner [`ServerCachePreference`].
+    /// Sets the inner [`comprash::ServerCachePreference`].
     pub fn with_server_cache(mut self, preference: comprash::ServerCachePreference) -> Self {
         self.server = preference;
         self
     }
-    /// Sets the inner [`CompressPreference`].
+    /// Sets the inner [`comprash::CompressPreference`].
     pub fn with_compress(mut self, preference: comprash::CompressPreference) -> Self {
         self.compress = preference;
         self

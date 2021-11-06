@@ -255,7 +255,7 @@ impl Host {
     }
     /// Disables client cache on this host.
     ///
-    /// This makes all [`ClientCachePreference`]s `no-store`.
+    /// This makes all [`comprash::ClientCachePreference`]s `no-store`.
     /// Use Kvarn extensions' `force_cache` to force certain files to cache.
     pub fn disable_client_cache(&mut self) -> &mut Self {
         self.options.disable_client_cache();
@@ -368,7 +368,7 @@ impl Options {
     }
     /// Disables client cache on this host.
     ///
-    /// This makes all [`ClientCachePreference`]s `no-store`.
+    /// This makes all [`comprash::ClientCachePreference`]s `no-store`.
     /// Use Kvarn extensions' `force_cache` to force certain files to cache.
     pub fn disable_client_cache(&mut self) -> &mut Self {
         self.disable_client_cache = true;
