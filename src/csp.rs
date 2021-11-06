@@ -355,12 +355,12 @@ impl Default for ValueSet {
 /// # use kvarn::prelude::*;
 /// let mut extensions = Extensions::new();
 /// extensions.with_csp(
-/// Csp::new()
-///     .add(
-///         "*",
-///         CspRule::new().img_src(CspValueSet::default().uri("https://kvarn.org")),
-///     )
-///     .arc(),
+///     Csp::new()
+///         .add(
+///             "*",
+///             CspRule::new().img_src(CspValueSet::default().uri("https://kvarn.org")),
+///         )
+///         .arc(),
 /// );
 /// ```
 pub type Csp = RuleSet<CspRule>;

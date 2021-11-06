@@ -1156,6 +1156,7 @@ pub struct FatResponse {
 }
 impl FatResponse {
     /// Creates a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
+    /// All other preferences are set to `Full` with a `future` of [`None`].
     ///
     /// Choose
     /// - [`comprash::ServerCachePreference::Full`] if the page is one regularly accessed,
