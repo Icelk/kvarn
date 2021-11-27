@@ -20,32 +20,34 @@ jobs:
     check:
         runs-on: ubuntu-latest
         steps:
+            - name: Checking out sources
+              uses: actions/checkout@v1
             - name: Installing Rust toolchain
               uses: actions-rs/toolchain@v1
               with:
                   toolchain: stable
                   override: true
-            - name: Checking out sources
-              uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
-            - name: Running rustfmt
+            - name: Checking formatting
               uses: actions-rs/cargo@v1
               with:
                   command: fmt
                   args: -- --check
-            - name: Checking project
+            - name: Checking lints
               uses: actions-rs/cargo@v1
               with:
                   command: clippy
-                  args: -- -D warnings
-            - name: Checking project will all features
+                  args: --all-targets -- -D warnings
+            - name: Checking lints with all features
               uses: actions-rs/cargo@v1
               with:
                   command: clippy
                   args: --all-targets --all-features -- -D warnings
             - name: Checking doc references
-              run: test -z "$(cargo doc --no-deps --document-private-items -q 2>&1 | head -n 1)"
-            - name: Testing
+              uses: Icelk/rustdoc-link-check@v1
+              with:
+                  private: true
+            - name: Testing project
               uses: actions-rs/cargo@v1
               with:
                   command: test
@@ -54,14 +56,14 @@ jobs:
         needs: [check]
         runs-on: ubuntu-latest
         steps:
+            - name: Checking out sources
+              uses: actions/checkout@v1
             - name: Installing Rust toolchain
               uses: actions-rs/toolchain@v1
               with:
                   toolchain: stable
                   override: true
                   profile: minimal
-            - name: Checking out sources
-              uses: actions/checkout@v1
             - uses: Swatinem/rust-cache@v1
             - name: Compiling
               uses: actions-rs/cargo@v1
