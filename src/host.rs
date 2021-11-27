@@ -154,7 +154,7 @@ impl Host {
     /// Creates a new [`Host`] without a certificate.
     ///
     /// This host will only support non-encrypted HTTP/1 connections.
-    /// Consider enabling the `https` flag and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
+    /// Consider enabling the `https` feature and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
     pub fn unsecure(
         host_name: &'static str,
         path: impl AsRef<Path>,
