@@ -21,11 +21,11 @@ macro_rules! csp_rules {
             $($directive: ValueSet,)+
         }
         impl Rule {
-            /// Creates a new, empty CSP rule.
+            /// Creates a new, **empty** CSP rule.
+            /// Consider using [`Self::default`] to get sensible defaults, which **include**
+            /// `default-src 'self'`.
             ///
             /// Populate it with the various directive methods.
-            ///
-            /// Consider using [`Self::default`] to get sensible defaults.
             #[inline]
             pub fn new() -> Self {
                 Self {
@@ -121,6 +121,7 @@ macro_rules! csp_rules {
                 Some(header)
             }
         }
+        /// Gives `content-security-policy: default-src 'self'; style-src 'self' 'unsafe-inline'`.
         impl Default for Rule {
             fn default() -> Self {
                 CspRule {
@@ -358,7 +359,7 @@ impl Default for ValueSet {
 ///     Csp::new()
 ///         .add(
 ///             "*",
-///             CspRule::new().img_src(CspValueSet::default().uri("https://kvarn.org")),
+///             CspRule::default().img_src(CspValueSet::default().uri("https://kvarn.org")),
 ///         )
 ///         .arc(),
 /// );
