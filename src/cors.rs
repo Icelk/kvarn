@@ -188,7 +188,7 @@ impl AllowList {
             return Some((&self.methods, &self.headers, self.cache_for));
         }
         for allowed in &self.allowed {
-            let scheme = allowed.scheme().map_or("https", |scheme| scheme.as_str());
+            let scheme = allowed.scheme().map_or("https", uri::Scheme::as_str);
             // This is OK; we assert it has a host when we add it
             if Some(allowed.host().unwrap()) == origin.host()
                 && allowed.port_u16() == origin.port_u16()

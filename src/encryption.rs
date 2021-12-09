@@ -364,7 +364,7 @@ mod tokio_tls {
                         &mut self,
                         f: impl FnOnce(Pin<&mut T>, &mut Context<'_>) -> Poll<io::Result<U>>,
                     ) -> io::Result<U> {
-                        match f(Pin::new(&mut self.io), self.cx) {
+                        match f(Pin::new(self.io), self.cx) {
                             Poll::Ready(result) => result,
                             Poll::Pending => Err(io::ErrorKind::WouldBlock.into()),
                         }
@@ -383,7 +383,7 @@ mod tokio_tls {
                     }
 
                     fn flush(&mut self) -> io::Result<()> {
-                        self.poll_with(|io, cx| io.poll_flush(cx))
+                        self.poll_with(AsyncWrite::poll_flush)
                     }
                 }
 

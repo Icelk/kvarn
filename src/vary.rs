@@ -184,7 +184,7 @@ impl Vary {
     pub fn rules_from_request<'a, T>(&'a self, request: &Request<T>) -> Cow<'a, Settings> {
         self.get(request.uri().path()).map_or_else(
             || Cow::Owned(Settings::default()),
-            |rules| Cow::Borrowed(rules),
+            Cow::Borrowed,
         )
     }
 }

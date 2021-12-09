@@ -236,7 +236,7 @@ pub fn make_path(
 #[must_use]
 pub fn hardcoded_error_body(code: http::StatusCode, message: Option<&[u8]>) -> Bytes {
     // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
-    let mut body = BytesMut::with_capacity(200 + message.map_or(0, |slice| slice.len()));
+    let mut body = BytesMut::with_capacity(200 + message.map_or(0, <[u8]>::len));
     // Get code and reason!
     let reason = code.canonical_reason();
 
@@ -427,7 +427,7 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
 /// the `content-length` header is checked. `0` is otherwise returned.
 pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> usize {
     use std::str::FromStr;
-    if method.map_or(true, |m| method_has_response_body(m)) {
+    if method.map_or(true, method_has_response_body) {
         response
             .headers()
             .get("content-length")

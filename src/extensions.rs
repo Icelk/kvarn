@@ -381,7 +381,7 @@ impl Extensions {
                         authority.as_bytes(),
                         uri.path().as_bytes(),
                         uri.query().map_or(b"".as_ref(), |_| b"?".as_ref()),
-                        uri.query().map_or(b"".as_ref(), |q| q.as_bytes())
+                        uri.query().map_or(b"".as_ref(), str::as_bytes)
                     );
                     // Ok, since we just introduced https:// in the start, which are valid bytes.
                     unsafe { HeaderValue::from_maybe_shared_unchecked(bytes) }
