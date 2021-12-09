@@ -174,7 +174,9 @@ pub fn do_compress(mime: &Mime, check_utf8: impl Fn() -> bool) -> bool {
 #[must_use]
 pub struct CompressedResponse {
     identity: Response<Bytes>,
+    #[cfg(feature = "gzip")]
     gzip: Option<Bytes>,
+    #[cfg(feature = "br")]
     br: Option<Bytes>,
 
     compress: CompressPreference,
@@ -193,7 +195,9 @@ impl CompressedResponse {
         Self::check_content_type(&mut identity, extension);
         Self {
             identity,
+            #[cfg(feature = "gzip")]
             gzip: None,
+            #[cfg(feature = "br")]
             br: None,
 
             compress,

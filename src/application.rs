@@ -164,6 +164,7 @@ impl HttpConnection {
     ///
     /// Also passes errors from [`h2::server::handshake`].
     pub async fn new(stream: Encryption, version: Version) -> Result<Self, Error> {
+        #[allow(clippy::match_same_arms)] // When http2 isn't enabled
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
                 Ok(Self::Http1(Arc::new(Mutex::new(stream))))
@@ -463,6 +464,7 @@ mod response {
         /// If you try to push if `self` is [`ResponsePipe::Http1`], an [`Error::PushOnHttp1`] is returned.
         /// Returns errors from [`h2::server::SendResponse::push_request()`].
         #[inline]
+        #[allow(clippy::needless_pass_by_value)]
         pub fn push_request(
             &mut self,
             #[allow(unused_variables)] request: Request<()>,
@@ -501,6 +503,7 @@ mod response {
         /// Errors are passed from the HTTP libraries, for now only [`mod@h2`].
         /// See [`h2::server::SendPushedResponse::send_response()`] for more information.
         #[inline]
+        #[allow(clippy::needless_pass_by_value)]
         pub fn send_response(
             &mut self,
             response: Response<()>,
