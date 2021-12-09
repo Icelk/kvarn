@@ -19,7 +19,7 @@ use tokio_tls::{MidHandshake, TlsState, TlsStream};
 pub enum Encryption {
     /// A TLS encrypted TCP stream.
     #[cfg(feature = "https")]
-    TcpTls(TlsStream<TcpStream>),
+    TcpTls(Box<TlsStream<TcpStream>>),
     /// A unencrypted TCP stream for use with
     /// non-secure HTTP.
     Tcp(TcpStream),
@@ -49,7 +49,7 @@ impl Encryption {
                 let connect = acceptor.await.map_err(|(err, _)| err)?;
                 info!("Successful handshake");
 
-                Ok(Self::TcpTls(connect))
+                Ok(Self::TcpTls(Box::new(connect)))
             }
         }
     }
