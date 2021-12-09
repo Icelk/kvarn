@@ -182,10 +182,8 @@ pub type Vary = extensions::RuleSet<Settings>;
 impl Vary {
     /// Gets the [`Settings`] from the ruleset using the path of `request`.
     pub fn rules_from_request<'a, T>(&'a self, request: &Request<T>) -> Cow<'a, Settings> {
-        self.get(request.uri().path()).map_or_else(
-            || Cow::Owned(Settings::default()),
-            Cow::Borrowed,
-        )
+        self.get(request.uri().path())
+            .map_or_else(|| Cow::Owned(Settings::default()), Cow::Borrowed)
     }
 }
 impl Default for Vary {
