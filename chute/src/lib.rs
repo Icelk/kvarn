@@ -632,7 +632,10 @@ pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
         matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
     }
     let mut in_code = false;
-    for (line, next_line) in input.lines().zip(input.lines().skip(1).map(Some)) {
+    for (line, next_line) in input
+        .lines()
+        .zip(input.lines().skip(1).map(Some).chain(std::iter::once(None)))
+    {
         let trimmed = line.trim();
         let header_trimmed = trimmed.trim_start_matches('#');
         let indent = (trimmed.len() - header_trimmed.len())
