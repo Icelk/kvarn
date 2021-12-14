@@ -16,3 +16,4 @@ categories = ["web-programming", "parsing"]
 log = "^0.4"
 bytes = "^1"
 http = "^0.2"
+percent-encoding = "^2.1.0"

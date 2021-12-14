@@ -6,7 +6,7 @@
 //! This is where part of Layer 6 resides. The [`list_header`] and [`query`]
 //! are very useful.
 
-use crate::prelude::*;
+use crate::{percent_decode, prelude::*};
 
 /// HTTP dates parsing and formatting in the
 /// [chrono format](https://docs.rs/chrono/0.4.19/chrono/format/strftime/index.html).
@@ -374,22 +374,22 @@ pub fn list_header(header: &str) -> Vec<ValueQualitySet<'_>> {
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct QueryPair<'a> {
-    name: &'a str,
-    value: &'a str,
+    name: Cow<'a, str>,
+    value: Cow<'a, str>,
 }
 impl<'a> QueryPair<'a> {
-    fn new(name: &'a str, value: &'a str) -> Self {
+    fn new(name: Cow<'a, str>, value: Cow<'a, str>) -> Self {
         Self { name, value }
     }
     /// Gets the name of the query pair
     #[must_use]
     pub fn name(&self) -> &str {
-        self.name
+        &self.name
     }
     /// Gets the value of the query pair
     #[must_use]
     pub fn value(&self) -> &str {
-        self.value
+        &self.value
     }
 }
 impl<'a> Display for QueryPair<'a> {
@@ -414,10 +414,10 @@ pub struct Query<'a> {
 }
 #[must_use]
 impl<'a> Query<'a> {
-    fn insert(&mut self, name: &'a str, value: &'a str) {
-        match self.index_of(name) {
+    fn insert(&mut self, name: Cow<'a, str>, value: Cow<'a, str>) {
+        match self.index_of(&name) {
             Ok(pos) | Err(pos) => {
-                let pos = self.iterate_to_last(name, pos);
+                let pos = self.iterate_to_last(&name, pos);
                 self.pairs.insert(pos, QueryPair::new(name, value));
             }
         }
@@ -593,6 +593,8 @@ impl<'a> DoubleEndedIterator for QueryPairIter<'a> {
 /// `query` should not contains the `?`, but start the byte after.
 ///
 /// Both the keys and values can be empty.
+///
+/// This decodes the URI's percent encoding.
 pub fn query(query: &str) -> Query {
     let elements = query
         .chars()
@@ -613,7 +615,7 @@ pub fn query(query: &str) -> Query {
                 let value = query.get(value_start..position);
 
                 if let (Some(key), Some(value)) = (key, value) {
-                    map.insert(key, value);
+                    map.insert(percent_decode(key), percent_decode(value));
                 }
 
                 pair_start = position + 1;
@@ -626,7 +628,7 @@ pub fn query(query: &str) -> Query {
         let value = query.get(value_start..);
 
         if let (Some(key), Some(value)) = (key, value) {
-            map.insert(key, value);
+            map.insert(percent_decode(key), percent_decode(value));
         }
     }
     map

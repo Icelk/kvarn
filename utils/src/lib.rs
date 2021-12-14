@@ -553,8 +553,20 @@ impl<T> Eq for SuperUnsafePointer<T> {}
 
 /// Checks `byte` if it's a valid byte for [`HeaderValue`]s.
 #[must_use]
+#[inline]
 pub fn is_valid_header_value_byte(byte: u8) -> bool {
     (32..127).contains(&byte) || byte == b'\t'
+}
+
+/// Decodes the URI encoding.
+///
+/// If any errors surface, `s` is returned.
+#[must_use]
+#[inline]
+pub fn percent_decode(s: &str) -> Cow<'_, str> {
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8()
+        .unwrap_or(Cow::Borrowed(s))
 }
 
 /// Joins the items in `iter` with a `separator` using 1 allocation.
