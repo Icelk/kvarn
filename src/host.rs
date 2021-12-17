@@ -786,9 +786,11 @@ impl CacheAction {
 /// This is the default for [`Host::status_code_cache_filter`].
 ///
 /// This caches the request on every [`StatusCode`] except
-/// [400..403] & [405..500).
+/// [400..403] & [405..409] & [411..500).
+/// That means no client error response except
+/// 1) `404 Not Found` and 2) `410 Gone` is cached.
 pub fn default_status_code_cache_filter(code: StatusCode) -> CacheAction {
-    CacheAction::from_drop(matches!(code.as_u16(), 400..=403 | 405..=499))
+    CacheAction::from_drop(matches!(code.as_u16(), 400..=403 | 405..=409 | 411..=499))
 }
 
 /// An error regarding creation of a [`rustls::sign::CertifiedKey`].
