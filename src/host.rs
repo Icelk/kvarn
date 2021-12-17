@@ -325,6 +325,7 @@ impl Debug for Host {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Options {
+    // # Miscellaneous
     /// Will be the default for folders; `/js/` will resolve to `/js/<folder_default>`.
     /// E.g. `/posts/` -> `/posts/index.html`
     ///
@@ -335,18 +336,24 @@ pub struct Options {
     ///
     /// If no value is passed, `html` is assumed.
     pub extension_default: Option<String>,
-    /// Returns `cache-control` header to be `no-store` by default, if enabled.
-    ///
-    /// Useful if you have a developing site and don't want traditionally static content to be in the client cache.
-    pub disable_client_cache: bool,
     /// Default data directory for public files.
     /// Default is `public`
     pub public_data_dir: Option<PathBuf>,
 
+    // # Cache
+    /// Returns `cache-control` header to be `no-store` by default, if enabled.
+    ///
+    /// Useful if you have a developing site and don't want traditionally static content to be in the client cache.
+    pub disable_client_cache: bool,
     /// Disables further caching by sending a [`StatusCode::NOT_MODIFIED`] when the
     /// `if-modified-since` header is sent and the resource is fresh.
     pub disable_if_modified_since: bool,
+    /// Filter to not cache certain [`StatusCode`]s.
+    ///
+    /// See [`CacheAction`] and [`default_status_code_cache_filter`] for more info.
+    pub status_code_cache_filter: fn(StatusCode) -> CacheAction,
 
+    // # Extensions
     /// Disables file system access for public files.
     ///
     /// This still enables custom error messages and reading of files through extensions.
@@ -356,13 +363,17 @@ impl Options {
     /// Creates a new [`Options`] with default settings.
     ///
     /// All [`Option`]s are [`None`] and all booleans are `false`.
+    /// [`Self::status_code_cache_filter`] uses [`default_status_code_cache_filter`].
     pub fn new() -> Self {
         Self {
             folder_default: None,
             extension_default: None,
-            disable_client_cache: false,
             public_data_dir: None,
+
+            disable_client_cache: false,
             disable_if_modified_since: false,
+            status_code_cache_filter: default_status_code_cache_filter,
+
             disable_fs: false,
         }
     }
@@ -382,7 +393,7 @@ impl Options {
         self
     }
     /// Sets the relative directory (from the [`Host::path`]) to fetch data for the web in.
-    /// Defaults to `public`
+    /// Defaults to `public`.
     pub fn set_public_data_dir(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.public_data_dir = Some(path.as_ref().to_path_buf());
         self
@@ -731,6 +742,53 @@ pub fn alpn() -> Vec<Vec<u8>> {
         vec.push(b"h2".to_vec());
     }
     vec
+}
+
+/// Per host filter output of whether or not to cache a response with some [`StatusCode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+#[repr(u8)]
+pub enum CacheAction {
+    /// Cache this status code response.
+    Cache,
+    /// Don't cache, in hope following responses have status codes which can be cached.
+    Drop,
+}
+impl CacheAction {
+    /// Returns [`Self::Cache`] if `cache` is true. Else [`Self::Drop`].
+    pub fn from_cache(cache: bool) -> Self {
+        if cache {
+            Self::Cache
+        } else {
+            Self::Drop
+        }
+    }
+    /// Returns [`Self::Drop`] if `drop` is true. Else [`Self::Cache`].
+    pub fn from_drop(drop: bool) -> Self {
+        if drop {
+            Self::Drop
+        } else {
+            Self::Cache
+        }
+    }
+    /// Returns true if `self` is [`Self::cache`].
+    #[must_use]
+    pub fn into_cache(self) -> bool {
+        matches!(self, Self::Cache)
+    }
+    /// Returns true if `self` is [`Self::Drop`].
+    #[must_use]
+    pub fn into_drop(self) -> bool {
+        matches!(self, Self::Drop)
+    }
+}
+
+/// This is the default for [`Host::status_code_cache_filter`].
+///
+/// This caches the request on every [`StatusCode`] except
+/// [400..403] & [405..500).
+pub fn default_status_code_cache_filter(code: StatusCode) -> CacheAction {
+    CacheAction::from_drop(matches!(code.as_u16(), 400..=403 | 405..=499))
 }
 
 /// An error regarding creation of a [`rustls::sign::CertifiedKey`].

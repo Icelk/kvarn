@@ -538,21 +538,18 @@ pub enum ServerCachePreference {
     MaxAge(time::Duration),
 }
 impl ServerCachePreference {
-    /// If `_response` should be cached.
-    ///
-    /// Checks [`Self`] for preference and [`Response::status()`].
-    /// Will not cache status codes between 400..=403 and 405..=499
+    /// If a response with `cache_action` (from [`host::CacheAction`]) should be cached.
     #[inline]
     #[must_use]
     #[allow(clippy::unused_self)]
-    pub fn cache(self, _response: &Response<Bytes>, _method: &Method) -> bool {
+    pub fn cache(self, cache_action: host::CacheAction, method: &Method) -> bool {
         let of_self = match self {
             Self::None => false,
             Self::QueryMatters | Self::Full | Self::MaxAge(_) => true,
         };
-        #[allow(clippy::unnested_or_patterns)]
-        let of_response = !matches!(_response.status().as_u16(), 400..=403 | 405..=499)
-            && matches!(_method, &Method::GET | &Method::HEAD);
+        #[allow(clippy::unnested_or_patterns)] // matches! macro
+        let of_response =
+            cache_action.into_cache() && matches!(method, &Method::GET | &Method::HEAD);
         of_self && of_response
     }
     /// If query matters in cache.

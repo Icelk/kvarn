@@ -672,7 +672,12 @@ pub async fn handle_cache(
     ) -> bool {
         if future.is_none() {
             if let Some(response_cache) = &host.response_cache {
-                if server_cache.cache(response.first().0.get_identity(), method) {
+                // Call `host::Options::status_code_cache_filter`
+                let cache_action = (host.options.status_code_cache_filter)(
+                    response.first().0.get_identity().status(),
+                );
+
+                if server_cache.cache(cache_action, method) {
                     let mut lock = response_cache.lock().await;
                     let key = if server_cache.query_matters() {
                         comprash::UriKey::PathQuery(path_query)
