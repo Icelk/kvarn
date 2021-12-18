@@ -771,7 +771,7 @@ impl CacheAction {
             Self::Cache
         }
     }
-    /// Returns true if `self` is [`Self::cache`].
+    /// Returns true if `self` is [`Self::Cache`].
     #[must_use]
     pub fn into_cache(self) -> bool {
         matches!(self, Self::Cache)
@@ -783,7 +783,7 @@ impl CacheAction {
     }
 }
 
-/// This is the default for [`Host::status_code_cache_filter`].
+/// This is the default for [`Options::status_code_cache_filter`].
 ///
 /// This caches the request on every [`StatusCode`] except
 /// [400..403] & [405..409] & [411..500).
