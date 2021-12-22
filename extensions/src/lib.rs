@@ -66,7 +66,7 @@ pub fn new() -> Extensions {
 /// kvarn_extensions::mount_all(&mut extensions);
 ///
 /// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// let data = Data::builder().insert(host).build();
+/// let data = HostCollection::builder().insert(host).build();
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
 /// let shutdown_manager = run_config![port_descriptor].execute().await;
