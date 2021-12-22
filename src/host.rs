@@ -406,11 +406,11 @@ impl Default for Options {
     }
 }
 
-/// A builder of [`Data`]. See [`Data::builder()`].
+/// A builder of [`Collection`]. See [`Collection::builder()`].
 #[derive(Debug)]
 #[must_use]
-pub struct DataBuilder(Data);
-impl DataBuilder {
+pub struct CollectionBuilder(Collection);
+impl CollectionBuilder {
     /// Adds `host` to the builder.
     /// This will match the `host` header and SNI hostname for [`Host.name`].
     #[inline]
@@ -429,7 +429,7 @@ impl DataBuilder {
     /// > for requests to `localhost`.
     ///
     /// **NOTE:** This should be used with care as all secure connections to this server
-    /// with a SNI hostname that is not registered in this [`Data`], the client will get
+    /// with a SNI hostname that is not registered in this [`Collection`], the client will get
     /// a security warning, as the certificate of the default host is used.
     /// This is fine with HTTP, as that only delivers the website.
     ///
@@ -459,16 +459,16 @@ impl DataBuilder {
         self.0.pre_host_limiter = limiter;
         self
     }
-    /// Puts the inner [`Data`] in a [`Arc`] and returns it.
+    /// Puts the inner [`Collection`] in a [`Arc`] and returns it.
     ///
     /// This works great with the overall flow of Kvarn. See [`RunConfig::execute()`] for an example.
     #[inline]
-    pub fn build(self) -> Arc<Data> {
+    pub fn build(self) -> Arc<Collection> {
         Arc::new(self.into_inner())
     }
-    /// Converts `self` to a [`Data`].
+    /// Converts `self` to a [`Collection`].
     #[inline]
-    pub fn into_inner(self) -> Data {
+    pub fn into_inner(self) -> Collection {
         self.0
     }
 }
@@ -486,18 +486,18 @@ impl DataBuilder {
 /// using the pattern described above.
 #[derive(Debug)]
 #[must_use]
-pub struct Data {
+pub struct Collection {
     default: Option<Host>,
     by_name: HashMap<&'static str, Host>,
     first: Option<&'static str>,
     has_secure: bool,
     pre_host_limiter: LimitManager,
 }
-impl Data {
-    /// Creates a new [`DataBuilder`] with `default_host` as the default.
+impl Collection {
+    /// Creates a new [`CollectionBuilder`] with `default_host` as the default.
     #[inline]
-    pub fn builder() -> DataBuilder {
-        DataBuilder(Self {
+    pub fn builder() -> CollectionBuilder {
+        CollectionBuilder(Self {
             default: None,
             by_name: HashMap::new(),
             first: None,
@@ -525,7 +525,7 @@ impl Data {
 
     /// Returns a reference to the default [`Host`].
     ///
-    /// Use [`Data::get_from_request`] to get the appropriate host.
+    /// Use [`Self::get_from_request`] to get the appropriate host.
     #[inline]
     pub fn get_default(&self) -> Option<&Host> {
         self.default.as_ref()
@@ -535,7 +535,7 @@ impl Data {
     pub fn get_host(&self, name: &str) -> Option<&Host> {
         self.by_name.get(name)
     }
-    /// Get a [`Host`] by name, and returns the [`default`](Data::get_default) if none were found.
+    /// Get a [`Host`] by name, and returns the [`default`](Self::get_default) if none were found.
     #[inline]
     pub fn get_or_default(&self, name: &str) -> Option<&Host> {
         self.get_host(name)
@@ -552,8 +552,8 @@ impl Data {
                 }
             })
     }
-    /// Get a [`Host`] by name, if any, and returns it or the [`default`](Data::get_default)
-    /// if `name` is [`None`] or [`Data::get_or_default`] returns [`None`].
+    /// Get a [`Host`] by name, if any, and returns it or the [`default`](Self::get_default)
+    /// if `name` is [`None`] or [`Self::get_or_default`] returns [`None`].
     #[inline]
     pub fn get_option_or_default(&self, name: Option<&str>) -> Option<&Host> {
         match name {
@@ -586,9 +586,9 @@ impl Data {
         self.has_secure
     }
 
-    /// Makes a [`rustls::ServerConfig`] from [`Data`].
+    /// Makes a [`rustls::ServerConfig`] from [`Self`].
     ///
-    /// This takes [`Data`] in an [`Arc`] and clones it.
+    /// This takes [`Self`] in an [`Arc`] and clones it.
     ///
     /// You should not have to call this, since [`PortDescriptor::new`] and [`PortDescriptor::https`] calls it internally.
     /// Though, you could use the [`host`] system by itself, without the rest of Kvarn.
@@ -719,7 +719,7 @@ impl Data {
     }
 }
 #[cfg(feature = "https")]
-impl ResolvesServerCert for Data {
+impl ResolvesServerCert for Collection {
     #[inline]
     fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<sign::CertifiedKey>> {
         // Mostly returns true, since we have a default
@@ -734,7 +734,7 @@ impl ResolvesServerCert for Data {
 /// All the supported ALPN protocols.
 ///
 /// > ***Note:** this is often not needed, as the ALPN protocols
-/// are set in [`host::Data::make_config()`].*
+/// are set in [`host::Collection::make_config()`].*
 #[must_use]
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]

@@ -241,7 +241,7 @@ impl ServerBuilder {
             (Host::unsecure("localhost", path, extensions, options), None)
         };
 
-        let data = Data::builder().insert(host).build();
+        let data = HostCollection::builder().insert(host).build();
 
         loop {
             let mut custom_port = false;

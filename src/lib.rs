@@ -84,7 +84,7 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 /// # use kvarn::prelude::*;
 /// # async {
 /// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// let data = Data::builder().insert(host).build();
+/// let data = HostCollection::builder().insert(host).build();
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
 /// let config = RunConfig::new()
@@ -137,7 +137,7 @@ impl RunConfig {
     /// Run the Kvarn web server on `ports`.
     ///
     /// This is the last step in getting Kvarn spinning.
-    /// You can interact with the caches through the [`Host`] and [`Data`] you created, and
+    /// You can interact with the caches through the [`Host`] and [`HostCollection`] you created, and
     /// the returned [`shutdown::Manager`], if you have the `graceful-shutdown` feature enabled.
     ///
     /// # Examples
@@ -156,8 +156,8 @@ impl RunConfig {
     /// # async {
     /// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
     /// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-    /// // Create a set of virtual hosts (`Data`) with `host` as the default.
-    /// let data = Data::builder().insert(host).build();
+    /// // Create a set of virtual hosts (`HostCollection`) with `host` as the default.
+    /// let data = HostCollection::builder().insert(host).build();
     /// // Bind port 8080 with `data`.
     /// let port_descriptor = PortDescriptor::new(8080, data);
     ///
@@ -260,7 +260,7 @@ impl Default for RunConfig {
 /// ```
 /// # use kvarn::prelude::*;
 /// # let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
-/// # let data = Data::builder().insert(host).build();
+/// # let data = HostCollection::builder().insert(host).build();
 /// # let port1 = PortDescriptor::new(8080, Arc::clone(&data));
 /// # let port2 = PortDescriptor::new(8081, data);
 /// let server = run_config!(port1, port2);
@@ -1044,12 +1044,12 @@ pub struct PortDescriptor {
     port: u16,
     #[cfg(feature = "https")]
     server_config: Option<Arc<rustls::ServerConfig>>,
-    data: Arc<Data>,
+    data: Arc<HostCollection>,
     version: BindIpVersion,
 }
 impl PortDescriptor {
     /// Uses the defaults for non-secure HTTP with `host_data`
-    pub fn http(host_data: Arc<Data>) -> Self {
+    pub fn http(host_data: Arc<HostCollection>) -> Self {
         Self {
             port: 80,
             #[cfg(feature = "https")]
@@ -1059,9 +1059,9 @@ impl PortDescriptor {
         }
     }
     /// Uses the defaults for secure HTTP, HTTPS, with `host_data`.
-    /// Gets a [`rustls::ServerConfig`] from [`Data::make_config()`].
+    /// Gets a [`rustls::ServerConfig`] from [`HostCollection::make_config()`].
     #[cfg(feature = "https")]
-    pub fn https(host_data: Arc<Data>) -> Self {
+    pub fn https(host_data: Arc<HostCollection>) -> Self {
         Self {
             port: 443,
             server_config: Some(Arc::new(host_data.make_config())),
@@ -1073,7 +1073,7 @@ impl PortDescriptor {
     #[cfg(feature = "https")]
     pub fn with_server_config(
         port: u16,
-        host_data: Arc<Data>,
+        host_data: Arc<HostCollection>,
         server_config: Option<Arc<rustls::ServerConfig>>,
     ) -> Self {
         Self {
@@ -1086,7 +1086,7 @@ impl PortDescriptor {
     /// Creates a new descriptor for `port` with `host_data`.
     /// If the feature `https` is enabled, a `rustls::ServerConfig` is created
     /// from the `host_data`.
-    pub fn new(port: u16, host_data: Arc<Data>) -> Self {
+    pub fn new(port: u16, host_data: Arc<HostCollection>) -> Self {
         Self {
             port,
             #[cfg(feature = "https")]
@@ -1097,7 +1097,7 @@ impl PortDescriptor {
     }
     /// Creates a new non-secure descriptor for `port` with `host_data`.
     /// Does not try to assign a certificate.
-    pub fn unsecure(port: u16, host_data: Arc<Data>) -> Self {
+    pub fn unsecure(port: u16, host_data: Arc<HostCollection>) -> Self {
         Self {
             port,
             #[cfg(feature = "https")]

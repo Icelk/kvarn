@@ -35,7 +35,7 @@ pub use cors::{AllowList as CorsAllowList, Cors};
 pub use csp::{Csp, Rule as CspRule, Value as CspValue, ValueSet as CspValueSet};
 pub use error::{default as default_error, default_response as default_error_response};
 pub use extensions::{Package, Post, Prepare, Present, Prime, ResponsePipeFuture};
-pub use host::{Data, Host};
+pub use host::{Collection as HostCollection, Host};
 pub use read::{file as read_file, file_cached as read_file_cached};
 pub use shutdown::{AcceptAction, AcceptManager};
 pub use utils::{build_bytes, chars::*, parse, parse::SanitizeError, AsCleanDebug};
