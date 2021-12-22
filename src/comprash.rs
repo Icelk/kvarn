@@ -349,10 +349,15 @@ impl CompressedResponse {
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         fn add_utf_8(headers: &mut HeaderMap, mime: &Mime) {
+            let charset = if mime.get_param(mime::CHARSET) == Some(mime::UTF_8) {
+                ""
+            } else {
+                "; charset=utf-8"
+            };
             // We know the added bytes are safe for a http::HeaderValue
             // unwrap is ok.
             let content_type = HeaderValue::from_maybe_shared(Bytes::copy_from_slice(
-                format!("{}; charset=utf-8", mime).as_bytes(),
+                format!("{}{}", mime, charset).as_bytes(),
             ))
             .unwrap();
             utils::replace_header(headers, "content-type", content_type);
