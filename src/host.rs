@@ -48,7 +48,8 @@ pub struct Host {
     /// Base path of all data for this host.
     ///
     /// If you enabled the `fs` feature (enabled by default),
-    /// the public files are in the directory `<path>/public`.
+    /// the public files are in the directory `<path>/public`
+    /// (`public` by default; see [`Options::public_data_dir`]).
     ///
     /// Also, all extensions should use this to access data on disk.
     pub path: PathBuf,
@@ -790,7 +791,7 @@ impl CacheAction {
 /// This caches the request on every [`StatusCode`] except
 /// [400..403] & [405..409] & [411..500).
 /// That means no client error response except
-/// 1) `404 Not Found` and 2) `410 Gone` is cached.
+/// `404 Not Found` and `410 Gone` is cached.
 pub fn default_status_code_cache_filter(code: StatusCode) -> CacheAction {
     CacheAction::from_drop(matches!(code.as_u16(), 400..=403 | 405..=409 | 411..=499))
 }
