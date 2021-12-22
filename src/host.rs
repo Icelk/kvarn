@@ -112,21 +112,22 @@ impl Host {
     ///
     /// # Examples
     ///
-    /// ```nocompile
+    /// ```ignore
+    /// # use kvarn::prelude::*;
     /// let certificate =
     ///     rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
     /// let cert = vec![rustls::Certificate(certificate.serialize_der().unwrap())];
     /// let pk = rustls::PrivateKey(certificate.serialize_private_key_der());
     /// let pk = Arc::new(rustls::sign::any_supported_type(&pk).unwrap());
     ///
-    /// Host::from_cert_and_pk(
+    /// Host::new(
     ///     "localhost",
     ///     cert,
     ///     pk,
     ///     PathBuf::from("tests"),
-    ///     extensions,
+    ///     Extensions::default(),
     ///     host::Options::default(),
-    /// )
+    /// );
     /// ```
     #[cfg(feature = "https")]
     pub fn new(
