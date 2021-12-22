@@ -402,7 +402,10 @@ pub async fn handle_connection(
         .await
     {
         trace!("Got request {:#?}", request);
-        let host = if let Some(host) = descriptor.data.get_from_request(&request, hostname.as_deref()) {
+        let host = if let Some(host) = descriptor
+            .data
+            .get_from_request(&request, hostname.as_deref())
+        {
             host
         } else {
             info!(
