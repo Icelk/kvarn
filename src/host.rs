@@ -476,13 +476,14 @@ impl DataBuilder {
 /// A collection of [`Host`]s, with exactly one default and
 /// arbitrarily many other, indexed by [`Host.name`].
 ///
-/// If only a default is specified, all requests, (e.g. those who lack a `host` header,
-/// have none, or all other values of the header) are channelled to the default.
+/// Tries to route to the host with it's name.
+/// If no host with a matching name is found, it'll fall back to [`default`](Self::get_default), if
+/// that's [`Some`].
 ///
-/// > When called as `localhost`, the first is always used.
+/// > When called from `localhost`, the first host added is always used.
 ///
-/// If the feature `https` is enabled, [`rustls::server::ResolvesServerCert`] in implemented
-/// using this default and host name pattern.
+/// If the feature `https` is enabled, [`rustls::server::ResolvesServerCert`] is implemented
+/// using the pattern described above.
 #[derive(Debug)]
 #[must_use]
 pub struct Data {
@@ -524,23 +525,23 @@ impl Data {
 
     /// Returns a reference to the default [`Host`].
     ///
-    /// Use [`Data::smart_get`] to get the appropriate host.
+    /// Use [`Data::get_from_request`] to get the appropriate host.
     #[inline]
     pub fn get_default(&self) -> Option<&Host> {
         self.default.as_ref()
     }
-    /// Gets a [`Host`] by name.
+    /// Get a [`Host`] by name.
     #[inline]
-    pub fn get_host(&self, host: &str) -> Option<&Host> {
-        self.by_name.get(host)
+    pub fn get_host(&self, name: &str) -> Option<&Host> {
+        self.by_name.get(name)
     }
-    /// Gets a [`Host`] by name, and returns the [`default`](Data::get_default) if none were found.
+    /// Get a [`Host`] by name, and returns the [`default`](Data::get_default) if none were found.
     #[inline]
-    pub fn get_or_default(&self, host: &str) -> Option<&Host> {
-        self.get_host(host)
+    pub fn get_or_default(&self, name: &str) -> Option<&Host> {
+        self.get_host(name)
             .or_else(|| self.get_default())
             .or_else(|| {
-                let base_host = host.split(':').next();
+                let base_host = name.split(':').next();
                 if base_host == Some("localhost")
                     || base_host == Some("127.0.0.1")
                     || base_host == Some("::1")
@@ -551,18 +552,18 @@ impl Data {
                 }
             })
     }
-    /// Gets a [`Host`] by name, if any, and returns it or the [`default`](Data::get_default)
-    /// if `maybe_host` is [`None`] or [`Data::get_or_default`] returns [`None`].
+    /// Get a [`Host`] by name, if any, and returns it or the [`default`](Data::get_default)
+    /// if `name` is [`None`] or [`Data::get_or_default`] returns [`None`].
     #[inline]
-    pub fn maybe_get_or_default(&self, maybe_host: Option<&str>) -> Option<&Host> {
-        match maybe_host {
+    pub fn get_option_or_default(&self, name: Option<&str>) -> Option<&Host> {
+        match name {
             Some(host) => self.get_or_default(host),
             None => self.get_default(),
         }
     }
-    /// Cleverly gets the host depending on [`header::HOST`] and the `sni_hostname`.
+    /// Get the host depending on [`header::HOST`] and the `sni_hostname`.
     #[inline]
-    pub fn smart_get<'a>(
+    pub fn get_from_request<'a>(
         &'a self,
         request: &Request<Body>,
         sni_hostname: Option<&str>,
@@ -576,7 +577,7 @@ impl Data {
 
         let host = sni_hostname.or_else(|| get_header(request.headers()));
 
-        self.maybe_get_or_default(host)
+        self.get_option_or_default(host)
     }
 
     /// Returns if any [`Host`]s are [`Host::is_secure`].
@@ -724,7 +725,7 @@ impl ResolvesServerCert for Data {
         // Mostly returns true, since we have a default
         // Will however return false if certificate is not present
         // in found host or default host.
-        self.maybe_get_or_default(client_hello.server_name())
+        self.get_option_or_default(client_hello.server_name())
             .and_then(|host| host.certificate.as_ref())
             .cloned()
     }
