@@ -415,10 +415,32 @@ pub fn process_document<P: AsRef<Path>>(
 
     let mut parser_header_index = 0;
     let parser = parser.map(|event| match event {
-        Event::Start(Tag::Heading(level)) => {
+        Event::Start(Tag::Heading(level, _, classes)) => {
             let Header { anchor, .. } = &headers[parser_header_index];
             parser_header_index += 1;
-            let html = format!("<h{} id=\"{}\">", level, anchor);
+
+            let class = if classes.is_empty() {
+                String::new()
+            } else {
+                const START: &str = " class=\"";
+                const END: &str = r#"""#;
+                let mut s = String::with_capacity(
+                    classes.iter().fold(START.len() + END.len(), |acc, class| {
+                        acc + class.len() + " ".len()
+                    }),
+                );
+
+                s.push_str(START);
+                for class in &classes {
+                    s.push_str(class);
+                    s.push(' ');
+                }
+                s.push_str(END);
+
+                s
+            };
+
+            let html = format!("<{} id=\"{}\"{}>", level, anchor, class);
             Event::Html(CowStr::Boxed(html.into_boxed_str()))
         }
         _ => event,
