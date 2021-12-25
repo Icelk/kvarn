@@ -750,7 +750,6 @@ pub fn alpn() -> Vec<Vec<u8>> {
 /// Per host filter output of whether or not to cache a response with some [`StatusCode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-#[repr(u8)]
 pub enum CacheAction {
     /// Cache this status code response.
     Cache,
