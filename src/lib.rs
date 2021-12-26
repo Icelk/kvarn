@@ -1163,7 +1163,7 @@ pub struct FatResponse {
     future: Option<ResponsePipeFuture>,
 }
 impl FatResponse {
-    /// Creates a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
+    /// Create a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
     /// All other preferences are set to `Full` with a `future` of [`None`].
     ///
     /// Choose
@@ -1187,13 +1187,13 @@ impl FatResponse {
             future: None,
         }
     }
-    /// Creates a new [`FatResponse`] with all preferences set to `Full` and no `Future`.
+    /// Create a new [`FatResponse`] with all preferences set to `Full` and no `Future`.
     ///
     /// Use the `with_*` methods to change the defaults.
     pub fn cache(response: Response<Bytes>) -> Self {
         Self::new(response, comprash::ServerCachePreference::Full)
     }
-    /// Creates a new [`FatResponse`] with all cache preferences set to `None`,
+    /// Create a new [`FatResponse`] with all cache preferences set to `None`,
     /// compress preference set to `Full`, and no `Future`.
     ///
     /// Use the `with_*` methods to change the defaults.
@@ -1206,27 +1206,27 @@ impl FatResponse {
             future: None,
         }
     }
-    /// Sets the inner [`comprash::ClientCachePreference`].
+    /// Set the inner [`comprash::ClientCachePreference`].
     pub fn with_client_cache(mut self, preference: comprash::ClientCachePreference) -> Self {
         self.client = preference;
         self
     }
-    /// Sets the inner [`comprash::ServerCachePreference`].
+    /// Set the inner [`comprash::ServerCachePreference`].
     pub fn with_server_cache(mut self, preference: comprash::ServerCachePreference) -> Self {
         self.server = preference;
         self
     }
-    /// Sets the inner [`comprash::CompressPreference`].
+    /// Set the inner [`comprash::CompressPreference`].
     pub fn with_compress(mut self, preference: comprash::CompressPreference) -> Self {
         self.compress = preference;
         self
     }
-    /// Sets the inner `Future`.
+    /// Set the inner `future`.
     pub fn with_future(mut self, future: ResponsePipeFuture) -> Self {
         self.future = Some(future);
         self
     }
-    /// Turns `self` into a tuple of all it's parts.
+    /// Turn `self` into a tuple of all it's parts.
     pub fn into_parts(
         self,
     ) -> (
