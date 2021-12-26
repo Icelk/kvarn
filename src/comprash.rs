@@ -356,10 +356,10 @@ impl CompressedResponse {
             };
             // We know the added bytes are safe for a http::HeaderValue
             // unwrap is ok.
-            let content_type = HeaderValue::from_maybe_shared(Bytes::copy_from_slice(
-                format!("{}{}", mime, charset).as_bytes(),
-            ))
-            .unwrap();
+            let mut header = mime.to_string();
+            header.push_str(charset);
+            let content_type =
+                HeaderValue::from_maybe_shared::<Bytes>(header.into_bytes().into()).unwrap();
             utils::replace_header(headers, "content-type", content_type);
         }
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(response.body()).is_ok();
@@ -397,9 +397,9 @@ impl CompressedResponse {
                     add_utf_8(response.headers_mut(), &mime_type);
                 } else {
                     // Mime will only contains valid bytes.
-                    let content_type = HeaderValue::from_maybe_shared(Bytes::copy_from_slice(
-                        mime_type.to_string().as_bytes(),
-                    ))
+                    let content_type = HeaderValue::from_maybe_shared::<Bytes>(
+                        mime_type.to_string().into_bytes().into(),
+                    )
                     .unwrap();
                     response.headers_mut().insert("content-type", content_type);
                 }

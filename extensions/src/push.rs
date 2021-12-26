@@ -133,7 +133,7 @@ fn push(
 
                     let mut uri = request.uri().clone().into_parts();
                     if let Some(uri) =
-                        uri::PathAndQuery::from_maybe_shared(Bytes::copy_from_slice(url.as_bytes()))
+                        uri::PathAndQuery::from_maybe_shared::<Bytes>(url.into_bytes().into())
                             .ok()
                             .and_then(|path| {
                                 uri.path_and_query = Some(path);
