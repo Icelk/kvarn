@@ -1241,7 +1241,8 @@ impl FatResponse {
             self.response.headers_mut(),
             "content-type",
             // UNWRAP: We know the mime type is valid.
-            HeaderValue::from_maybe_shared::<Bytes>(content_type.to_string().into_bytes().into()).unwrap(),
+            HeaderValue::from_maybe_shared::<Bytes>(content_type.to_string().into_bytes().into())
+                .unwrap(),
         );
         self
     }
