@@ -75,7 +75,7 @@ pub mod internals {
     pub use error::default as default_error;
     pub use extensions::{ready, RetFut, RetSyncFut};
     pub use limiting::{Action as LimitAction, Manager as LimitManager};
-    pub use mime::Mime;
+    pub use mime::{self, Mime};
     pub use mime_guess;
     pub use tokio::time::timeout;
     pub use utils::{
