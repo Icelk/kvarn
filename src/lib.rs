@@ -1236,7 +1236,7 @@ impl FatResponse {
     ///
     /// It's unknown if this can even happen at all.
     /// If it does happen, it's in the [`Mime::params`].
-    pub fn with_content_type(mut self, content_type: Mime) -> Self {
+    pub fn with_content_type(mut self, content_type: &Mime) -> Self {
         utils::replace_header(
             self.response.headers_mut(),
             "content-type",
