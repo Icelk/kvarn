@@ -1226,6 +1226,26 @@ impl FatResponse {
         self.future = Some(future);
         self
     }
+
+    /// Set the `content-type` header of the inner response to `content_type`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the display implementation of `content_type` produces illegal bytes for
+    /// [`HeaderValue`].
+    ///
+    /// It's unknown if this can even happen at all.
+    /// If it does happen, it's in the [`Mime::params`].
+    pub fn with_content_type(mut self, content_type: Mime) -> Self {
+        utils::replace_header(
+            self.response.headers_mut(),
+            "content-type",
+            // UNWRAP: We know the mime type is valid.
+            HeaderValue::from_maybe_shared::<Bytes>(content_type.to_string().into_bytes().into()).unwrap(),
+        );
+        self
+    }
+
     /// Turn `self` into a tuple of all it's parts.
     pub fn into_parts(
         self,
