@@ -444,9 +444,8 @@ impl CollectionBuilder {
             self.0.default.is_none(),
             "Can not set default host multiple times."
         );
-        self.check_secure(&host);
-        self.0.default = Some(host);
-        self
+        self.0.default = Some(host.name);
+        self.insert(host)
     }
     fn check_secure(&mut self, host: &Host) {
         if host.is_secure() {
@@ -488,7 +487,7 @@ impl CollectionBuilder {
 #[derive(Debug)]
 #[must_use]
 pub struct Collection {
-    default: Option<Host>,
+    default: Option<&'static str>,
     by_name: HashMap<&'static str, Host>,
     first: Option<&'static str>,
     has_secure: bool,
@@ -510,18 +509,14 @@ impl Collection {
     /// The host is the default. See [`host`] for more info.
     #[inline]
     pub fn simple_non_secure(default_host_name: &'static str, extensions: Extensions) -> Self {
-        Self {
-            default: Some(Host::unsecure(
+        Self::builder()
+            .default(Host::unsecure(
                 default_host_name,
                 ".",
                 extensions,
                 Options::default(),
-            )),
-            by_name: HashMap::new(),
-            first: None,
-            has_secure: false,
-            pre_host_limiter: LimitManager::default(),
-        }
+            ))
+            .into_inner()
     }
 
     /// Returns a reference to the default [`Host`].
@@ -529,7 +524,7 @@ impl Collection {
     /// Use [`Self::get_from_request`] to get the appropriate host.
     #[inline]
     pub fn get_default(&self) -> Option<&Host> {
-        self.default.as_ref()
+        self.default.and_then(|default| self.get_host(default))
     }
     /// Get a [`Host`] by name.
     #[inline]
@@ -616,7 +611,7 @@ impl Collection {
     pub async fn clear_response_caches(&self) {
         // Handle default host
         if let Some(cache) = self
-            .default
+            .get_default()
             .as_ref()
             .and_then(|h| h.response_cache.as_ref())
         {
@@ -646,7 +641,7 @@ impl Collection {
         if host.is_empty() || host == "default" {
             found = true;
             if let Some(cache) = self
-                .default
+                .get_default()
                 .as_ref()
                 .and_then(|h| h.response_cache.as_ref())
             {
@@ -677,7 +672,11 @@ impl Collection {
     /// Clears all file caches.
     #[inline]
     pub async fn clear_file_caches(&self) {
-        if let Some(cache) = self.default.as_ref().and_then(|h| h.file_cache.as_ref()) {
+        if let Some(cache) = self
+            .get_default()
+            .as_ref()
+            .and_then(|h| h.file_cache.as_ref())
+        {
             cache.lock().await.clear();
         }
         for host in self.by_name.values() {
@@ -692,7 +691,11 @@ impl Collection {
     /// Though, it's not blocking.
     pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
         let mut found = false;
-        if let Some(cache) = self.default.as_ref().and_then(|h| h.file_cache.as_ref()) {
+        if let Some(cache) = self
+            .get_default()
+            .as_ref()
+            .and_then(|h| h.file_cache.as_ref())
+        {
             if cache
                 .lock()
                 .await
