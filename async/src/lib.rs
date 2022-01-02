@@ -92,7 +92,6 @@ impl<R: Read + Unpin> AsyncRead for ReadToAsync<R> {
         _cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        // buf.put_slice(buf)
         let extra_filled = unsafe {
             self.get_mut()
                 .0
@@ -217,6 +216,7 @@ pub mod read {
         false
     }
 
+    /// The buffer must not be read if this returns an error.
     pub(crate) async fn read_more(
         buffer: &mut BytesMut,
         mut reader: impl AsyncRead + Unpin,

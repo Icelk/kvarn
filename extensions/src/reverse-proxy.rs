@@ -253,7 +253,7 @@ impl EstablishedConnection {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
         write::request(request, body, &mut buffered).await?;
 
-        debug!("Sent reverse-proxy request.");
+        info!("Sent reverse-proxy request. Reading response.");
 
         let response = match timeout(std::time::Duration::from_millis(1000), async {
             kvarn::prelude::async_bits::read::response(&mut *self, 16 * 1024).await
