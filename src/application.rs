@@ -219,6 +219,8 @@ impl HttpConnection {
 }
 
 mod request {
+    use bytes::BytesMut;
+
     use super::{
         async_bits::read, io, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption,
         Error, Mutex, Pin, Poll, ReadBuf, Request,
@@ -259,10 +261,15 @@ mod request {
                 Self::Empty => Ok(Bytes::new()),
                 Self::Http1(h1) => h1.read_to_bytes().await,
                 #[cfg(feature = "http2")]
-                Self::Http2(h2) => futures::future::poll_fn(|cx| h2.poll_data(cx))
-                    .await
-                    .unwrap_or_else(|| Ok(Bytes::new()))
-                    .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
+                Self::Http2(h2) => {
+                    let mut bytes = BytesMut::new();
+                    while let Some(result) = h2.data().await {
+                        let data = result
+                            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+                        bytes.extend_from_slice(&data);
+                    }
+                    Ok(bytes.freeze())
+                }
             }
         }
     }
