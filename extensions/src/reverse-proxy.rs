@@ -249,15 +249,17 @@ impl EstablishedConnection {
         &mut self,
         request: &Request<T>,
         body: &[u8],
+        timeout: time::Duration,
     ) -> Result<Response<Bytes>, GatewayError> {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
         write::request(request, body, &mut buffered).await?;
 
         info!("Sent reverse-proxy request. Reading response.");
 
-        let response = match timeout(std::time::Duration::from_millis(1000), async {
-            kvarn::prelude::async_bits::read::response(&mut *self, 16 * 1024).await
-        })
+        let response = match tokio::time::timeout(
+            timeout,
+            kvarn::prelude::async_bits::read::response(&mut *self, 16 * 1024, timeout),
+        )
         .await
         {
             Ok(result) => match result {
@@ -304,7 +306,7 @@ impl EstablishedConnection {
                             MaybeChunked::No(&mut *self)
                         };
 
-                        if let Ok(result) = timeout(
+                        if let Ok(result) = tokio::time::timeout(
                             tokio::time::Duration::from_millis(250),
                             read_to_end_or_max(&mut buffer, reader, len),
                         )
@@ -406,18 +408,25 @@ pub struct Manager {
     when: extensions::If,
     connection: GetConnectionFn,
     modify: ModifyRequestFn,
+    timeout: time::Duration,
 }
 impl Manager {
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
-    pub fn new(when: extensions::If, connection: GetConnectionFn, modify: ModifyRequestFn) -> Self {
+    pub fn new(
+        when: extensions::If,
+        connection: GetConnectionFn,
+        modify: ModifyRequestFn,
+        timeout: time::Duration,
+    ) -> Self {
         Self {
             when,
             connection,
             modify,
+            timeout,
         }
     }
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
-    pub fn base(base_path: &str, connection: GetConnectionFn) -> Self {
+    pub fn base(base_path: &str, connection: GetConnectionFn, timeout: time::Duration) -> Self {
         assert_eq!(base_path.chars().next(), Some('/'));
         let path = if base_path.ends_with('/') {
             base_path.to_owned()
@@ -457,11 +466,7 @@ impl Manager {
             }
         });
 
-        Self {
-            when,
-            connection,
-            modify,
-        }
+        Self::new(when, connection, modify, timeout)
     }
     pub fn mount(self, extensions: &mut Extensions) {
         let connection = self.connection;
@@ -508,13 +513,18 @@ impl Manager {
 
                 *empty_req.version_mut() = Version::HTTP_11;
 
+                if let Ok(value) = host.name.parse() {
+                    utils::replace_header(empty_req.headers_mut(), "host", value);
+                }
+
                 let wait = matches!(empty_req.method(), &Method::CONNECT)
                     || empty_req.headers().get("upgrade")
                         == Some(&HeaderValue::from_static("websocket"));
 
                 modify(&mut empty_req, &mut bytes);
 
-                let mut response = match connection.request(&empty_req, &bytes).await {
+                let mut response = match connection.request(&empty_req, &bytes, self.timeout).await
+                {
                     Ok(mut response) => {
                         let headers = response.headers_mut();
                         utils::remove_all_headers(headers, "keep-alive");

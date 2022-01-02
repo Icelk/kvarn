@@ -222,6 +222,7 @@ pub mod read {
         mut reader: impl AsyncRead + Unpin,
         read: &mut usize,
         max_len: usize,
+        timeout: std::time::Duration,
     ) -> Result<usize, Error> {
         assert!(buffer.len() == *read);
         if buffer.len() == max_len {
@@ -237,15 +238,12 @@ pub mod read {
         }
 
         unsafe { buffer.set_len(buffer.capacity()) };
-        let read_now = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            reader.read(&mut buffer[*read..]),
-        )
-        .await
-        .ok()
-        .ok_or(Error::Done)?
-        .ok()
-        .ok_or(Error::Done)?;
+        let read_now = tokio::time::timeout(timeout, reader.read(&mut buffer[*read..]))
+            .await
+            .ok()
+            .ok_or(Error::Done)?
+            .ok()
+            .ok_or(Error::Done)?;
         *read += read_now;
         unsafe { buffer.set_len(*read) };
 
@@ -255,13 +253,14 @@ pub mod read {
     pub(crate) async fn read_headers(
         mut reader: impl AsyncRead + Unpin,
         max_len: usize,
+        timeout: std::time::Duration,
     ) -> Result<Bytes, Error> {
         let mut buffer = BytesMut::with_capacity(1024);
         let mut read = 0;
         let read = &mut read;
 
         loop {
-            if read_more(&mut buffer, &mut reader, read, max_len).await? == 0 {
+            if read_more(&mut buffer, &mut reader, read, max_len, timeout).await? == 0 {
                 break;
             };
             if !(utils::valid_method(&buffer) || utils::valid_version(&buffer)) {
@@ -291,8 +290,9 @@ pub mod read {
         max_len: usize,
         default_host: Option<&[u8]>,
         scheme: &str,
+        timeout: std::time::Duration,
     ) -> Result<(Request<()>, Bytes), Error> {
-        let buffer = read_headers(&mut *stream, max_len).await?;
+        let buffer = read_headers(&mut *stream, max_len, timeout).await?;
 
         let mut parse_stage = RequestParseStage::Method;
         // Method is max 7 bytes long
@@ -425,6 +425,7 @@ pub mod read {
     pub async fn response(
         mut reader: impl AsyncRead + Unpin,
         max_len: usize,
+        timeout: std::time::Duration,
     ) -> Result<Response<Bytes>, Error> {
         enum ParseStage {
             Version,
@@ -432,7 +433,7 @@ pub mod read {
             CanonicalReason,
         }
 
-        let bytes = read_headers(&mut reader, max_len).await?;
+        let bytes = read_headers(&mut reader, max_len, timeout).await?;
 
         // Version is at most 8 bytes long
         let mut version_bytes = [0; 8];

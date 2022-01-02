@@ -239,7 +239,14 @@ mod request {
         };
         let lock = stream.lock().await;
 
-        let (head, bytes) = read::request(lock, max_len, default_host, scheme).await?;
+        let (head, bytes) = read::request(
+            lock,
+            max_len,
+            default_host,
+            scheme,
+            std::time::Duration::from_secs(5),
+        )
+        .await?;
         let body = Body::Http1(response::Http1Body::new(
             stream,
             bytes,
