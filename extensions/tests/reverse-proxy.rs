@@ -63,7 +63,12 @@ async fn basic() {
             }
         }
     });
-    let manager = kvarn_extensions::ReverseProxy::new(when, connection, modify);
+    let manager = kvarn_extensions::ReverseProxy::new(
+        when,
+        connection,
+        modify,
+        std::time::Duration::from_secs(5),
+    );
     let mut proxy_extensions = Extensions::new();
     manager.mount(&mut proxy_extensions);
 
@@ -118,6 +123,7 @@ async fn base() {
         kvarn_extensions::static_connection(kvarn_extensions::ReverseProxyConnection::Tcp(
             kvarn_extensions::localhost(backend.port()),
         )),
+        std::time::Duration::from_secs(5),
     )
     .mount(&mut extensions);
     let proxy = ServerBuilder::from(extensions).run().await;
@@ -153,6 +159,7 @@ async fn chunked_encoding() {
         kvarn_extensions::static_connection(kvarn_extensions::ReverseProxyConnection::Tcp(
             kvarn_extensions::localhost(backend.port()),
         )),
+        std::time::Duration::from_secs(5),
     )
     .mount(&mut extensions);
     let proxy = ServerBuilder::from(extensions).run().await;
