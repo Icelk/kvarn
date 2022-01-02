@@ -252,6 +252,7 @@ impl EstablishedConnection {
         timeout: time::Duration,
     ) -> Result<Response<Bytes>, GatewayError> {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
+        info!("Sending request");
         write::request(request, body, &mut buffered).await?;
 
         info!("Sent reverse-proxy request. Reading response.");

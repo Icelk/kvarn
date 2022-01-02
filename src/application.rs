@@ -206,9 +206,13 @@ impl HttpConnection {
             }
             #[cfg(feature = "http2")]
             Self::Http2(connection) => match connection.accept().await {
-                Some(connection) => match connection {
+                Some(exchange) => match exchange {
                     Ok((request, response)) => {
-                        Ok((request.map(Body::Http2), ResponsePipe::Http2(response)))
+                        // connection.set_target_window_size(256 * 1024);
+                        Ok((
+                            request.map(Body::Http2),
+                            ResponsePipe::Http2(response),
+                        ))
                     }
                     Err(err) => Err(Error::H2(err)),
                 },
@@ -271,7 +275,10 @@ mod request {
                     while let Some(result) = h2.data().await {
                         let data = result
                             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+
                         bytes.extend_from_slice(&data);
+
+                        h2.flow_control().release_capacity(data.len()).unwrap();
                     }
                     Ok(bytes.freeze())
                 }
