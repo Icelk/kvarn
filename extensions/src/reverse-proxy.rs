@@ -528,6 +528,7 @@ impl Manager {
                     Ok(mut response) => {
                         let headers = response.headers_mut();
                         utils::remove_all_headers(headers, "keep-alive");
+                        utils::remove_all_headers(headers, "content-length");
                         if !utils::header_eq(headers, "connection", "upgrade") {
                             utils::remove_all_headers(headers, "connection");
                         }
