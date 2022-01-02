@@ -432,7 +432,16 @@ pub async fn handle_connection(
         }
         debug!("Accepting new connection from {} on {}", address, host.name);
         // fn to handle getting from cache, generating response and sending it
-        handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await?;
+        let hostname = host.name;
+        let moved_host_collection = Arc::clone(&descriptor.data);
+        tokio::spawn(async move {
+            let host = moved_host_collection.get_host(hostname).unwrap();
+            if let Err(err) =
+                handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await
+            {
+                error!("Got error from `handle_cache`: {:?}", err);
+            }
+        });
 
         if !continue_accepting() {
             break;
