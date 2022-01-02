@@ -219,8 +219,6 @@ impl HttpConnection {
 }
 
 mod request {
-    use bytes::BytesMut;
-
     use super::{
         async_bits::read, io, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption,
         Error, Mutex, Pin, Poll, ReadBuf, Request,
@@ -269,7 +267,7 @@ mod request {
                 Self::Http1(h1) => h1.read_to_bytes().await,
                 #[cfg(feature = "http2")]
                 Self::Http2(h2) => {
-                    let mut bytes = BytesMut::new();
+                    let mut bytes = bytes::BytesMut::new();
                     while let Some(result) = h2.data().await {
                         let data = result
                             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
