@@ -208,7 +208,6 @@ impl HttpConnection {
             Self::Http2(connection) => match connection.accept().await {
                 Some(exchange) => match exchange {
                     Ok((request, response)) => {
-                        // connection.set_target_window_size(256 * 1024);
                         Ok((request.map(Body::Http2), ResponsePipe::Http2(response)))
                     }
                     Err(err) => Err(Error::H2(err)),
