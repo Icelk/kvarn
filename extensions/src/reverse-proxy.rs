@@ -308,7 +308,7 @@ impl EstablishedConnection {
                         };
 
                         if let Ok(result) = tokio::time::timeout(
-                            tokio::time::Duration::from_millis(250),
+                            timeout,
                             read_to_end_or_max(&mut buffer, reader, len),
                         )
                         .await
