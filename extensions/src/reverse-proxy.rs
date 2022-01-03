@@ -288,7 +288,11 @@ impl EstablishedConnection {
                     let len = if chunked {
                         usize::MAX
                     } else {
-                        utils::get_body_length_response(&response, Some(request.method()))
+                        if body.is_empty() {
+                            utils::get_body_length_response(&response, Some(request.method()))
+                        } else {
+                            utils::get_body_length_response(&response, None)
+                        }
                     };
 
                     let (mut head, body) = utils::split_response(response);

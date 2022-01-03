@@ -521,7 +521,7 @@ impl<'a> SendKind<'a> {
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
 
-                if utils::method_has_response_body(request.method()) {
+                if utils::method_has_response_body(request.method()) || !body.is_empty() {
                     // Send body
                     ret_log_app_error!(body_pipe.send_with_maybe_close(body, false).await);
                 }
@@ -543,7 +543,8 @@ impl<'a> SendKind<'a> {
                 ret_log_app_error!(body_pipe.close().await);
             }
             SendKind::Push(push_pipe) => {
-                let send_body = utils::method_has_response_body(request.method());
+                let send_body =
+                    utils::method_has_response_body(request.method()) || !body.is_empty();
 
                 // Send response
                 let mut body_pipe = ret_log_app_error!(
