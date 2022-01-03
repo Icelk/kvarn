@@ -27,7 +27,7 @@ It should be understandable even for non-programmers. It should make it easier t
 > Without doing anything from your part, you can expect automatic push to work, resulting in the
 > described benefits. Soon, Smart Push will be part of Kvarn, further increasing performance.
 
-## Left to do
+## To do
 
 -   [x] Tokio
 -   [x] Async io
@@ -66,7 +66,23 @@ The name comes from the current plan to move core stuff into it's own crate.
 -   [x] Content Security Policy
 -   [x] Major workflow updates
 
-# v0.4.0 WebSockets & Auth
+# v0.4.0 ctl
+
+A smaller release to improve the experience with Kvarn.
+
+Notable, a `kvarnctl` executable will allow you to change a running Kvarn instance, including restarting the server in-place.
+
+## To do
+
+-   [ ] A `kvarnctl` executable to control the running kvarn instance.
+-   [x] Production ready reverse proxy.
+-   [ ] Reading host names from certificate.
+-   [ ] Graceful restart through systemd service
+-   [ ] [doc_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html)
+-   [ ] noonce implementation?
+-   [x] Parallel handling of requests per connection.
+
+# v0.5.0 WebSockets & Auth
 
 This release should contain good WebSocket integration and an easy-to-use Auth API
 for quickly adding secure and _extremely speedy_ authentication.
@@ -77,9 +93,9 @@ for quickly adding secure and _extremely speedy_ authentication.
 -   [ ] Authentication API in Layer 6
     -   [ ] Add `web-programming::websocket` to `Cargo.toml#categories`
 
-# v0.5.0 HTTP/3
+# v0.6.0 HTTP/3
 
-This is where Kvarn becomes cutting-edge.
+This is where Kvarn turns into a cutting-edge web server.
 
 > Kvarn already has a good flexible design, so adding this is largely making
 > a glue-crate to make HTTP/3 accessible like HTTP/2 is in the `h2` crate.
@@ -92,7 +108,7 @@ _Well..._
 -   [ ] HTTP/3 support in Kvarn
 -   [ ] cfg to disable new feature
 
-# v0.6.0 DynLan
+# v0.7.0 DynLan
 
 This is where **_dyn_**amic **_lan_**guages are introduced to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
 because `Wren` seems very fast and interesting, while `Lua` is simply a classic, with JIT support in Rust.
