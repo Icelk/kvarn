@@ -287,12 +287,10 @@ impl EstablishedConnection {
                         utils::header_eq(response.headers(), "transfer-encoding", "chunked");
                     let len = if chunked {
                         usize::MAX
+                    } else if body.is_empty() {
+                        utils::get_body_length_response(&response, Some(request.method()))
                     } else {
-                        if body.is_empty() {
-                            utils::get_body_length_response(&response, Some(request.method()))
-                        } else {
-                            utils::get_body_length_response(&response, None)
-                        }
+                        utils::get_body_length_response(&response, None)
                     };
 
                     let (mut head, body) = utils::split_response(response);
