@@ -316,7 +316,7 @@ impl EstablishedConnection {
                             result?
                         } else {
                             warn!("Remote read timed out.");
-                            unsafe { buffer.set_len(0) };
+                            unsafe { buffer.set_len(if chunked { 0 } else { body.len() }) };
                         }
 
                         if chunked {
