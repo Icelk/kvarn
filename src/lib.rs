@@ -275,6 +275,9 @@ macro_rules! ret_log_app_error {
     ($e:expr) => {
         match $e {
             Err(err) => {
+                if let application::Error::ClientRefusedResponse = &err {
+                    return Ok(());
+                }
                 error!("An error occurred while sending a response. {:?}", &err);
                 return Err(err.into());
             }

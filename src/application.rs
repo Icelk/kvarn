@@ -30,6 +30,8 @@ pub enum Error {
     ///
     /// *Use HTTP/2 instead, or check if the [`ResponsePipe`] is HTTP/1*.
     PushOnHttp1,
+    /// Client closed connection before the response could be sent.
+    ClientRefusedResponse,
 }
 impl From<utils::parse::Error> for Error {
     #[inline]
@@ -66,6 +68,9 @@ impl From<Error> for io::Error {
                 io::ErrorKind::InvalidInput,
                 "can not push requests on http/1",
             ),
+            Error::ClientRefusedResponse => {
+                io::Error::new(io::ErrorKind::ConnectionReset, "client refused response")
+            }
         }
     }
 }
@@ -466,10 +471,21 @@ mod response {
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
                 }
                 #[cfg(feature = "http2")]
-                Self::Http2(s) => match s.send_response(response, end_of_stream) {
-                    Err(err) => Err(Error::H2(err)),
-                    Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
-                },
+                Self::Http2(s) => {
+                    let reset = futures::future::poll_fn(|cx| match s.poll_reset(cx) {
+                        Poll::Ready(r) => Poll::Ready(Some(r)),
+                        Poll::Pending => Poll::Ready(None),
+                    })
+                    // `.await` here just gives us the `cx`.
+                    .await;
+                    if reset.is_some() {
+                        return Err(Error::ClientRefusedResponse);
+                    }
+                    match s.send_response(response, end_of_stream) {
+                        Err(err) => Err(Error::H2(err)),
+                        Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
+                    }
+                }
             }
         }
         /// Pushes `request` to client.
