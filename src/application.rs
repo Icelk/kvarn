@@ -471,21 +471,13 @@ mod response {
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
                 }
                 #[cfg(feature = "http2")]
-                Self::Http2(s) => {
-                    let reset = futures::future::poll_fn(|cx| match s.poll_reset(cx) {
-                        Poll::Ready(r) => Poll::Ready(Some(r)),
-                        Poll::Pending => Poll::Ready(None),
-                    })
-                    // `.await` here just gives us the `cx`.
-                    .await;
-                    if reset.is_some() {
-                        return Err(Error::ClientRefusedResponse);
+                Self::Http2(s) => match s.send_response(response, end_of_stream) {
+                    Err(ref err) if err.get_io().is_none() && err.reason().is_none() => {
+                        Err(Error::ClientRefusedResponse)
                     }
-                    match s.send_response(response, end_of_stream) {
-                        Err(err) => Err(Error::H2(err)),
-                        Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
-                    }
-                }
+                    Err(err) => Err(Error::H2(err)),
+                    Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
+                },
             }
         }
         /// Pushes `request` to client.
