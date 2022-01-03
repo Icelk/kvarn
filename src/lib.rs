@@ -434,14 +434,21 @@ pub async fn handle_connection(
         // fn to handle getting from cache, generating response and sending it
         let hostname = host.name;
         let moved_host_collection = Arc::clone(&descriptor.data);
-        tokio::spawn(async move {
+        let future = async move {
             let host = moved_host_collection.get_host(hostname).unwrap();
             if let Err(err) =
                 handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await
             {
                 error!("Got error from `handle_cache`: {:?}", err);
             }
-        });
+        };
+
+        match version {
+            Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => future.await,
+            _ => {
+                tokio::spawn(future);
+            }
+        }
 
         if !continue_accepting() {
             break;
