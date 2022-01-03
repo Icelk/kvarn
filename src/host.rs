@@ -463,6 +463,7 @@ impl CollectionBuilder {
     ///
     /// This works great with the overall flow of Kvarn. See [`RunConfig::execute()`] for an example.
     #[inline]
+    #[must_use]
     pub fn build(self) -> Arc<Collection> {
         Arc::new(self.into_inner())
     }
@@ -523,16 +524,19 @@ impl Collection {
     ///
     /// Use [`Self::get_from_request`] to get the appropriate host.
     #[inline]
+    #[must_use]
     pub fn get_default(&self) -> Option<&Host> {
         self.default.and_then(|default| self.get_host(default))
     }
     /// Get a [`Host`] by name.
     #[inline]
+    #[must_use]
     pub fn get_host(&self, name: &str) -> Option<&Host> {
         self.by_name.get(name)
     }
     /// Get a [`Host`] by name, and returns the [`default`](Self::get_default) if none were found.
     #[inline]
+    #[must_use]
     pub fn get_or_default(&self, name: &str) -> Option<&Host> {
         self.get_host(name)
             .or_else(|| self.get_default())
@@ -551,6 +555,7 @@ impl Collection {
     /// Get a [`Host`] by name, if any, and returns it or the [`default`](Self::get_default)
     /// if `name` is [`None`] or [`Self::get_or_default`] returns [`None`].
     #[inline]
+    #[must_use]
     pub fn get_option_or_default(&self, name: Option<&str>) -> Option<&Host> {
         match name {
             Some(host) => self.get_or_default(host),
@@ -578,6 +583,7 @@ impl Collection {
 
     /// Returns if any [`Host`]s are [`Host::is_secure`].
     #[inline]
+    #[must_use]
     pub fn has_secure(&self) -> bool {
         self.has_secure
     }
