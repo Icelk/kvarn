@@ -1048,8 +1048,8 @@ Some data!";
         assert_eq!(
             query.get("amount"),
             Some(&QueryPair {
-                name: "amount",
-                value: "500$"
+                name: Cow::Borrowed("amount"),
+                value: Cow::Borrowed("500$"),
             })
         );
 
@@ -1057,8 +1057,8 @@ Some data!";
         assert_eq!(
             query.get_first("to"),
             Some(&QueryPair {
-                name: "to",
-                value: "bob"
+                name: Cow::Borrowed("to"),
+                value: Cow::Borrowed("bob")
             })
         );
     }

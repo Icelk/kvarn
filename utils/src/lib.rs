@@ -115,7 +115,7 @@ pub trait AsCleanDebug {
     /// # Examples
     ///
     /// ```
-    /// # use kvarn_utils::prelude::prelude::*;
+    /// # use kvarn_utils::prelude::*;
     /// let s = "a\tstring";
     /// let clean_debug = s.as_clean();
     ///
@@ -359,7 +359,7 @@ pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &s
 /// # use kvarn_utils::prelude::*;
 /// let example = "POST /api/username HTTP/3";
 /// assert!(
-///     starts_with_any!(example, "GET" , "HEAD" , "POST")
+///     kvarn_utils::starts_with_any!(example, "GET" , "HEAD" , "POST")
 /// );
 /// ```
 #[macro_export]
