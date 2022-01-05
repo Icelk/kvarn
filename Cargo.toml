@@ -46,10 +46,10 @@ tokio = { version = "^1.13", features = ["rt", "io-util", "net", "fs", "sync", "
 webpki = { version = "^0.22", optional = true }
 
 [features]
-default = ["all-http", "all-compression", "graceful-shutdown"]
+default = ["full"]
 
 # Enable all features
-full = ["all-http", "all-compression", "graceful-shutdown", "mt"]
+full = ["all-http", "all-compression", "graceful-shutdown"]
 
 # All HTTP versions and features
 all-http = ["https", "http2"]
@@ -62,9 +62,6 @@ gzip = ["flate2"]
 # HTTP standards
 https = ["rustls", "rustls-pemfile", "webpki"]
 http2 = ["h2", "https"]
-
-# Multi threading
-mt = ["tokio/rt-multi-thread"]
 
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = []
