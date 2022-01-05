@@ -42,7 +42,7 @@ impl Cors {
         &self,
         origin: &Uri,
         uri_path: &str,
-    ) -> Option<(&[Method], &[HeaderName], time::Duration)> {
+    ) -> Option<(MethodAllowList, &[HeaderName], time::Duration)> {
         self.get(uri_path).and_then(|cal| cal.check(origin))
     }
     /// Check if the [`Request::headers`] and [`Request::uri`] is allowed with this ruleset.
@@ -55,14 +55,21 @@ impl Cors {
     pub fn check_cors_request<T>(
         &self,
         request: &Request<T>,
-    ) -> Option<(&[Method], &[HeaderName], time::Duration)> {
+    ) -> Option<(MethodAllowList, &[HeaderName], time::Duration)> {
         let same_origin_allowed_headers = (
-            &[Method::GET, Method::HEAD, Method::OPTIONS][..],
+            MethodAllowList::All,
             &[][..],
             time::Duration::from_secs(60 * 60 * 24 * 7),
         );
         match request.headers().get("origin") {
             None => Some(same_origin_allowed_headers),
+            Some(origin)
+                if origin
+                    .to_str()
+                    .map_or(false, |origin| origin == "localhost" || origin == "null") =>
+            {
+                Some(same_origin_allowed_headers)
+            }
             Some(origin)
                 if origin.to_str().map_or(false, |origin| {
                     Cors::is_part_of_origin(origin, request.uri())
@@ -72,7 +79,7 @@ impl Cors {
             }
             Some(origin) => match Uri::try_from(origin.as_bytes()) {
                 Ok(origin) => match self.check_origin(&origin, request.uri().path()) {
-                    Some(allowed) if allowed.0.contains(request.method()) => Some(allowed),
+                    Some(allowed) if allowed.0.allowed(request.method()) => Some(allowed),
                     _ => None,
                 },
                 Err(_) => None,
@@ -81,19 +88,8 @@ impl Cors {
     }
     /// Checks if `uri` is the same origin as `origin`.
     fn is_part_of_origin(origin: &str, uri: &Uri) -> bool {
-        let uri_parts = {
-            origin.split_once("://")
-            // if let Some(pos) = origin.find("://") {
-            // if origin.find('.').map_or(false, |dot_pos| dot_pos > pos) {
-            // // This is fine; it's on the find boundary
-            // Some((origin.get(..pos).unwrap(), origin.get(pos + 3..).unwrap()))
-            // } else {
-            // None
-            // }
-            // } else {
-            // None
-            // }
-        };
+        let uri_parts = origin.split_once("://");
+
         let (origin_scheme, origin_authority) = match uri_parts {
             Some((s, o)) => (s, o),
             None => return false,
@@ -119,7 +115,7 @@ impl Cors {
 pub struct AllowList {
     allowed: Vec<Uri>,
     allow_all_origins: bool,
-    methods: Vec<Method>,
+    methods: Option<Vec<Method>>,
     headers: Vec<HeaderName>,
     cache_for: time::Duration,
 }
@@ -129,7 +125,7 @@ impl AllowList {
         Self {
             allowed: Vec::new(),
             allow_all_origins: false,
-            methods: vec![Method::GET, Method::HEAD, Method::OPTIONS],
+            methods: Some(vec![Method::GET, Method::HEAD, Method::OPTIONS]),
             headers: Vec::new(),
             cache_for,
         }
@@ -165,9 +161,15 @@ impl AllowList {
     /// Allows the listed origin(s) (added via [`Self::add_origin`])
     /// to request using `allowed_method`.
     pub fn add_method(mut self, allowed_method: Method) -> Self {
-        if !self.methods.contains(&allowed_method) {
-            self.methods.push(allowed_method);
+        let methods = self.methods.get_or_insert_with(Vec::new);
+        if !methods.contains(&allowed_method) {
+            methods.push(allowed_method);
         }
+        self
+    }
+    /// Allows all methods.
+    pub fn allow_all_methods(mut self) -> Self {
+        self.methods = None;
         self
     }
     /// Allows the listed origin(s) (added via [`Self::add_origin`])
@@ -178,14 +180,19 @@ impl AllowList {
         }
         self
     }
+    fn get_methods(&self) -> MethodAllowList {
+        self.methods
+            .as_deref()
+            .map_or(MethodAllowList::All, MethodAllowList::Selected)
+    }
     /// Checks if the `origin` is allowed according to the allow list.
     ///
     /// Returns [`Some`] if `origin` is allowed, with the [`Method`]s and [`HeaderName`]s
     /// allowed, with a cache max-age of [`time::Duration`].
     /// Returns [`None`] if `origin` isn't allowed.
-    pub fn check(&self, origin: &Uri) -> Option<(&[Method], &[HeaderName], time::Duration)> {
+    pub fn check(&self, origin: &Uri) -> Option<(MethodAllowList, &[HeaderName], time::Duration)> {
         if self.allow_all_origins {
-            return Some((&self.methods, &self.headers, self.cache_for));
+            return Some((self.get_methods(), &self.headers, self.cache_for));
         }
         for allowed in &self.allowed {
             let scheme = allowed.scheme().map_or("https", uri::Scheme::as_str);
@@ -194,7 +201,7 @@ impl AllowList {
                 && allowed.port_u16() == origin.port_u16()
                 && Some(scheme) == origin.scheme().map(uri::Scheme::as_str)
             {
-                return Some((&self.methods, &self.headers, self.cache_for));
+                return Some((self.get_methods(), &self.headers, self.cache_for));
             }
         }
         None
@@ -206,6 +213,42 @@ impl Default for AllowList {
         Self::new(time::Duration::from_secs(60 * 60))
     }
 }
+
+/// The allowed methods.
+#[derive(Debug)]
+#[must_use]
+pub enum MethodAllowList<'a> {
+    /// All methods are allowed.
+    All,
+    /// Only the methods in the slice are allowed.
+    Selected(&'a [Method]),
+}
+impl<'a> MethodAllowList<'a> {
+    #[must_use]
+    fn allowed(&self, method: &Method) -> bool {
+        match self {
+            Self::All => true,
+            Self::Selected(list) => list.contains(method),
+        }
+    }
+    fn to_bytes(&self) -> Bytes {
+        match self {
+            Self::All => Bytes::from_static(b"*"),
+            Self::Selected(list) => list
+                .iter()
+                .enumerate()
+                .fold(BytesMut::with_capacity(24), |mut acc, (pos, method)| {
+                    acc.extend_from_slice(method.as_str().as_bytes());
+                    if pos + 1 != list.len() {
+                        acc.extend_from_slice(b", ");
+                    }
+                    acc
+                })
+                .freeze(),
+        }
+    }
+}
+
 impl Extensions {
     /// Adds extensions to disallow all CORS requests.
     /// This is added when calling [`Extensions::new`].
@@ -335,17 +378,7 @@ impl Extensions {
                 let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
 
                 if let Some((methods, headers, cache_for)) = allowed {
-                    let methods = methods
-                        .iter()
-                        .enumerate()
-                        .fold(BytesMut::with_capacity(24), |mut acc, (pos, method)| {
-                            acc.extend_from_slice(method.as_str().as_bytes());
-                            if pos + 1 != methods.len() {
-                                acc.extend_from_slice(b", ");
-                            }
-                            acc
-                        })
-                        .freeze();
+                    let methods = methods.to_bytes();
                     let headers = headers
                         .iter()
                         .enumerate()
