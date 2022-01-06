@@ -12,6 +12,7 @@ categories = ["template-engine"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+futures = "^0.3"
 kvarn = { path = "../", default-features = false }
 # kvarn = { version = "^0.3", default-features = false }
 kvarn-fastcgi-client = { version = "^0.1", optional = true }
