@@ -64,13 +64,6 @@ impl Cors {
         match request.headers().get("origin") {
             None => Some(same_origin_allowed_headers),
             Some(origin)
-                if origin
-                    .to_str()
-                    .map_or(false, |origin| origin == "localhost" || origin == "null") =>
-            {
-                Some(same_origin_allowed_headers)
-            }
-            Some(origin)
                 if origin.to_str().map_or(false, |origin| {
                     Cors::is_part_of_origin(origin, request.uri())
                 }) =>
@@ -92,7 +85,7 @@ impl Cors {
 
         let (origin_scheme, origin_authority) = match uri_parts {
             Some((s, o)) => (s, o),
-            None => return false,
+            None => return origin == "localhost" || origin == "null",
         };
         if Some(origin_scheme) != uri.scheme_str() {
             return false;
