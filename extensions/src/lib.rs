@@ -51,11 +51,13 @@ pub fn new() -> Extensions {
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
-/// The current defaults are [`download()`], [`cache()`], [`php()`], and [`templates()`]
+/// The current defaults are [`download()`], [`cache()`], and [`templates()`]
+///
+/// > To add PHP, use [`php()`].
 ///
 /// They will *always* get included in your server after calling this function.
 ///
-/// The priority of the `php` extension is `-8` and `-32` for the `push` extension.
+/// The priority of the `push` extension is `-32`.
 ///
 /// # Examples
 ///
@@ -79,8 +81,6 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_internal("hide".to_string(), Box::new(hide));
     extensions.add_present_file("private".to_string(), Box::new(hide));
     extensions.add_present_internal("allow-ips".to_string(), Box::new(ip_allow));
-    #[cfg(feature = "php")]
-    php(extensions);
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), Box::new(templates));
     #[cfg(feature = "push")]

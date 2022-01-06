@@ -1,9 +1,10 @@
 use crate::*;
 
-pub fn mount_php(extensions: &mut Extensions) {
+/// Priority is `-8`.
+pub fn mount_php(extensions: &mut Extensions, connection: Connection) {
     extensions.add_prepare_fn(
         Box::new(|req, host| !host.options.disable_fs && req.uri().path().ends_with(".php")),
-        Box::new(php),
+        Box::new(move |req, host, path, addr| php(req, host, path, addr, connection)),
         extensions::Id::new(-8, "PHP"),
     );
 }

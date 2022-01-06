@@ -13,8 +13,11 @@ pub async fn connect(
     method: &str,
     file_name: &str,
     file_path: &str,
-    uri: &str,
+    path: &str,
+    query: Option<&str>,
     address: &SocketAddr,
+    content_type: &str,
+    headers: &HeaderMap,
     body: &[u8],
 ) -> Result<Vec<u8>, FastcgiError> {
     // Create connection to FastCGI server
@@ -31,12 +34,12 @@ pub async fn connect(
     };
     let remote_port = address.port().to_string();
 
-    let params = Params::default()
+    let mut params = Params::default()
         .set_request_method(method)
         .set_script_name(file_name)
         .set_script_filename(file_path)
-        .set_request_uri(uri)
-        .set_document_uri(uri)
+        .set_request_uri(path)
+        .set_document_uri(path)
         .set_remote_addr(&remote_addr)
         .set_remote_port(&remote_port)
         .set_server_addr("0.0.0.0")
@@ -44,6 +47,27 @@ pub async fn connect(
         .set_server_name(kvarn::SERVER)
         .set_content_type("")
         .set_content_length(&len);
+
+    if let Some(query) = query {
+        params = params.set_query_string(query);
+    }
+
+    let param_headers: Vec<_> = headers
+        .iter()
+        .filter_map(|(name, value)| {
+            if let Ok(value) = value.to_str() {
+                let mut name = name.as_str().to_uppercase();
+                name.insert_str(0, "HTTP_");
+                Some((name, value))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (name, value) in &param_headers {
+        params.insert(name, value);
+    }
 
     let request = kvarn_fastcgi_client::Request::new(params, body);
 
