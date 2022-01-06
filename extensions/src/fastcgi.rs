@@ -45,7 +45,7 @@ pub async fn connect(
         .set_server_addr("0.0.0.0")
         .set_server_port("")
         .set_server_name(kvarn::SERVER)
-        .set_content_type("")
+        .set_content_type(content_type)
         .set_content_length(&len);
 
     if let Some(query) = query {
