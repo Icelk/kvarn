@@ -7,8 +7,9 @@ pub enum FastcgiError {
     FailedToDoRequest(kvarn_fastcgi_client::ClientError),
     NoStdout,
 }
+#[allow(clippy::too_many_arguments)]
 pub async fn connect(
-    _port: u16,
+    connection: Connection,
     method: &str,
     file_name: &str,
     file_path: &str,
@@ -17,17 +18,11 @@ pub async fn connect(
     body: &[u8],
 ) -> Result<Vec<u8>, FastcgiError> {
     // Create connection to FastCGI server
-    #[cfg(windows)]
-    let stream = match networking::TcpStream::connect((net::Ipv4Addr::LOCALHOST, _port)).await {
+    let stream = match connection.establish().await {
         Ok(stream) => stream,
         Err(err) => return Err(FastcgiError::FailedToConnect(err)),
     };
-    #[cfg(unix)]
-    let stream = match tokio::net::UnixStream::connect("/run/php-fpm/php-fpm.sock").await {
-        Ok(stream) => stream,
-        Err(err) => return Err(FastcgiError::FailedToConnect(err)),
-    };
-    let mut client = Client::new(stream, false);
+    let mut client = Client::new(stream, true);
 
     let len = body.len().to_string();
     let remote_addr = match address.ip() {
