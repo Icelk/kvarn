@@ -1,8 +1,8 @@
+use crate::connection::{Connection, EstablishedConnection};
 use kvarn::prelude::{internals::*, *};
 use std::net::{Ipv4Addr, SocketAddrV4};
-use tokio::net::{TcpStream, UdpSocket, UnixStream};
 
-pub use async_bits::{poll_fn, CopyBuffer};
+pub use async_bits::CopyBuffer;
 #[macro_use]
 pub mod async_bits {
     use kvarn::prelude::*;
@@ -116,134 +116,8 @@ pub mod async_bits {
             Self::new()
         }
     }
-    pub fn poll_fn<T, F>(f: F) -> PollFn<F>
-    where
-        F: FnMut(&mut Context<'_>) -> Poll<T>,
-    {
-        PollFn { f }
-    }
-    pub struct PollFn<F> {
-        f: F,
-    }
-    impl<F> Unpin for PollFn<F> {}
-    impl<F> fmt::Debug for PollFn<F> {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("PollFn").finish()
-        }
-    }
-    impl<T, F> Future for PollFn<F>
-    where
-        F: FnMut(&mut Context<'_>) -> Poll<T>,
-    {
-        type Output = T;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-            (&mut self.f)(cx)
-        }
-    }
 }
 
-macro_rules! socket_addr_with_port {
-        ($($port:literal $(,)+)*) => {
-            &[
-                $(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, $port)),)*
-            ]
-        };
-    }
-
-#[derive(Debug, Clone, Copy)]
-pub enum Connection {
-    Tcp(SocketAddr),
-    /// Keep in mind, this currently has a `60s` timeout.
-    /// Please use [`Self::UnixSocket`]s instead if you are on Unix.
-    Udp(SocketAddr),
-    #[cfg(unix)]
-    UnixSocket(&'static Path),
-}
-impl Connection {
-    pub async fn establish(self) -> io::Result<EstablishedConnection> {
-        match self {
-            Self::Tcp(addr) => TcpStream::connect(addr)
-                .await
-                .map(EstablishedConnection::Tcp),
-            Self::Udp(addr) => {
-                let candidates = &socket_addr_with_port!(
-                    17448, 64567, 40022, 56654, 52027, 44328, 29973, 27919, 26513, 42327, 64855,
-                    5296, 52942, 43204, 15322, 13243,
-                )[..];
-                let socket = UdpSocket::bind(candidates).await?;
-                socket.connect(addr).await?;
-                Ok(EstablishedConnection::Udp(socket))
-            }
-            Self::UnixSocket(path) => UnixStream::connect(path)
-                .await
-                .map(EstablishedConnection::UnixSocket),
-        }
-    }
-}
-#[derive(Debug)]
-pub enum GatewayError {
-    Io(io::Error),
-    Timeout,
-    Parse(parse::Error),
-}
-impl From<io::Error> for GatewayError {
-    fn from(err: io::Error) -> Self {
-        Self::Io(err)
-    }
-}
-impl From<parse::Error> for GatewayError {
-    fn from(err: parse::Error) -> Self {
-        Self::Parse(err)
-    }
-}
-#[derive(Debug)]
-pub enum EstablishedConnection {
-    Tcp(TcpStream),
-    Udp(UdpSocket),
-    #[cfg(unix)]
-    UnixSocket(UnixStream),
-}
-impl AsyncWrite for EstablishedConnection {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
-        match self.get_mut() {
-            Self::Tcp(s) => Pin::new(s).poll_write(cx, buf),
-            Self::Udp(s) => Pin::new(s).poll_send(cx, buf),
-            Self::UnixSocket(s) => Pin::new(s).poll_write(cx, buf),
-        }
-    }
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        match self.get_mut() {
-            Self::Tcp(s) => Pin::new(s).poll_flush(cx),
-            Self::Udp(_) => Poll::Ready(Ok(())),
-            Self::UnixSocket(s) => Pin::new(s).poll_flush(cx),
-        }
-    }
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        match self.get_mut() {
-            Self::Tcp(s) => Pin::new(s).poll_shutdown(cx),
-            Self::Udp(_) => Poll::Ready(Ok(())),
-            Self::UnixSocket(s) => Pin::new(s).poll_shutdown(cx),
-        }
-    }
-}
-impl AsyncRead for EstablishedConnection {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        match self.get_mut() {
-            Self::Tcp(s) => Pin::new(s).poll_read(cx, buf),
-            Self::Udp(s) => Pin::new(s).poll_recv(cx, buf),
-            Self::UnixSocket(s) => Pin::new(s).poll_read(cx, buf),
-        }
-    }
-}
 impl EstablishedConnection {
     pub async fn request<T: Debug>(
         &mut self,
@@ -334,6 +208,23 @@ impl EstablishedConnection {
             Err(_) => return Err(GatewayError::Timeout),
         };
         Ok(response)
+    }
+}
+
+#[derive(Debug)]
+pub enum GatewayError {
+    Io(io::Error),
+    Timeout,
+    Parse(parse::Error),
+}
+impl From<io::Error> for GatewayError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+impl From<parse::Error> for GatewayError {
+    fn from(err: parse::Error) -> Self {
+        Self::Parse(err)
     }
 }
 

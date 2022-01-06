@@ -16,10 +16,9 @@ use wrappers::*;
 #[cfg(feature = "reverse-proxy")]
 #[path = "reverse-proxy.rs"]
 pub mod reverse_proxy;
+pub use connection::Connection;
 #[cfg(feature = "reverse-proxy")]
-pub use reverse_proxy::{
-    localhost, static_connection, Connection as ReverseProxyConnection, Manager as ReverseProxy,
-};
+pub use reverse_proxy::{localhost, static_connection, Manager as ReverseProxy};
 
 #[cfg(feature = "push")]
 pub mod push;
@@ -38,6 +37,8 @@ pub use php::mount_php as php;
 pub mod templates;
 #[cfg(feature = "templates")]
 pub use templates::templates;
+
+pub mod connection;
 
 /// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
 ///

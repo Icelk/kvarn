@@ -65,7 +65,7 @@ pub async fn from_prepare<T>(
     body: &[u8],
     path: &Path,
     address: SocketAddr,
-    fcgi_server_port: u16,
+    connection: Connection,
 ) -> Result<Vec<u8>, Cow<'static, str>> {
     let file_name = match parse::format_file_name(&path) {
         Some(name) => name,
@@ -88,33 +88,29 @@ pub async fn from_prepare<T>(
 
     // Fetch fastcgi server response.
     match connect(
-        fcgi_server_port,
+        connection,
         request.method().as_str(),
         file_name,
         file_path,
-        request.uri().path_and_query().unwrap().as_str(),
+        request.uri().path(),
+        request.uri().query(),
         &address,
+        request
+            .headers()
+            .get("content-type")
+            .and_then(|header| header.to_str().ok())
+            .unwrap_or(""),
+        request.headers(),
         body,
     )
     .await
     {
         Ok(vec) => Ok(vec),
         Err(err) => match err {
-            FastcgiError::FailedToConnect(_err) => {
-                #[cfg(windows)]
-                {
-                    Err(Cow::Owned(format!(
-                        "Failed to connect to FastCGI server on port {}. IO Err: {}",
-                        fcgi_server_port, _err
-                    )))
-                }
-                #[cfg(unix)]
-                {
-                    Err(Cow::Borrowed(
-                        "Failed to connect to FastCGI on '/run/php-fmp/php-fmp.sock'",
-                    ))
-                }
-            }
+            FastcgiError::FailedToConnect(err) => Err(Cow::Owned(format!(
+                "Failed to connect to FastCGI server on {:?}. IO Err: {}",
+                connection, err
+            ))),
             FastcgiError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
                 "Failed to request from FastCGI server! Err: {}",
                 err

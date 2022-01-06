@@ -32,7 +32,7 @@ async fn basic() {
         Arc::new(move |request, _bytes| {
             get_port(request, &*con_path)
                 .map(kvarn_extensions::localhost)
-                .map(kvarn_extensions::ReverseProxyConnection::Tcp)
+                .map(kvarn_extensions::Connection::Tcp)
         });
 
     let modify: kvarn_extensions::reverse_proxy::ModifyRequestFn = Arc::new(move |request, _| {
@@ -120,7 +120,7 @@ async fn base() {
     let mut extensions = Extensions::new();
     kvarn_extensions::ReverseProxy::base(
         "/api",
-        kvarn_extensions::static_connection(kvarn_extensions::ReverseProxyConnection::Tcp(
+        kvarn_extensions::static_connection(kvarn_extensions::Connection::Tcp(
             kvarn_extensions::localhost(backend.port()),
         )),
         std::time::Duration::from_secs(5),
@@ -156,7 +156,7 @@ async fn chunked_encoding() {
     let mut extensions = Extensions::new();
     kvarn_extensions::ReverseProxy::base(
         "/api",
-        kvarn_extensions::static_connection(kvarn_extensions::ReverseProxyConnection::Tcp(
+        kvarn_extensions::static_connection(kvarn_extensions::Connection::Tcp(
             kvarn_extensions::localhost(backend.port()),
         )),
         std::time::Duration::from_secs(5),
