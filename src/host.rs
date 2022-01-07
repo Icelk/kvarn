@@ -400,6 +400,27 @@ impl Options {
         self.public_data_dir = Some(path.as_ref().to_path_buf());
         self
     }
+
+    /// Gets the [`Self::folder_default`], as used by Kvarn.
+    /// Uses the default specified there.
+    #[must_use]
+    pub fn get_folder_default(&self) -> &str {
+        self.folder_default.as_deref().unwrap_or("index.html")
+    }
+    /// Gets the [`Self::extension_default`], as used by Kvarn.
+    /// Uses the default specified there.
+    #[must_use]
+    pub fn get_extension_default(&self) -> &str {
+        self.extension_default.as_deref().unwrap_or("html")
+    }
+    /// Gets the [`Self::public_data_dir`], as used by Kvarn.
+    /// Uses the default specified there.
+    #[must_use]
+    pub fn get_public_data_dir(&self) -> &Path {
+        self.public_data_dir
+            .as_deref()
+            .unwrap_or_else(|| Path::new("public"))
+    }
 }
 impl Default for Options {
     fn default() -> Self {
