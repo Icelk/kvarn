@@ -615,7 +615,9 @@ pub fn query(query: &str) -> Query {
                 let value = query.get(value_start..position);
 
                 if let (Some(key), Some(value)) = (key, value) {
-                    map.insert(percent_decode(key), percent_decode(value));
+                    if !key.is_empty() {
+                        map.insert(percent_decode(key), percent_decode(value));
+                    }
                 }
 
                 pair_start = position + 1;
@@ -628,7 +630,9 @@ pub fn query(query: &str) -> Query {
         let value = query.get(value_start..);
 
         if let (Some(key), Some(value)) = (key, value) {
-            map.insert(percent_decode(key), percent_decode(value));
+            if !key.is_empty() {
+                map.insert(percent_decode(key), percent_decode(value));
+            }
         }
     }
     map
