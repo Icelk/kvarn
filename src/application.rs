@@ -95,6 +95,28 @@ pub enum HttpConnection {
     Http2(Box<h2::server::Connection<Encryption, bytes::Bytes>>),
 }
 
+/// The data for [`Body::Bytes`].
+#[derive(Debug)]
+#[must_use]
+pub struct ByteBody {
+    content: Bytes,
+    read: usize,
+}
+impl ByteBody {
+    /// Get a reference to the bytes of this body.
+    pub fn inner(&self) -> &Bytes {
+        &self.content
+    }
+}
+impl From<Bytes> for ByteBody {
+    fn from(b: Bytes) -> Self {
+        Self {
+            content: b,
+            read: 0,
+        }
+    }
+}
+
 /// A body of a [`Request`].
 ///
 /// The inner variables are streams. To get the bytes, use [`Body::read_to_bytes()`] when needed.
@@ -102,10 +124,11 @@ pub enum HttpConnection {
 /// Also see [`FatRequest`].
 #[derive(Debug)]
 pub enum Body {
-    /// An empty body.
+    /// A body of [`Bytes`].
     ///
-    /// Can be used by HTTP/2 push to simulate a GET request.
-    Empty,
+    /// Can be used by HTTP/2 push to simulate a GET request,
+    /// or any other extensions which wants a Kvarn response.
+    Bytes(ByteBody),
     /// A buffered HTTP/1 body.
     ///
     /// While the HTTP/1 headers were read, it reads too much
@@ -268,7 +291,7 @@ mod request {
         #[inline]
         pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
             match self {
-                Self::Empty => Ok(Bytes::new()),
+                Self::Bytes(bytes) => Ok(bytes.inner().clone()),
                 Self::Http1(h1) => h1.read_to_bytes().await,
                 #[cfg(feature = "http2")]
                 Self::Http2(h2) => {
@@ -313,7 +336,17 @@ mod request {
                     }
                     Poll::Ready(Ok(()))
                 }
-                Self::Empty => Poll::Ready(Ok(())),
+                Self::Bytes(byte_body) => {
+                    let rest = byte_body.inner().get(byte_body.read..).unwrap_or(&[]);
+                    if rest.is_empty() {
+                        return Poll::Ready(Ok(()));
+                    }
+                    let len = std::cmp::min(buf.remaining(), rest.len());
+                    buf.put_slice(&rest[..len]);
+                    byte_body.read += len;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
             }
         }
     }

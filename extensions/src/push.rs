@@ -163,8 +163,8 @@ fn push(
                             Err(_) => return,
                         };
 
-                        let mut push_request =
-                            push_request.map(|_| kvarn::application::Body::Empty);
+                        let mut push_request = push_request
+                            .map(|_| kvarn::application::Body::Bytes(Bytes::new().into()));
 
                         let response = kvarn::handle_cache(&mut push_request, addr, host).await;
 
