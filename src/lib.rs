@@ -601,7 +601,7 @@ pub struct CacheReply {
     pub response: Response<Bytes>,
     /// The response body without compression.
     pub identity_body: Bytes,
-    /// The returned value from [`utils::sanitize_data()`].
+    /// The returned value from [`utils::sanitize_request()`].
     ///
     /// Internally used in [`SendKind`] to apply [`utils::CriticalRequestComponents`] to the response.
     pub sanitize_data: Result<utils::CriticalRequestComponents, SanitizeError>,
