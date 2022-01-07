@@ -587,7 +587,7 @@ impl Extensions {
         server_cache_preference: &mut comprash::ServerCachePreference,
         host: &Host,
         address: SocketAddr,
-    ) -> io::Result<()> {
+    ) {
         let mut body = LazyRequestBody::new(request.body_mut());
         let body = &mut body;
         let path = utils::parse::uri(request.uri().path());
@@ -631,7 +631,6 @@ impl Extensions {
             let data = PresentDataWrapper::new(&mut data);
             extension(data).await;
         }
-        Ok(())
     }
     pub(crate) async fn resolve_package(
         &self,

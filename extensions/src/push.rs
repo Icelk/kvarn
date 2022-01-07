@@ -163,18 +163,17 @@ fn push(
                             Err(_) => return,
                         };
 
-                        let push_request = push_request.map(|_| kvarn::application::Body::Empty);
+                        let mut push_request =
+                            push_request.map(|_| kvarn::application::Body::Empty);
 
-                        if let Err(err) = kvarn::handle_cache(
-                            push_request,
-                            addr,
-                            kvarn::SendKind::Push(&mut response_pipe),
-                            host,
-                        )
-                        .await
+                        let response = kvarn::handle_cache(&mut push_request, addr, host).await;
+
+                        if let Err(err) = kvarn::SendKind::Push(&mut response_pipe)
+                            .send(response, request, host, addr)
+                            .await
                         {
                             error!("Error occurred when pushing request. {:?}", err);
-                        };
+                        }
                     }
                 }
             }

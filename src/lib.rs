@@ -395,7 +395,7 @@ pub async fn handle_connection(
 
     info!("Accepting requests from {}", address);
 
-    while let Ok((request, mut response_pipe)) = http
+    while let Ok((mut request, mut response_pipe)) = http
         .accept(
             descriptor
                 .data
@@ -439,10 +439,13 @@ pub async fn handle_connection(
         let moved_host_collection = Arc::clone(&descriptor.data);
         let future = async move {
             let host = moved_host_collection.get_host(hostname).unwrap();
-            if let Err(err) =
-                handle_cache(request, address, SendKind::Send(&mut response_pipe), host).await
+            let response = handle_cache(&mut request, address, host).await;
+
+            if let Err(err) = SendKind::Send(&mut response_pipe)
+                .send(response, &request, host, address)
+                .await
             {
-                error!("Got error from `handle_cache`: {:?}", err);
+                error!("Got error from writing response: {:?}", err);
             }
         };
 
@@ -482,24 +485,28 @@ impl<'a> SendKind<'a> {
             Self::Push(p) => p.ensure_version(response),
         }
     }
+    /// Sends the `response` to this pipe.
+    ///
+    /// # Errors
+    ///
+    /// returns any errors with sending the data.
     #[inline]
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn send<F: Future<Output = ()>>(
+    pub async fn send(
         &mut self,
-        mut response: Response<Bytes>,
-        identity_body: Bytes,
+        response: CacheReply,
         request: &FatRequest,
         host: &Host,
-        future: Option<
-            impl FnOnce(
-                extensions::wrappers::ResponseBodyPipeWrapperMut,
-                extensions::wrappers::HostWrapper,
-            ) -> F,
-        >,
         address: SocketAddr,
-        data: Option<utils::CriticalRequestComponents>,
     ) -> io::Result<()> {
-        if let Some(data) = &data {
+        let CacheReply {
+            mut response,
+            identity_body,
+            sanitize_data: data,
+            future,
+        } = response;
+
+        if let Ok(data) = &data {
             match data.apply_to_response(&mut response).await {
                 Err(SanitizeError::RangeNotSatisfiable) => {
                     response = default_error(
@@ -585,20 +592,44 @@ impl<'a> SendKind<'a> {
     }
 }
 
+/// The returned data from [`handle_cache`].
+///
+/// Can be used to get responses from Kvarn without sending a request over HTTP.
+pub struct CacheReply {
+    /// The response.
+    /// Duh.
+    pub response: Response<Bytes>,
+    /// The response body without compression.
+    pub identity_body: Bytes,
+    /// The returned value from [`utils::sanitize_data()`].
+    ///
+    /// Internally used in [`SendKind`] to apply [`utils::CriticalRequestComponents`] to the response.
+    pub sanitize_data: Result<utils::CriticalRequestComponents, SanitizeError>,
+    /// Must be awaited.
+    ///
+    /// Can be used for WebSocket connections.
+    pub future: Option<ResponsePipeFuture>,
+}
+impl Debug for CacheReply {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CacheReply")
+            .field("response", &self.response)
+            .field("identity_body", &self.identity_body)
+            .field("sanitize_data", &self.sanitize_data)
+            .field("future", &"internal future".as_clean())
+            .finish()
+    }
+}
+
 /// Will handle a single request, check the cache, process if needed, and caches it.
 /// This is where the response is sent.
 ///
 /// This is [layer 4](https://kvarn.org/pipeline.#layer-4--caching-and-compression)
-///
-/// # Errors
-///
-/// Errors are passed from writing the response.
 pub async fn handle_cache(
-    mut request: Request<application::Body>,
+    request: &mut Request<application::Body>,
     address: SocketAddr,
-    mut pipe: SendKind<'_>,
     host: &Host,
-) -> io::Result<()> {
+) -> CacheReply {
     /// Get a [`comprash::CompressedResponse`].
     ///
     /// # Errors
@@ -610,13 +641,13 @@ pub async fn handle_cache(
         sanitize_data: &Result<utils::CriticalRequestComponents, SanitizeError>,
         address: SocketAddr,
         overide_uri: Option<&Uri>,
-    ) -> io::Result<(
+    ) -> (
         comprash::CompressedResponse,
         comprash::ClientCachePreference,
         comprash::ServerCachePreference,
         Option<ResponsePipeFuture>,
         comprash::PathQuery,
-    )> {
+    ) {
         let path_query = comprash::PathQuery::from(request.uri());
         let (mut resp, mut client_cache, mut server_cache, compress, future) =
             match sanitize_data {
@@ -658,7 +689,7 @@ pub async fn handle_cache(
                 host,
                 address,
             )
-            .await?;
+            .await;
 
         let extension = match Path::new(request.uri().path())
             .extension()
@@ -670,7 +701,7 @@ pub async fn handle_cache(
                 None => "",
             },
         };
-        Ok((
+        (
             comprash::CompressedResponse::new(
                 resp,
                 compress,
@@ -682,7 +713,7 @@ pub async fn handle_cache(
             server_cache,
             future,
             path_query,
-        ))
+        )
     }
 
     async fn maybe_cache<T>(
@@ -755,12 +786,9 @@ pub async fn handle_cache(
         }
     }
 
-    let sanitize_data = utils::sanitize_request(&request);
+    let sanitize_data = utils::sanitize_request(request);
 
-    let overide_uri = host
-        .extensions
-        .resolve_prime(&mut request, host, address)
-        .await;
+    let overide_uri = host.extensions.resolve_prime(request, host, address).await;
 
     let uri_key =
         comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
@@ -808,7 +836,7 @@ pub async fn handle_cache(
                 *response.status_mut() = StatusCode::NOT_MODIFIED;
                 (response, Bytes::new(), None)
             } else {
-                let (resp_vary, future) = match resp.get_by_request(&request) {
+                let (resp_vary, future) = match resp.get_by_request(request) {
                     Ok(arc) => {
                         let arc = Arc::clone(arc);
                         drop(lock);
@@ -819,13 +847,13 @@ pub async fn handle_cache(
                         drop(lock);
                         let (compressed_response, _, server_cache, future, path_query) =
                             get_response(
-                                &mut request,
+                                request,
                                 host,
                                 &sanitize_data,
                                 address,
                                 overide_uri.as_ref(),
                             )
-                            .await?;
+                            .await;
 
                         let mut lock = get_lock(host).await;
                         // Try to get back varied response. If not there, recreate it, as the
@@ -835,14 +863,14 @@ pub async fn handle_cache(
                                 Arc::clone(resp.push_response(compressed_response, params))
                             }
                             (None, _) => {
-                                let vary_rules = host.vary.rules_from_request(&request);
+                                let vary_rules = host.vary.rules_from_request(request);
 
                                 // SAFETY: The requirements are met; the cache we're storing this is is part of the
                                 // `host`; the `host` will outlive this struct.
                                 let varied_response = unsafe {
                                     VariedResponse::new(
                                         compressed_response,
-                                        &request,
+                                        request,
                                         vary_rules.as_ref(),
                                     )
                                 };
@@ -869,7 +897,7 @@ pub async fn handle_cache(
                 let (resp, vary) = &*resp_vary;
                 // Here, the lock is always (irrelevant of which arm the code runs) dropped, which
                 // enables us to do computationally heavy things, such as compression.
-                let mut response = match resp.clone_preferred(&request) {
+                let mut response = match resp.clone_preferred(request) {
                     Err(message) => {
                         error::default(
                             StatusCode::NOT_ACCEPTABLE,
@@ -902,11 +930,10 @@ pub async fn handle_cache(
         _ => {
             drop(lock);
 
-            let request: &mut Request<application::Body> = &mut request;
             let sanitize_data = &sanitize_data;
             let overide_uri = overide_uri.as_ref();
             let (compressed_response, _, server_cache, future, path_query) =
-                get_response(request, host, sanitize_data, address, overide_uri).await?;
+                get_response(request, host, sanitize_data, address, overide_uri).await;
 
             let vary_rules = host.vary.rules_from_request(request);
 
@@ -955,18 +982,12 @@ pub async fn handle_cache(
         }
     };
 
-    pipe.send(
+    CacheReply {
         response,
-        identity,
-        &request,
-        host,
+        identity_body: identity,
+        sanitize_data,
         future,
-        address,
-        sanitize_data.ok(),
-    )
-    .await?;
-
-    Ok(())
+    }
 }
 
 /// Handles a single request and returns response with cache and compress preference.
