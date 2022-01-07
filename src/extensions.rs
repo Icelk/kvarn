@@ -197,7 +197,7 @@ pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
     Box::pin(core::future::ready(value))
 }
 
-macro_rules! add_sort_list {
+macro_rules! add_sorted_list {
     ($list: expr, $id: expr, $($other: expr, )+) => {
         let mut id = $id;
         loop {
@@ -222,11 +222,17 @@ macro_rules! add_sort_list {
         }
     };
 }
+macro_rules! remove_sorted_list {
+    ($list: expr, $id: expr) => {
+        $list
+            .binary_search_by(|probe| probe.0.cmp(&$id))
+            .ok()
+            .map(|pos| $list.remove(pos))
+    };
+}
 
 /// Contains all extensions.
 /// See [kvarn.org on extensions](https://kvarn.org/extensions/) for more info.
-///
-/// `TODO`: remove and list? Give mut access to underlying `Vec`s and `HashMap`s or a `Entry`-like interface?
 #[must_use]
 pub struct Extensions {
     prime: Vec<(Id, Prime)>,
@@ -418,34 +424,93 @@ impl Extensions {
 
     /// Adds a [`Prime`] extension.
     pub fn add_prime(&mut self, extension: Prime, id: Id) {
-        add_sort_list!(self.prime, id, extension,);
+        add_sorted_list!(self.prime, id, extension,);
+    }
+    /// Removes the [`Prime`] extension (if any) with `id`.
+    pub fn remove_prime(&mut self, id: Id) {
+        remove_sorted_list!(self.prime, id);
+    }
+    /// Get a reference to the [`Prime`] extensions.
+    pub fn get_prime(&self) -> &[(Id, Prime)] {
+        &self.prime
     }
     /// Adds a [`Prepare`] extension for a single URI.
     pub fn add_prepare_single(&mut self, path: impl AsRef<str>, extension: Prepare) {
         self.prepare_single
             .insert(path.as_ref().to_owned(), extension);
     }
+    /// Removes the [`Prepare`] extension (if any) at `path`.
+    pub fn remove_prepare_single(&mut self, path: impl AsRef<str>) {
+        self.prepare_single.remove(path.as_ref());
+    }
+    /// Get a reference to the [`Prepare`] extensions bound to a path.
+    #[must_use]
+    pub fn get_prepare_single(&self) -> &HashMap<String, Prepare> {
+        &self.prepare_single
+    }
     /// Adds a [`Prepare`] extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_prepare_fn(&mut self, predicate: If, extension: Prepare, id: Id) {
-        add_sort_list!(self.prepare_fn, id, predicate, extension,);
+        add_sorted_list!(self.prepare_fn, id, predicate, extension,);
+    }
+    /// Removes the [`Prepare`] extension (if any) with `id`.
+    pub fn remove_prepare_fn(&mut self, id: Id) {
+        remove_sorted_list!(self.prepare_fn, id);
+    }
+    /// Get a reference to the [`Prepare`] extensions using [predicates](If).
+    pub fn get_prepare_fn(&self) -> &[(Id, If, Prepare)] {
+        &self.prepare_fn
     }
     /// Adds a [`Present`] internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: impl AsRef<str>, extension: Present) {
         self.present_internal
             .insert(name.as_ref().to_owned(), extension);
     }
+    /// Removes the [`Present`] internal extension (if any) at `path`.
+    pub fn remove_present_internal(&mut self, path: impl AsRef<str>) {
+        self.present_internal.remove(path.as_ref());
+    }
+    /// Get a reference to the [`Present`] internal extensions bound to a path.
+    #[must_use]
+    pub fn get_present_internal(&self) -> &HashMap<String, Present> {
+        &self.present_internal
+    }
     /// Adds a [`Present`] file extension, called with file extensions matching `name`.
     pub fn add_present_file(&mut self, name: impl AsRef<str>, extension: Present) {
         self.present_file
             .insert(name.as_ref().to_owned(), extension);
     }
+    /// Removes the [`Present`] file extension (if any) at `path`.
+    pub fn remove_present_file(&mut self, path: impl AsRef<str>) {
+        self.present_file.remove(path.as_ref());
+    }
+    /// Get a reference to the [`Present`] file extensions bound to a path.
+    #[must_use]
+    pub fn get_present_file(&self) -> &HashMap<String, Present> {
+        &self.present_file
+    }
     /// Adds a [`Package`] extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_package(&mut self, extension: Package, id: Id) {
-        add_sort_list!(self.package, id, extension,);
+        add_sorted_list!(self.package, id, extension,);
+    }
+    /// Removes the [`Package`] extension (if any) with `id`.
+    pub fn remove_package(&mut self, id: Id) {
+        remove_sorted_list!(self.package, id);
+    }
+    /// Get a reference to the [`Package`] extensions.
+    pub fn get_package(&self) -> &[(Id, Package)] {
+        &self.package
     }
     /// Adds a [`Post`] extension, used for HTTP/2 push Higher [`Id::priority()`] extensions are ran first.
     pub fn add_post(&mut self, extension: Post, id: Id) {
-        add_sort_list!(self.post, id, extension,);
+        add_sorted_list!(self.post, id, extension,);
+    }
+    /// Removes the [`Post`] extension (if any) with `id`.
+    pub fn remove_post(&mut self, id: Id) {
+        remove_sorted_list!(self.post, id);
+    }
+    /// Get a reference to the [`Package`] extensions.
+    pub fn get_post(&self) -> &[(Id, Post)] {
+        &self.post
     }
 
     /// The returned [`Uri`] should be the path of the request.
