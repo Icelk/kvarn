@@ -12,7 +12,7 @@ use crate::prelude::{fs::*, *};
 #[inline]
 pub async fn file_cached<P: AsRef<Path>>(path: &P, cache: Option<&FileCache>) -> Option<Bytes> {
     if let Some(cache) = cache {
-        if let CacheOut::Present(file) = cache.lock().await.get(path.as_ref()) {
+        if let CacheOut::Present(file) = cache.read().await.get(path.as_ref()) {
             return Some(Bytes::clone(file));
         }
     }
@@ -23,7 +23,7 @@ pub async fn file_cached<P: AsRef<Path>>(path: &P, cache: Option<&FileCache>) ->
     let buffer = buffer.freeze();
     if let Some(cache) = cache {
         cache
-            .lock()
+            .write()
             .await
             .cache(path.as_ref().to_path_buf(), Bytes::clone(&buffer));
     }
@@ -37,7 +37,7 @@ pub async fn file_cached<P: AsRef<Path>>(path: &P, cache: Option<&FileCache>) ->
 #[inline]
 pub async fn file<P: AsRef<Path>>(path: &P, cache: Option<&FileCache>) -> Option<Bytes> {
     if let Some(cache) = cache {
-        if let CacheOut::Present(cached) = cache.lock().await.get(path.as_ref()) {
+        if let CacheOut::Present(cached) = cache.read().await.get(path.as_ref()) {
             return Some(Bytes::clone(cached));
         }
     }

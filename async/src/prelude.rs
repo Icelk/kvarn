@@ -11,4 +11,4 @@ pub use std::{
     task::{Context, Poll},
 };
 pub use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-pub use tokio::sync::Mutex;
+pub use tokio::sync::{Mutex, RwLock};

@@ -14,9 +14,9 @@ use std::{
 };
 
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
-pub type FileCache = Mutex<Cache<PathBuf, Bytes>>;
+pub type FileCache = RwLock<Cache<PathBuf, Bytes>>;
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a response cache.
-pub type ResponseCache = Mutex<Cache<UriKey, VariedResponse>>;
+pub type ResponseCache = RwLock<Cache<UriKey, VariedResponse>>;
 
 /// A path an optional query used in [`UriKey`]
 ///
@@ -757,27 +757,68 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
     ///
     /// See [`HashMap::get`] for more info.
     #[inline]
-    pub fn get<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&mut V>
+    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> CacheOut<&V>
     where
         K: Borrow<Q>,
     {
-        self.get_with_lifetime(key).map(|v| &mut v.0)
+        self.get_with_lifetime(key).map(|v| &v.0)
     }
     /// Gets the [`CacheItem`] at `key` from the cache.
     /// Consider using [`Self::get`] for most operations.
     ///
     /// This includes all lifetime information about the item in the cache.
     /// See [`CacheItem`] for more info about this.
-    pub fn get_with_lifetime<Q: ?Sized + Hash + Eq>(
+    pub fn get_with_lifetime<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> CacheOut<&CacheItem<V>>
+    where
+        K: Borrow<Q>,
+    {
+        // // Here for borrowing issues after `self.map.get_mut`.
+        // // See the SAFETY note bellow.
+        // let ptr: *const _ = self;
+        // maybe set tokio timers to remove items instead?
+        match self.map.get(key) {
+            Some(value_and_lifetime)
+                if value_and_lifetime.1 .1.map_or(true, |lifetime| {
+                    Utc::now() - value_and_lifetime.1 .0 <= lifetime
+                }) =>
+            {
+                CacheOut::Present(value_and_lifetime)
+            }
+            Some(_) => {
+                // // SAFETY: No other have a reference to self; the other branches are just that,
+                // // other branches, and their references are returned, so this code isn't ran.
+                // #[allow(clippy::cast_ref_to_mut)]
+                // unsafe { &mut *(ptr as *mut Cache<K, V>) }.remove(key);
+                CacheOut::None
+            }
+            None => CacheOut::None,
+        }
+    }
+    /// Get a mutable reference to the value at `key` from the cache.
+    ///
+    /// See [`HashMap::get`] for more info.
+    #[inline]
+    pub fn get_mut<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&V>
+    where
+        K: Borrow<Q>,
+    {
+        self.get_mut_with_lifetime(key).map(|v| &v.0)
+    }
+    /// Gets a mutable reference to the [`CacheItem`] at `key` from the cache.
+    /// Consider using [`Self::get`] for most operations.
+    ///
+    /// This includes all lifetime information about the item in the cache.
+    /// See [`CacheItem`] for more info about this.
+    pub fn get_mut_with_lifetime<Q: ?Sized + Hash + Eq>(
         &mut self,
         key: &Q,
     ) -> CacheOut<&mut CacheItem<V>>
     where
         K: Borrow<Q>,
     {
-        // Here for borrowing issues after `self.map.get_mut`.
-        // See the SAFETY note bellow.
-        let ptr: *const _ = self;
+        // // Here for borrowing issues after `self.map.get_mut`.
+        // // See the SAFETY note bellow.
+        // let ptr: *const _ = self;
         // maybe set tokio timers to remove items instead?
         match self.map.get_mut(key) {
             Some(value_and_lifetime)
@@ -788,10 +829,10 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
                 CacheOut::Present(value_and_lifetime)
             }
             Some(_) => {
-                // SAFETY: No other have a reference to self; the other branches are just that,
-                // other branches, and their references are returned, so this code isn't ran.
-                #[allow(clippy::cast_ref_to_mut)]
-                unsafe { &mut *(ptr as *mut Cache<K, V>) }.remove(key);
+                // // SAFETY: No other have a reference to self; the other branches are just that,
+                // // other branches, and their references are returned, so this code isn't ran.
+                // #[allow(clippy::cast_ref_to_mut)]
+                // unsafe { &mut *(ptr as *mut Cache<K, V>) }.remove(key);
                 CacheOut::None
             }
             None => CacheOut::None,

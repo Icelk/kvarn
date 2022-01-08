@@ -146,8 +146,8 @@ impl Host {
             certificate: Some(Arc::new(cert)),
             path: path.as_ref().to_path_buf(),
             extensions,
-            file_cache: Some(Mutex::new(Cache::default())),
-            response_cache: Some(Mutex::new(Cache::default())),
+            file_cache: Some(RwLock::new(Cache::default())),
+            response_cache: Some(RwLock::new(Cache::default())),
             options,
             limiter: LimitManager::default(),
             vary: Vary::default(),
@@ -169,8 +169,8 @@ impl Host {
             certificate: None,
             path: path.as_ref().to_path_buf(),
             extensions,
-            file_cache: Some(Mutex::new(Cache::default())),
-            response_cache: Some(Mutex::new(Cache::default())),
+            file_cache: Some(RwLock::new(Cache::default())),
+            response_cache: Some(RwLock::new(Cache::default())),
             options,
             limiter: LimitManager::default(),
             vary: Vary::default(),
@@ -642,12 +642,12 @@ impl Collection {
             .as_ref()
             .and_then(|h| h.response_cache.as_ref())
         {
-            cache.lock().await.clear();
+            cache.write().await.clear();
         }
         // All other
         for host in self.by_name.values() {
             if let Some(cache) = &host.response_cache {
-                cache.lock().await.clear();
+                cache.write().await.clear();
             }
         }
     }
@@ -672,7 +672,7 @@ impl Collection {
                 .as_ref()
                 .and_then(|h| h.response_cache.as_ref())
             {
-                let mut lock = cache.lock().await;
+                let mut lock = cache.write().await;
                 if key
                     .call_all(|key| lock.remove(key).into_option())
                     .1
@@ -684,7 +684,7 @@ impl Collection {
         } else if let Some(host) = self.by_name.get(host) {
             found = true;
             if let Some(cache) = &host.response_cache {
-                let mut lock = cache.lock().await;
+                let mut lock = cache.write().await;
                 if key
                     .call_all(|key| lock.remove(key).into_option())
                     .1
@@ -704,17 +704,17 @@ impl Collection {
             .as_ref()
             .and_then(|h| h.file_cache.as_ref())
         {
-            cache.lock().await.clear();
+            cache.write().await.clear();
         }
         for host in self.by_name.values() {
             if let Some(cache) = &host.file_cache {
-                cache.lock().await.clear();
+                cache.write().await.clear();
             }
         }
     }
     /// Clears the `path` from all caches.
     ///
-    /// This iterates over all caches and [locks](Mutex::lock) them, which takes a lot of time.
+    /// This iterates over all caches and [locks](RwLock::write) them, which takes a lot of time.
     /// Though, it's not blocking.
     pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
         let mut found = false;
@@ -724,7 +724,7 @@ impl Collection {
             .and_then(|h| h.file_cache.as_ref())
         {
             if cache
-                .lock()
+                .write()
                 .await
                 .remove(path.as_ref())
                 .into_option()
@@ -736,7 +736,7 @@ impl Collection {
         for host in self.by_name.values() {
             if let Some(cache) = &host.file_cache {
                 if cache
-                    .lock()
+                    .write()
                     .await
                     .remove(path.as_ref())
                     .into_option()

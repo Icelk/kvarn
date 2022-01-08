@@ -732,7 +732,7 @@ pub async fn handle_cache(
                 );
 
                 if server_cache.cache(cache_action, method) {
-                    let mut lock = response_cache.lock().await;
+                    let mut lock = response_cache.write().await;
                     let key = if server_cache.query_matters() {
                         comprash::UriKey::PathQuery(path_query)
                     } else {
@@ -749,26 +749,45 @@ pub async fn handle_cache(
         false
     }
 
-    type CacheMutexGuard<'a> = Option<tokio::sync::MutexGuard<'a, Cache<UriKey, VariedResponse>>>;
+    type CacheMutexGuard<'a> =
+        Option<tokio::sync::RwLockReadGuard<'a, Cache<UriKey, VariedResponse>>>;
     async fn get_lock(host: &Host) -> CacheMutexGuard<'_> {
         if let Some(response_cache) = &host.response_cache {
-            Some(response_cache.lock().await)
+            Some(response_cache.read().await)
+        } else {
+            None
+        }
+    }
+    async fn get_mut_lock(
+        host: &Host,
+    ) -> Option<tokio::sync::RwLockWriteGuard<'_, Cache<UriKey, VariedResponse>>> {
+        if let Some(response_cache) = &host.response_cache {
+            Some(response_cache.write().await)
         } else {
             None
         }
     }
     type Cached<'a> = (
+        Option<&'a (
+            VariedResponse,
+            (chrono::DateTime<chrono::Utc>, Option<chrono::Duration>),
+        )>,
+        UriKey,
+    );
+    type CachedMut<'a> = (
         Option<&'a mut (
             VariedResponse,
             (chrono::DateTime<chrono::Utc>, Option<chrono::Duration>),
         )>,
         UriKey,
     );
-    fn get_cached<'a>(lock: &'a mut CacheMutexGuard, uri_key: UriKey) -> Cached<'a> {
+    fn get_cached(
+        lock: &mut Option<impl std::ops::Deref<Target = comprash::Cache<UriKey, VariedResponse>>>,
+        uri_key: UriKey,
+    ) -> Cached {
         // For clarity
         #[allow(clippy::option_if_let_else)]
         if let Some(lock) = lock {
-            // Some
             if lock.get_with_lifetime(&uri_key).into_option().is_some() {
                 (lock.get_with_lifetime(&uri_key).into_option(), uri_key)
             } else {
@@ -777,6 +796,31 @@ pub async fn handle_cache(
                     UriKey::PathQuery(p) => {
                         let p = UriKey::Path(p.into_path());
                         let t = lock.get_with_lifetime(&p).into_option();
+                        (t, p)
+                    }
+                }
+            }
+        } else {
+            (None, uri_key)
+        }
+    }
+    fn get_cached_mut(
+        lock: &mut Option<
+            impl std::ops::DerefMut<Target = comprash::Cache<UriKey, VariedResponse>>,
+        >,
+        uri_key: UriKey,
+    ) -> CachedMut {
+        // For clarity
+        #[allow(clippy::option_if_let_else)]
+        if let Some(lock) = lock {
+            if lock.get_with_lifetime(&uri_key).into_option().is_some() {
+                (lock.get_mut_with_lifetime(&uri_key).into_option(), uri_key)
+            } else {
+                match uri_key {
+                    UriKey::Path(_) => (None, uri_key),
+                    UriKey::PathQuery(p) => {
+                        let p = UriKey::Path(p.into_path());
+                        let t = lock.get_mut_with_lifetime(&p).into_option();
                         (t, p)
                     }
                 }
@@ -855,10 +899,10 @@ pub async fn handle_cache(
                             )
                             .await;
 
-                        let mut lock = get_lock(host).await;
+                        let mut lock = get_mut_lock(host).await;
                         // Try to get back varied response. If not there, recreate it, as the
                         // match-arm below does.
-                        let arc = match get_cached(&mut lock, uri_key) {
+                        let arc = match get_cached_mut(&mut lock, uri_key) {
                             (Some((resp, _)), _) => {
                                 Arc::clone(resp.push_response(compressed_response, params))
                             }
