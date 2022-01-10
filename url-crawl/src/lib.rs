@@ -1,7 +1,8 @@
 use select::document::Document;
 use select::predicate::{Attr, Name};
 
-/// Extracts the urls to HTTP/2 push
+/// Extracts the links from `html`.
+/// This can be used to HTTP/2 push the linked resources.
 ///
 /// Gets
 /// - `<link>` nodes where `rel` != `preconnect`
