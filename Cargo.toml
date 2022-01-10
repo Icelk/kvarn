@@ -21,6 +21,7 @@ members = [
   "chute",
   "utils",
   "async",
+  "url-crawl",
   "testing",
 ]
 
