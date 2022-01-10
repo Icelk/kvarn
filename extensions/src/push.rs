@@ -78,9 +78,12 @@ fn push(
 ) -> RetFut<()> {
     use internals::*;
     Box::pin(async move {
+        let request = unsafe { request.get_inner() };
+        let response_pipe = unsafe { response_pipe.get_inner() };
+
         // If it is not HTTP/1
         #[allow(irrefutable_let_patterns)]
-        if let ResponsePipe::Http1(_) = unsafe { &response_pipe.get_inner() } {
+        if let ResponsePipe::Http1(_) = &response_pipe {
             return;
         }
 
@@ -96,7 +99,7 @@ fn push(
         // This implementations of push doesn not work with Firefox!
         // I do not know why. Any help is appreciated.
         // Kvarn follows the HTTP/2 spec completely, according to h2spec.
-        if unsafe { request.get_inner() }
+        if request
             .headers()
             .get("user-agent")
             .and_then(|user_agent| user_agent.to_str().ok())
@@ -118,19 +121,32 @@ fn push(
                 let host = unsafe { host.get_inner() };
 
                 urls.retain(|url| {
-                    let correct_host = {
-                        // only push https://; it's eight bytes long
-                        url.get(8..).map_or(false, |url| url.starts_with(host.name))
-                    };
-                    url.starts_with('/') || correct_host
+                    let uri: Option<Uri> = url.parse().ok();
+                    if let Some(uri) = uri {
+                        if uri.scheme().is_none() {
+                            return true;
+                        }
+                        uri.host().map_or(true, |uri_host| uri_host == host.name)
+                    } else {
+                        false
+                    }
                 });
+                for url in &mut urls {
+                    if !url.starts_with('/') && !url.contains(':') {
+                        let path = request.uri().path();
+                        let mut last_slash = 0;
+                        for (pos, c) in path.chars().enumerate() {
+                            if c == '/' {
+                                last_slash = pos;
+                            }
+                        }
+                        url.insert_str(0, &path[..=last_slash]);
+                    }
+                }
 
                 info!("Pushing urls {:?}", urls);
 
                 for url in urls {
-                    let request = unsafe { request.get_inner() };
-                    let response_pipe = unsafe { response_pipe.get_inner() };
-
                     let mut uri = request.uri().clone().into_parts();
                     if let Some(uri) =
                         uri::PathAndQuery::from_maybe_shared::<Bytes>(url.into_bytes().into())
