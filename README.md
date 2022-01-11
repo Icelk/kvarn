@@ -4,7 +4,7 @@
 [![CI status](https://img.shields.io/github/workflow/status/Icelk/kvarn/Continuous%20Integration)](https://github.com/Icelk/kvarn/actions)
 [![open issues](https://img.shields.io/github/issues-raw/Icelk/kvarn)](https://github.com/Icelk/kvarn/issues)
 [![dependency status](https://deps.rs/repo/github/Icelk/kvarn/status.svg)](https://deps.rs/repo/github/Icelk/kvarn)
-[![commit activity](https://img.shields.io/github/commit-activity/m/Icelk/kvarn?label=Commits)](https://github.com/Icelk/kvarn/tree/main/)
+[![commit activity](https://img.shields.io/github/commit-activity/m/Icelk/kvarn?label=commits)](https://github.com/Icelk/kvarn/tree/main/)
 
 <img align="right" width="25%" src="https://kvarn.org/logo.svg">
 
