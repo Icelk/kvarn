@@ -4,6 +4,7 @@
 [![CI status](https://img.shields.io/github/workflow/status/Icelk/kvarn/Continuous%20Integration)](https://github.com/Icelk/kvarn/actions)
 [![open issues](https://img.shields.io/github/issues-raw/Icelk/kvarn)](https://github.com/Icelk/kvarn/issues)
 [![dependency status](https://deps.rs/repo/github/Icelk/kvarn/status.svg)](https://deps.rs/repo/github/Icelk/kvarn)
+[![commit activity](https://img.shields.io/github/commit-activity/m/Icelk/kvarn?label=Commits)](https://github.com/Icelk/kvarn/tree/main/)
 
 <img align="right" width="25%" src="https://kvarn.org/logo.svg">
 
@@ -34,7 +35,7 @@ To increase security, build-times, reliability, and speed, I use the minimal rea
 
 The two heavy-hitters are `tokio` (async runtime for async networking, file access, and extensions) and `rustls` (for encryption, optional if you want to run a unsafe (often local) web server).
 `brotli` and `flate2` are enabled by default to provide compression, but can be turned off.
-`h2` provides optional (but *strongly preferred*) support for the HTTP/2 protocol.
+`h2` provides optional (but _strongly preferred_) support for the HTTP/2 protocol.
 
 # Downloads
 
