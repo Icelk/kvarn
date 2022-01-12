@@ -41,6 +41,10 @@ pub type Prime =
     Box<(dyn Fn(RequestWrapper, HostWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
 /// A prepare extension.
 ///
+/// Keep in mind you have to supply the response content type in the headers. Kvarn defaults to HTML.
+/// You also have to handle all the methods (except `HEAD`). So, if you ignore methods, your
+/// endpoint will behave the same regardless of if the client sends a `POST` or `GET` request.
+///
 /// Can be created using the [`prepare!`] macro.
 ///
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
