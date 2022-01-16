@@ -1,7 +1,7 @@
 #![deny(
-    // unreachable_pub,
-    // missing_debug_implementations,
-    // clippy::pedantic,
+    unreachable_pub,
+    missing_debug_implementations,
+    clippy::pedantic,
     clippy::perf
 )]
 
@@ -37,12 +37,12 @@ pub fn exit_with_message(message: impl AsRef<str>) -> ! {
 }
 
 pub(crate) mod filesystem {
-    use super::*;
+    use super::{exit_with_message, io, read_continue_behaviour, warn, ContinueBehaviour, Path};
     use std::{
         fs::{File, Metadata, OpenOptions},
         io::ErrorKind,
     };
-    pub fn open_file_with_metadata<P: AsRef<Path>>(path: P) -> io::Result<(File, Metadata)> {
+    pub(crate) fn open_file_with_metadata<P: AsRef<Path>>(path: P) -> io::Result<(File, Metadata)> {
         match File::open(path).and_then(|file| file.metadata().map(|metadata| (file, metadata))) {
             Ok(file) => Ok(file),
             Err(err) => match err.kind() {
@@ -54,7 +54,10 @@ pub(crate) mod filesystem {
             },
         }
     }
-    pub fn create_file<P: AsRef<Path>>(path: P, continue_behaviour: ContinueBehaviour) -> File {
+    pub(crate) fn create_file<P: AsRef<Path>>(
+        path: P,
+        continue_behaviour: ContinueBehaviour,
+    ) -> File {
         fn open<P: AsRef<Path>>(
             options: &OpenOptions,
             path: P,
@@ -69,14 +72,12 @@ pub(crate) mod filesystem {
                         {
                             warn!("Overriding file.");
                         }
-                        match read_continue_behaviour(
+                        if !read_continue_behaviour(
                             "The existing HTML file will be overridden.",
                             true,
                             continue_behaviour,
                         ) {
-                            false => exit_with_message("Aborted conversion."),
-                            // Continue as normal
-                            true => {}
+                            exit_with_message("Aborted conversion.")
                         };
                         open(
                             OpenOptions::new().write(true).create(true).truncate(true),
@@ -147,12 +148,11 @@ pub fn read_continue(message: impl AsRef<str>, default: bool) -> bool {
 
     loop {
         let mut buffer = [0; 64];
-        let read = match io::stdin().lock().read(&mut buffer) {
-            Ok(read) => read,
-            Err(_) => {
-                error!("Failed to read stdin for confirmation.");
-                return false;
-            }
+        let read = if let Ok(read) = io::stdin().lock().read(&mut buffer) {
+            read
+        } else {
+            error!("Failed to read stdin for confirmation.");
+            return false;
         };
         let read = match buffer.get(read.saturating_sub(2)) {
             Some(byte) if *byte == chars::CR => read - 2,
@@ -224,6 +224,7 @@ pub fn process_document<P: AsRef<Path>>(
         }
     }
 }
+#[allow(clippy::too_many_lines)]
 fn _process<P: AsRef<Path>>(
     path: P,
     header_pre_meta: &[u8],
@@ -245,7 +246,7 @@ fn _process<P: AsRef<Path>>(
     let (mut file, metadata) = filesystem::open_file_with_metadata(&path)?;
     let new_path = {
         let mut path = path.to_owned();
-        let ext = path.extension().and_then(|ext| ext.to_str());
+        let ext = path.extension().and_then(OsStr::to_str);
 
         if ext.map_or(false, |ext| ext == "md") {
             path.set_extension("html");
@@ -260,6 +261,8 @@ fn _process<P: AsRef<Path>>(
     };
     let mut write_file = filesystem::create_file(&new_path, continue_behaviour);
 
+    // We'll run out of memory before we hit the usize limit.
+    #[allow(clippy::cast_possible_truncation)]
     let mut buffer = WriteableBytes::with_capacity(metadata.len() as usize);
     if let Err(err) = io::copy(&mut file, &mut buffer) {
         exit_with_message(format!(
@@ -277,7 +280,9 @@ fn _process<P: AsRef<Path>>(
         .map_or_else(Vec::new, |ext| ext.iter().collect());
 
     let file_extensions = kvarn_utils::PresentExtensions::new(buffer.clone());
-    let mut file_content_start = file_extensions.as_ref().map_or(0, |ext| ext.data_start());
+    let mut file_content_start = file_extensions
+        .as_ref()
+        .map_or(0, kvarn_utils::PresentExtensions::data_start);
 
     if let Some(file_extensions) = &file_extensions {
         'extension_loop: for extension in file_extensions.iter() {
@@ -348,6 +353,8 @@ fn _process<P: AsRef<Path>>(
     tags.insert(
         "toc".to_owned(),
         Box::new(|_inner, mut ext| {
+            use fmt::Write;
+
             struct MarginDisplay<'a> {
                 counter: &'a IndentCounter,
                 multiplier: usize,
@@ -365,7 +372,6 @@ fn _process<P: AsRef<Path>>(
             }
 
             let mut indent_counter = IndentCounter::new();
-            use fmt::Write;
             write!(ext, "|Contents|\n|---|\n").unwrap();
             for Header {
                 name,
@@ -399,7 +405,7 @@ fn _process<P: AsRef<Path>>(
         }),
     );
 
-    let input = replace_tags(input, tags);
+    let input = replace_tags(input, &tags);
 
     // Parse CMark
     let parser = Parser::new_ext(&input, Options::all());
@@ -468,29 +474,42 @@ pub fn watch<P: AsRef<Path>>(
     ignored_extensions: &[&str],
     mut continue_behaviour: ContinueBehaviour,
 ) {
-    use notify::{watcher, DebouncedEvent::*, RecursiveMode, Watcher};
+    use notify::{
+        watcher,
+        DebouncedEvent::{Create, Rename, Write},
+        RecursiveMode, Watcher,
+    };
     use std::sync::mpsc::channel;
     use std::time::Duration;
+
+    let path = path.as_ref();
+
     // Create a channel to receive the events.
     let (tx, rx) = channel();
 
     // Create a watcher object, delivering debounced events.
     // The notification back-end is selected based on the platform.
-    let mut watcher = watcher(tx, Duration::from_millis(100)).unwrap();
+    let mut watcher = if let Ok(w) = watcher(tx, Duration::from_millis(100)) {
+        w
+    } else {
+        error!("Failed to create a watcher.");
+        return;
+    };
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    watcher
-        .watch(path.as_ref(), RecursiveMode::Recursive)
-        .unwrap();
+    if watcher.watch(path, RecursiveMode::Recursive).is_err() {
+        error!("Failed to start watching {}.", path.display());
+        return;
+    }
 
     if let ContinueBehaviour::Ask = continue_behaviour {
         continue_behaviour = ContinueBehaviour::Default;
     }
 
     loop {
-        match rx.recv() {
-            Ok(event) => match event {
+        if let Ok(event) = rx.recv() {
+            match event {
                 Write(path) | Create(path) | Rename(_, path) => {
                     if path.extension().and_then(OsStr::to_str) == Some("md") {
                         // This can fail, it'll print an error.
@@ -513,11 +532,10 @@ pub fn watch<P: AsRef<Path>>(
                     }
                 }
                 _ => {}
-            },
-            Err(_) => {
-                error!("Got an error watching the specified directory.");
-                return;
             }
+        } else {
+            error!("Got an error watching the specified directory.");
+            return;
         }
     }
 }
@@ -527,10 +545,11 @@ pub fn watch<P: AsRef<Path>>(
 pub fn wait_for(message: &str) {
     // Don't write to normal output.
     eprintln!("{}", message);
-    let _ = io::stdin().read(&mut [0; 0]);
+    drop(io::stdin().read(&mut [0; 0]));
 }
 
 /// It's safe to unwrap on the [`fmt::Write`] trait; we're writing to a [`String`].
+#[derive(Debug)]
 pub struct Extendible<'a> {
     inner: &'a mut String,
 }
@@ -549,6 +568,7 @@ impl<'a> fmt::Write for Extendible<'a> {
     }
 }
 
+#[must_use]
 pub fn make_anchor(headers: &[Header], title: &str) -> String {
     fn is_parenthesis(c: char) -> bool {
         matches!(c, '(' | ')' | '[' | ']' | '{' | '}')
@@ -578,7 +598,12 @@ pub fn make_anchor(headers: &[Header], title: &str) -> String {
 
                 a.push_str(&number);
 
-                last_number_length = number.len() as u32;
+                // As we're formatting a number, I guarantee that doesn't take more space than we
+                // have memory...
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    last_number_length = number.len() as u32;
+                }
                 last_number += 1;
             }
         }
@@ -588,7 +613,9 @@ pub fn make_anchor(headers: &[Header], title: &str) -> String {
 
 pub type Tags<'a> = HashMap<String, Box<dyn Fn(&'a str, Extendible) + 'a>>;
 
-pub fn replace_tags<'a>(text: &'a str, tags: Tags<'a>) -> String {
+#[allow(clippy::missing_panics_doc)]
+#[must_use]
+pub fn replace_tags<'a>(text: &'a str, tags: &Tags<'a>) -> String {
     let mut string = String::with_capacity(text.len() + 64);
 
     let mut in_tag = false;
@@ -598,7 +625,7 @@ pub fn replace_tags<'a>(text: &'a str, tags: Tags<'a>) -> String {
         let text = unsafe { text.get_unchecked(index..) };
         if text.starts_with("${") {
             if !escaped_tag {
-                for (name, func) in &tags {
+                for (name, func) in tags {
                     let tag_len = name.len() + 2 + 1;
                     if !in_tag
                         && text
@@ -611,8 +638,8 @@ pub fn replace_tags<'a>(text: &'a str, tags: Tags<'a>) -> String {
                         // If the string is 0 in length, we return the first word as a empty string.
                         let first_word = inner.split(' ').next().unwrap_or("");
                         if first_word == name {
-                            let ext = Extendible { inner: &mut string };
-                            func(inner, ext);
+                            let extendible = Extendible { inner: &mut string };
+                            func(inner, extendible);
                             in_tag = true;
                             break;
                         }
@@ -688,6 +715,8 @@ pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
                 .unwrap_or(heavily_trimmed);
 
             let anchor = make_anchor(headers, heavily_trimmed);
+            // Ehm no, it doesn't!
+            #[allow(clippy::cast_possible_truncation)]
             let indent = indent.min(255) as u8;
 
             headers.push(Header {
@@ -699,6 +728,7 @@ pub fn get_headers<'a>(headers: &mut Vec<Header<'a>>, input: &'a str) {
     }
 }
 #[derive(Debug)]
+#[must_use]
 pub struct IndentCounter {
     indent_index: [u8; 6],
     last_indent: u8,
@@ -721,6 +751,7 @@ impl IndentCounter {
     pub fn indent(&self) -> IndentIndenter {
         IndentIndenter { data: self }
     }
+    #[must_use]
     pub fn left_margin(&self, multiplier: usize) -> usize {
         self.last_indent as usize * multiplier
     }
@@ -739,6 +770,7 @@ impl Display for IndentCounter {
     }
 }
 #[derive(Debug)]
+#[must_use]
 pub struct IndentIndenter<'a> {
     data: &'a IndentCounter,
 }
