@@ -1,110 +1,13 @@
+use kvarn_utils::chars;
+use kvarn_utils::prelude::*;
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::{self, Display, Formatter};
-use std::io::{self, prelude::*};
+use std::io;
 use std::path::Path;
 use unicode_categories::UnicodeCategories;
 
-/// ToDo: Remove this, and import from Kvarn Core or Kvarn Kärna
-pub(crate) mod parse {
-    pub mod chars {
-        /// Line feed
-        pub const LF: u8 = 10;
-        /// Carrage return
-        pub const CR: u8 = 13;
-        /// ` `
-        pub const SPACE: u8 = 32;
-        /// `!`
-        pub const BANG: u8 = 33;
-        /// `&`
-        pub const AMPERSAND: u8 = 38;
-        /// `>`
-        pub const PIPE: u8 = 62;
-    }
-    pub use chars::*;
-
-    pub const EXTENSION_PREFIX: &[u8] = &[BANG, PIPE];
-    pub const EXTENSION_AND: &[u8] = &[AMPERSAND, PIPE];
-
-    pub fn parse_args(bytes: &[u8]) -> (Vec<Vec<String>>, usize) {
-        let mut segments = Vec::with_capacity(bytes.windows(2).fold(1, |acc, value| {
-            if value == EXTENSION_AND {
-                acc + 1
-            } else {
-                acc
-            }
-        }));
-        let mut args =
-            Vec::with_capacity(bytes.iter().fold(
-                1,
-                |acc, value| {
-                    if *value == SPACE {
-                        acc + 1
-                    } else {
-                        acc
-                    }
-                },
-            ));
-        let mut last_break = 0;
-        let mut current_index = 0;
-        let mut last_was_ampersand = false;
-        for byte in bytes {
-            if *byte == LF {
-                if current_index - last_break > 1 {
-                    let string = String::from_utf8(
-                        bytes[last_break..if bytes.get(current_index - 1) == Some(&CR) {
-                            current_index - 1
-                        } else {
-                            current_index
-                        }]
-                            .to_vec(),
-                    );
-                    if let Ok(string) = string {
-                        args.push(string);
-                    }
-                }
-                break;
-            }
-            if *byte == SPACE && current_index - last_break > 1 {
-                let string = String::from_utf8(bytes[last_break..current_index].to_vec());
-                if let Ok(string) = string {
-                    args.push(string);
-                }
-            }
-            if last_was_ampersand {
-                if *byte == PIPE {
-                    // New segment!
-                    segments.push(args.split_off(0));
-                    // Can be directly after, since a space won't get added, len needs to be more than 0!
-                    last_break = current_index + 1;
-                }
-                last_was_ampersand = false;
-            }
-            if *byte == AMPERSAND {
-                last_was_ampersand = true;
-            }
-            current_index += 1;
-            if *byte == SPACE {
-                last_break = current_index;
-            }
-        }
-        if !args.is_empty() {
-            segments.push(args);
-        }
-        // Plus one, since loop breaks before newline
-        (segments, current_index + 1)
-    }
-    pub fn extension_args(bytes: &[u8]) -> (Vec<Vec<String>>, usize) {
-        if bytes.starts_with(EXTENSION_PREFIX) {
-            let (vec, content_start) = parse_args(&bytes[EXTENSION_PREFIX.len()..]);
-            // Add EXTENSION_PREFIX.len(), since the fn started counting as though byte 0 was EXTENSION_PREFIX.len() actual byte.
-            (vec, content_start + EXTENSION_PREFIX.len())
-        } else {
-            (Vec::new(), 0)
-        }
-    }
-}
 
 pub fn exit_with_message(message: &str) -> ! {
     eprintln!("{}", message);
@@ -192,8 +95,8 @@ pub fn read_continue(message: &str, default: bool) -> bool {
             }
         };
         let read = match buffer.get(read - 2) {
-            Some(byte) if *byte == parse::CR => read - 2,
-            Some(_) if buffer.get(read - 1) == Some(&parse::LF) => read - 1,
+            Some(byte) if *byte == chars::CR => read - 2,
+            Some(_) if buffer.get(read - 1) == Some(&chars::LF) => read - 1,
             _ => read,
         };
         match &buffer[..read] {
@@ -224,9 +127,9 @@ pub enum FileEnding {
 impl FileEnding {
     pub fn find(bytes: &[u8]) -> Option<Self> {
         for byte_pair in bytes.windows(2) {
-            if byte_pair.get(1) == Some(&parse::LF) {
+            if byte_pair.get(1) == Some(&chars::LF) {
                 match byte_pair.get(0) {
-                    Some(&parse::CR) => return Some(Self::CrLf),
+                    Some(&chars::CR) => return Some(Self::CrLf),
                     Some(_) => return Some(Self::Lf),
                     None => {}
                 }
@@ -271,63 +174,65 @@ pub fn process_document<P: AsRef<Path>>(
     };
     let mut write_file = filesystem::create_file(&new_path, quiet);
 
-    let mut buffer = Vec::with_capacity(metadata.len() as usize); // ToDo: Remove `as usize`
-    if file.read_to_end(&mut buffer).is_err() {
-        exit_with_message("Encountered an error reading the contents of the file specified.")
+    let mut buffer = WriteableBytes::with_capacity(metadata.len() as usize);
+    if let Err(err) = io::copy(&mut file, &mut buffer) {
+        exit_with_message(format!(
+            "Encountered an error reading the contents of the file specified: {:?}",
+            err
+        ))
     }
-    let (mut extensions, header_content_starts) = parse::extension_args(header_pre_meta);
+    let buffer = buffer.into_inner().freeze();
 
-    let (file_extensions, mut file_content_start) = parse::extension_args(&buffer[..]);
-    'extension_loop: for extension in file_extensions.into_iter() {
-        // If extension name is present
-        let extension_name = match extension.get(0) {
-            Some(e) => e.as_str(),
-            None => continue,
-        };
-        // Check for ignored extensions, and skip pushing it to main extensions if matched
-        for ignored in ignored_extensions {
-            if *extension_name == **ignored {
-                continue 'extension_loop;
+    let hardcoded_extensions =
+        kvarn_utils::PresentExtensions::new(Bytes::copy_from_slice(header_pre_meta));
+
+    let mut extension_list = hardcoded_extensions
+        .as_ref()
+        .map_or_else(Vec::new, |ext| ext.iter().collect());
+
+    let file_extensions = kvarn_utils::PresentExtensions::new(buffer.clone());
+    let mut file_content_start = file_extensions.as_ref().map_or(0, |ext| ext.data_start());
+
+    if let Some(file_extensions) = &file_extensions {
+        'extension_loop: for extension in file_extensions.iter() {
+            // Check for ignored extensions, and skip pushing it to main extensions if matched
+            for ignored in ignored_extensions {
+                if *extension.name() == **ignored {
+                    continue 'extension_loop;
+                }
             }
+            // Push to main extension list
+            extension_list.push(extension);
         }
-        // Push to main extension list
-        extensions.push(extension);
     }
     if let Ok(string) = std::str::from_utf8(&buffer[file_content_start..]) {
-        let white_space_chars = string
-            .char_indices()
-            .take_while(|(_, char)| char.is_whitespace())
-            .last()
-            .map_or(0, |(pos, char)| pos + char.len_utf8());
+        let white_space_chars = string.len() - string.trim_start().len();
 
         file_content_start += white_space_chars;
     }
+
     // Write all extensions
-    for (position, extension) in extensions.iter().enumerate() {
+    for (position, extension) in extension_list.iter().enumerate() {
         match position {
             // Write !> in first iteration, &> in the rest!
             0 => {
                 write_file.write_all(b"!>")?;
-                for arg in extension {
-                    write_file.write_all(b" ")?;
-                    write_file.write_all(arg.as_bytes())?;
-                }
             }
             _ => {
                 write_file.write_all(b" &>")?;
-                for arg in extension {
-                    write_file.write_all(b" ")?;
-                    write_file.write_all(arg.as_bytes())?;
-                }
             }
         }
+        for arg in extension.iter() {
+            write_file.write_all(b" ")?;
+            write_file.write_all(arg.as_bytes())?;
+        }
     }
-    // Write newline after extensions, ~depending on what file ending is used in the file~.
-    // Update, Pulldown-CMark only writes LF, even if input file is CRLF. I will also write LF then ¯\_(ツ)_/¯
+    // Write newline after extensions
     write_file.write_all(FileEnding::Lf.as_bytes())?;
 
     // Write rest of header before meta
-    write_file.write_all(&header_pre_meta[header_content_starts..])?;
+    write_file
+        .write_all(&header_pre_meta[hardcoded_extensions.map_or(0, |ext| ext.data_start())..])?;
 
     // If we have a head tag
     let file_content_start = if buffer[file_content_start..].starts_with(b"<head>") {
