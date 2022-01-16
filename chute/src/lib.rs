@@ -379,8 +379,6 @@ pub fn process_document<P: AsRef<Path>>(
     write_file.write_all(footer)?;
     write_file.flush()?;
 
-    info!("Done converting CommonMark to HTML.");
-
     Ok(())
 }
 
