@@ -42,7 +42,7 @@ fn main() {
             IGNORED_EXTENSIONS,
             false,
         ) {
-            Ok(()) => lib::wait_for("Press enter to close..."),
+            Ok(()) => {}
             Err(ref err) if err.kind() == io::ErrorKind::PermissionDenied => {
                 lib::exit_with_message("You do not have permission to read the file specified.");
             }
