@@ -12,6 +12,11 @@ license = "MIT OR Apache-2.0"
 keywords = ["markdown", "kvarn-extension", "kvarn", "templates"]
 categories = ["command-line-utilities", "text-processing"]
 
+[[bin]]
+name = "chute"
+path = "src/main.rs"
+required-features = ["bin"]
+
 [dependencies]
 colored = "^2.0"
 pulldown-cmark = { version = "^0.9", default-features = false, features = ["simd"] }
@@ -19,8 +24,13 @@ notify = "^4"
 unicode_categories = "^0.1"
 chrono = { version = "^0.4.19", optional = true }
 kvarn_utils = "^0.3"
-env_logger = "^0.9"
+
+# Bin deps
+clap = { version = "^3", optional = true }
+env_logger = { version = "^0.9", optional = true }
 
 [features]
-default = ["date"]
+default = ["date", "bin"]
 date = ["chrono"]
+
+bin = ["env_logger", "clap"]
