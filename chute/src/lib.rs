@@ -307,12 +307,13 @@ fn _process<P: AsRef<Path>>(
         match position {
             // Write !> in first iteration, &> in the rest!
             0 => {
-                write_file.write_all(b"!>")?;
+                write_file.write_all(b"!> ")?;
             }
             _ => {
-                write_file.write_all(b" &>")?;
+                write_file.write_all(b" &> ")?;
             }
         }
+        write_file.write_all(extension.name().as_bytes())?;
         for arg in extension.iter() {
             write_file.write_all(b" ")?;
             write_file.write_all(arg.as_bytes())?;
