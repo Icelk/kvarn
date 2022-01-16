@@ -77,6 +77,7 @@ pub(crate) mod filesystem {
 
 #[must_use = "you have promted the user for input, so use it"]
 /// The message is in the beginning of the println! so it should be capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
+///
 /// The message should not contain the word continue, since it is used extensively in this fn.
 pub fn read_continue(message: &str, default: bool) -> bool {
     println!(
@@ -144,14 +145,16 @@ impl FileEnding {
     }
 }
 
-/// Will process the document at the given path.
+/// Process the document at the given path.
 ///
 /// If a Kvarn extension resides in the beginning of the header, make sure it has a newline in the end if only extension declaration; else parsing will fail.
 ///
 /// # Errors
+///
 /// Will throw a error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder). Else, it terminates the application.
 ///
 /// # Panics
+///
 /// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
 pub fn process_document<P: AsRef<Path>>(
     path: P,
@@ -369,14 +372,16 @@ pub fn process_document<P: AsRef<Path>>(
     Ok(())
 }
 
-/// Will watch the given directory.
+/// Watch the given directory.
 ///
 /// If a Kvarn extension resides in the beginning of the header, make sure it has a newline in the end if only extension declaration; else parsing will fail.
 ///
 /// # Errors
+///
 /// Will throw a error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder). Else, it terminates the application.
 ///
 /// # Panics
+///
 /// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
 pub fn watch<P: AsRef<Path>>(
     path: P,
