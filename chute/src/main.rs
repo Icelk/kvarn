@@ -24,7 +24,7 @@ fn main() {
 
     match path.is_dir() {
         true => {
-            println!("Watching directory and overriding files.");
+            info!("Watching directory and overriding files.");
             lib::watch(
                 &path,
                 HEADER_PRE_META,

@@ -1,3 +1,4 @@
+use colored::*;
 use kvarn_utils::chars;
 use kvarn_utils::prelude::*;
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
@@ -10,6 +11,9 @@ use unicode_categories::UnicodeCategories;
 
 pub fn exit_with_message(message: impl AsRef<str>) -> ! {
     error!("{}", message.as_ref());
+    // Wait in Windows, if we run a md file with kvarn-chute and CMD pops up, use this to make it
+    // remain open.
+    #[cfg(windows)]
     wait_for("Press enter to close...");
     std::process::exit(1)
 }
@@ -39,12 +43,14 @@ pub(crate) mod filesystem {
                 Err(err) => match err.kind() {
                     ErrorKind::AlreadyExists => {
                         if !quiet {
-                            match read_continue("The existing .html file will be overriden.", true)
+                            match read_continue("The existing HTML file will be overridden.", true)
                             {
                                 false => exit_with_message("Aborted conversion."),
                                 // Continue as normal
                                 true => {}
                             };
+                        } else {
+                            warn!("Overriding file.");
                         }
                         open(
                             OpenOptions::new().write(true).create(true).truncate(true),
@@ -76,21 +82,32 @@ pub(crate) mod filesystem {
 }
 
 #[must_use = "you have promted the user for input, so use it"]
-/// The message is in the beginning of the println! so it should be capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
+/// The message is in the beginning of the print so it should be capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
 ///
 /// The message should not contain the word continue, since it is used extensively in this fn.
 pub fn read_continue(message: &str, default: bool) -> bool {
-    println!(
-        "{} Do you want to continue (y or n)? Press enter to continue with '{}'.",
+    // Don't output to normal out.
+    eprint!(
+        "{} {} ",
         message,
-        if default { "yes" } else { "no" }
+        format!(
+            "Do you want to continue ({} or {})?",
+            if default { "Y" } else { "y" }.green(),
+            if default { "n" } else { "N" }.red(),
+        )
+        .bold(),
     );
+    io::stdout()
+        .lock()
+        .flush()
+        .unwrap_or_else(|e| exit_with_message(format!("Failed to flush stdout {:?}", e)));
+
     loop {
         let mut buffer = [0; 64];
         let read = match io::stdin().lock().read(&mut buffer) {
             Ok(read) => read,
             Err(_) => {
-                eprintln!("Failed to read stdin for confirmation.");
+                error!("Failed to read stdin for confirmation.");
                 return false;
             }
         };
@@ -99,48 +116,29 @@ pub fn read_continue(message: &str, default: bool) -> bool {
             Some(_) if buffer.get(read - 1) == Some(&chars::LF) => read - 1,
             _ => read,
         };
-        match &buffer[..read] {
-            b"y" => break true,
-            b"Y" => break true,
-            b"yes" => break true,
-            b"Yes" => break true,
-            b"YES" => break true,
-            b"n" => break false,
-            b"N" => break false,
-            b"no" => break false,
-            b"No" => break false,
-            b"NO" => break false,
-            b"" => break default,
-            _ => println!(
+        if let Ok(s) = str::from_utf8(&buffer[..read]) {
+            if s.trim().is_empty() {
+                return default;
+            }
+            if s.eq_ignore_ascii_case("y")
+                || s.eq_ignore_ascii_case("yes")
+                || s.eq_ignore_ascii_case("true")
+            {
+                return true;
+            }
+            if s.eq_ignore_ascii_case("n")
+                || s.eq_ignore_ascii_case("no")
+                || s.eq_ignore_ascii_case("false")
+            {
+                return false;
+            }
+
+            eprintln!(
                 "Could not detect your intent. Please try again. {}",
                 message
-            ),
-        }
-    }
-}
-
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
-pub enum FileEnding {
-    Lf,
-    CrLf,
-}
-impl FileEnding {
-    pub fn find(bytes: &[u8]) -> Option<Self> {
-        for byte_pair in bytes.windows(2) {
-            if byte_pair.get(1) == Some(&chars::LF) {
-                match byte_pair.get(0) {
-                    Some(&chars::CR) => return Some(Self::CrLf),
-                    Some(_) => return Some(Self::Lf),
-                    None => {}
-                }
-            }
-        }
-        None
-    }
-    pub fn as_bytes(&self) -> &'static [u8] {
-        match self {
-            Self::Lf => b"\n",
-            Self::CrLf => b"\r\n",
+            );
+        } else {
+            error!("Input isn't UTF-8");
         }
     }
 }
@@ -162,19 +160,35 @@ pub fn process_document<P: AsRef<Path>>(
     header_post_meta: &[u8],
     footer: &[u8],
     ignored_extensions: &[&str],
-    quiet: bool,
+    continue_without_input: bool,
 ) -> io::Result<()> {
     let path = path.as_ref();
-    if path.extension().and_then(OsStr::to_str).map(|s| s == "md") == Some(false) {
-        println!("Specified file is not of type '.md' This conversion be a mistake and make a unexpected result.");
+    if path.extension().and_then(OsStr::to_str).map(|s| s == "md") == Some(false)
+        && (continue_without_input
+            || !read_continue(
+                "Specified file does not have the Markdown extension.",
+                false,
+            ))
+    {
+        exit_with_message("Aborted conversion.");
     }
     let (mut file, metadata) = filesystem::open_file_with_metadata(&path)?;
     let new_path = {
         let mut path = path.to_owned();
-        path.set_extension("html");
+        let ext = path.extension().and_then(|ext| ext.to_str());
+
+        if ext.map_or(false, |ext| ext == "md") {
+            path.set_extension("html");
+        } else if let Some(ext) = ext {
+            let ext = format!("{}.html", ext);
+            path.set_extension(ext);
+        } else {
+            path.set_extension("html");
+        }
+        info!("Creating file {}", path.display());
         path
     };
-    let mut write_file = filesystem::create_file(&new_path, quiet);
+    let mut write_file = filesystem::create_file(&new_path, continue_without_input);
 
     let mut buffer = WriteableBytes::with_capacity(metadata.len() as usize);
     if let Err(err) = io::copy(&mut file, &mut buffer) {
@@ -230,7 +244,7 @@ pub fn process_document<P: AsRef<Path>>(
         }
     }
     // Write newline after extensions
-    write_file.write_all(FileEnding::Lf.as_bytes())?;
+    write_file.write_all(b"\n")?;
 
     // Write rest of header before meta
     write_file
@@ -365,9 +379,7 @@ pub fn process_document<P: AsRef<Path>>(
     write_file.write_all(footer)?;
     write_file.flush()?;
 
-    if !quiet {
-        println!("Done converting CommonMark to HTML.");
-    }
+    info!("Done converting CommonMark to HTML.");
 
     Ok(())
 }
@@ -425,7 +437,7 @@ pub fn watch<P: AsRef<Path>>(
                             &path
                         };
                         if let Some(path) = local_path.to_str() {
-                            println!("Converted {} to html!", path);
+                            info!("Converted {} to HTML.", path);
                         }
                     }
                 }
@@ -439,7 +451,8 @@ pub fn watch<P: AsRef<Path>>(
 /// Blocks while waiting for the user to press enter, displaying the message specified.
 #[inline]
 pub fn wait_for(message: &str) {
-    println!("{}", message);
+    // Don't write to normal output.
+    eprintln!("{}", message);
     let _ = io::stdin().read(&mut [0; 0]);
 }
 

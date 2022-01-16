@@ -13,6 +13,7 @@ keywords = ["markdown", "kvarn-extension", "kvarn", "templates"]
 categories = ["command-line-utilities", "text-processing"]
 
 [dependencies]
+colored = "^2.0"
 pulldown-cmark = { version = "^0.9", default-features = false, features = ["simd"] }
 notify = "^4"
 unicode_categories = "^0.1"
