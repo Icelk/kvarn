@@ -1,8 +1,12 @@
+use kvarn_utils::prelude::*;
 use std::{env, io, path::PathBuf};
 pub mod lib;
 
 fn main() {
-    println!("Starting Kvarn Markdown to Html converter.");
+    env_logger::init();
+
+    info!("Starting Kvarn Markdown to Html converter.");
+
     let mut args = env::args();
     args.next();
     let path = match args.next() {

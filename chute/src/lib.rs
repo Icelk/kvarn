@@ -8,9 +8,8 @@ use std::io;
 use std::path::Path;
 use unicode_categories::UnicodeCategories;
 
-
-pub fn exit_with_message(message: &str) -> ! {
-    eprintln!("{}", message);
+pub fn exit_with_message(message: impl AsRef<str>) -> ! {
+    error!("{}", message.as_ref());
     wait_for("Press enter to close...");
     std::process::exit(1)
 }
