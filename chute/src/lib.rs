@@ -1,5 +1,11 @@
-use colored::*;
-use kvarn_utils::chars;
+#![deny(
+    // unreachable_pub,
+    // missing_debug_implementations,
+    // clippy::pedantic,
+    clippy::perf
+)]
+
+use colored::Colorize;
 use kvarn_utils::prelude::*;
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
 use std::collections::HashMap;
@@ -8,6 +14,18 @@ use std::fmt::{self, Display, Formatter};
 use std::io;
 use std::path::Path;
 use unicode_categories::UnicodeCategories;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ContinueBehaviour {
+    /// Asks the user for confirmation.
+    Ask,
+    /// Continues with the default.
+    Default,
+    /// Continues with `yes`.
+    Yes,
+    /// Continues with `no`.
+    No,
+}
 
 pub fn exit_with_message(message: impl AsRef<str>) -> ! {
     error!("{}", message.as_ref());
@@ -36,26 +54,34 @@ pub(crate) mod filesystem {
             },
         }
     }
-    pub fn create_file<P: AsRef<Path>>(path: P, quiet: bool) -> File {
-        fn open<P: AsRef<Path>>(options: &OpenOptions, path: P, quiet: bool) -> File {
+    pub fn create_file<P: AsRef<Path>>(path: P, continue_behaviour: ContinueBehaviour) -> File {
+        fn open<P: AsRef<Path>>(
+            options: &OpenOptions,
+            path: P,
+            continue_behaviour: ContinueBehaviour,
+        ) -> File {
             match options.open(&path) {
                 Ok(file) => file,
                 Err(err) => match err.kind() {
                     ErrorKind::AlreadyExists => {
-                        if !quiet {
-                            match read_continue("The existing HTML file will be overridden.", true)
-                            {
-                                false => exit_with_message("Aborted conversion."),
-                                // Continue as normal
-                                true => {}
-                            };
-                        } else {
+                        if let ContinueBehaviour::Yes | ContinueBehaviour::Default =
+                            continue_behaviour
+                        {
                             warn!("Overriding file.");
                         }
+                        match read_continue_behaviour(
+                            "The existing HTML file will be overridden.",
+                            true,
+                            continue_behaviour,
+                        ) {
+                            false => exit_with_message("Aborted conversion."),
+                            // Continue as normal
+                            true => {}
+                        };
                         open(
                             OpenOptions::new().write(true).create(true).truncate(true),
                             path,
-                            quiet,
+                            continue_behaviour,
                         )
                     }
                     ErrorKind::NotFound => {
@@ -76,16 +102,33 @@ pub(crate) mod filesystem {
                 .create_new(true)
                 .truncate(true),
             path,
-            quiet,
+            continue_behaviour,
         )
     }
 }
 
+/// The message is in the beginning of the print so it should be capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
+///
+/// The message should not contain the word continue, since it is used extensively in this fn.
+#[must_use = "you have promted the user for input, so use it"]
+pub fn read_continue_behaviour(
+    message: impl AsRef<str>,
+    default: bool,
+    behaviour: ContinueBehaviour,
+) -> bool {
+    match behaviour {
+        ContinueBehaviour::No => false,
+        ContinueBehaviour::Yes => true,
+        ContinueBehaviour::Default => default,
+        ContinueBehaviour::Ask => read_continue(message, default),
+    }
+}
 #[must_use = "you have promted the user for input, so use it"]
 /// The message is in the beginning of the print so it should be capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
 ///
 /// The message should not contain the word continue, since it is used extensively in this fn.
-pub fn read_continue(message: &str, default: bool) -> bool {
+pub fn read_continue(message: impl AsRef<str>, default: bool) -> bool {
+    let message = message.as_ref();
     // Don't output to normal out.
     eprint!(
         "{} {} ",
@@ -111,7 +154,7 @@ pub fn read_continue(message: &str, default: bool) -> bool {
                 return false;
             }
         };
-        let read = match buffer.get(read - 2) {
+        let read = match buffer.get(read.saturating_sub(2)) {
             Some(byte) if *byte == chars::CR => read - 2,
             Some(_) if buffer.get(read - 1) == Some(&chars::LF) => read - 1,
             _ => read,
@@ -149,26 +192,53 @@ pub fn read_continue(message: &str, default: bool) -> bool {
 ///
 /// # Errors
 ///
-/// Will throw a error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder). Else, it terminates the application.
+/// Prints an error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder).
+/// Should not panic.
 ///
-/// # Panics
-///
-/// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
+/// The returned result indicates whether everything went fine.
+#[allow(clippy::result_unit_err)]
 pub fn process_document<P: AsRef<Path>>(
     path: P,
     header_pre_meta: &[u8],
     header_post_meta: &[u8],
     footer: &[u8],
     ignored_extensions: &[&str],
-    continue_without_input: bool,
+    continue_behaviour: ContinueBehaviour,
+) -> Result<(), ()> {
+    match _process(
+        path,
+        header_pre_meta,
+        header_post_meta,
+        footer,
+        ignored_extensions,
+        continue_behaviour,
+    ) {
+        Ok(()) => Ok(()),
+        Err(ref err) if err.kind() == io::ErrorKind::PermissionDenied => {
+            error!("You do not have permission to read the file specified.",);
+            Err(())
+        }
+        Err(_) => {
+            error!("Failed to write to output file.");
+            Err(())
+        }
+    }
+}
+fn _process<P: AsRef<Path>>(
+    path: P,
+    header_pre_meta: &[u8],
+    header_post_meta: &[u8],
+    footer: &[u8],
+    ignored_extensions: &[&str],
+    continue_behaviour: ContinueBehaviour,
 ) -> io::Result<()> {
     let path = path.as_ref();
     if path.extension().and_then(OsStr::to_str).map(|s| s == "md") == Some(false)
-        && (continue_without_input
-            || !read_continue(
-                "Specified file does not have the Markdown extension.",
-                false,
-            ))
+        && !read_continue_behaviour(
+            "Specified file does not have the Markdown extension.",
+            false,
+            continue_behaviour,
+        )
     {
         exit_with_message("Aborted conversion.");
     }
@@ -188,7 +258,7 @@ pub fn process_document<P: AsRef<Path>>(
         info!("Creating file {}", path.display());
         path
     };
-    let mut write_file = filesystem::create_file(&new_path, continue_without_input);
+    let mut write_file = filesystem::create_file(&new_path, continue_behaviour);
 
     let mut buffer = WriteableBytes::with_capacity(metadata.len() as usize);
     if let Err(err) = io::copy(&mut file, &mut buffer) {
@@ -388,18 +458,16 @@ pub fn process_document<P: AsRef<Path>>(
 ///
 /// # Errors
 ///
-/// Will throw a error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder). Else, it terminates the application.
-///
-/// # Panics
-///
-/// If any unexpected event occurs, it will exit the application gracefully. This is not ment as a helper function.
+/// Prints an error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder).
+/// Should not panic.
 pub fn watch<P: AsRef<Path>>(
     path: P,
     header_pre_meta: &[u8],
     header_post_meta: &[u8],
     footer: &[u8],
     ignored_extensions: &[&str],
-) -> io::Result<()> {
+    mut continue_behaviour: ContinueBehaviour,
+) {
     use notify::{watcher, DebouncedEvent::*, RecursiveMode, Watcher};
     use std::sync::mpsc::channel;
     use std::time::Duration;
@@ -416,19 +484,24 @@ pub fn watch<P: AsRef<Path>>(
         .watch(path.as_ref(), RecursiveMode::Recursive)
         .unwrap();
 
+    if let ContinueBehaviour::Ask = continue_behaviour {
+        continue_behaviour = ContinueBehaviour::Default;
+    }
+
     loop {
         match rx.recv() {
             Ok(event) => match event {
                 Write(path) | Create(path) | Rename(_, path) => {
                     if path.extension().and_then(OsStr::to_str) == Some("md") {
-                        process_document(
+                        // This can fail, it'll print an error.
+                        let _ = process_document(
                             &path,
                             header_pre_meta,
                             header_post_meta,
                             footer,
                             ignored_extensions,
-                            true,
-                        )?;
+                            continue_behaviour,
+                        );
                         let local_path = if let Ok(wd) = std::env::current_dir() {
                             path.strip_prefix(wd).unwrap_or(&path)
                         } else {
@@ -441,7 +514,10 @@ pub fn watch<P: AsRef<Path>>(
                 }
                 _ => {}
             },
-            Err(_) => exit_with_message("Got an error watching the specified directory."),
+            Err(_) => {
+                error!("Got an error watching the specified directory.");
+                return;
+            }
         }
     }
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
 rust-version = "1.56"
-description = "A MarkDown converter designed to use the Kvarn templating engine."
+description = "A Markdown converter designed to use the Kvarn templating engine."
 readme = "README.md"
 homepage = "https://kvarn.org/chute/"
 repository = "https://github.com/Icelk/kvarn/"
@@ -26,7 +26,7 @@ chrono = { version = "^0.4.19", optional = true }
 kvarn_utils = "^0.3"
 
 # Bin deps
-clap = { version = "^3", optional = true }
+clap = { version = "^3", optional = true, features = ["cargo"] }
 env_logger = { version = "^0.9", optional = true }
 
 [features]
