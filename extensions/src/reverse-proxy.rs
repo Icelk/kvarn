@@ -2,6 +2,8 @@ use crate::connection::{Connection, EstablishedConnection};
 use kvarn::prelude::{internals::*, *};
 use std::net::{Ipv4Addr, SocketAddrV4};
 
+pub mod url_rewrite;
+
 pub use async_bits::CopyBuffer;
 #[macro_use]
 pub mod async_bits {
@@ -415,11 +417,23 @@ impl Manager {
                     || empty_req.headers().get("upgrade")
                         == Some(&HeaderValue::from_static("websocket"));
 
+                let path = empty_req.uri().path().to_owned();
+
                 modify(&mut empty_req, &mut bytes);
 
                 let mut response = match connection.request(&empty_req, &bytes, self.timeout).await
                 {
                     Ok(mut response) => {
+                        // The response's body will not be compressed, as we set the
+                        // `accept-encoding` to `identity` before.
+
+                        if let Some(prefix) = path.strip_suffix(empty_req.uri().path()) {
+                            // Since we strip `.path` (which starts with `/`, Kvarn denies requests with more than one `/`),
+                            // prefix is guaranteed not to end with `/`.
+                            response =
+                                response.map(|body| url_rewrite::absolute(&body, prefix).freeze());
+                        }
+
                         let headers = response.headers_mut();
                         utils::remove_all_headers(headers, "keep-alive");
                         utils::remove_all_headers(headers, "content-length");
@@ -454,9 +468,9 @@ impl Manager {
                         debug!("Created open back!");
 
                         loop {
-                            // Add 60 second timeout to UDP connections.
+                            // Add 90 second timeout to UDP connections.
                             let timeout_result = if udp_connection {
-                                timeout(std::time::Duration::from_secs(90), open_back.channel())
+                                timeout(time::Duration::from_secs(90), open_back.channel())
                                 .await
                             }else {
                                 Ok(open_back.channel().await)
