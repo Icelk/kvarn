@@ -74,9 +74,7 @@ impl PresentExtensions {
             let byte = *byte;
 
             if byte == SPACE || byte == CR || byte == LF {
-                if str::from_utf8(&data[start..pos]).is_err() {
-                    return None;
-                }
+                str::from_utf8(&data[start..pos]).ok()?;
                 let len = pos - start;
                 let span = (start, len);
 
