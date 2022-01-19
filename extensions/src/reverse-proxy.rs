@@ -2,6 +2,7 @@ use crate::connection::{Connection, EstablishedConnection};
 use kvarn::prelude::{internals::*, *};
 use std::net::{Ipv4Addr, SocketAddrV4};
 
+#[path = "url-rewrite.rs"]
 pub mod url_rewrite;
 
 pub use async_bits::CopyBuffer;
