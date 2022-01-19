@@ -30,31 +30,35 @@ pub use parse::{list_header, sanitize_request, CriticalRequestComponents, ValueQ
 /// Common characters expressed as a single byte each, according to UTF-8.
 pub mod chars {
     /// Tab
-    pub const TAB: u8 = 9;
+    pub const TAB: u8 = b'\t';
     /// Line feed
-    pub const LF: u8 = 10;
+    pub const LF: u8 = b'\n';
     /// Carrage return
-    pub const CR: u8 = 13;
+    pub const CR: u8 = b'\r';
     /// ` `
-    pub const SPACE: u8 = 32;
+    pub const SPACE: u8 = b' ';
     /// `!`
-    pub const BANG: u8 = 33;
+    pub const BANG: u8 = b'!';
+    /// `"`
+    pub const QUOTATION: u8 = b'"';
     /// `&`
-    pub const AMPERSAND: u8 = 38;
+    pub const AMPERSAND: u8 = b'&';
     /// `.`
-    pub const PERIOD: u8 = 46;
+    pub const PERIOD: u8 = b'.';
     /// `/`
-    pub const FORWARD_SLASH: u8 = 47;
+    pub const FORWARD_SLASH: u8 = b'/';
     /// `:`
-    pub const COLON: u8 = 58;
+    pub const COLON: u8 = b':';
     /// `>`
-    pub const PIPE: u8 = 62;
+    pub const R_TAG: u8 = b'>';
+    /// `|`
+    pub const PIPE: u8 = b'|';
     /// `[`
-    pub const L_SQ_BRACKET: u8 = 91;
+    pub const L_SQ_BRACKET: u8 = b'[';
     /// `\`
-    pub const ESCAPE: u8 = 92;
+    pub const ESCAPE: u8 = b'\\';
     /// `]`
-    pub const R_SQ_BRACKET: u8 = 93;
+    pub const R_SQ_BRACKET: u8 = b']';
 }
 
 /// Convenience macro to create a [`Bytes`] from multiple `&[u8]` sources.

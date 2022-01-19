@@ -1,18 +1,18 @@
 //! Parsing utilities and constants for Kvarn extensions.
 
 use crate::{
-    chars::{AMPERSAND, BANG, CR, LF, PIPE, SPACE},
+    chars::{AMPERSAND, BANG, CR, LF, R_TAG, SPACE},
     str, Arc, Bytes, Debug,
 };
 
 /// Magic number for [`Present`](https://kvarn.org/extensions/#present) extension.
 ///
 /// `!> `
-pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, PIPE, SPACE];
+pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, R_TAG, SPACE];
 /// Separator between [`Present`](https://kvarn.org/extensions/#present) extensions.
 ///
 /// ` &> `
-pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, PIPE, SPACE];
+pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, R_TAG, SPACE];
 
 #[derive(Debug)]
 struct PresentExtensionPosData {
