@@ -301,6 +301,7 @@ pub fn static_connection(kind: Connection) -> GetConnectionFn {
     Arc::new(move |_, _| Some(kind))
 }
 
+#[must_use = "mount the reverse proxy manager"]
 pub struct Manager {
     when: extensions::If,
     connection: GetConnectionFn,
