@@ -3,7 +3,7 @@
 //! This should contains the most commonly used items in [`std`], [`http`], [`mod@log`], and [`bytes`].
 //! It also exports all the items in [`crate`].
 
-pub use bytes::{Bytes, BytesMut};
+pub use bytes::{self, Bytes, BytesMut};
 pub use http::{
     header, header::HeaderName, uri, HeaderMap, HeaderValue, Method, Request, Response, StatusCode,
     Uri, Version,
