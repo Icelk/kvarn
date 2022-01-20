@@ -429,11 +429,22 @@ impl Manager {
                         // The response's body will not be compressed, as we set the
                         // `accept-encoding` to `identity` before.
 
-                        if let Some(prefix) = path.strip_suffix(empty_req.uri().path()) {
-                            // Since we strip `.path` (which starts with `/`, Kvarn denies requests with more than one `/`),
-                            // prefix is guaranteed not to end with `/`.
-                            response =
-                                response.map(|body| url_rewrite::absolute(&body, prefix).freeze());
+                        let content_type = response
+                            .headers()
+                            .get("content-type")
+                            .and_then(|ct| ct.to_str().ok())
+                            .and_then(|ct| ct.parse::<Mime>().ok());
+                        if let Some(
+                            (mime::TEXT, mime::HTML | mime::CSS)
+                            | (mime::APPLICATION, mime::JAVASCRIPT),
+                        ) = content_type.as_ref().map(|ct| (ct.type_(), ct.subtype()))
+                        {
+                            if let Some(prefix) = path.strip_suffix(empty_req.uri().path()) {
+                                // Since we strip `.path` (which starts with `/`, Kvarn denies requests with more than one `/`),
+                                // prefix is guaranteed not to end with `/`.
+                                response = response
+                                    .map(|body| url_rewrite::absolute(&body, prefix).freeze());
+                            }
                         }
 
                         let headers = response.headers_mut();

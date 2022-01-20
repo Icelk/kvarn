@@ -20,17 +20,20 @@ impl<'a> AbsolutePathIter<'a> {
         }
     }
     /// [`None`] means it's illegal
-    fn quote_illegal(&self, data: &[u8]) -> Option<usize> {
+    fn quote_illegal(&self, data: &[u8], final_byte: u8) -> Option<usize> {
         let mut last_was_slash = false;
         let mut ending = 0;
         for byte in data {
+            if *byte == final_byte {
+                break;
+            }
             match *byte {
-                b'"' | b'\'' => break,
-                b'\\' | b'*' => {
+                b'\\' | b'*' | b'\n' | b'$' | b'{' | b'}' | b':' => {
                     return None;
                 }
                 b'/' if last_was_slash => return None,
                 b'/' if !last_was_slash => last_was_slash = true,
+                _ if last_was_slash => last_was_slash = false,
                 _ => {}
             }
             ending += 1;
@@ -54,16 +57,23 @@ impl<'a> AbsolutePathIter<'a> {
                 self.invalid = 3;
             }
 
-            if byte == b'"' || byte == b'\'' {
+            if !self.last_was_illegal
+                && (byte == b'"' || byte == b'\'')
+                && self.data.get(pos + 1) == Some(&b'/')
+            {
                 let quote = &self.data[pos + 1..];
-                let ending = self.quote_illegal(quote);
+                let ending = self.quote_illegal(quote, byte);
                 if let Some(ending) = ending {
                     let quote = &quote[..ending];
-                    let before = &self.data[..=pos];
-                    // + 2 to take in to account the quotes
-                    return Some((quote, before, pos + 1 + ending + 2));
+                    if !quote.is_empty() {
+                        let before = &self.data[..=pos];
+                        // + 2 to take in to account the quotes
+                        return Some((quote, before, pos + 1 + ending + 1));
+                    }
                 }
             }
+
+            self.last_was_illegal = matches!(byte, b'/' | b')' | b':');
         }
         None
     }
@@ -75,8 +85,9 @@ impl<'a> Iterator for AbsolutePathIter<'a> {
             true => None,
             false => match self.next_quote() {
                 None => {
+                    let last = self.data;
                     self.data = &[];
-                    Some(IterItem::Last(self.data))
+                    Some(IterItem::Last(last))
                 }
                 Some((path, before, advance)) => {
                     self.data = &self.data[advance..];
@@ -93,6 +104,27 @@ enum IterItem<'a> {
 }
 
 /// Appends `prefix` to all absolute URL occurrences, to point the new page to the public endpoint.
-pub fn absolute(body: &[u8], _prefix: &str) -> BytesMut {
-    body.into()
+pub fn absolute(body: &[u8], mut prefix: &str) -> BytesMut {
+    use bytes::BufMut;
+
+    if let Some(trimmed_prefix) = prefix.strip_suffix('"') {
+        prefix = trimmed_prefix;
+    }
+
+    let mut buffer = BytesMut::with_capacity(body.len() + 5 * prefix.len());
+    let iter = AbsolutePathIter::new(body);
+    for item in iter {
+        match item {
+            IterItem::Last(last) => {
+                buffer.extend_from_slice(last);
+            }
+            IterItem::Path { path, before } => {
+                buffer.extend_from_slice(before);
+                buffer.extend_from_slice(prefix.as_bytes());
+                buffer.extend_from_slice(path);
+                buffer.put_u8(b'"');
+            }
+        }
+    }
+    buffer
 }
