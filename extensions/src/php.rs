@@ -1,5 +1,7 @@
 use crate::*;
 
+/// Redirects all requests where the [`Uri::path`] ends in `.php` to `connection`.
+///
 /// Priority is `-8`.
 pub fn mount_php(extensions: &mut Extensions, connection: Connection) {
     extensions.add_prepare_fn(
