@@ -177,9 +177,6 @@ impl Manager {
 
     /// Makes Kvarn perform a graceful shutdown.
     ///
-    /// # Errors
-    ///
-    /// Passes errors from [`WatchSender::send`].
     #[cfg(feature = "graceful-shutdown")]
     pub fn shutdown(&self) {
         info!(
