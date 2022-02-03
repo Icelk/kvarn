@@ -11,7 +11,7 @@ const FOOTER: &[u8] = b"</md></main>\n[footer]\n";
 const IGNORED_EXTENSIONS: &[&str] = &["hide"];
 
 fn main() {
-    env_logger::init();
+    env_logger::init_from_env("CHUTE_LOG");
 
     info!("Starting Kvarn Markdown to HTML converter.");
 
@@ -19,6 +19,7 @@ fn main() {
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
         .about(clap::crate_description!())
+        .long_about("Use the `CHUTE_LOG` environment variable to adjust the verbosity. `CHUTE_LOG=off chute` disables logging, disregarding errors.")
         .arg(
             Arg::new("PATHS")
                 .help("Paths to process/watch")
