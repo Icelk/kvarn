@@ -811,7 +811,7 @@ unsafe impl Send for LazyRequestBody {}
 unsafe impl Sync for LazyRequestBody {}
 
 /// A set of rules applicable to certain paths.
-/// See the note at [`Self::new`] on how paths are matched.
+/// See the note at [`Self::empty`] on how paths are matched.
 #[must_use]
 #[derive(Debug)]
 pub struct RuleSet<R> {
