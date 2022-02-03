@@ -27,9 +27,9 @@ macro_rules! csp_rules {
             ///
             /// Populate it with the various directive methods.
             #[inline]
-            pub fn new() -> Self {
+            pub fn empty() -> Self {
                 Self {
-                    $($directive: ValueSet::new(),)+
+                    $($directive: ValueSet::empty(),)+
                 }
             }
             $(
@@ -136,47 +136,47 @@ csp_rules! {
     /// Fallback for frame-src and worker-src.
     ///
     /// Defines the valid sources for web workers and nested browsing contexts loaded using elements such as `<frame>` and `<iframe>`.
-    (child_src, ValueSet::new(), "child-src")
+    (child_src, ValueSet::empty(), "child-src")
 
     /// Restricts the URLs which can be loaded using script interfaces
-    (connect_src, ValueSet::new(), "connect-src")
+    (connect_src, ValueSet::empty(), "connect-src")
 
     /// Serves as a fallback for the other fetch directives.
     (default_src, ValueSet::default(), "default-src")
 
     /// Specifies valid sources for fonts loaded using @font-face.
-    (font_src, ValueSet::new(), "font-src")
+    (font_src, ValueSet::empty(), "font-src")
 
     /// Specifies valid sources for nested browsing contexts loading using elements such as `<frame>` and `<iframe>`.
-    (frame_src, ValueSet::new(), "frame-src")
+    (frame_src, ValueSet::empty(), "frame-src")
 
     /// Specifies valid sources of images and favicons.
-    (img_src, ValueSet::new(), "img-src")
+    (img_src, ValueSet::empty(), "img-src")
 
     /// Specifies valid sources of application manifest files.
-    (manifest_src, ValueSet::new(), "manifest-src")
+    (manifest_src, ValueSet::empty(), "manifest-src")
 
     /// Specifies valid sources for loading media using the `<audio>`, `<video>` and `<track>` elements.
-    (media_src, ValueSet::new(), "media-src")
+    (media_src, ValueSet::empty(), "media-src")
 
     /// Specifies valid sources for the `<object>`, `<embed>`, and `<applet>` elements.
     ///
     /// > Note: Elements controlled by object-src are perhaps coincidentally considered legacy HTML elements and are not receiving new standardized features (such as the security attributes sandbox or allow for `<iframe>`). Therefore it is recommended to restrict this fetch-directive (e.g., explicitly set object-src 'none' if possible).
-    (object_src, ValueSet::new(), "object-src")
+    (object_src, ValueSet::empty(), "object-src")
 
     /// Specifies valid sources to be prefetched or prerendered.
-    (prefetch_src, ValueSet::new(), "prefetch-src")
+    (prefetch_src, ValueSet::empty(), "prefetch-src")
 
     /// Fallback for all script_*.
     ///
     /// Specifies valid sources for JavaScript.
-    (script_src, ValueSet::new(), "script-src")
+    (script_src, ValueSet::empty(), "script-src")
 
     /// Specifies valid sources for JavaScript `<script>` elements.
-    (script_src_elem, ValueSet::new(), "script-src-elem")
+    (script_src_elem, ValueSet::empty(), "script-src-elem")
 
     /// Specifies valid sources for JavaScript inline event handlers.
-    (script_src_attr, ValueSet::new(), "script-src-attr")
+    (script_src_attr, ValueSet::empty(), "script-src-attr")
 
     /// Fallback for all style_*.
     ///
@@ -184,45 +184,45 @@ csp_rules! {
     (style_src, ValueSet::default().unsafe_inline(), "style-src")
 
     /// Specifies valid sources for stylesheets `<style>` elements and `<link>` elements with rel="stylesheet".
-    (style_src_elem, ValueSet::new(), "style-src-elem")
+    (style_src_elem, ValueSet::empty(), "style-src-elem")
 
     /// Specifies valid sources for inline styles applied to individual DOM elements.
-    (style_src_attr, ValueSet::new(), "style-src-attr")
+    (style_src_attr, ValueSet::empty(), "style-src-attr")
 
     /// Specifies valid sources for Worker, SharedWorker, or ServiceWorker scripts.
-    (worker_src, ValueSet::new(), "worker-src")
+    (worker_src, ValueSet::empty(), "worker-src")
 
     /// Restricts the URLs which can be used in a document's `<base>` element.
-    (base_uri, ValueSet::new(), "base-uri")
+    (base_uri, ValueSet::empty(), "base-uri")
 
     /// Enables a sandbox for the requested resource similar to the `<iframe>` sandbox attribute.
-    (sandbox, ValueSet::new(), "sandbox")
+    (sandbox, ValueSet::empty(), "sandbox")
 
     /// Restricts the URLs which can be used as the target of a form submissions from a given context.
-    (form_action, ValueSet::new(), "form-action")
+    (form_action, ValueSet::empty(), "form-action")
 
     /// Specifies valid parents that may embed a page using `<frame>`, `<iframe>`, `<object>`, `<embed>`, or `<applet>`.
-    (frame_ancestors, ValueSet::new(), "frame-ancestors")
+    (frame_ancestors, ValueSet::empty(), "frame-ancestors")
 
     /// Restricts the URLs to which a document can initiate navigation by any means, including `<form>` (if form-action is not specified), `<a>`, window.location, window.open, etc.
-    (navigate_to, ValueSet::new(), "navigate-to")
+    (navigate_to, ValueSet::empty(), "navigate-to")
 
     /// Instructs the user agent to report attempts to violate the Content Security Policy. These [violation reports](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP#violation_report_syntax) consist of JSON documents sent via an HTTP `POST` request to the specified URI.
     ///
     /// Use [`CspValue::Uri`] as `value` to supply the path of the violation report endpoint.
-    (report, ValueSet::new(), "report-to" "report-uri")
+    (report, ValueSet::empty(), "report-to" "report-uri")
 
     /// Requires the use of SRI for scripts or styles on the page.
-    (require_sri_for, ValueSet::new(), "require-sri-for")
+    (require_sri_for, ValueSet::empty(), "require-sri-for")
 
     /// Enforces Trusted Types at the DOM XSS injection sinks.
-    (require_trusted_types_for, ValueSet::new(), "require-trused-types-for")
+    (require_trusted_types_for, ValueSet::empty(), "require-trused-types-for")
 
     /// Used to specify an allow-list of Trusted Types policies. Trusted Types allows applications to lock down DOM XSS injection sinks to only accept non-spoofable, typed values in place of strings.
-    (trusted_types, ValueSet::new(), "trusted-types")
+    (trusted_types, ValueSet::empty(), "trusted-types")
 
     /// Instructs user agents to treat all of a site's insecure URLs (those served over HTTP) as though they have been replaced with secure URLs (those served over HTTPS). This directive is intended for web sites with large numbers of insecure legacy URLs that need to be rewritten.
-    (upgrade_insecure_requests, ValueSet::new(), "upgrade-insecure-requests")
+    (upgrade_insecure_requests, ValueSet::empty(), "upgrade-insecure-requests")
 }
 
 impl Rule {
@@ -303,13 +303,13 @@ impl ValueSet {
     /// Consider using [`Default::default()`] instead,
     /// as it includes [`Value::Same`] which is almost always wanted.
     #[inline]
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Self { list: vec![] }
     }
     /// A set of [`Value`]s with only [`Value::None`].
     #[inline]
     pub fn none() -> Self {
-        Self::new().push(Value::None)
+        Self::empty().push(Value::None)
     }
     /// Adds [`Value::UnsafeInline`] to `self`.
     #[inline]
@@ -356,7 +356,7 @@ impl Default for ValueSet {
 /// # use kvarn::prelude::*;
 /// let mut extensions = Extensions::new();
 /// extensions.with_csp(
-///     Csp::new()
+///     Csp::default()
 ///         .add(
 ///             "*",
 ///             CspRule::default().img_src(CspValueSet::default().uri("https://kvarn.org")),
@@ -367,7 +367,7 @@ impl Default for ValueSet {
 pub type Csp = RuleSet<CspRule>;
 impl Default for Csp {
     fn default() -> Self {
-        Self::new().add("*", CspRule::default())
+        Self::empty().add("*", CspRule::default())
     }
 }
 

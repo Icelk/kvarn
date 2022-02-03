@@ -188,7 +188,7 @@ impl Vary {
 }
 impl Default for Vary {
     fn default() -> Self {
-        Self::new()
+        Self::empty()
     }
 }
 

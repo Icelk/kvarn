@@ -819,7 +819,7 @@ pub struct RuleSet<R> {
 }
 impl<R> RuleSet<R> {
     /// Creates a new ruleset without any rules.
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Self { rules: Vec::new() }
     }
     /// Adds `rule` to `path`.

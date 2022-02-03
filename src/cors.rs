@@ -18,7 +18,7 @@ use extensions::RuleSet;
 /// // Allow `https://icelk.dev` and `https://kvarn.org` to access all images.
 /// // Also allow all requests from `http://example.org` access to the api.
 /// let cors =
-///     Cors::new()
+///     Cors::empty()
 ///         .add(
 ///             "/images/*",
 ///             CorsAllowList::new(time::Duration::from_secs(60*60*24*365))

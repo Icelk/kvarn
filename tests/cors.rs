@@ -31,7 +31,7 @@ async fn default_options() {
 
 fn get_extensions() -> Extensions {
     let mut extensions = Extensions::new();
-    let cors = Cors::new()
+    let cors = Cors::empty()
         .add("/logo.svg", CorsAllowList::default().allow_all_origins())
         .add(
             "/api/*",
