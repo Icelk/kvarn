@@ -631,10 +631,6 @@ pub async fn handle_cache(
     host: &Host,
 ) -> CacheReply {
     /// Get a [`comprash::CompressedResponse`].
-    ///
-    /// # Errors
-    ///
-    /// Returns errors from [`Extensions::resolve_present`].
     async fn get_response(
         request: &mut Request<application::Body>,
         host: &Host,
