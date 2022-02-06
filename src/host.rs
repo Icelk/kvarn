@@ -79,7 +79,7 @@ pub struct Host {
 }
 impl Host {
     /// Creates a new [`Host`].
-    /// Will read certificates in the specified locations
+    /// Will read PEM encoded certificates in the specified locations
     /// and return an non-secure host if parsing fails.
     ///
     /// To achieve greater security, use [`Host::with_http_to_https_redirect`] and call [`Host::with_hsts`].
