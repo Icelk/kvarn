@@ -41,7 +41,7 @@ use rustls::{
 pub struct Host {
     /// The name of the host, will be used in matching the requests [SNI hostname](rustls::server::ClientHello::server_name())
     /// and `host` header to get the requested host to handle the request.
-    pub name: &'static str,
+    pub name: String,
     /// The certificate of this host, if any.
     #[cfg(feature = "https")]
     pub certificate: Option<Arc<sign::CertifiedKey>>,
@@ -132,7 +132,7 @@ impl Host {
     /// ```
     #[cfg(feature = "https")]
     pub fn new(
-        name: &'static str,
+        name: impl AsRef<str>,
         cert: Vec<rustls::Certificate>,
         pk: Arc<dyn sign::SigningKey>,
         path: impl AsRef<Path>,
@@ -142,7 +142,7 @@ impl Host {
         let cert = sign::CertifiedKey::new(cert, pk);
 
         Self {
-            name,
+            name: name.as_ref().to_owned(),
             certificate: Some(Arc::new(cert)),
             path: path.as_ref().to_path_buf(),
             extensions,
@@ -158,13 +158,13 @@ impl Host {
     /// This host will only support non-encrypted HTTP/1 connections.
     /// Consider enabling the `https` feature and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
     pub fn unsecure(
-        host_name: &'static str,
+        host_name: impl AsRef<str>,
         path: impl AsRef<Path>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
         Self {
-            name: host_name,
+            name: host_name.as_ref().to_owned(),
             #[cfg(feature = "https")]
             certificate: None,
             path: path.as_ref().to_path_buf(),
@@ -439,9 +439,9 @@ impl CollectionBuilder {
     pub fn insert(mut self, host: Host) -> Self {
         self.check_secure(&host);
         if self.0.first.is_none() {
-            self.0.first = Some(host.name);
+            self.0.first = Some(host.name.clone());
         }
-        self.0.by_name.insert(host.name, host);
+        self.0.by_name.insert(host.name.clone(), host);
         self
     }
     /// Adds a default `host` which is the fallback for all requests with a requested host
@@ -465,7 +465,7 @@ impl CollectionBuilder {
             self.0.default.is_none(),
             "Can not set default host multiple times."
         );
-        self.0.default = Some(host.name);
+        self.0.default = Some(host.name.clone());
         self.insert(host)
     }
     fn check_secure(&mut self, host: &Host) {
@@ -509,9 +509,9 @@ impl CollectionBuilder {
 #[derive(Debug)]
 #[must_use]
 pub struct Collection {
-    default: Option<&'static str>,
-    by_name: HashMap<&'static str, Host>,
-    first: Option<&'static str>,
+    default: Option<String>,
+    by_name: HashMap<String, Host>,
+    first: Option<String>,
     has_secure: bool,
     pre_host_limiter: LimitManager,
 }
@@ -547,7 +547,9 @@ impl Collection {
     #[inline]
     #[must_use]
     pub fn get_default(&self) -> Option<&Host> {
-        self.default.and_then(|default| self.get_host(default))
+        self.default
+            .as_ref()
+            .and_then(|default| self.get_host(default))
     }
     /// Get a [`Host`] by name.
     #[inline]
@@ -567,7 +569,7 @@ impl Collection {
                     || base_host == Some("127.0.0.1")
                     || base_host == Some("::1")
                 {
-                    self.first.and_then(|host| self.get_host(host))
+                    self.first.as_ref().and_then(|host| self.get_host(host))
                 } else {
                     None
                 }
