@@ -12,13 +12,13 @@ categories = ["template-engine"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures = "^0.3"
+futures = "0.3"
 kvarn = { path = "../", default-features = false }
 # kvarn = { version = "^0.3", default-features = false }
-kvarn-fastcgi-client = { version = "^0.1", optional = true }
-tokio = { version = "^1.13", optional = true, features = ["net", "io-util"] }
-url-crawl = { version = "^0.1", optional = true }
-async_chunked_transfer = "^1.4"
+kvarn-fastcgi-client = { version = "0.1", optional = true }
+tokio = { version = "1.13", optional = true, features = ["net", "io-util"] }
+url-crawl = { version = "0.1", optional = true }
+async_chunked_transfer = "1.4"
 
 [features]
 default = ["php", "templates", "push"]
@@ -28,6 +28,5 @@ push = ["url-crawl"]
 reverse-proxy = ["tokio"]
 
 [dev-dependencies]
-tokio = { version = "^1.13", features = ["net", "io-util", "macros"] }
-kvarn_testing = { path = "../testing" }
-# kvarn_testing = "^0.3"
+tokio = { version = "1.16", features = ["net", "io-util", "macros"] }
+kvarn_testing = { path = "../testing", version = "0.3" }

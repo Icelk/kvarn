@@ -26,25 +26,23 @@ members = [
 ]
 
 [dependencies]
-brotli = { version = "^3", optional = true }
-bytes = "^1"
-flate2 = { version = "^1", optional = true }
-futures = "^0.3"
-h2 = { version = "^0.3", default-features = false, optional = true }
-http = "^0.2"
-kvarn_utils = { path = "utils" }
-kvarn_async = { path = "async" }
-# kvarn_utils = "^0.3"
-# kvarn_async = "^0.3"
-log = "^0.4"
-mime = "^0.3"
-mime_guess = "^2"
-percent-encoding = "^2.1.0"
-rustls = { version = "^0.20", optional = true }
-rustls-pemfile = { version = "^0.2", optional = true }
-tokio = { version = "^1.13", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
-time = { version = "^0.3.7", features = ["parsing", "formatting", "macros"] }
-webpki = { version = "^0.22", optional = true }
+brotli = { version = "3", optional = true }
+bytes = "1"
+flate2 = { version = "1", optional = true }
+futures = "0.3"
+h2 = { version = "0.3", default-features = false, optional = true }
+http = "0.2"
+kvarn_utils = { path = "utils", version = "0.3" }
+kvarn_async = { path = "async", version = "0.3" }
+log = "0.4"
+mime = "0.3"
+mime_guess = "2"
+percent-encoding = "2"
+rustls = { version = "0.20", optional = true }
+rustls-pemfile = { version = "0.3", optional = true }
+tokio = { version = "1.16", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
+time = { version = "0.3.7", features = ["parsing", "formatting", "macros"] }
+webpki = { version = "0.22", optional = true }
 
 [features]
 default = ["full"]
@@ -68,5 +66,4 @@ http2 = ["h2", "https"]
 graceful-shutdown = []
 
 [dev-dependencies]
-kvarn_testing = { path = "testing" }
-# kvarn_testing = "^0.3"
+kvarn_testing = { path = "testing", version = "0.3" }

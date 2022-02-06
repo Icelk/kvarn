@@ -13,8 +13,7 @@ keywords = ["web-server", "utilities"]
 categories = ["web-programming", "asynchronous"]
 
 [dependencies]
-bytes = "^1"
-http = "^0.2"
-kvarn_utils = { path = "../utils" }
-# kvarn_utils = "^0.3"
-tokio = { version = "^1.13", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
+bytes = "1"
+http = "0.2"
+kvarn_utils = { path = "../utils", version = "0.3" }
+tokio = { version = "1.16", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
