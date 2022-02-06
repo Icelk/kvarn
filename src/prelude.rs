@@ -94,5 +94,5 @@ pub mod threading {
 ///
 /// Here, all relevant time items from [`time`] are imported.
 pub mod chrono {
-    pub use time::{ext::NumericalDuration, OffsetDateTime};
+    pub use time::{ext::NumericalDuration, ext::NumericalStdDuration, OffsetDateTime};
 }

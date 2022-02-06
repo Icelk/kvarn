@@ -511,8 +511,8 @@ pub enum CompressPreference {
 /// assert_eq!(Err(CachePreferenceError::Invalid), "FULL".parse::<ClientCachePreference>());
 /// assert_eq!(Ok(ServerCachePreference::QueryMatters), "query-matters".parse());
 /// use std::convert::TryInto;
-/// assert_eq!(Ok(ClientCachePreference::MaxAge(time::Duration::from_secs(42))), "42s".parse());
-/// assert_eq!(Ok(ServerCachePreference::MaxAge(time::Duration::from_secs(3600))), "3600s".parse());
+/// assert_eq!(Ok(ClientCachePreference::MaxAge(Duration::from_secs(42))), "42s".parse());
+/// assert_eq!(Ok(ServerCachePreference::MaxAge(Duration::from_secs(3600))), "3600s".parse());
 /// assert_eq!(Err(CachePreferenceError::ZeroDuration), "0s".parse::<ClientCachePreference>());
 /// assert_eq!(Err(CachePreferenceError::ZeroDuration), "0s".parse::<ServerCachePreference>());
 /// ```
@@ -543,7 +543,7 @@ pub enum ServerCachePreference {
     Full,
     /// Sets a max age for the content.
     /// Query will be discarded in cache, same as [`Self::Full`].
-    MaxAge(time::Duration),
+    MaxAge(Duration),
 }
 impl ServerCachePreference {
     /// If a response with `cache_action` (from [`host::CacheAction`]) should be cached.
@@ -584,11 +584,11 @@ impl str::FromStr for ServerCachePreference {
             "" => return Err(CachePreferenceError::Empty),
             _ => {
                 if let Some(integer) = s.strip_suffix('s') {
-                    if let Ok(integer) = integer.parse::<i64>() {
+                    if let Ok(integer) = integer.parse::<u64>() {
                         if integer == 0 {
                             return Err(CachePreferenceError::ZeroDuration);
                         }
-                        return Ok(Self::MaxAge(integer.seconds()));
+                        return Ok(Self::MaxAge(integer.std_seconds()));
                     }
                 }
                 return Err(CachePreferenceError::Invalid);
@@ -611,7 +611,7 @@ pub enum ClientCachePreference {
     ///
     /// Note that this must be in seconds when sending a header.
     /// This will be rounded up.
-    MaxAge(time::Duration),
+    MaxAge(Duration),
 }
 impl ClientCachePreference {
     /// Gets the [`HeaderValue`] representation of the preference.
@@ -627,7 +627,7 @@ impl ClientCachePreference {
                     b"public, max-age=",
                     // if > second integer, add 1 second (ceil the duration).
                     // i64::from(bool) returns 1 if true.
-                    (duration.whole_seconds() + i64::from(duration.subsec_nanoseconds() > 0))
+                    (duration.as_secs() + u64::from(duration.subsec_nanos() > 0))
                         .to_string()
                         .as_bytes(),
                     b", immutable"
@@ -642,11 +642,11 @@ impl str::FromStr for ClientCachePreference {
     type Err = CachePreferenceError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(integer) = s.strip_suffix('s') {
-            if let Ok(integer) = integer.parse::<i64>() {
+            if let Ok(integer) = integer.parse::<u64>() {
                 if integer == 0 {
                     return Err(CachePreferenceError::ZeroDuration);
                 }
-                return Ok(Self::MaxAge(integer.seconds()));
+                return Ok(Self::MaxAge(integer.std_seconds()));
             }
         }
         Ok(match s {
@@ -706,12 +706,12 @@ impl<V> CacheOut<V> {
 ///
 /// The other information is for lifetimes of the cache.
 /// The [`OffsetDateTime`] is when the item was added and
-/// the [`time::Duration`] how long the item can be kept.
+/// the [`Duration`] how long the item can be kept.
 /// A `Duration` value of `None` means the item will never expire.
 ///
-/// Keep in mind that `Duration` is the std variant, while `time::Duration` is the time crate's
+/// Keep in mind that `Duration` is the std variant, while `Duration` is the time crate's
 /// variant, which supports negative durations.
-pub type CacheItem<T> = (T, (OffsetDateTime, Option<time::Duration>));
+pub type CacheItem<T> = (T, (OffsetDateTime, Option<Duration>));
 
 /// A general cache with size and item count limits.
 ///
@@ -868,7 +868,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
         value_length: usize,
         key: K,
         value: V,
-        lifetime: Option<time::Duration>,
+        lifetime: Option<Duration>,
     ) -> CacheOut<V>
     where
         H: Hasher,
@@ -929,7 +929,7 @@ impl<K: Eq + Hash, H: Hasher> Cache<K, VariedResponse, H> {
                 .ok()
                 .as_ref()
                 .and_then(parse::CacheControl::as_freshness)
-                .map(|s| i64::from(s).seconds());
+                .map(|s| u64::from(s).std_seconds());
 
         let identity = response.first().0.get_identity().body();
         let identity_fragment = &identity[identity.len().saturating_sub(512)..];

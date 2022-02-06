@@ -773,11 +773,11 @@ pub async fn handle_cache(
         }
     }
     type Cached<'a> = (
-        Option<&'a (VariedResponse, (OffsetDateTime, Option<time::Duration>))>,
+        Option<&'a (VariedResponse, (OffsetDateTime, Option<Duration>))>,
         UriKey,
     );
     type CachedMut<'a> = (
-        Option<&'a mut (VariedResponse, (OffsetDateTime, Option<time::Duration>))>,
+        Option<&'a mut (VariedResponse, (OffsetDateTime, Option<Duration>))>,
         UriKey,
     );
     fn get_cached(
