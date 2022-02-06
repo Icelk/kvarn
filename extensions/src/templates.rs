@@ -3,9 +3,7 @@ use crate::*;
 pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
     box_fut!({
         let data = unsafe { data.get_inner() };
-        let bytes = Bytes::copy_from_slice(
-            &handle_template(data.args(), data.response().body(), data.host()).await,
-        );
+        let bytes = handle_template(data.args(), data.response().body(), data.host()).await;
         *data.response_mut().body_mut() = bytes;
     })
 }
@@ -14,7 +12,9 @@ pub async fn handle_template(
     arguments: &utils::PresentArguments,
     file: &[u8],
     host: &Host,
-) -> Vec<u8> {
+) -> Bytes {
+    use kvarn::prelude::bytes::BufMut;
+
     // Get templates, from cache or file
     let templates = read_templates(arguments.iter().rev(), host).await;
 
@@ -45,7 +45,7 @@ pub async fn handle_template(
         }
     }
 
-    let mut response = Vec::with_capacity(file.len() * 2);
+    let mut response = BytesMut::with_capacity(file.len() * 2);
 
     let mut stage = Stage::Text;
     let mut placeholder_start = 0;
@@ -61,7 +61,7 @@ pub async fn handle_template(
                     placeholder_start = position;
                     stage = Stage::Placeholder;
                 } else {
-                    response.push(byte);
+                    response.put_u8(byte);
                 }
             }
             Stage::Placeholder if escaped != 1 => {
@@ -76,7 +76,7 @@ pub async fn handle_template(
                             if let Some(template) = templates.get(&key.to_owned()) {
                                 // Push template byte-slice to the response
                                 for byte in template.iter().copied() {
-                                    response.push(byte);
+                                    response.put_u8(byte);
                                 }
                             }
                         }
@@ -91,7 +91,7 @@ pub async fn handle_template(
                         .get(position + 1..position + 2)
                         .map_or(false, |range| range != [L_SQ_BRACKET]) =>
             {
-                response.push(byte)
+                response.put_u8(byte)
             }
             // Else, it's a escaping character!
             _ => {}
@@ -107,7 +107,7 @@ pub async fn handle_template(
             escaped = 0;
         }
     }
-    response
+    response.freeze()
 }
 async fn read_templates<'a, I: Iterator<Item = &'a str>>(
     files: I,
