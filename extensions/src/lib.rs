@@ -36,7 +36,7 @@ pub use php::mount_php as php;
 #[cfg(feature = "templates")]
 pub mod templates;
 #[cfg(feature = "templates")]
-pub use templates::templates;
+pub use templates::templates as templates_ext;
 
 pub mod connection;
 
@@ -82,7 +82,7 @@ pub fn mount_all(extensions: &mut Extensions) {
     extensions.add_present_file("private".to_string(), Box::new(hide));
     extensions.add_present_internal("allow-ips".to_string(), Box::new(ip_allow));
     #[cfg(feature = "templates")]
-    extensions.add_present_internal("tmpl".to_string(), Box::new(templates));
+    extensions.add_present_internal("tmpl".to_string(), Box::new(templates_ext));
     #[cfg(feature = "push")]
     push::mount(extensions);
 }
@@ -155,7 +155,22 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
 pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
     box_fut!({
         let data = unsafe { data.get_inner() };
-        let error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
+        let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
+        let arguments = utils::extensions::PresentExtensions::new(error.body().clone());
+        if let Some(arguments) = &arguments {
+            for argument in arguments.iter() {
+                if argument.name() == "tmpl" {
+                    let body = templates::handle_template(
+                        &argument,
+                        &error.body()[arguments.data_start()..],
+                        data.host(),
+                    )
+                    .await;
+                    *error.body_mut() = body;
+                }
+            }
+        }
+
         *data.response_mut() = error;
     })
 }
