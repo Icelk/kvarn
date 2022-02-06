@@ -124,6 +124,9 @@ pub type ResponsePipeFuture = Box<
 /// Higher `priority` extensions are ran first.
 /// The debug name is useful when you want to see which priorities
 /// other extensions use. This is beneficial when creating "plug-and-play" extensions.
+///
+/// If two extensions with identical [`Self::id`]s are inserted, the latter will override the
+/// prior. This only effects extensions of the same type.
 #[derive(Debug, Clone, Copy)]
 #[must_use]
 pub struct Id {

@@ -449,6 +449,7 @@ pub async fn handle_connection(
             }
         };
 
+        // When version is HTTP/1, we block the socket if we begin listening to it again.
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => future.await,
             _ => {

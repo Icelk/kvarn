@@ -18,6 +18,19 @@ pub fn mount(extensions: &mut Extensions) -> &mut Extensions {
     extensions
 }
 
+/// Always push all links on page.
+///
+/// # Examples
+///
+/// ```rust
+/// # use kvarn::prelude::*;
+/// # let mut extensions = Extensions::new();
+/// use kvarn_extensions::push::always;
+/// extensions.add_post(
+///     Box::new(always),
+///     Id::new(-32, "HTTP/2 push"),
+/// );
+/// ```
 pub fn always(
     request: RequestWrapper,
     host: HostWrapper,
