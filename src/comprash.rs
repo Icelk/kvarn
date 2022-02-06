@@ -781,8 +781,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
             {
                 CacheOut::Present(value_and_lifetime)
             }
-            Some(_) => CacheOut::None,
-            None => CacheOut::None,
+            Some(_) | None => CacheOut::None,
         }
     }
     /// Get a mutable reference to the value at `key` from the cache.
