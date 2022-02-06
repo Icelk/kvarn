@@ -44,7 +44,7 @@ fn get_extensions() -> Extensions {
         )
         .add(
             "/images/*",
-            CorsAllowList::new(time::Duration::from_secs(60 * 60 * 24 * 365))
+            CorsAllowList::new(Duration::from_secs(60 * 60 * 24 * 365))
                 .add_origin("https://example.org")
                 .add_origin("https://foo.bar"),
         )
