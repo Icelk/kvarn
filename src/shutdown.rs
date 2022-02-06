@@ -368,15 +368,12 @@ mod handover {
                 tokio::spawn(async move {
                     while let Ok((mut connection, _addr)) = listener.accept().await {
                         let mut data = Vec::new();
-                        if timeout(
-                            Duration::from_millis(50),
-                            connection.read_to_end(&mut data),
-                        )
-                        .await
-                        .map(Result::ok)
-                        .ok()
-                        .flatten()
-                        .is_none()
+                        if timeout(Duration::from_millis(50), connection.read_to_end(&mut data))
+                            .await
+                            .map(Result::ok)
+                            .ok()
+                            .flatten()
+                            .is_none()
                         {
                             warn!("Request didn't reach us in under 50 milliseconds.");
                             continue;

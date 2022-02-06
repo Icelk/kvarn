@@ -402,9 +402,8 @@ impl Extensions {
                             HeaderValue::try_from(
                                 // if > second integer, add 1 second (ceil the duration).
                                 // i64::from(bool) returns 1 if true.
-                                (cache_for.as_secs()
-                                    + u64::from(cache_for.subsec_nanos() > 0))
-                                .to_string(),
+                                (cache_for.as_secs() + u64::from(cache_for.subsec_nanos() > 0))
+                                    .to_string(),
                             )
                             .unwrap(),
                         );
