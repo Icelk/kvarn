@@ -23,7 +23,7 @@ pulldown-cmark = { version = "^0.9", default-features = false, features = ["simd
 notify = "^4"
 unicode_categories = "^0.1"
 chrono = { version = "^0.4.19", optional = true }
-kvarn_utils = "^0.3"
+kvarn_utils = "0.3.1"
 
 # Bin deps
 clap = { version = "^3", optional = true, features = ["cargo"] }

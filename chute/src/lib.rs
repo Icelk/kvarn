@@ -285,15 +285,19 @@ fn _process<P: AsRef<Path>>(
         .map_or(0, kvarn_utils::PresentExtensions::data_start);
 
     if let Some(file_extensions) = &file_extensions {
+        let mut ignored_extensions = ignored_extensions.to_vec();
+
         'extension_loop: for extension in file_extensions.iter() {
             // Check for ignored extensions, and skip pushing it to main extensions if matched
-            for ignored in ignored_extensions {
-                if *extension.name() == **ignored {
-                    continue 'extension_loop;
-                }
+            if let Some(pos) = ignored_extensions
+                .iter()
+                .position(|ext| *ext == extension.name())
+            {
+                ignored_extensions.remove(pos);
+                continue 'extension_loop;
             }
             // Push to main extension list
-            extension_list.push(extension);
+            extension_list.insert(0, extension);
         }
     }
     if let Ok(string) = std::str::from_utf8(&buffer[file_content_start..]) {
