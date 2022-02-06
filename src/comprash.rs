@@ -781,9 +781,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
             {
                 CacheOut::Present(value_and_lifetime)
             }
-            Some(_) => {
-                CacheOut::None
-            }
+            Some(_) => CacheOut::None,
             None => CacheOut::None,
         }
     }
