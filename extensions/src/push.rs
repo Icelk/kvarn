@@ -146,6 +146,9 @@ fn push(
 
                 info!("Pushing urls {:?}", urls);
 
+                urls.sort_unstable();
+                urls.dedup();
+
                 for url in urls {
                     let mut uri = request.uri().clone().into_parts();
                     if let Some(uri) =
@@ -192,6 +195,8 @@ fn push(
                         }
                     }
                 }
+
+                info!("Push done.");
             }
             // Else, do nothing
             _ => {}
