@@ -8,10 +8,6 @@
 
 use crate::{percent_decode, prelude::*};
 
-/// HTTP dates parsing and formatting in the
-/// [chrono format](https://docs.rs/chrono/0.4.19/chrono/format/strftime/index.html).
-pub const HTTP_DATE: &str = "%a, %d %b %Y %T GMT";
-
 /// A general error from parsing.
 #[derive(Debug)]
 pub enum Error {

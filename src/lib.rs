@@ -61,7 +61,7 @@ pub mod read;
 pub mod shutdown;
 pub mod vary;
 
-use prelude::{internals::*, networking::*, *};
+use prelude::{chrono::*, internals::*, networking::*, *};
 // When user only imports kvarn::* and not kvarn::prelude::*
 pub use error::{default as default_error, default_response as default_error_response};
 pub use extensions::{Extensions, Id};
@@ -773,17 +773,11 @@ pub async fn handle_cache(
         }
     }
     type Cached<'a> = (
-        Option<&'a (
-            VariedResponse,
-            (chrono::DateTime<chrono::Utc>, Option<chrono::Duration>),
-        )>,
+        Option<&'a (VariedResponse, (OffsetDateTime, Option<time::Duration>))>,
         UriKey,
     );
     type CachedMut<'a> = (
-        Option<&'a mut (
-            VariedResponse,
-            (chrono::DateTime<chrono::Utc>, Option<chrono::Duration>),
-        )>,
+        Option<&'a mut (VariedResponse, (OffsetDateTime, Option<time::Duration>))>,
         UriKey,
     );
     fn get_cached(
@@ -855,24 +849,25 @@ pub async fn handle_cache(
             let creation = *creation;
 
             // Handle `if-modified-since` header.
-            let if_modified_since: Option<chrono::DateTime<chrono::Utc>> = if host
-                .options
-                .disable_if_modified_since
-            {
-                None
-            } else {
-                request
-                    .headers()
-                    .get("if-modified-since")
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|s| chrono::NaiveDateTime::parse_from_str(s, parse::HTTP_DATE).ok())
-                    .map(|date_time| chrono::DateTime::from_utc(date_time, chrono::Utc))
-            };
+            let if_modified_since: Option<OffsetDateTime> =
+                if host.options.disable_if_modified_since {
+                    None
+                } else {
+                    request
+                        .headers()
+                        .get("if-modified-since")
+                        .and_then(|h| h.to_str().ok())
+                        .and_then(|s| {
+                            time::PrimitiveDateTime::parse(s, &comprash::HTTP_DATE)
+                                .ok()
+                                .map(time::PrimitiveDateTime::assume_utc)
+                        })
+                };
 
             let client_request_is_fresh = if_modified_since.map_or(false, |timestamp| {
                 // - 1s because the sent datetime floors the seconds, so the `creation`
                 // datetime is 0-1s ahead.
-                timestamp >= creation - chrono::Duration::seconds(1)
+                timestamp >= creation - 1.seconds()
             });
 
             // We don't need to check for `host.options.disable_if_modified_since`
@@ -965,9 +960,12 @@ pub async fn handle_cache(
                 (response, identity_body, future)
             };
             if !host.options.disable_if_modified_since {
-                let last_modified =
-                    HeaderValue::from_str(&creation.format(parse::HTTP_DATE).to_string())
-                        .expect("We know these bytes are valid.");
+                let last_modified = HeaderValue::from_str(
+                    &creation
+                        .format(&comprash::HTTP_DATE)
+                        .expect("failed to format datetime"),
+                )
+                .expect("We know these bytes are valid.");
                 utils::replace_header(
                     response_data.0.headers_mut(),
                     "last-modified",
@@ -1021,9 +1019,12 @@ pub async fn handle_cache(
             .await;
 
             if !host.options.disable_if_modified_since && cached {
-                let last_modified =
-                    HeaderValue::from_str(&chrono::Utc::now().format(parse::HTTP_DATE).to_string())
-                        .expect("We know these bytes are valid.");
+                let last_modified = HeaderValue::from_str(
+                    &OffsetDateTime::now_utc()
+                        .format(&comprash::HTTP_DATE)
+                        .expect("failed to format datetime"),
+                )
+                .expect("We know these bytes are valid.");
                 utils::replace_header(response.headers_mut(), "last-modified", last_modified);
             }
 

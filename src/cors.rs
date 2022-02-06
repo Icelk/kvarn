@@ -21,7 +21,7 @@ use extensions::RuleSet;
 ///     Cors::empty()
 ///         .add(
 ///             "/images/*",
-///             CorsAllowList::new(time::Duration::from_secs(60*60*24*365))
+///             CorsAllowList::new(Duration::from_secs(60*60*24*365))
 ///                 .add_origin("https://icelk.dev")
 ///                 .add_origin("https://kvarn.org")
 ///             )
@@ -42,7 +42,7 @@ impl Cors {
         &self,
         origin: &Uri,
         uri_path: &str,
-    ) -> Option<(MethodAllowList, &[HeaderName], time::Duration)> {
+    ) -> Option<(MethodAllowList, &[HeaderName], Duration)> {
         self.get(uri_path).and_then(|cal| cal.check(origin))
     }
     /// Check if the [`Request::headers`] and [`Request::uri`] is allowed with this ruleset.
@@ -55,11 +55,11 @@ impl Cors {
     pub fn check_cors_request<T>(
         &self,
         request: &Request<T>,
-    ) -> Option<(MethodAllowList, &[HeaderName], time::Duration)> {
+    ) -> Option<(MethodAllowList, &[HeaderName], Duration)> {
         let same_origin_allowed_headers = (
             MethodAllowList::All,
             &[][..],
-            time::Duration::from_secs(60 * 60 * 24 * 7),
+            Duration::from_secs(60 * 60 * 24 * 7),
         );
         match request.headers().get("origin") {
             None => Some(same_origin_allowed_headers),
@@ -110,11 +110,11 @@ pub struct AllowList {
     allow_all_origins: bool,
     methods: Option<Vec<Method>>,
     headers: Vec<HeaderName>,
-    cache_for: time::Duration,
+    cache_for: Duration,
 }
 impl AllowList {
     /// Creates a empty CORS allow list with the client cache duration of `cache_for`.
-    pub fn new(cache_for: time::Duration) -> Self {
+    pub fn new(cache_for: Duration) -> Self {
         Self {
             allowed: Vec::new(),
             allow_all_origins: false,
@@ -181,9 +181,9 @@ impl AllowList {
     /// Checks if the `origin` is allowed according to the allow list.
     ///
     /// Returns [`Some`] if `origin` is allowed, with the [`Method`]s and [`HeaderName`]s
-    /// allowed, with a cache max-age of [`time::Duration`].
+    /// allowed, with a cache max-age of [`Duration`].
     /// Returns [`None`] if `origin` isn't allowed.
-    pub fn check(&self, origin: &Uri) -> Option<(MethodAllowList, &[HeaderName], time::Duration)> {
+    pub fn check(&self, origin: &Uri) -> Option<(MethodAllowList, &[HeaderName], Duration)> {
         if self.allow_all_origins {
             return Some((self.get_methods(), &self.headers, self.cache_for));
         }
@@ -203,7 +203,7 @@ impl AllowList {
 /// The default `cache_for` is 1 hour.
 impl Default for AllowList {
     fn default() -> Self {
-        Self::new(time::Duration::from_secs(60 * 60))
+        Self::new(Duration::from_secs(60 * 60))
     }
 }
 
@@ -400,8 +400,11 @@ impl Extensions {
                             "access-control-max-age",
                             // We know a number is valid
                             HeaderValue::try_from(
-                                (cache_for.as_secs() + u64::from(cache_for.subsec_nanos() > 0))
-                                    .to_string(),
+                                // if > second integer, add 1 second (ceil the duration).
+                                // i64::from(bool) returns 1 if true.
+                                (cache_for.as_secs()
+                                    + u64::from(cache_for.subsec_nanos() > 0))
+                                .to_string(),
                             )
                             .unwrap(),
                         );

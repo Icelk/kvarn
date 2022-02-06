@@ -12,9 +12,6 @@
 pub use kvarn_async::prelude::*;
 pub use kvarn_utils::prelude::*;
 
-// Commonly used external dependencies
-pub use std::time;
-
 // Modules
 pub use crate::application;
 pub use crate::comprash;
@@ -93,12 +90,9 @@ pub mod threading {
     pub use tokio::task::{spawn, spawn_blocking, spawn_local};
 }
 
-/// **Prelude:** chrono
+/// **Prelude:** time
 ///
-/// Here, all relevant time items from [`chrono`] are imported.
+/// Here, all relevant time items from [`time`] are imported.
 pub mod chrono {
-    pub use chrono::{
-        Date, DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone,
-        Timelike, Utc,
-    };
+    pub use time::{ext::NumericalDuration, OffsetDateTime};
 }

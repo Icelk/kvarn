@@ -57,7 +57,7 @@ impl SmartPush {
     pub fn new(clear_interval: Duration, check_every_request: u32) -> Self {
         Self {
             db: HashSet::new(),
-            last_clear: time::Instant::now(),
+            last_clear: Instant::now(),
             clear_interval,
             check_every_request,
             iteration: 0,
@@ -65,7 +65,7 @@ impl SmartPush {
     }
     fn accept(&mut self, remote: SocketAddr) -> bool {
         if self.iteration >= self.check_every_request {
-            let now = time::Instant::now();
+            let now = Instant::now();
             let elapsed = now - self.last_clear;
             if elapsed > self.clear_interval {
                 self.last_clear = now;
@@ -82,7 +82,7 @@ impl SmartPush {
 }
 impl Default for SmartPush {
     fn default() -> Self {
-        Self::new(time::Duration::from_secs(60 * 2), 8)
+        Self::new(Duration::from_secs(60 * 2), 8)
     }
 }
 

@@ -13,6 +13,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+/// The HTTP date time format in the [`time`] format.
+pub static HTTP_DATE: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short case_sensitive:true], [day padding:zero] [month repr:short case_sensitive:true] [year padding:zero repr:full base:calendar sign:automatic] [hour repr:24 padding:zero]:[minute padding:zero]:[second padding:zero] GMT");
+
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
 pub type FileCache = RwLock<Cache<PathBuf, Bytes>>;
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a response cache.
@@ -581,11 +584,11 @@ impl str::FromStr for ServerCachePreference {
             "" => return Err(CachePreferenceError::Empty),
             _ => {
                 if let Some(integer) = s.strip_suffix('s') {
-                    if let Ok(integer) = integer.parse() {
+                    if let Ok(integer) = integer.parse::<i64>() {
                         if integer == 0 {
                             return Err(CachePreferenceError::ZeroDuration);
                         }
-                        return Ok(Self::MaxAge(time::Duration::from_secs(integer)));
+                        return Ok(Self::MaxAge(integer.seconds()));
                     }
                 }
                 return Err(CachePreferenceError::Invalid);
@@ -617,17 +620,19 @@ impl ClientCachePreference {
     pub fn as_header(self) -> HeaderValue {
         match self {
             Self::None => HeaderValue::from_static("no-store"),
-            Self::Changing => HeaderValue::from_static("max-age=120"),
+            Self::Changing => HeaderValue::from_static("max-age=2"),
             Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
             Self::MaxAge(duration) => {
                 let bytes = build_bytes!(
                     b"public, max-age=",
-                    (duration.as_secs() + u64::from(duration.subsec_nanos() > 0))
+                    // if > second integer, add 1 second (ceil the duration).
+                    // i64::from(bool) returns 1 if true.
+                    (duration.whole_seconds() + i64::from(duration.subsec_nanoseconds() > 0))
                         .to_string()
                         .as_bytes(),
                     b", immutable"
                 );
-                // We know the bytes are safe.
+                // We know these bytes are safe.
                 HeaderValue::from_maybe_shared(bytes).unwrap()
             }
         }
@@ -637,11 +642,11 @@ impl str::FromStr for ClientCachePreference {
     type Err = CachePreferenceError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(integer) = s.strip_suffix('s') {
-            if let Ok(integer) = integer.parse() {
+            if let Ok(integer) = integer.parse::<i64>() {
                 if integer == 0 {
                     return Err(CachePreferenceError::ZeroDuration);
                 }
-                return Ok(Self::MaxAge(time::Duration::from_secs(integer)));
+                return Ok(Self::MaxAge(integer.seconds()));
             }
         }
         Ok(match s {
@@ -700,10 +705,13 @@ impl<V> CacheOut<V> {
 /// `T` represents the cached data.
 ///
 /// The other information is for lifetimes of the cache.
-/// The [`DateTime`] is when the item was added and
-/// the [`Duration`] how long the item can be kept.
+/// The [`OffsetDateTime`] is when the item was added and
+/// the [`time::Duration`] how long the item can be kept.
 /// A `Duration` value of `None` means the item will never expire.
-pub type CacheItem<T> = (T, (DateTime<Utc>, Option<Duration>));
+///
+/// Keep in mind that `Duration` is the std variant, while `time::Duration` is the time crate's
+/// variant, which supports negative durations.
+pub type CacheItem<T> = (T, (OffsetDateTime, Option<time::Duration>));
 
 /// A general cache with size and item count limits.
 ///
@@ -776,7 +784,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
         match self.map.get(key) {
             Some(value_and_lifetime)
                 if value_and_lifetime.1 .1.map_or(true, |lifetime| {
-                    Utc::now() - value_and_lifetime.1 .0 <= lifetime
+                    OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
                 }) =>
             {
                 CacheOut::Present(value_and_lifetime)
@@ -813,7 +821,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
         match self.map.get_mut(key) {
             Some(value_and_lifetime)
                 if value_and_lifetime.1 .1.map_or(true, |lifetime| {
-                    Utc::now() - value_and_lifetime.1 .0 <= lifetime
+                    OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
                 }) =>
             {
                 CacheOut::Present(value_and_lifetime)
@@ -860,7 +868,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
         value_length: usize,
         key: K,
         value: V,
-        lifetime: Option<Duration>,
+        lifetime: Option<time::Duration>,
     ) -> CacheOut<V>
     where
         H: Hasher,
@@ -872,7 +880,10 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
         if self.map.len() >= self.max_items {
             self.discard_one();
         }
-        match self.map.insert(key, (value, (Utc::now(), lifetime))) {
+        match self
+            .map
+            .insert(key, (value, (OffsetDateTime::now_utc(), lifetime)))
+        {
             Some((v, _expiry)) => CacheOut::Present(v),
             None => CacheOut::None,
         }
@@ -918,7 +929,7 @@ impl<K: Eq + Hash, H: Hasher> Cache<K, VariedResponse, H> {
                 .ok()
                 .as_ref()
                 .and_then(parse::CacheControl::as_freshness)
-                .map(|s| Duration::seconds(i64::from(s)));
+                .map(|s| i64::from(s).seconds());
 
         let identity = response.first().0.get_identity().body();
         let identity_fragment = &identity[identity.len().saturating_sub(512)..];

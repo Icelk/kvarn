@@ -126,7 +126,7 @@ impl EstablishedConnection {
         &mut self,
         request: &Request<T>,
         body: &[u8],
-        timeout: time::Duration,
+        timeout: Duration,
     ) -> Result<Response<Bytes>, GatewayError> {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
         info!("Sending request");
@@ -306,7 +306,7 @@ pub struct Manager {
     when: extensions::If,
     connection: GetConnectionFn,
     modify: ModifyRequestFn,
-    timeout: time::Duration,
+    timeout: Duration,
 }
 impl Manager {
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
@@ -314,7 +314,7 @@ impl Manager {
         when: extensions::If,
         connection: GetConnectionFn,
         modify: ModifyRequestFn,
-        timeout: time::Duration,
+        timeout: Duration,
     ) -> Self {
         Self {
             when,
@@ -324,7 +324,7 @@ impl Manager {
         }
     }
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
-    pub fn base(base_path: &str, connection: GetConnectionFn, timeout: time::Duration) -> Self {
+    pub fn base(base_path: &str, connection: GetConnectionFn, timeout: Duration) -> Self {
         assert_eq!(base_path.chars().next(), Some('/'));
         let path = if base_path.ends_with('/') {
             base_path.to_owned()
@@ -483,7 +483,7 @@ impl Manager {
                         loop {
                             // Add 90 second timeout to UDP connections.
                             let timeout_result = if udp_connection {
-                                timeout(time::Duration::from_secs(90), open_back.channel())
+                                timeout(Duration::from_secs(90), open_back.channel())
                                 .await
                             }else {
                                 Ok(open_back.channel().await)
