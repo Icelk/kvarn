@@ -51,7 +51,7 @@ pub fn new() -> Extensions {
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
 ///
-/// The current defaults are [`download()`], [`cache()`], and [`templates()`]
+/// The current defaults are [`download()`], [`cache()`], and [`templates_ext()`]
 ///
 /// > To add PHP, use [`php()`].
 ///
