@@ -18,19 +18,19 @@ path = "src/main.rs"
 required-features = ["bin"]
 
 [dependencies]
-colored = "^2.0"
-pulldown-cmark = { version = "^0.9", default-features = false, features = ["simd"] }
-notify = "^4"
-unicode_categories = "^0.1"
-chrono = { version = "^0.4.19", optional = true }
+colored = "2.0"
+pulldown-cmark = { version = "0.9", default-features = false, features = ["simd"] }
+notify = "4"
+unicode_categories = "0.1"
+time = { version = "0.3", optional = true, features = ["formatting", "macros", "local-offset"] }
 kvarn_utils = "0.3.1"
 
 # Bin deps
-clap = { version = "^3", optional = true, features = ["cargo"] }
-env_logger = { version = "^0.9", optional = true }
+clap = { version = "3", optional = true, features = ["cargo"] }
+env_logger = { version = "0.9", optional = true }
 
 [features]
 default = ["date", "bin"]
-date = ["chrono"]
+date = ["time"]
 
 bin = ["env_logger", "clap"]

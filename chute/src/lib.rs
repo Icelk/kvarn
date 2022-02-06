@@ -404,8 +404,11 @@ fn _process<P: AsRef<Path>>(
         "date".to_owned(),
         Box::new(|_inner, mut ext| {
             use fmt::Write;
-            let date = chrono::Local::now();
-            write!(ext, "{}", date.format("%a, %F, %0H:%0M %:z"))
+
+            static FORMAT: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short], [year]-[month repr:numerical]-[day], [hour]:[minute] [offset_hour sign:mandatory]:[offset_minute]");
+
+            let date = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+            write!(ext, "{}", date.format(FORMAT).expect("failed to format datetime"))
                 .expect("failed to push to string");
         }),
     );
