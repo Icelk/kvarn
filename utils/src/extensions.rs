@@ -67,11 +67,15 @@ impl PresentExtensions {
         let mut start = PRESENT_INTERNAL_PREFIX.len();
         let mut last_name = None;
         let mut has_cr = false;
-        for (pos, byte) in data.iter().enumerate().skip(3) {
+        for (pos, byte) in data
+            .iter()
+            .copied()
+            .enumerate()
+            .skip(PRESENT_INTERNAL_PREFIX.len() + 1)
+        {
             if start > pos {
                 continue;
             }
-            let byte = *byte;
 
             if byte == SPACE || byte == CR || byte == LF {
                 str::from_utf8(&data[start..pos]).ok()?;
@@ -96,7 +100,10 @@ impl PresentExtensions {
                         data_start: pos + if has_cr { 2 } else { 1 },
                     });
                 }
-                start = if data[pos..].starts_with(PRESENT_INTERNAL_AND) {
+                start = if data
+                    .get(pos..)
+                    .map_or(false, |range| range.starts_with(PRESENT_INTERNAL_AND))
+                {
                     last_name = None;
                     pos + PRESENT_INTERNAL_AND.len()
                 } else {
@@ -159,14 +166,17 @@ impl Iterator for PresentExtensionsIter {
 
         let iter = self.data.extensions[start + 1..].iter();
 
+        let mut different_name = false;
+
         for current in iter {
             self.index += 1;
             if current.get_name() != name {
+                different_name = true;
                 break;
             }
         }
         // Cannot change name ↑ on last item; the end of each *peeks* forward one. If it's next to the end, add one.
-        if self.index + 1 == self.data.extensions.len() {
+        if self.index + 1 == self.data.extensions.len() && !different_name {
             self.index += 1;
         };
         Some(PresentArguments {
