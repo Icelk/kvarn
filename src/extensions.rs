@@ -125,7 +125,7 @@ pub type ResponsePipeFuture = Box<
 /// The debug name is useful when you want to see which priorities
 /// other extensions use. This is beneficial when creating "plug-and-play" extensions.
 ///
-/// If two extensions with identical [`Self::id`]s are inserted, the latter will override the
+/// If two extensions with identical [`priority`](Self::priority)s are inserted, the latter will override the
 /// prior. This only effects extensions of the same type.
 #[derive(Debug, Clone, Copy)]
 #[must_use]
@@ -156,7 +156,7 @@ impl Id {
         }
     }
     /// Always inserts this extension.
-    /// If an extension with the same `priority` exist, the `priority` is decremented and tried again.
+    /// If an extension with the same [`priority`](Self::priority) exist, the `priority` is decremented and tried again.
     pub fn no_override(mut self) -> Self {
         self.no_override = true;
         self
