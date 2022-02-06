@@ -23,7 +23,7 @@ use tokio::sync::watch::{
 pub(crate) struct WakerIndex(usize);
 
 /// Wrapper type for `UnsafeCell<Vec<Option<Waker>>>` to enable sharing across threads.
-/// This is safe because of the promises [`WakerIndex`] and the use of this struct bellow.
+/// This is safe because of the promises [`WakerIndex`] and the use of this struct below.
 #[derive(Debug)]
 #[cfg(feature = "graceful-shutdown")]
 #[repr(transparent)]
@@ -42,7 +42,7 @@ impl WakerList {
     /// Notifies all watchers, clearing the list in the process.
     /// This is ok since they are called, and register themselves again.
     pub(crate) fn notify(&self) {
-        // See [`Manager::set_waker`] bellow for safety.
+        // See [`Manager::set_waker`] below for safety.
         let wakers = unsafe { &mut *self.get() };
         for waker in wakers.iter_mut().filter_map(Option::take) {
             waker.wake();

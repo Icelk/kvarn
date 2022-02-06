@@ -772,10 +772,7 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
     where
         K: Borrow<Q>,
     {
-        // // Here for borrowing issues after `self.map.get_mut`.
-        // // See the SAFETY note bellow.
-        // let ptr: *const _ = self;
-        // maybe set tokio timers to remove items instead?
+        // `TODO`: maybe set tokio timers to remove items instead?
         match self.map.get(key) {
             Some(value_and_lifetime)
                 if value_and_lifetime.1 .1.map_or(true, |lifetime| {
@@ -785,10 +782,6 @@ impl<K: Eq + Hash, V, H> Cache<K, V, H> {
                 CacheOut::Present(value_and_lifetime)
             }
             Some(_) => {
-                // // SAFETY: No other have a reference to self; the other branches are just that,
-                // // other branches, and their references are returned, so this code isn't ran.
-                // #[allow(clippy::cast_ref_to_mut)]
-                // unsafe { &mut *(ptr as *mut Cache<K, V>) }.remove(key);
                 CacheOut::None
             }
             None => CacheOut::None,

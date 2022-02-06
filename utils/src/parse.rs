@@ -718,7 +718,7 @@ impl CriticalRequestComponents {
 }
 /// An error regarding the sanitization of a request.
 ///
-/// See the variants bellow and [`sanitize_request`] for when this happens.
+/// See the variants below and [`sanitize_request`] for when this happens.
 #[must_use]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SanitizeError {

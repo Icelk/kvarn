@@ -33,7 +33,7 @@ macro_rules! csp_rules {
                 }
             }
             $(
-                #[doc = "Overrides the directive described bellow."]
+                #[doc = "Overrides the directive described below."]
                 #[doc = "By default, Kvarn protects against XSS attacks by sending some defaults."]
                 #[doc = ""]
                 #[doc = "# Panics"]
