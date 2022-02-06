@@ -5,9 +5,10 @@ use crate::*;
 /// Mounts a push extension with priority `-32`, overriding any other [`Post`] extension with that
 /// priority.
 ///
-/// This only pushes new content to each connection every 2 minutes, not every time.
-pub fn mount(extensions: &mut Extensions) -> &mut Extensions {
-    let manager = Mutex::new(SmartPush::default());
+/// This only pushes new content to each connection every 2 minutes (if you use
+/// [`SmartPush::default`]), not every time.
+pub fn mount(extensions: &mut Extensions, manager: SmartPush) -> &mut Extensions {
+    let manager = Mutex::new(manager);
     extensions.add_post(
         Box::new(move |request, host, response_pipe, bytes, addr| {
             let manager = unsafe { utils::SuperUnsafePointer::new(&manager) };
@@ -41,15 +42,19 @@ pub fn always(
     push(request, host, response_pipe, bytes, addr, None)
 }
 
-struct SmartPush {
+pub struct SmartPush {
     db: HashSet<SocketAddr>,
-    last_clear: time::Instant,
-    clear_interval: time::Duration,
+    last_clear: Instant,
+    clear_interval: Duration,
     check_every_request: u32,
     iteration: u32,
 }
 impl SmartPush {
-    fn new(clear_interval: time::Duration, check_every_request: u32) -> Self {
+    /// `clear_interval` is the duration between clearing the log of who's been pushed content.
+    ///
+    /// `check_every_request` is the number of requests between checks if the duration has
+    /// expired.
+    pub fn new(clear_interval: Duration, check_every_request: u32) -> Self {
         Self {
             db: HashSet::new(),
             last_clear: time::Instant::now(),
@@ -228,7 +233,7 @@ mod tests {
     #[tokio::test]
     async fn run() {
         let mut extensions = Extensions::new();
-        mount(&mut extensions);
+        mount(&mut extensions, SmartPush::default());
         let _server = kvarn_testing::ServerBuilder::from(extensions).run().await;
     }
     #[test]
@@ -238,7 +243,7 @@ mod tests {
 
         let debug = format!("{:?}", extensions);
         assert_eq!(debug.match_indices("push").count(), 1);
-        mount(&mut extensions);
+        mount(&mut extensions, SmartPush::default());
         assert_eq!(debug.match_indices("push").count(), 1);
     }
 }

@@ -23,7 +23,7 @@ pub use reverse_proxy::{localhost, static_connection, Manager as ReverseProxy};
 #[cfg(feature = "push")]
 pub mod push;
 #[cfg(feature = "push")]
-pub use push::mount as mount_push;
+pub use push::{mount as mount_push, SmartPush};
 
 #[cfg(feature = "kvarn-fastcgi-client")]
 pub mod fastcgi;
@@ -84,7 +84,7 @@ pub fn mount_all(extensions: &mut Extensions) {
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl".to_string(), Box::new(templates_ext));
     #[cfg(feature = "push")]
-    push::mount(extensions);
+    push::mount(extensions, SmartPush::default());
 }
 
 // Ok, since it is used, just not by every extension, and #[CFG] would be too fragile for this.
