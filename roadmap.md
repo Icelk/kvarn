@@ -80,8 +80,10 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   [ ] Graceful restart through systemd service
 -   [ ] [doc_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html)
 -   [ ] noonce implementation?
+-   [x] Correct PHP/FastCGI implementation.
 -   [x] Parallel handling of requests per connection.
 -   [x] Fix issues with several present extensions.
+-   [x] Improve template performance.
 
 # v0.5.0 WebSockets & Auth
 

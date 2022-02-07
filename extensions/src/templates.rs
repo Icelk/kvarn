@@ -13,10 +13,17 @@ pub async fn handle_template(
     file: &[u8],
     host: &Host,
 ) -> Bytes {
-    use kvarn::prelude::bytes::BufMut;
+    let now = Instant::now();
+    let mut file_contents = Vec::with_capacity(arguments.iter().count());
+    for argument in arguments.iter().rev() {
+        let file = read_template_file(argument, host).await;
+        if let Some(file) = file {
+            file_contents.push(file);
+        }
+    }
 
     // Get templates, from cache or file
-    let templates = read_templates(arguments.iter().rev(), host).await;
+    let templates = collect_templates(file_contents.iter().map(|b| &b[..]));
 
     #[derive(Eq, PartialEq)]
     enum Stage {
@@ -45,11 +52,13 @@ pub async fn handle_template(
         }
     }
 
-    let mut response = BytesMut::with_capacity(file.len() * 2);
+    let mut response = BytesMut::with_capacity(file.len() * 3 / 2);
 
     let mut stage = Stage::Text;
     let mut placeholder_start = 0;
     let mut escaped = 0;
+    let mut start_byte = Some(0);
+
     for (position, byte) in file.iter().copied().enumerate() {
         let is_escape = byte == ESCAPE;
 
@@ -60,8 +69,7 @@ pub async fn handle_template(
                 if byte == L_SQ_BRACKET && escaped != 1 {
                     placeholder_start = position;
                     stage = Stage::Placeholder;
-                } else {
-                    response.put_u8(byte);
+                    response.extend_from_slice(&file[start_byte.take().unwrap()..position]);
                 }
             }
             Stage::Placeholder if escaped != 1 => {
@@ -72,15 +80,12 @@ pub async fn handle_template(
                         // Good; we have UTF-8
                         if let Ok(key) = str::from_utf8(&file[placeholder_start + 1..position]) {
                             // If it is a valid template?
-                            // Frick, we have to own the value for it to be borrow for Arc<String>, no &str here :(
-                            if let Some(template) = templates.get(&key.to_owned()) {
-                                // Push template byte-slice to the response
-                                for byte in template.iter().copied() {
-                                    response.put_u8(byte);
-                                }
+                            if let Some(template) = templates.get(key) {
+                                response.extend_from_slice(template);
                             }
                         }
                     }
+                    start_byte = Some(position + 1);
                     // Set stage to accept new text
                     stage = Stage::Text;
                 }
@@ -89,12 +94,14 @@ pub async fn handle_template(
                 if (escaped > 1 || (escaped == 0 && is_escape))
                     && file
                         .get(position + 1..position + 2)
-                        .map_or(false, |range| range != [L_SQ_BRACKET]) =>
-            {
-                response.put_u8(byte)
-            }
+                        .map_or(false, |range| range != [L_SQ_BRACKET]) => {}
             // Else, it's a escaping character!
-            _ => {}
+            _ => {
+                if let Some(sb) = start_byte.take() {
+                    response.extend_from_slice(&file[sb..position]);
+                    start_byte = Some(position + 1);
+                }
+            }
         }
 
         // Do we escape?
@@ -107,37 +114,38 @@ pub async fn handle_template(
             escaped = 0;
         }
     }
+
+    if let Some(start_byte) = start_byte {
+        response.extend_from_slice(&file[start_byte..]);
+    }
+
+    println!("Templates took {}µs", now.elapsed().as_micros());
     response.freeze()
 }
-async fn read_templates<'a, I: Iterator<Item = &'a str>>(
-    files: I,
-    host: &Host,
-) -> HashMap<String, Vec<u8>> {
+fn collect_templates<'a, I: Iterator<Item = &'a [u8]>>(files: I) -> HashMap<&'a str, &'a [u8]> {
     let mut templates = HashMap::with_capacity(32);
 
     for file in files {
-        if let Some(map) = read_templates_from_file(file, host).await {
-            for (key, value) in map.into_iter() {
-                templates.insert(key, value);
-            }
+        for (key, value) in extract_templates(file).into_iter() {
+            templates.insert(key, value);
         }
     }
 
     templates
 }
-async fn read_templates_from_file(file: &str, host: &Host) -> Option<HashMap<String, Vec<u8>>> {
+async fn read_template_file<'a>(file: &str, host: &'a Host) -> Option<Bytes> {
     let path = utils::make_path(&host.path, "templates", file, None);
 
     // The template file will be access several times.
     match read_file_cached(&path, host.file_cache.as_ref()).await {
-        Some(file) => {
-            let templates = extract_templates(&file[..]);
-            Some(templates)
+        Some(file) => Some(file),
+        None => {
+            warn!("Requested template file doesn't exist.");
+            None
         }
-        None => None,
     }
 }
-fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
+fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
     let mut templates = HashMap::with_capacity(16);
 
     let mut last_was_lf = true;
@@ -146,7 +154,7 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
     let mut name_start = 0_usize;
     let mut name_end = 0_usize;
     let mut newline_size = 1;
-    let mut buffer = Vec::new();
+    let mut start_byte = Some(0);
 
     for (position, byte) in file.iter().copied().enumerate() {
         let defined_name = name_end > name_start;
@@ -156,30 +164,33 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
             newline_size = 2;
             continue;
         }
-        if byte == ESCAPE {
-            escape += 1;
-            match escape {
-                1 => continue,
-                _ => escape = 0,
+        if escape == 1 {
+            // Check escape
+            if byte == ESCAPE {
+                escape += 1;
+            } else {
+                escape = 0;
             }
+            continue;
         }
 
         // If previous char was \, escape!
         // New template, process previous!
-        if escape != 1 && last_was_lf && byte == L_SQ_BRACKET {
+        if last_was_lf && byte == L_SQ_BRACKET {
             // If name is longer than empty
             if name_end.checked_sub(name_start + 2).is_some() {
                 // Check if we have a valid UTF-8 string
                 if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
-                    let mut buffer = std::mem::take(&mut buffer);
-                    for _ in 0..newline_size {
-                        buffer.pop();
+                    let mut end = position.saturating_sub(newline_size);
+                    if file[position.saturating_sub(1)] == ESCAPE {
+                        end = end.saturating_sub(1);
                     }
                     // Then insert template; name we got from previous step, then bytes from where the previous template definition ended, then our current position, just before the start of the next template
                     // Returns a byte-slice of the file
-                    templates.insert(name.to_owned(), buffer);
+                    templates.insert(name, &file[start_byte.unwrap()..end]);
                     name_end = 0;
                     name_start = 0;
+                    start_byte = None;
                 }
             }
             if name_end >= name_start {
@@ -187,6 +198,13 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
                 name_start = position;
             }
             continue;
+        } else if byte == L_SQ_BRACKET {
+        }
+        // Check escape
+        if byte == ESCAPE {
+            escape += 1;
+        } else {
+            escape = 0;
         }
         if in_name && byte == R_SQ_BRACKET {
             name_end = position + 1;
@@ -198,35 +216,31 @@ fn extract_templates(file: &[u8]) -> HashMap<String, Vec<u8>> {
             } else {
                 0
             };
+            start_byte = Some(position + ignore_after_name + 1);
         }
-        if byte != SPACE {
+        if !(byte == SPACE || byte == TAB) {
             last_was_lf = byte == LF;
         }
-        if !in_name {
-            if ignore_after_name > 0 {
-                ignore_after_name -= 1;
-                continue;
-            }
-            if escape == 1 && byte != L_SQ_BRACKET {
-                buffer.push(ESCAPE);
-            }
-            buffer.push(byte);
-            if byte != ESCAPE {
-                escape = 0;
-            }
+        if !in_name && ignore_after_name > 0 {
+            ignore_after_name -= 1;
+            continue;
         }
     }
     // Because we add the definitions in the start of the new one, check for last in the end of file
     if name_end.checked_sub(name_start + 2).is_some() {
         if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
-            if buffer.ends_with(&[LF]) {
-                buffer.pop();
+            if let Some(start_byte) = start_byte {
+                let mut end = file.len();
+                if file.ends_with(&[LF]) {
+                    end -= 1;
+                }
+                if file.ends_with(&[CR]) {
+                    end -= 1;
+                }
+                templates.insert(name, &file[start_byte..end]);
             }
-            if buffer.ends_with(&[CR]) {
-                buffer.pop();
-            }
-            templates.insert(name.to_owned(), buffer);
         }
     }
+
     templates
 }
