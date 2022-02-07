@@ -59,7 +59,7 @@ async fn several_files() {
     );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
-    assert_eq!(response.text().await.unwrap(), "\\2\\2[2]\n111\n");
+    assert_eq!(response.text().await.unwrap(), "\\[2]\\\\2\\[2]\n111\n");
 }
 
 #[cfg(feature = "templates")]
@@ -97,7 +97,8 @@ async fn escaping() {
     );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
-    assert_eq!(response.text().await.unwrap(), "[2]\n\\2\\2[2]");
+    // the `\` in \[2] doesn't get removed. See https://kvarn.org/templates.#limitations
+    assert_eq!(response.text().await.unwrap(), "[2]\n\\[2]\\\\2\\[2]");
 }
 
 #[cfg(feature = "templates")]

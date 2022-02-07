@@ -179,10 +179,7 @@ fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
             if name_end.checked_sub(name_start + 2).is_some() {
                 // Check if we have a valid UTF-8 string
                 if let Ok(name) = str::from_utf8(&file[name_start + 1..name_end - 1]) {
-                    let mut end = position.saturating_sub(newline_size);
-                    if file[position.saturating_sub(1)] == ESCAPE {
-                        end = end.saturating_sub(1);
-                    }
+                    let end = position.saturating_sub(newline_size);
                     // Then insert template; name we got from previous step, then bytes from where the previous template definition ended, then our current position, just before the start of the next template
                     // Returns a byte-slice of the file
                     templates.insert(name, &file[start_byte.unwrap()..end]);
