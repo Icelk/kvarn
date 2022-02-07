@@ -42,6 +42,9 @@ impl From<utils::parse::Error> for Error {
 impl From<io::Error> for Error {
     #[inline]
     fn from(err: io::Error) -> Self {
+        if let io::ErrorKind::BrokenPipe = err.kind() {
+            return Self::ClientRefusedResponse;
+        }
         Self::Io(err)
     }
 }
@@ -49,6 +52,9 @@ impl From<io::Error> for Error {
 impl From<h2::Error> for Error {
     #[inline]
     fn from(err: h2::Error) -> Self {
+        if !err.is_io() && err.reason().is_none() {
+            return Self::ClientRefusedResponse;
+        }
         Self::H2(err)
     }
 }
@@ -205,7 +211,7 @@ impl HttpConnection {
                     .await;
                 match result {
                     Ok(connection) => Ok(HttpConnection::Http2(Box::new(connection))),
-                    Err(err) => Err(Error::H2(err)),
+                    Err(err) => Err(err.into()),
                 }
             }
             #[cfg(not(feature = "http2"))]
@@ -238,7 +244,7 @@ impl HttpConnection {
                     Ok((request, response)) => {
                         Ok((request.map(Body::Http2), ResponsePipe::Http2(response)))
                     }
-                    Err(err) => Err(Error::H2(err)),
+                    Err(err) => Err(err.into()),
                 },
                 None => Err(utils::parse::Error::Done.into()),
             },
@@ -495,10 +501,8 @@ mod response {
                         _ => {}
                     }
                     let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
-                    async_bits::write::response(&response, b"", &mut writer)
-                        .await
-                        .map_err(Error::Io)?;
-                    writer.flush().await.map_err(Error::Io)?;
+                    async_bits::write::response(&response, b"", &mut writer).await?;
+                    writer.flush().await?;
                     writer.into_inner();
 
                     Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
@@ -508,7 +512,7 @@ mod response {
                     Err(ref err) if err.get_io().is_none() && err.reason().is_none() => {
                         Err(Error::ClientRefusedResponse)
                     }
-                    Err(err) => Err(Error::H2(err)),
+                    Err(err) => Err(err.into()),
                     Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
                 },
             }
@@ -530,7 +534,7 @@ mod response {
                 #[cfg(feature = "http2")]
                 Self::Http2(h2) => match h2.push_request(request) {
                     Ok(pipe) => Ok(PushedResponsePipe::Http2(pipe)),
-                    Err(err) => Err(Error::H2(err)),
+                    Err(err) => Err(err.into()),
                 },
             }
         }
@@ -572,7 +576,7 @@ mod response {
                     *response.version_mut() = Version::HTTP_2;
 
                     match s.send_response(response, end_of_stream) {
-                        Err(err) => Err(Error::H2(err)),
+                        Err(err) => Err(err.into()),
                         Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
                     }
                 }
@@ -633,7 +637,7 @@ mod response {
         #[inline]
         pub async fn close(&mut self) -> Result<(), Error> {
             match self {
-                Self::Http1(h1) => h1.lock().await.flush().await.map_err(Error::from),
+                Self::Http1(h1) => h1.lock().await.flush().await.map_err(Into::into),
                 #[cfg(feature = "http2")]
                 Self::Http2(h2) => h2.send_data(Bytes::new(), true).map_err(Error::from),
             }
