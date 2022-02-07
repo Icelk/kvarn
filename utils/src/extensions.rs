@@ -71,7 +71,7 @@ impl PresentExtensions {
             .iter()
             .copied()
             .enumerate()
-            .skip(PRESENT_INTERNAL_PREFIX.len() + 1)
+            .skip(PRESENT_INTERNAL_PREFIX.len())
         {
             if start > pos {
                 continue;
