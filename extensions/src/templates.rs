@@ -13,7 +13,6 @@ pub async fn handle_template(
     file: &[u8],
     host: &Host,
 ) -> Bytes {
-    let now = Instant::now();
     let mut file_contents = Vec::with_capacity(arguments.iter().count());
     for argument in arguments.iter().rev() {
         let file = read_template_file(argument, host).await;
@@ -119,7 +118,6 @@ pub async fn handle_template(
         response.extend_from_slice(&file[start_byte..]);
     }
 
-    println!("Templates took {}µs", now.elapsed().as_micros());
     response.freeze()
 }
 fn collect_templates<'a, I: Iterator<Item = &'a [u8]>>(files: I) -> HashMap<&'a str, &'a [u8]> {
