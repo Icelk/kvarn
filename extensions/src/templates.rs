@@ -138,7 +138,7 @@ async fn read_template_file<'a>(file: &str, host: &'a Host) -> Option<Bytes> {
     match read_file_cached(&path, host.file_cache.as_ref()).await {
         Some(file) => Some(file),
         None => {
-            warn!("Requested template file doesn't exist.");
+            warn!("Requested template file {:?} doesn't exist.", file);
             None
         }
     }
