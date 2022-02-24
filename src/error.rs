@@ -1,6 +1,7 @@
 //! Utility functions to generate error responses.
 //!
-//! Default errors can be overridden using the files at `<host_dir>/errors/<status_code>.html`
+//! Default errors can be overridden using the files at
+//! `<host_dir>/<host::Options::default_errors_dir, normally `errors`>/<status_code>.html`
 
 use crate::prelude::*;
 
@@ -34,7 +35,12 @@ pub async fn default(
     // Error files will be used several times.
     let body = match host {
         Some(host) => {
-            let path = utils::make_path(&host.path, "errors", code.as_str(), Some("html"));
+            let path = utils::make_path(
+                &host.path,
+                host.options.get_errors_dir(),
+                code.as_str(),
+                Some("html"),
+            );
 
             match read_file_cached(&path, host.file_cache.as_ref()).await {
                 Some(file) => file,

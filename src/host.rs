@@ -339,8 +339,11 @@ pub struct Options {
     /// If no value is passed, `html` is assumed.
     pub extension_default: Option<String>,
     /// Default data directory for public files.
-    /// Default is `public`
+    /// Default is `public`.
     pub public_data_dir: Option<PathBuf>,
+    /// Default directory for overriding HTTP error responses.
+    /// Default is `errors`.
+    pub errors_dir: Option<PathBuf>,
 
     // # Cache
     /// Returns `cache-control` header to be `no-store` by default, if enabled.
@@ -420,6 +423,14 @@ impl Options {
         self.public_data_dir
             .as_deref()
             .unwrap_or_else(|| Path::new("public"))
+    }
+    /// Gets the [`Self::errors_dir`], as used by Kvarn.
+    /// Uses the default specified there.
+    #[must_use]
+    pub fn get_errors_dir(&self) -> &Path {
+        self.public_data_dir
+            .as_deref()
+            .unwrap_or_else(|| Path::new("errors"))
     }
 }
 impl Default for Options {
