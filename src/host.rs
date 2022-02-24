@@ -397,10 +397,16 @@ impl Options {
         self.disable_fs = true;
         self
     }
-    /// Sets the relative directory (from the [`Host::path`]) to fetch data for the web in.
+    /// Sets the directory (relative to the [`Host::path`]) to fetch data for the web in.
     /// Defaults to `public`.
     pub fn set_public_data_dir(&mut self, path: impl AsRef<Path>) -> &mut Self {
         self.public_data_dir = Some(path.as_ref().to_path_buf());
+        self
+    }
+    /// Sets the directory (relative to the [`Host::path`]) to get HTTP error overrides from.
+    /// Defaults to `errors`.
+    pub fn set_errors_dir(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        self.errors_dir = Some(path.as_ref().to_path_buf());
         self
     }
 
