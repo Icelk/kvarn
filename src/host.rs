@@ -374,6 +374,7 @@ impl Options {
             folder_default: None,
             extension_default: None,
             public_data_dir: None,
+            errors_dir: None,
 
             disable_client_cache: false,
             disable_if_modified_since: false,
