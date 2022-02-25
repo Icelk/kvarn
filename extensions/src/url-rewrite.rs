@@ -40,13 +40,14 @@ impl<'a> AbsolutePathIter<'a> {
         }
         Some(ending)
     }
-    fn next_quote(&mut self) -> Option<(&'a [u8], &'a [u8], usize)> {
+    fn next_quote(&mut self) -> Option<(&'a [u8], &'a [u8], usize, QuoteType)> {
         for (pos, byte) in self.data.iter().copied().enumerate() {
             // Handle non ascii characters
             if self.invalid > 0 {
                 self.invalid -= 1;
                 continue;
             }
+            // How long the character is - skip non-ascii characters
             if eq_byte(byte, 0b11000000, 0b11100000) {
                 self.invalid = 1;
             }
@@ -61,19 +62,22 @@ impl<'a> AbsolutePathIter<'a> {
                 && (byte == b'"' || byte == b'\'')
                 && self.data.get(pos + 1) == Some(&b'/')
             {
+                let quote_type = QuoteType::from_byte(byte).unwrap();
                 let quote = &self.data[pos + 1..];
                 let ending = self.quote_illegal(quote, byte);
                 if let Some(ending) = ending {
-                    let quote = &quote[..ending];
-                    if !quote.is_empty() {
-                        let before = &self.data[..=pos];
-                        // + 2 to take in to account the quotes
-                        return Some((quote, before, pos + 1 + ending + 1));
+                    if ending > 2 {
+                        let quote = &quote[..ending];
+                        if !quote.is_empty() {
+                            let before = &self.data[..=pos];
+                            // + 2 to take in to account the quotes
+                            return Some((quote, before, pos + 1 + ending + 1, quote_type));
+                        }
                     }
                 }
             }
 
-            self.last_was_illegal = matches!(byte, b'/' | b')' | b':');
+            self.last_was_illegal = matches!(byte, b'/' | b')' | b':' | b',' | b'|' | b'^');
         }
         None
     }
@@ -89,17 +93,47 @@ impl<'a> Iterator for AbsolutePathIter<'a> {
                     self.data = &[];
                     Some(IterItem::Last(last))
                 }
-                Some((path, before, advance)) => {
+                Some((path, before, advance, quote_type)) => {
                     self.data = &self.data[advance..];
-                    Some(IterItem::Path { path, before })
+                    Some(IterItem::Path {
+                        path,
+                        before,
+                        quote_type,
+                    })
                 }
             },
         }
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum QuoteType {
+    Single,
+    Double,
+}
+impl QuoteType {
+    fn from_byte(b: u8) -> Option<Self> {
+        Some(match b {
+            b'"' => Self::Double,
+            b'\'' => Self::Single,
+            _ => return None,
+        })
+    }
+    fn as_byte(self) -> u8 {
+        match self {
+            Self::Single => b'\'',
+            Self::Double => b'"',
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum IterItem<'a> {
-    Path { path: &'a [u8], before: &'a [u8] },
+    Path {
+        path: &'a [u8],
+        before: &'a [u8],
+        quote_type: QuoteType,
+    },
     Last(&'a [u8]),
 }
 
@@ -118,11 +152,15 @@ pub fn absolute(body: &[u8], mut prefix: &str) -> BytesMut {
             IterItem::Last(last) => {
                 buffer.extend_from_slice(last);
             }
-            IterItem::Path { path, before } => {
+            IterItem::Path {
+                path,
+                before,
+                quote_type,
+            } => {
                 buffer.extend_from_slice(before);
                 buffer.extend_from_slice(prefix.as_bytes());
                 buffer.extend_from_slice(path);
-                buffer.put_u8(b'"');
+                buffer.put_u8(quote_type.as_byte());
             }
         }
     }

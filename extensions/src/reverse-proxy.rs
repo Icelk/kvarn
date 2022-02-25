@@ -307,6 +307,7 @@ pub struct Manager {
     connection: GetConnectionFn,
     modify: ModifyRequestFn,
     timeout: Duration,
+    rewrite_url: bool,
 }
 impl Manager {
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
@@ -321,7 +322,14 @@ impl Manager {
             connection,
             modify,
             timeout,
+            rewrite_url: true,
         }
+    }
+    /// Disables the built-in feature of rewriting the relative URLs so they point to the forwarded
+    /// site.
+    pub fn disable_url_rewrite(mut self) -> Self {
+        self.rewrite_url = false;
+        self
     }
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
     pub fn base(base_path: &str, connection: GetConnectionFn, timeout: Duration) -> Self {
@@ -429,29 +437,31 @@ impl Manager {
                         // The response's body will not be compressed, as we set the
                         // `accept-encoding` to `identity` before.
 
-                        let content_type = response
-                            .headers()
-                            .get("content-type")
-                            .and_then(|ct| ct.to_str().ok())
-                            .and_then(|ct| ct.parse::<Mime>().ok());
-                        if let Some(
-                            (mime::TEXT, mime::HTML | mime::CSS)
-                            | (mime::APPLICATION, mime::JAVASCRIPT),
-                        ) = content_type.as_ref().map(|ct| (ct.type_(), ct.subtype()))
-                        {
-                            if let Some(prefix) = path.strip_suffix(empty_req.uri().path()) {
-                                // Since we strip `.path` (which starts with `/`, Kvarn denies requests with more than one `/`),
-                                // prefix is guaranteed not to end with `/`.
-                                response = response
-                                    .map(|body| url_rewrite::absolute(&body, prefix).freeze());
+                        if self.rewrite_url {
+                            let content_type = response
+                                .headers()
+                                .get("content-type")
+                                .and_then(|ct| ct.to_str().ok())
+                                .and_then(|ct| ct.parse::<Mime>().ok());
+                            if let Some(
+                                (mime::TEXT, mime::HTML | mime::CSS)
+                                | (mime::APPLICATION, mime::JAVASCRIPT),
+                            ) = content_type.as_ref().map(|ct| (ct.type_(), ct.subtype()))
+                            {
+                                if let Some(prefix) = path.strip_suffix(empty_req.uri().path()) {
+                                    // Since we strip `.path` (which starts with `/`, Kvarn denies requests with more than one `/`),
+                                    // prefix is guaranteed not to end with `/`.
+                                    response = response
+                                        .map(|body| url_rewrite::absolute(&body, prefix).freeze());
+                                }
                             }
-                        }
 
-                        let headers = response.headers_mut();
-                        utils::remove_all_headers(headers, "keep-alive");
-                        utils::remove_all_headers(headers, "content-length");
-                        if !utils::header_eq(headers, "connection", "upgrade") {
-                            utils::remove_all_headers(headers, "connection");
+                            let headers = response.headers_mut();
+                            utils::remove_all_headers(headers, "keep-alive");
+                            utils::remove_all_headers(headers, "content-length");
+                            if !utils::header_eq(headers, "connection", "upgrade") {
+                                utils::remove_all_headers(headers, "connection");
+                            }
                         }
 
                         FatResponse::cache(response)
