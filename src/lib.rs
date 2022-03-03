@@ -94,6 +94,7 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 /// # };
 /// ```
 #[derive(Debug)]
+#[must_use = "must start a server if creating a config"]
 pub struct RunConfig {
     ports: Vec<PortDescriptor>,
     handover: bool,
@@ -101,7 +102,6 @@ pub struct RunConfig {
 }
 impl RunConfig {
     /// Creates an empty [`RunConfig`].
-    #[must_use]
     pub fn new() -> Self {
         RunConfig {
             ports: vec![],
@@ -111,7 +111,6 @@ impl RunConfig {
     }
 
     /// Adds a [`PortDescriptor`] to the Kvarn server.
-    #[must_use]
     pub fn bind(mut self, port: PortDescriptor) -> Self {
         self.ports.push(port);
         self
@@ -119,7 +118,6 @@ impl RunConfig {
     /// Disables [handover](https://kvarn.org/shutdown-handover.) for the instance of Kvarn.
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
-    #[must_use]
     pub fn disable_handover(mut self) -> Self {
         self.handover = false;
         self
@@ -1245,6 +1243,7 @@ pub type FatRequest = Request<application::Body>;
 /// functions. Most things like `content-length`, `content-encoding`,
 /// `content-type`, `cache-control`, and server caching will be
 /// automatically handled.
+#[must_use = "send the response"]
 pub struct FatResponse {
     response: Response<Bytes>,
     client: comprash::ClientCachePreference,

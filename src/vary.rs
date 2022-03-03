@@ -53,13 +53,13 @@ impl Rule {
 
 /// The rules for handling and caching a request/response.
 #[derive(Debug, Clone, Default)]
+#[must_use = "supply your vary settings to Kvarn"]
 pub struct Settings {
     pub(crate) rules: Vec<Rule>,
 }
 impl Settings {
     /// Returns an empty set of rules.
     /// Will not cache any variants, except compressed.
-    #[must_use]
     pub fn empty() -> Self {
         Self { rules: Vec::new() }
     }

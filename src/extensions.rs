@@ -381,7 +381,7 @@ impl Extensions {
     pub fn with_http_to_https_redirect(&mut self) -> &mut Self {
         const SPECIAL_PATH: &str = "/./to_https";
         self.add_prepare_single(
-            SPECIAL_PATH.to_string(),
+            SPECIAL_PATH,
             Box::new(|mut request, _, _, _| {
                 // "/./ path" is special; it will not be accepted from outside; any path containing './' gets rejected.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.

@@ -269,7 +269,7 @@ impl Extensions {
         );
 
         self.add_prepare_single(
-            "/./cors_fail".to_owned(),
+            "/./cors_fail",
             Box::new(|_, _, _, _| {
                 ready({
                     let response = Response::builder()
@@ -353,7 +353,7 @@ impl Extensions {
         );
 
         self.add_prepare_single(
-            "/./cors_options".to_owned(),
+            "/./cors_options",
             Box::new(move |mut request, _, _, _| {
                 let request = unsafe { request.get_inner() };
                 let allowed = options_cors_settings.check_cors_request(request);

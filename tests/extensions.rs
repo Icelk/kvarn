@@ -78,7 +78,7 @@ async fn body() {
     let server = ServerBuilder::default()
         .with_extensions(|extensions| {
             extensions.add_prepare_single(
-                "/api-1".to_string(),
+                "/api-1",
                 prepare!(req, _host, path, _addr {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
                     let body = str::from_utf8(&body).unwrap();
@@ -90,7 +90,7 @@ async fn body() {
                 }),
             );
             extensions.add_prepare_single(
-                "/api-2".to_string(),
+                "/api-2",
                 prepare!(req, _host, _path, _addr {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
 
@@ -103,7 +103,7 @@ async fn body() {
                 }),
             );
             extensions.add_prepare_single(
-                "/api-3".to_string(),
+                "/api-3",
                 prepare!(req, _host, _path, _addr {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
                     let body = str::from_utf8(&body).unwrap();
@@ -168,7 +168,7 @@ fn get_extensions() -> Extensions {
     }), extensions::Id::new(16, "Redirect `/`"));
 
     extensions.add_prepare_single(
-        "/ip".to_string(),
+        "/ip",
         prepare!(_request, _host, _path, addr {
             let ip = addr.ip().to_string();
             let response = Response::new(Bytes::copy_from_slice(ip.as_bytes()));
@@ -176,7 +176,7 @@ fn get_extensions() -> Extensions {
         }),
     );
     extensions.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_request, _host, _path, addr {
             let content = format!(
                 "!> simple-head Your IP address\n\
@@ -189,7 +189,7 @@ fn get_extensions() -> Extensions {
     );
 
     extensions.add_present_internal(
-        "simple-head".to_string(),
+        "simple-head",
         present!(present_data {
             let content = present_data.response().body();
 
