@@ -78,7 +78,7 @@ async fn basic() {
         .http()
         .with_extensions(|ext| {
             ext.add_prepare_single(
-                "/api".to_string(),
+                "/api",
                 kvarn::prepare!(req, _host, _path, addr {
                     let bytes = kvarn::prelude::build_bytes!(
                         b"The SocketAddr of the proxy's request is ",
@@ -109,7 +109,7 @@ async fn basic() {
 async fn base() {
     let backend = ServerBuilder::default().http().with_extensions(|ext|{
         ext.add_prepare_single(
-                "/user-agent".to_string(),
+                "/user-agent",
                 kvarn::prepare!(req, _host, _path, _addr {
                     let bytes = Bytes::copy_from_slice(format!("{:?}", req.headers().get("user-agent")).as_bytes());
                     let response = Response::new(bytes);
@@ -145,7 +145,7 @@ async fn base() {
 async fn chunked_encoding() {
     let backend = ServerBuilder::default().http().with_extensions(|ext|{
         ext.add_prepare_single(
-                "/chunked".to_string(),
+                "/chunked",
                 kvarn::prepare!(_req, _host, _path, _addr {
                     let bytes = Bytes::from_static(b"5\r\nhello\r\n7\r\n world!\r\n0\r\n\r\n");
                     let response = Response::builder().header("transfer-encoding", "chunked").body(bytes).unwrap();

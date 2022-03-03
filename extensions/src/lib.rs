@@ -76,13 +76,13 @@ pub fn new() -> Extensions {
 /// shutdown_manager.wait().await;
 /// # }
 pub fn mount_all(extensions: &mut Extensions) {
-    extensions.add_present_internal("download".to_string(), Box::new(download));
-    extensions.add_present_internal("cache".to_string(), Box::new(cache));
-    extensions.add_present_internal("hide".to_string(), Box::new(hide));
-    extensions.add_present_file("private".to_string(), Box::new(hide));
-    extensions.add_present_internal("allow-ips".to_string(), Box::new(ip_allow));
+    extensions.add_present_internal("download", Box::new(download));
+    extensions.add_present_internal("cache", Box::new(cache));
+    extensions.add_present_internal("hide", Box::new(hide));
+    extensions.add_present_file("private", Box::new(hide));
+    extensions.add_present_internal("allow-ips", Box::new(ip_allow));
     #[cfg(feature = "templates")]
-    extensions.add_present_internal("tmpl".to_string(), Box::new(templates_ext));
+    extensions.add_present_internal("tmpl", Box::new(templates_ext));
     #[cfg(feature = "push")]
     push::mount(extensions, SmartPush::default());
 }

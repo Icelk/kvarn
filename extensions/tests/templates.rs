@@ -10,7 +10,7 @@ async fn basic() {
 ";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
@@ -30,7 +30,7 @@ Nothing here!\
 ";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
@@ -52,7 +52,7 @@ async fn several_files() {
 ";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
@@ -71,7 +71,7 @@ async fn non_closing() {
 ";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
@@ -90,7 +90,7 @@ async fn escaping() {
 [\n2\n]";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
@@ -108,7 +108,7 @@ async fn spaces_before_template() {
    [spaces]";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
@@ -128,7 +128,7 @@ this is complex
 data";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
@@ -151,7 +151,7 @@ async fn tmpl_ignore() {
 data";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
-        "/index.html".to_string(),
+        "/index.html",
         prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
