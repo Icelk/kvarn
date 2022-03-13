@@ -408,7 +408,6 @@ impl<'a> Display for QueryPair<'a> {
 pub struct Query<'a> {
     pairs: Vec<QueryPair<'a>>,
 }
-#[must_use]
 impl<'a> Query<'a> {
     fn insert(&mut self, name: Cow<'a, str>, value: Cow<'a, str>) {
         match self.index_of(&name) {

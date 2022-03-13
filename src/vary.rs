@@ -177,7 +177,6 @@ impl Settings {
 /// let shutdown_manager = run(run_config![port_descriptor]).await;
 /// # }
 /// ```
-#[must_use]
 pub type Vary = extensions::RuleSet<Settings>;
 impl Vary {
     /// Gets the [`Settings`] from the ruleset using the path of `request`.
