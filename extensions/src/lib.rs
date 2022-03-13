@@ -8,6 +8,7 @@
 //! For example, if you mount the extensions [`download`], it binds the *extension declaration* `download`.
 //! If you then, in a file inside your `public/` directory, add `!> download` to the top, the client visiting the url pointing to the file will download it.
 
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![deny(clippy::all)]
 
 use kvarn::{extensions::*, prelude::*};
@@ -50,14 +51,19 @@ pub fn new() -> Extensions {
 }
 
 /// Mounts all extensions specified in Cargo.toml dependency declaration.
+/// The extensions listed below will always get included in your server after calling this function.
 ///
-/// The current defaults are [`download()`], [`cache()`], and [`templates_ext()`]
+/// The current defaults are:
+/// - [`download()`] (present name `download`)
+/// - [`cache()`] (present name `cache`)
+/// - [`hide()`] (present name `hide` & `private`)
+/// - [`ip_allow()`] (present name `allow-ips`)
+/// - [`templates_ext()`] if the feature `templates` is enabled (present name `tmpl`)
+/// - [`push::mount()`] if the feature `push` is enabled
 ///
 /// > To add PHP, use [`php()`].
 ///
-/// They will *always* get included in your server after calling this function.
-///
-/// The priority of the `push` extension is `-32`.
+/// The push extension uses the [default](SmartPush::default) settings.
 ///
 /// # Examples
 ///

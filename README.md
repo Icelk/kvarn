@@ -48,6 +48,15 @@ and download the appropriate artefact.
 For Kvarn chute downloads for Linux, go [here](https://github.com/Icelk/kvarn/actions/workflows/chute.yml)
 and download the artefact from the topmost job.
 
+# Documentation
+
+Documentation of the main branch can be found at [doc.kvarn.org](https://doc.kvarn.org/).
+
+To document with information on which cargo features enables the code,
+set the environment variable `RUSTFLAGS` AND `RUSTDOCFLAGS` to `--cfg docsrs`
+(e.g. in Fish `set -x RUSTFLAGS "--cfg docsrs"; set -x RUSTDOCFLAGS "--cfg docsrs"`)
+and then run `cargo +nightly doc`.
+
 # Contributing
 
 This library, and all other sub-projects, are distributed under the Apache License 2.0.

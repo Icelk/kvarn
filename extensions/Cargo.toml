@@ -29,3 +29,7 @@ reverse-proxy = ["tokio"]
 [dev-dependencies]
 tokio = { version = "1.16", features = ["net", "io-util", "macros"] }
 kvarn_testing = { path = "../testing", version = "0.3" }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

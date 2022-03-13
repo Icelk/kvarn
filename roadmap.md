@@ -78,7 +78,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   [x] Production ready reverse proxy.
 -   [ ] Reading host names from certificate.
 -   [ ] Graceful restart through systemd service
--   [ ] [doc_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html)
+-   [x] [doc_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html)
 -   [ ] noonce implementation?
 -   [x] Correct PHP/FastCGI implementation.
 -   [x] Parallel handling of requests per connection.

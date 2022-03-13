@@ -67,3 +67,7 @@ graceful-shutdown = []
 
 [dev-dependencies]
 kvarn_testing = { path = "testing", version = "0.3" }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

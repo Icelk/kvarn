@@ -24,6 +24,9 @@
 //! # Future plans
 //!
 //! See the [README @ GitHub](https://github.com/Icelk/kvarn/) and [kvarn.org](https://kvarn.org).
+// See https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html & https://github.com/rust-lang/rust/pull/89596
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(
     unreachable_pub,
     missing_debug_implementations,
@@ -1394,6 +1397,8 @@ pub const SERVER: &str = "Kvarn/0.3.0 (macOS)";
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "linux")]
+// See https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html & https://github.com/rust-lang/rust/pull/89596
+#[cfg_attr(docsrs, doc(cfg(all())))]
 pub const SERVER: &str = "Kvarn/0.3.0 (Linux)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
