@@ -27,13 +27,15 @@ kvarn_utils = "0.3.1"
 
 # Bin deps
 clap = { version = ">= 3.1, < 4", optional = true, features = ["cargo"] }
+clap_autocomplete = { version = "0.1", optional = true }
 env_logger = { version = "0.9", optional = true }
 
 [features]
-default = ["date", "bin"]
+default = ["date", "bin", "completion"]
 date = ["time"]
 
 bin = ["env_logger", "clap"]
+completion = ["clap_autocomplete"]
 
 [package.metadata.docs.rs]
 all-features = true

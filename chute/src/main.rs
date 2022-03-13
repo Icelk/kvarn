@@ -1,4 +1,4 @@
-use clap::{Command, Arg, ArgGroup};
+use clap::{Arg, ArgGroup, Command};
 use kvarn_utils::prelude::*;
 use std::env;
 
@@ -15,7 +15,8 @@ fn main() {
 
     info!("Starting Kvarn Markdown to HTML converter.");
 
-    let command = Command::new("Kvarn Chute")
+    let mut command = Command::new("Kvarn Chute")
+        .bin_name("chute")
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
         .about(clap::crate_description!())
@@ -50,7 +51,27 @@ fn main() {
                 .arg("no"),
         );
 
+    #[cfg(feature = "completion")]
+    {
+        command = clap_autocomplete::add_subcommand(command);
+    }
+
+    #[cfg(feature = "completion")]
+    let command_copy = command.clone();
+
     let matches = command.get_matches();
+
+    #[cfg(feature = "completion")]
+    {
+        if let Some(result) = clap_autocomplete::test_subcommand(&matches, command_copy) {
+            if let Err(err) = result {
+                eprintln!("Insufficient permissions: {err}");
+                std::process::exit(1);
+            } else {
+                std::process::exit(0);
+            }
+        }
+    }
 
     let paths = matches.values_of("PATHS").unwrap_or_else(|| {
         lib::exit_with_message(
