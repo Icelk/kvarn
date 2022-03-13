@@ -1,4 +1,4 @@
-use clap::{App, Arg, ArgGroup};
+use clap::{Command, Arg, ArgGroup};
 use kvarn_utils::prelude::*;
 use std::env;
 
@@ -15,7 +15,7 @@ fn main() {
 
     info!("Starting Kvarn Markdown to HTML converter.");
 
-    let app = App::new("Kvarn Chute")
+    let command = Command::new("Kvarn Chute")
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
         .about(clap::crate_description!())
@@ -49,7 +49,7 @@ fn main() {
                 .arg("no"),
         );
 
-    let matches = app.get_matches();
+    let matches = command.get_matches();
 
     let paths = matches.values_of("PATHS").unwrap_or_else(|| {
         lib::exit_with_message(
