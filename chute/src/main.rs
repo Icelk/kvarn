@@ -24,6 +24,7 @@ fn main() {
             Arg::new("PATHS")
                 .help("Paths to process/watch")
                 .required(true)
+                .default_value(".")
                 .multiple_values(true),
         )
         .arg(
