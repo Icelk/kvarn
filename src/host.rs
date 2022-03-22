@@ -580,6 +580,7 @@ impl Collection {
     #[must_use]
     pub fn get_or_default(&self, name: &str) -> Option<&Host> {
         self.get_host(name)
+            .or_else(|| name.strip_suffix('.').and_then(|name| self.get_host(name)))
             .or_else(|| self.get_default())
             .or_else(|| {
                 let base_host = name.split(':').next();
