@@ -26,6 +26,7 @@ fn main() {
                 .help("Paths to process/watch")
                 .required(true)
                 .default_value(".")
+                .value_hint(clap::ValueHint::AnyPath)
                 .multiple_values(true),
         )
         .arg(
