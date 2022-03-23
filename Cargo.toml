@@ -50,15 +50,13 @@ default = ["full"]
 # Enable all features
 full = ["all-http", "all-compression", "graceful-shutdown"]
 
-# All HTTP versions and features
-all-http = ["https", "http2"]
-
 # Compressing
 all-compression = ["br", "gzip"]
 br = ["brotli"]
 gzip = ["flate2"]
 
 # HTTP standards
+all-http = ["https", "http2"]
 https = ["rustls", "rustls-pemfile", "webpki"]
 http2 = ["h2", "https"]
 
