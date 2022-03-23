@@ -302,7 +302,7 @@ async fn accept(
             AcceptAction::Shutdown => return Ok(()),
             AcceptAction::Accept(result) => match result {
                 Ok((socket, addr)) => {
-                    match descriptor.data.limiter().register(addr.ip()).await {
+                    match descriptor.data.limiter().register(addr.ip()) {
                         LimitAction::Drop => {
                             drop(socket);
                             return Ok(());
@@ -419,7 +419,7 @@ pub async fn handle_connection(
             return Ok(());
         };
 
-        match host.limiter.register(address.ip()).await {
+        match host.limiter.register(address.ip()) {
             LimitAction::Drop => return Ok(()),
             LimitAction::Send => {
                 let (mut response, body) = utils::split_response(limiting::get_too_many_requests());

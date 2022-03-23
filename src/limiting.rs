@@ -1,8 +1,9 @@
 //! Limits traffic from a IP address to partially mitigate attacks.
 //!
 //! Kvarn's limiting is smart; when a client first makes to many requests,
-//! a hardcoded `429 Too Many Requests` is sent back (taking virtually null resources).
-//! It the spam continues, the current connection and all future streams are blocked.
+//! a hard-coded `429 Too Many Requests` is sent back.
+//! It the spam continues, the current connection and all future streams are blocked,
+//! until the limit resets.
 //!
 //! The thresholds are configurable and have sensible defaults.
 //!
@@ -45,6 +46,7 @@ pub fn get_too_many_requests() -> Response<Bytes> {
 
 /// The strength of limiting.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[must_use]
 pub enum Action {
     /// Request should continue as normal.
     Passed,
@@ -62,7 +64,8 @@ pub enum Action {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Manager {
-    connection_map_and_time: Arc<Mutex<(HashMap<IpAddr, usize>, std::time::Instant)>>,
+    // Arc so we can easily clone this
+    connection_map_and_time: Arc<std::sync::Mutex<(HashMap<IpAddr, usize>, std::time::Instant)>>,
     max_requests: usize,
     check_every: usize,
     reset_seconds: u64,
@@ -83,7 +86,7 @@ impl LimitManager {
     /// for the limits to clear after the user has reached `max_requests`.
     pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
         Self {
-            connection_map_and_time: Arc::new(Mutex::new((
+            connection_map_and_time: Arc::new(std::sync::Mutex::new((
                 HashMap::new(),
                 std::time::Instant::now(),
             ))),
@@ -129,24 +132,29 @@ impl LimitManager {
     /// Does not always lock the [`Mutex`], only once per `check_every`.
     /// It only [`atomic::AtomicUsize::fetch_add`] else, with [`atomic::Ordering::Relaxed`].
     /// This is less reliable, but faster. We do not require this to be to be exact.
-    pub async fn register(&self, addr: IpAddr) -> Action {
+    pub fn register(&self, addr: IpAddr) -> Action {
+        // if self.check_every == usize::MAX, we are disabled, so just return Action::Passed.
         if self.check_every == usize::MAX
             || self.iteration.fetch_add(1, atomic::Ordering::Relaxed) + 1 < self.check_every
         {
             Action::Passed
         } else {
             self.iteration.store(0, atomic::Ordering::Release);
-            let mut lock = self.connection_map_and_time.lock().await;
+            let now = Instant::now();
+            let mut lock = self.connection_map_and_time.lock().unwrap();
             let (map, time) = &mut *lock;
-            if time.elapsed().as_secs() >= self.reset_seconds {
-                *time = std::time::Instant::now();
+            if (now - *time).as_secs() >= self.reset_seconds {
+                *time = now;
                 map.clear();
+                drop(lock);
                 Action::Passed
             } else {
                 let requests = *map.entry(addr).and_modify(|count| *count += 1).or_insert(1);
+                drop(lock);
                 if requests <= self.max_requests {
                     Action::Passed
-                } else if requests <= self.max_requests * 10 {
+                    // if the client goes past 3x usage, just drop connection
+                } else if requests <= self.max_requests * 3 {
                     Action::Send
                 } else {
                     Action::Drop
@@ -155,6 +163,7 @@ impl LimitManager {
         }
     }
 }
+/// Default is `Self::new(10, 10, 10)`.
 impl Default for LimitManager {
     #[inline]
     fn default() -> Self {
