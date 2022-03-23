@@ -818,11 +818,7 @@ impl CacheAction {
     }
     /// Returns [`Self::Drop`] if `drop` is true. Else [`Self::Cache`].
     pub fn from_drop(drop: bool) -> Self {
-        if drop {
-            Self::Drop
-        } else {
-            Self::Cache
-        }
+        Self::from_cache(!drop)
     }
     /// Returns true if `self` is [`Self::Cache`].
     #[must_use]
@@ -839,11 +835,11 @@ impl CacheAction {
 /// This is the default for [`Options::status_code_cache_filter`].
 ///
 /// This caches the request on every [`StatusCode`] except
-/// [400..403] & [405..409] & [411..500).
-/// That means no client error response except
-/// `404 Not Found` and `410 Gone` is cached.
+/// - client errors, however `404 Not Found` and `410 Gone` are still cached
+/// - any [informational response](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status#information_responses)
+/// - [304 Not Modified](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/304)
 pub fn default_status_code_cache_filter(code: StatusCode) -> CacheAction {
-    CacheAction::from_drop(matches!(code.as_u16(), 400..=403 | 405..=409 | 411..=499))
+    CacheAction::from_drop(matches!(code.as_u16(), 400..=403 | 405..=409 | 411..=499|100..=199|304))
 }
 
 /// An error regarding creation of a [`rustls::sign::CertifiedKey`].
