@@ -393,7 +393,7 @@ pub fn valid_version(bytes: &[u8]) -> bool {
         b"HTTP/3"
     )
 }
-/// Gets the body len gth from the [`Request::headers`] of `request`.
+/// Gets the body length from the [`Request::headers`] of `request`.
 ///
 /// If [`method_has_request_body`] returns `false` or the header isn't present, it defaults to `0`.
 #[inline]
