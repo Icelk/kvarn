@@ -942,7 +942,7 @@ pub async fn handle_cache(
                 let (resp, vary) = &*resp_vary;
                 // Here, the lock is always (irrelevant of which arm the code runs) dropped, which
                 // enables us to do computationally heavy things, such as compression.
-                let mut response = match resp.clone_preferred(request) {
+                let mut response = match resp.clone_preferred(request, &host.compression_options) {
                     Err(message) => {
                         error::default(
                             StatusCode::NOT_ACCEPTABLE,
@@ -992,17 +992,18 @@ pub async fn handle_cache(
 
             let compressed_response = &varied_response.first().0;
 
-            let mut response = match compressed_response.clone_preferred(request) {
-                Err(message) => {
-                    error::default(
-                        StatusCode::NOT_ACCEPTABLE,
-                        Some(host),
-                        Some(message.as_bytes()),
-                    )
-                    .await
-                }
-                Ok(response) => response,
-            };
+            let mut response =
+                match compressed_response.clone_preferred(request, &host.compression_options) {
+                    Err(message) => {
+                        error::default(
+                            StatusCode::NOT_ACCEPTABLE,
+                            Some(host),
+                            Some(message.as_bytes()),
+                        )
+                        .await
+                    }
+                    Ok(response) => response,
+                };
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 

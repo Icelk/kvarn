@@ -168,6 +168,83 @@ pub fn do_compress(mime: &Mime, check_utf8: impl Fn() -> bool) -> bool {
                 || check_utf8()))
 }
 
+/// The preferred compression algorithm.
+///
+/// The default is chosen according to the [cargo features](https://kvarn.org/cargo-features.) in
+/// the following order:
+/// - Brotli
+/// - Gzip
+/// - None
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PreferredCompression {
+    /// Prefer the brotli algorithm.
+    ///
+    /// This is the default and is the best.
+    #[cfg(feature = "br")]
+    Brotli,
+    /// Prefer the gzip algorithm.
+    ///
+    /// Uses a bit less memory than [`Self::Brotli`] at the expense of compression.
+    #[cfg(feature = "gzip")]
+    Gzip,
+    /// Prefer no compression. This is the default if no compression features are enabled.
+    None,
+}
+impl PreferredCompression {
+    /// Return the name used in the `content-encoding` header.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            #[cfg(feature = "br")]
+            Self::Brotli => "br",
+            #[cfg(feature = "gzip")]
+            Self::Gzip => "gzip",
+            Self::None => "identity",
+        }
+    }
+}
+/// Some options for how to compress the response.
+#[derive(Debug, Clone)]
+pub struct CompressionOptions {
+    /// The preferred compression algorithm.
+    pub preferred: PreferredCompression,
+    /// The level of brotli compression.
+    ///
+    /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
+    #[cfg(feature = "br")]
+    pub brotli_level: usize,
+    /// The level of gzip compression.
+    ///
+    /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
+    #[cfg(feature = "gzip")]
+    pub gzip_level: usize,
+}
+impl Default for CompressionOptions {
+    fn default() -> Self {
+        Self {
+            preferred: {
+                #[cfg(feature = "br")]
+                {
+                    PreferredCompression::Brotli
+                }
+                #[cfg(all(not(feature = "br"), feature = "gzip"))]
+                {
+                    PreferredCompression::Gzip
+                }
+                #[cfg(all(not(feature = "br"), not(feature = "gzip")))]
+                {
+                    PreferredCompression::None
+                }
+            },
+            #[cfg(feature = "br")]
+            brotli_level: 3,
+            #[cfg(feature = "gzip")]
+            gzip_level: 3,
+        }
+    }
+}
+
 /// A response with a lazily compressed body.
 ///
 /// The compressed body is cached.
@@ -224,6 +301,7 @@ impl CompressedResponse {
     pub fn clone_preferred<T>(
         &self,
         request: &Request<T>,
+        options: &CompressionOptions,
     ) -> Result<Response<Bytes>, &'static str> {
         let values = match request
             .headers()
@@ -238,20 +316,6 @@ impl CompressedResponse {
         let disable_identity = values
             .iter()
             .any(|v| v.value == "identity" && v.quality == 0.0);
-
-        #[cfg(all(feature = "gzip", feature = "br"))]
-        let prefer_br = values
-            .iter()
-            .find(|v| v.value == "gzip")
-            .map_or(0.0, |v| v.quality)
-            <= 0.5
-            && values.iter().find_map(|v| {
-                if v.value == "br" {
-                    Some(v.quality)
-                } else {
-                    None
-                }
-            }) == Some(1.0);
 
         let only_identity = values.len() == 1
             && values[0]
@@ -286,32 +350,28 @@ impl CompressedResponse {
                     match self.compress {
                         CompressPreference::None => (self.get_identity().body(), "identity"),
                         CompressPreference::Full => {
-                            #[cfg(all(feature = "gzip", feature = "br"))]
-                            match (self.br.is_some() && self.gzip.is_none()) || prefer_br {
-                                true if contains("br") => (self.get_br(), "br"),
-                                true if contains("gzip") => (self.get_gzip(), "gzip"),
-                                false if contains("gzip") => (self.get_gzip(), "gzip"),
-                                false if contains("br") => (self.get_br(), "br"),
-                                _ => (self.get_identity().body(), "identity"),
+                            #[cfg(feature = "br")]
+                            let contains_br = contains("br");
+                            #[cfg(feature = "gzip")]
+                            let contains_gzip = contains("gzip");
+
+                            #[allow(unused_mut)]
+                            let mut preferred = match options.preferred.as_str() {
+                                #[cfg(feature = "br")]
+                                "br" if contains_br => Some((self.get_br(), "br")),
+                                #[cfg(feature = "gzip")]
+                                "gzip" if contains_gzip => Some((self.get_gzip(), "gzip")),
+                                _ => None,
+                            };
+                            #[cfg(feature = "br")]
+                            if contains_br {
+                                preferred = Some((self.get_br(), "br"));
                             }
-                            #[cfg(all(feature = "gzip", not(feature = "br")))]
-                            {
-                                match contains("gzip") {
-                                    true => (self.get_gzip(), "gzip"),
-                                    false => (self.get_identity().body(), "identity"),
-                                }
+                            #[cfg(feature = "gzip")]
+                            if contains_gzip {
+                                preferred = Some((self.get_gzip(), "gzip"));
                             }
-                            #[cfg(all(feature = "br", not(feature = "gzip")))]
-                            {
-                                match contains("br") {
-                                    true => (self.get_br(), "br"),
-                                    false => (self.get_identity().body(), "identity"),
-                                }
-                            }
-                            #[cfg(not(any(feature = "gzip", feature = "br")))]
-                            {
-                                (self.get_identity().body(), "identity")
-                            }
+                            preferred.unwrap_or_else(|| (self.get_identity().body(), "identity"))
                         }
                     }
                 } else {
@@ -444,7 +504,8 @@ impl CompressedResponse {
 
             let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
 
-            let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::fast());
+            // 1-9, 1 is fast, 9 is slow. 4 is equal to brotli's 3
+            let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::new(1));
             c.write_all(bytes).expect("Failed to compress using gzip!");
             c.finish().expect("Failed to compress using gzip!");
 
@@ -471,7 +532,8 @@ impl CompressedResponse {
 
             let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
 
-            let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, 8, 21);
+            // 1-10, 1 is fast, 10 is really slow
+            let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, 3, 21);
             c.write_all(bytes)
                 .expect("Failed to compress using Brotli!");
             c.flush().expect("Failed to compress using Brotli!");

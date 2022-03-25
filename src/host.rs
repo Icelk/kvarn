@@ -76,6 +76,9 @@ pub struct Host {
 
     /// Other settings.
     pub options: Options,
+    /// Preferences and options for compression.
+    pub compression_options: comprash::CompressionOptions,
+    // also add to debug implementation when inserting new field
 }
 impl Host {
     /// Creates a new [`Host`].
@@ -151,6 +154,8 @@ impl Host {
             options,
             limiter: LimitManager::default(),
             vary: Vary::default(),
+
+            compression_options: comprash::CompressionOptions::default(),
         }
     }
     /// Creates a new [`Host`] without a certificate.
@@ -174,6 +179,7 @@ impl Host {
             options,
             limiter: LimitManager::default(),
             vary: Vary::default(),
+            compression_options: comprash::CompressionOptions::default(),
         }
     }
 
@@ -303,6 +309,25 @@ impl Host {
     pub(crate) fn is_secure(&self) -> bool {
         false
     }
+
+    /// Set the brotli compression level. 1-10, lower values are faster, but compress less.
+    ///
+    /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
+    #[cfg(feature = "br")]
+    #[inline]
+    pub fn set_brotli_level(&mut self, level: usize) -> &mut Self {
+        self.compression_options.brotli_level = level;
+        self
+    }
+    /// Set the gzip compression level. 1-10, lower values are faster, but compress less.
+    ///
+    /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
+    #[cfg(feature = "gzip")]
+    #[inline]
+    pub fn set_gzip_level(&mut self, level: usize) -> &mut Self {
+        self.compression_options.gzip_level = level;
+        self
+    }
 }
 impl Debug for Host {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -317,6 +342,7 @@ impl Debug for Host {
         d.field("limiter", &self.limiter);
         d.field("vary", &self.vary);
         d.field("options", &self.options);
+        d.field("compress_options", &self.compression_options);
         d.finish()
     }
 }
