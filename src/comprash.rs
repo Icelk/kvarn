@@ -349,8 +349,6 @@ impl CompressedResponse {
         let (bytes, compression) = match &mime {
             Some(mime) => {
                 if do_compress(mime, || str::from_utf8(self.get_identity().body()).is_ok()) {
-                    // You are wrong. We have `true if ...`.
-                    #[allow(clippy::match_bool)]
                     match self.compress {
                         CompressPreference::None => (self.get_identity().body(), "identity"),
                         CompressPreference::Full => {
@@ -372,11 +370,11 @@ impl CompressedResponse {
                                 _ => None,
                             };
                             #[cfg(feature = "br")]
-                            if contains_br {
+                            if preferred.is_none() && contains_br {
                                 preferred = Some((self.get_br(options.brotli_level), "br"));
                             }
                             #[cfg(feature = "gzip")]
-                            if contains_gzip {
+                            if preferred.is_none() && contains_gzip {
                                 preferred = Some((self.get_gzip(options.gzip_level), "gzip"));
                             }
                             preferred.unwrap_or_else(|| (self.get_identity().body(), "identity"))
