@@ -315,7 +315,7 @@ impl Host {
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "br")]
     #[inline]
-    pub fn set_brotli_level(&mut self, level: usize) -> &mut Self {
+    pub fn set_brotli_level(&mut self, level: u32) -> &mut Self {
         self.compression_options.brotli_level = level;
         self
     }
@@ -324,7 +324,7 @@ impl Host {
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "gzip")]
     #[inline]
-    pub fn set_gzip_level(&mut self, level: usize) -> &mut Self {
+    pub fn set_gzip_level(&mut self, level: u32) -> &mut Self {
         self.compression_options.gzip_level = level;
         self
     }

@@ -204,6 +204,22 @@ impl PreferredCompression {
         }
     }
 }
+impl Default for PreferredCompression {
+    fn default() -> Self {
+        #[cfg(feature = "br")]
+        {
+            PreferredCompression::Brotli
+        }
+        #[cfg(all(not(feature = "br"), feature = "gzip"))]
+        {
+            PreferredCompression::Gzip
+        }
+        #[cfg(all(not(feature = "br"), not(feature = "gzip")))]
+        {
+            PreferredCompression::None
+        }
+    }
+}
 /// Some options for how to compress the response.
 #[derive(Debug, Clone)]
 pub struct CompressionOptions {
@@ -213,34 +229,22 @@ pub struct CompressionOptions {
     ///
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "br")]
-    pub brotli_level: usize,
+    pub brotli_level: u32,
     /// The level of gzip compression.
     ///
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "gzip")]
-    pub gzip_level: usize,
+    pub gzip_level: u32,
 }
+#[allow(clippy::derivable_impls)] // if no features are enabled, we get a warning, since the only field is using it's default
 impl Default for CompressionOptions {
     fn default() -> Self {
         Self {
-            preferred: {
-                #[cfg(feature = "br")]
-                {
-                    PreferredCompression::Brotli
-                }
-                #[cfg(all(not(feature = "br"), feature = "gzip"))]
-                {
-                    PreferredCompression::Gzip
-                }
-                #[cfg(all(not(feature = "br"), not(feature = "gzip")))]
-                {
-                    PreferredCompression::None
-                }
-            },
+            preferred: PreferredCompression::default(),
             #[cfg(feature = "br")]
             brotli_level: 3,
             #[cfg(feature = "gzip")]
-            gzip_level: 3,
+            gzip_level: 1,
         }
     }
 }
@@ -358,18 +362,22 @@ impl CompressedResponse {
                             #[allow(unused_mut)]
                             let mut preferred = match options.preferred.as_str() {
                                 #[cfg(feature = "br")]
-                                "br" if contains_br => Some((self.get_br(), "br")),
+                                "br" if contains_br => {
+                                    Some((self.get_br(options.brotli_level), "br"))
+                                }
                                 #[cfg(feature = "gzip")]
-                                "gzip" if contains_gzip => Some((self.get_gzip(), "gzip")),
+                                "gzip" if contains_gzip => {
+                                    Some((self.get_gzip(options.gzip_level), "gzip"))
+                                }
                                 _ => None,
                             };
                             #[cfg(feature = "br")]
                             if contains_br {
-                                preferred = Some((self.get_br(), "br"));
+                                preferred = Some((self.get_br(options.brotli_level), "br"));
                             }
                             #[cfg(feature = "gzip")]
                             if contains_gzip {
-                                preferred = Some((self.get_gzip(), "gzip"));
+                                preferred = Some((self.get_gzip(options.gzip_level), "gzip"));
                             }
                             preferred.unwrap_or_else(|| (self.get_identity().body(), "identity"))
                         }
@@ -498,14 +506,14 @@ impl CompressedResponse {
     /// You should use [`Self::clone_preferred`] to get the preferred compression instead,
     /// as it is available with any set of features
     #[cfg(feature = "gzip")]
-    pub fn get_gzip(&self) -> &Bytes {
+    pub fn get_gzip(&self, level: u32) -> &Bytes {
         if self.gzip.is_none() {
             let bytes = self.identity.body().as_ref();
 
-            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
+            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
 
             // 1-9, 1 is fast, 9 is slow. 4 is equal to brotli's 3
-            let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::new(1));
+            let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::new(level));
             c.write_all(bytes).expect("Failed to compress using gzip!");
             c.finish().expect("Failed to compress using gzip!");
 
@@ -526,14 +534,14 @@ impl CompressedResponse {
     /// You should use [`Self::clone_preferred`] to get the preferred compression instead,
     /// as it is available with any set of features
     #[cfg(feature = "br")]
-    pub fn get_br(&self) -> &Bytes {
+    pub fn get_br(&self, level: u32) -> &Bytes {
         if self.br.is_none() {
             let bytes = self.identity.body().as_ref();
 
-            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 2 + 64);
+            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
 
             // 1-10, 1 is fast, 10 is really slow
-            let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, 3, 21);
+            let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, level, 21);
             c.write_all(bytes)
                 .expect("Failed to compress using Brotli!");
             c.flush().expect("Failed to compress using Brotli!");
