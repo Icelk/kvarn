@@ -42,6 +42,9 @@ pub struct Host {
     /// The name of the host, will be used in matching the requests [SNI hostname](rustls::server::ClientHello::server_name())
     /// and `host` header to get the requested host to handle the request.
     pub name: String,
+    /// The alternative names this host is recognised by.
+    /// This should probably be empty unless your certificate also covers these names.
+    pub alternative_names: Vec<String>,
     /// The certificate of this host, if any.
     #[cfg(feature = "https")]
     pub certificate: Option<Arc<sign::CertifiedKey>>,
@@ -146,6 +149,7 @@ impl Host {
 
         Self {
             name: name.as_ref().to_owned(),
+            alternative_names: Vec::new(),
             certificate: Some(Arc::new(cert)),
             path: path.as_ref().to_path_buf(),
             extensions,
@@ -170,6 +174,7 @@ impl Host {
     ) -> Self {
         Self {
             name: host_name.as_ref().to_owned(),
+            alternative_names: Vec::new(),
             #[cfg(feature = "https")]
             certificate: None,
             path: path.as_ref().to_path_buf(),
@@ -261,6 +266,15 @@ impl Host {
         );
         self
     }
+
+    /// Add an alternative name to this host.
+    ///
+    /// See [the fiels](Self::alternative_names) for more details.
+    pub fn add_alternative_name(&mut self, name: impl AsRef<str>) -> &mut Self {
+        self.alternative_names.push(name.as_ref().to_owned());
+        self
+    }
+
     /// Disables client cache on this host.
     ///
     /// This makes all [`comprash::ClientCachePreference`]s `no-store`.
@@ -485,7 +499,14 @@ impl CollectionBuilder {
         if self.0.first.is_none() {
             self.0.first = Some(host.name.clone());
         }
-        self.0.by_name.insert(host.name.clone(), host);
+        for alt_name in &host.alternative_names {
+            self.0
+                .by_name
+                .insert(alt_name.clone(), HostValue::Ref(host.name.clone()));
+        }
+        self.0
+            .by_name
+            .insert(host.name.clone(), HostValue::Host(host));
         self
     }
     /// Adds a default `host` which is the fallback for all requests with a requested host
@@ -539,6 +560,21 @@ impl CollectionBuilder {
     }
 }
 
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // we want direct access to the host.
+enum HostValue {
+    Host(Host),
+    Ref(String),
+}
+impl HostValue {
+    fn as_host(&self) -> Option<&Host> {
+        match self {
+            Self::Host(h) => Some(h),
+            _ => None,
+        }
+    }
+}
+
 /// A collection of [`Host`]s, with exactly one default and
 /// arbitrarily many other, indexed by [`Host.name`].
 ///
@@ -554,7 +590,7 @@ impl CollectionBuilder {
 #[must_use]
 pub struct Collection {
     default: Option<String>,
-    by_name: HashMap<String, Host>,
+    by_name: HashMap<String, HostValue>,
     first: Option<String>,
     has_secure: bool,
     pre_host_limiter: LimitManager,
@@ -599,7 +635,18 @@ impl Collection {
     #[inline]
     #[must_use]
     pub fn get_host(&self, name: &str) -> Option<&Host> {
-        self.by_name.get(name)
+        match self.by_name.get(name) {
+            Some(v) => match v {
+                HostValue::Host(h) => Some(h),
+                HostValue::Ref(r) => Some(
+                    self.by_name
+                        .get(r)
+                        .and_then(HostValue::as_host)
+                        .expect("internal error when resolving host"),
+                ),
+            },
+            None => None,
+        }
     }
     /// Get a [`Host`] by name, and returns the [`default`](Self::get_default) if none were found.
     #[inline]
@@ -683,22 +730,14 @@ impl Collection {
     /// Clears all response caches.
     #[inline]
     pub async fn clear_response_caches(&self) {
-        // Handle default host
-        if let Some(cache) = self
-            .get_default()
-            .as_ref()
-            .and_then(|h| h.response_cache.as_ref())
-        {
-            cache.write().await.clear();
-        }
-        // All other
-        for host in self.by_name.values() {
+        for host in self.by_name.values().filter_map(HostValue::as_host) {
             if let Some(cache) = &host.response_cache {
                 cache.write().await.clear();
             }
         }
     }
     /// Clears a single `uri` in `host`.
+    /// If `host` is `""` or `"default"`, the [default](Self::get_default) host is used.
     ///
     /// # Returns
     ///
@@ -728,7 +767,7 @@ impl Collection {
                     cleared = true;
                 }
             }
-        } else if let Some(host) = self.by_name.get(host) {
+        } else if let Some(host) = self.get_host(host) {
             found = true;
             if let Some(cache) = &host.response_cache {
                 let mut lock = cache.write().await;
@@ -746,14 +785,7 @@ impl Collection {
     /// Clears all file caches.
     #[inline]
     pub async fn clear_file_caches(&self) {
-        if let Some(cache) = self
-            .get_default()
-            .as_ref()
-            .and_then(|h| h.file_cache.as_ref())
-        {
-            cache.write().await.clear();
-        }
-        for host in self.by_name.values() {
+        for host in self.by_name.values().filter_map(HostValue::as_host) {
             if let Some(cache) = &host.file_cache {
                 cache.write().await.clear();
             }
@@ -765,22 +797,7 @@ impl Collection {
     /// Though, it's not blocking.
     pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
         let mut found = false;
-        if let Some(cache) = self
-            .get_default()
-            .as_ref()
-            .and_then(|h| h.file_cache.as_ref())
-        {
-            if cache
-                .write()
-                .await
-                .remove(path.as_ref())
-                .into_option()
-                .is_some()
-            {
-                found = true;
-            }
-        }
-        for host in self.by_name.values() {
+        for host in self.by_name.values().filter_map(HostValue::as_host) {
             if let Some(cache) = &host.file_cache {
                 if cache
                     .write()
