@@ -570,7 +570,7 @@ impl HostValue {
     fn as_host(&self) -> Option<&Host> {
         match self {
             Self::Host(h) => Some(h),
-            _ => None,
+            Self::Ref(_) => None,
         }
     }
 }
