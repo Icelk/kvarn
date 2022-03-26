@@ -43,12 +43,13 @@ rustls-pemfile = { version = "0.3", optional = true }
 tokio = { version = "1.17", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
 time = { version = "0.3.7", features = ["parsing", "formatting", "macros"] }
 webpki = { version = "0.22", optional = true }
+x509-parser = { version = "0.13", optional = true }
 
 [features]
 default = ["full"]
 
 # Enable all features
-full = ["all-http", "all-compression", "graceful-shutdown"]
+full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname"]
 
 # Compressing
 all-compression = ["br", "gzip"]
@@ -62,6 +63,9 @@ http2 = ["h2", "https"]
 
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = []
+
+# Automatic populating of Host name and alt-names
+auto-hostname = ["x509-parser"]
 
 [dev-dependencies]
 kvarn_testing = { path = "testing", version = "0.3" }

@@ -98,7 +98,7 @@ impl Host {
     /// Will return any error from [`get_certified_key()`] with a [`Host`] containing no certificates.
     #[cfg(feature = "https")]
     pub fn try_read_fs(
-        host_name: &'static str,
+        host_name: impl AsRef<str>,
         cert_path: impl AsRef<Path>,
         private_key_path: impl AsRef<Path>,
         path: impl AsRef<Path>,
@@ -111,6 +111,34 @@ impl Host {
             Err(err) => Err((err, Self::unsecure(host_name, path, extensions, options))),
         }
     }
+    /// Same as [`Self::try_read_fs`], but extracts the host name from the certificate.
+    /// This also doesn't fall back to [`Self::unsecure`], as we don't know the name if the
+    /// certificate couldn't be parsed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the parsed certificate `.is_empty()` or if the first certificate in the parsed chain is invalid.
+    ///
+    /// # Errors
+    ///
+    /// Will return any error from [`get_certified_key()`].
+    #[cfg(all(feature = "https", feature = "auto-hostname"))]
+    pub fn read_fs_name_from_cert(
+        cert_path: impl AsRef<Path>,
+        private_key_path: impl AsRef<Path>,
+        path: impl AsRef<Path>,
+        extensions: Extensions,
+        options: Options,
+    ) -> Result<Self, CertificateError> {
+        let cert = get_certified_key(cert_path, private_key_path);
+        match cert {
+            Ok((cert, pk)) => Ok(Self::new_name_from_cert(
+                cert, pk, path, extensions, options,
+            )),
+            Err(err) => Err(err),
+        }
+    }
+
     /// Creates a new [`Host`] from the [`rustls`]
     /// `cert` and `pk`. When they are in files, consider [`Self::new`]
     /// which reads from files.
@@ -161,6 +189,39 @@ impl Host {
 
             compression_options: comprash::CompressionOptions::default(),
         }
+    }
+    /// Same as [`Self::new`], but extracts the host name from the certificate.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `cert.is_empty()` or if the first certificate in `cert` is invalid.
+    #[cfg(all(feature = "https", feature = "auto-hostname"))]
+    pub fn new_name_from_cert(
+        cert: Vec<rustls::Certificate>,
+        pk: Arc<dyn sign::SigningKey>,
+        path: impl AsRef<Path>,
+        extensions: Extensions,
+        options: Options,
+    ) -> Self {
+        use x509_parser::traits::FromDer;
+        let tbs = x509_parser::certificate::X509Certificate::from_der(&cert[0].0)
+            .expect("certificate invalid, failed to get host name")
+            .1
+            .tbs_certificate;
+        let name = tbs.subject().to_string();
+        let mut alt_names = Vec::new();
+        let alt_name = tbs
+            .subject_alternative_name()
+            .expect("alternative name extension of certificate invalid");
+        if let Some(alt_name) = alt_name {
+            for name in &alt_name.value.general_names {
+                alt_names.push(name.to_string());
+            }
+        }
+        let mut me = Self::new(name, cert, pk, path, extensions, options);
+        me.alternative_names = alt_names;
+        println!("Host: {}, alt: {:?}", me.name, me.alternative_names);
+        me
     }
     /// Creates a new [`Host`] without a certificate.
     ///
@@ -499,6 +560,8 @@ impl CollectionBuilder {
         if self.0.first.is_none() {
             self.0.first = Some(host.name.clone());
         }
+        // it's important to insert the alt-names first, as they might contain the main name.
+        // If that happens, the inserted reference is overridden below.
         for alt_name in &host.alternative_names {
             self.0
                 .by_name
