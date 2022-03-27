@@ -57,6 +57,9 @@ jobs:
             - name: Testing kvarn-async
               run: cargo test
               working-directory: async
+            - name: Testing kvarn-testing
+              run: cargo test
+              working-directory: testing
             - name: Testing url-crawl
               run: cargo test
               working-directory: url-crawl
