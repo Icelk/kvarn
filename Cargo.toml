@@ -32,16 +32,16 @@ flate2 = { version = "1", optional = true }
 futures = "0.3"
 h2 = { version = "0.3", default-features = false, optional = true }
 http = "0.2"
-kvarn_utils = { path = "utils", version = "0.3" }
 kvarn_async = { path = "async", version = "0.3" }
+kvarn_utils = { path = "utils", version = "0.3" }
 log = "0.4"
 mime = "0.3"
 mime_guess = "2"
 percent-encoding = "2"
 rustls = { version = "0.20", optional = true }
 rustls-pemfile = { version = "0.3", optional = true }
-tokio = { version = "1.17", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
 time = { version = "0.3.7", features = ["parsing", "formatting", "macros"] }
+tokio = { version = "1.17", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
 webpki = { version = "0.22", optional = true }
 x509-parser = { version = "0.13", optional = true }
 
