@@ -371,6 +371,7 @@ mod response {
         offset: usize,
 
         content_length: usize,
+        // also update Debug implementation when adding fields
     }
     impl<R: AsyncRead + Unpin> Http1Body<R> {
         /// Creates a new body.
@@ -426,12 +427,19 @@ mod response {
     }
     impl<R: AsyncRead + Unpin + Debug> Debug for Http1Body<R> {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-            f.debug_struct("Http1Body")
-                .field("reader", &self.reader)
-                .field("buffer", &"[internal buffer]".as_clean())
-                .field("offset", &self.offset)
-                .field("content_length", &self.content_length)
-                .finish()
+            let mut s = f.debug_struct(utils::ident_str!(
+                Http1Body,
+                R,
+                R: AsyncRead + Unpin + Debug
+            ));
+            utils::fmt_fields!(
+                s,
+                (self.reader),
+                (self.bytes, &"[internal buffer]".as_clean()),
+                (self.offset),
+                (self.content_length)
+            );
+            s.finish()
         }
     }
     impl<R: AsyncRead + Unpin> AsyncRead for Http1Body<R> {

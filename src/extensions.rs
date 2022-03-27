@@ -249,6 +249,7 @@ pub struct Extensions {
     present_file: HashMap<String, Present>,
     package: Vec<(Id, Package)>,
     post: Vec<(Id, Post)>,
+    // also update Debug implementation when adding fields
 }
 impl Extensions {
     /// Creates a empty [`Extensions`].
@@ -699,15 +700,18 @@ impl Debug for Extensions {
                     .collect::<Vec<_>>()
             };
         }
-        f.debug_struct("Extensions")
-            .field("prime", map!(self.prime))
-            .field("prepare_single", map!(self.prepare_single))
-            .field("prepare_fn", map!(self.prepare_fn))
-            .field("present_internal", map!(self.present_internal))
-            .field("present_file", map!(self.present_file))
-            .field("package", map!(self.package))
-            .field("post", map!(self.post))
-            .finish()
+        let mut s = f.debug_struct(utils::ident_str!(Extensions));
+        utils::fmt_fields!(
+            s,
+            (self.prime, map!(self.prime)),
+            (self.prepare_single, map!(self.prepare_single)),
+            (self.prepare_fn, map!(self.prepare_fn)),
+            (self.present_internal, map!(self.present_internal)),
+            (self.present_file, map!(self.present_file)),
+            (self.package, map!(self.package)),
+            (self.post, map!(self.post)),
+        );
+        s.finish()
     }
 }
 

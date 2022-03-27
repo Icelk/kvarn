@@ -28,6 +28,7 @@ pub struct Server {
     certificate: Option<CertifiedKey>,
     port: u16,
     handover: Option<PathBuf>,
+    // also update Debug implementation when adding fields
 }
 impl Server {
     impl_methods!(get GET, post POST, put PUT, delete DELETE, head HEAD, options OPTIONS, connect CONNECT, patch PATCH, trace TRACE);
@@ -79,11 +80,15 @@ impl Server {
 }
 impl Debug for Server {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Server")
-            .field("server", &self.server)
-            .field("port", &self.port)
-            .field("handover", &self.handover)
-            .finish()
+        let mut s = f.debug_struct(utils::ident_str!(Server));
+        utils::fmt_fields!(
+            s,
+            (self.server),
+            (self.certificate, &"[internal certificate]".as_clean()),
+            (self.port),
+            (self.handover)
+        );
+        s.finish()
     }
 }
 impl Drop for Server {

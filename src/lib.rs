@@ -346,7 +346,7 @@ async fn accept(
 
 /// Handles a single connection. This includes encrypting it, extracting the HTTP header information,
 /// optionally (HTTP/2 & HTTP/3) decompressing them, and passing the request to [`handle_cache()`].
-/// It will also recognise which host should handle the connection.
+/// It will also recognize which host should handle the connection.
 ///
 /// Here, both [layer 2](https://kvarn.org/pipeline.#layer-2--encryption)
 /// and [layer 3](https://kvarn.org/pipeline.#layer-3--http)
@@ -619,15 +619,21 @@ pub struct CacheReply {
     ///
     /// Can be used for WebSocket connections.
     pub future: Option<ResponsePipeFuture>,
+    // also update Debug implementation when adding fields
 }
 impl Debug for CacheReply {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CacheReply")
-            .field("response", &self.response)
-            .field("identity_body", &self.identity_body)
-            .field("sanitize_data", &self.sanitize_data)
-            .field("future", &"internal future".as_clean())
-            .finish()
+        let mut s = f.debug_struct(utils::ident_str!(CacheReply));
+
+        utils::fmt_fields!(
+            s,
+            (self.response),
+            (self.identity_body),
+            (self.sanitize_data),
+            (self.future, &"[internal future]".as_clean())
+        );
+
+        s.finish()
     }
 }
 
@@ -1142,6 +1148,7 @@ pub struct PortDescriptor {
     server_config: Option<Arc<rustls::ServerConfig>>,
     data: Arc<HostCollection>,
     version: BindIpVersion,
+    // also update Debug implementation when adding fields
 }
 impl PortDescriptor {
     /// Uses the defaults for non-secure HTTP with `host_data`
@@ -1221,21 +1228,24 @@ impl PortDescriptor {
 }
 impl Debug for PortDescriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut s = f.debug_struct("PortDescriptor");
-        s.field("port", &self.port);
+        let mut s = f.debug_struct(utils::ident_str!(PortDescriptor));
 
-        #[cfg(feature = "https")]
-        s.field(
-            "server_config",
-            &self
-                .server_config
-                .as_ref()
-                .map(|_| "certificate".as_clean()),
+        utils::fmt_fields!(
+            s,
+            (self.port),
+            #[cfg(feature = "https")]
+            (
+                self.server_config,
+                &self
+                    .server_config
+                    .as_ref()
+                    .map(|_| "[opaque certificate]".as_clean())
+            ),
+            (self.data),
+            (self.version),
         );
 
-        s.field("data", &self.data)
-            .field("version", &self.version)
-            .finish()
+        s.finish()
     }
 }
 
@@ -1255,6 +1265,7 @@ pub struct FatResponse {
     compress: comprash::CompressPreference,
 
     future: Option<ResponsePipeFuture>,
+    // also update Debug implementation when adding fields
 }
 impl FatResponse {
     /// Create a new [`FatResponse`] with `server_cache_preference` advising Kvarn of how to cache the content.
@@ -1362,10 +1373,17 @@ impl FatResponse {
 }
 impl Debug for FatResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[derive(Debug)]
         enum BytesOrStr<'a> {
             Str(&'a str),
             Bytes(&'a [u8]),
+        }
+        impl<'a> Debug for BytesOrStr<'a> {
+            fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                match self {
+                    Self::Str(s) => f.write_str(s),
+                    Self::Bytes(_) => f.write_str("[binary data]"),
+                }
+            }
         }
         let response = utils::empty_clone_response(&self.response);
         let body = if let Ok(s) = str::from_utf8(self.response.body()) {
@@ -1374,13 +1392,18 @@ impl Debug for FatResponse {
             BytesOrStr::Bytes(self.response.body())
         };
         let response = response.map(|()| body);
-        f.debug_struct("FatResponse")
-            .field("resp", &response)
-            .field("client", &self.client)
-            .field("server", &self.server)
-            .field("compress", &self.compress)
-            .field("future", &"opaque Future".as_clean())
-            .finish()
+        let mut s = f.debug_struct(utils::ident_str!(FatResponse));
+
+        utils::fmt_fields!(
+            s,
+            (self.response, &response),
+            (self.client),
+            (self.server),
+            (self.compress),
+            (self.future, &"[opaque Future]".as_clean()),
+        );
+
+        s.finish()
     }
 }
 

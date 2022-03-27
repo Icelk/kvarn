@@ -29,14 +29,18 @@ pub(crate) struct Rule {
     name: &'static str,
     transformation: Transformation,
     default: &'static str,
+    // also update Debug implementation when adding fields
 }
 impl Debug for Rule {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Rule")
-            .field("name", &self.name)
-            .field("transformation", &"[ transformation Fn ]".as_clean())
-            .field("default", &self.default)
-            .finish()
+        let mut s = f.debug_struct(utils::ident_str!(Rule));
+        utils::fmt_fields!(
+            s,
+            (self.name),
+            (self.transformation, &"[transformation fn]".as_clean()),
+            (self.default)
+        );
+        s.finish()
     }
 }
 impl Rule {

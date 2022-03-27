@@ -42,7 +42,7 @@ pub struct Host {
     /// The name of the host, will be used in matching the requests [SNI hostname](rustls::server::ClientHello::server_name())
     /// and `host` header to get the requested host to handle the request.
     pub name: String,
-    /// The alternative names this host is recognised by.
+    /// The alternative names this host is recognized by.
     /// This should probably be empty unless your certificate also covers these names.
     pub alternative_names: Vec<String>,
     /// The certificate of this host, if any.
@@ -406,19 +406,24 @@ impl Host {
 }
 impl Debug for Host {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut d = f.debug_struct("Host");
-        d.field("name", &self.name);
-        #[cfg(feature = "https")]
-        d.field("certificate", &"[internal certificate]".as_clean());
-        d.field("path", &self.path);
-        d.field("extensions", &"[internal extension data]".as_clean());
-        d.field("file_cache", &"[internal cache]".as_clean());
-        d.field("response_cache", &"[internal cache]".as_clean());
-        d.field("limiter", &self.limiter);
-        d.field("vary", &self.vary);
-        d.field("options", &self.options);
-        d.field("compress_options", &self.compression_options);
-        d.finish()
+        let mut s = f.debug_struct(utils::ident_str!(Host));
+        utils::fmt_fields!(
+            s,
+            (self.name),
+            (self.alternative_names),
+            #[cfg(feature = "https")]
+            (self.certificate, &"[internal certificate]".as_clean()),
+            (self.path),
+            (self.extensions, &"[internal extension data]".as_clean()),
+            (self.file_cache, &"[internal cache]".as_clean()),
+            (self.response_cache, &"[internal cache]".as_clean()),
+            (self.limiter),
+            (self.vary),
+            (self.options),
+            (self.compression_options),
+        );
+
+        s.finish()
     }
 }
 /// Options for [`Host`].

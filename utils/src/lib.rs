@@ -27,6 +27,130 @@ pub use extensions::{
 #[doc(inline)]
 pub use parse::{list_header, sanitize_request, CriticalRequestComponents, ValueQualitySet};
 
+/// Stringify $field on $self. This only returns the field name.
+/// This is constructed to make your IDE recognize the input as the actual field.
+/// This means renaming is applied to the string returned from this when you rename a field in your
+/// IDE.
+///
+/// This is useful for debug implementations.
+///
+/// # Examples
+///
+/// ```
+/// use kvarn_utils::field_str;
+///
+/// struct Foo {
+///     bar: u128,
+/// }
+/// impl Foo {
+///     fn name(&self) -> &'static str {
+///         field_str!(self.bar)
+///     }
+/// }
+///
+/// let foo = Foo { bar: 42 };
+/// assert_eq!(foo.name(), "bar");
+#[macro_export]
+macro_rules! field_str {
+    ($self:ident.$field:ident) => {{
+        #[allow(unused_must_use)]
+        {
+            // this makes the IDE treat the input as the real deal, enabling renaming to also rename
+            // the thing to be stringified.
+            &$self.$field;
+        }
+        stringify!($field)
+    }};
+}
+/// Adds a `$field` to the [`std::fmt::DebugStruct`], `$f` from `$self`.
+///
+/// # Examples
+///
+/// ```
+/// use std::fmt::{self, Debug};
+/// use kvarn_utils::{fmt_field, ident_str};
+/// struct Foo {
+///     bar: u128,
+///     foobar: String,
+/// }
+/// impl Debug for Foo {
+///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+///         let mut s = f.debug_struct(ident_str!(Foo));
+///         fmt_field!(s, self.bar, &self.bar.to_le_bytes());
+///         fmt_field!(s, self.foobar);
+///         s.finish()
+///     }
+/// }
+#[macro_export]
+macro_rules! fmt_field {
+    ($f: expr, $self:ident.$field:ident) => {
+        $f.field($crate::field_str!($self.$field), &$self.$field);
+    };
+    ($f: expr, $self:ident.$field:ident, $value:expr) => {
+        $f.field($crate::field_str!($self.$field), $value);
+    };
+}
+/// [`fmt_field!`] but multiple.
+///
+/// # Examples
+///
+/// ```
+/// use std::fmt::{self, Debug};
+/// use kvarn_utils::{fmt_fields, ident_str};
+/// struct Foo {
+///     bar: u128,
+///     foo: u32,
+///     #[cfg(feature = "foobar")]
+///     foobar: String,
+/// }
+/// impl Debug for Foo {
+///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+///         let mut s = f.debug_struct(ident_str!(Foo));
+///         fmt_fields!(
+///             s,
+///             (self.bar, &self.bar.to_le_bytes()),
+///             (self.foo),
+///             #[cfg(feature = "foobar")]
+///             (self.foobar),
+///         );
+///         s.finish()
+///     }
+/// }
+#[macro_export]
+macro_rules! fmt_fields {
+    ($f: expr, $($(#[$meta:meta])?($self:ident.$field:ident $(, $value:expr)?)),+ $(,)?) => {
+        $(
+            $(#[$meta])?
+            $crate::fmt_field!($f, $self.$field $(, $value)?);
+        )+
+    };
+}
+/// Return stringified representation of `$item`.
+/// This uses similar techniques to [`ident_str!`].
+///
+/// # Examples
+///
+/// See [`fmt_field!`].
+///
+/// If you have a generic struct:
+/// ```
+/// use kvarn_utils::ident_str;
+///
+/// struct Foo<T: Eq + Clone> {
+///     bar: T,
+/// }
+/// assert_eq!(ident_str!(Foo, T, T: Eq + Clone), "Foo");
+/// ```
+#[macro_export]
+macro_rules! ident_str {
+    ($item:ident $(, $($name:ident)+, $($generics:tt)+)?) => {{
+        // we use this to make rust-analyzer realize $name is
+        // an item. This means IDE renaming is also applied on $var.
+        impl$(<$($generics)+>)? $item$(<$($name)+>)? {}
+        stringify!($item)
+    }};
+}
+
 /// Common characters expressed as a single byte each, according to UTF-8.
 pub mod chars {
     /// Tab
@@ -536,9 +660,9 @@ unsafe impl<T: Send> Send for SuperUnsafePointer<T> {}
 unsafe impl<T: Sync> Sync for SuperUnsafePointer<T> {}
 impl<T> Debug for SuperUnsafePointer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SuperUnsafePointer")
-            .field("pointer", &"unsafe pointer".as_clean())
-            .finish()
+        let mut s = f.debug_struct(ident_str!(SuperUnsafePointer, T, T));
+        fmt_field!(s, self.pointer, &"[unsafe pointer]".as_clean());
+        s.finish()
     }
 }
 impl<T> Clone for SuperUnsafePointer<T> {
@@ -607,7 +731,6 @@ pub fn join<S: AsRef<str>, I: Iterator<Item = S> + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::*;
 
     #[test]
     fn build_bytes() {
