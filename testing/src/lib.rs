@@ -3,7 +3,8 @@
 //! Here, you can easily spin up a new server on a random non-used port
 //! and send a request to it in under 5 lines.
 
-#![deny(clippy::all)]
+#![deny(clippy::all, clippy::perf, clippy::pedantic)]
+#![allow(clippy::missing_panics_doc)]
 
 use kvarn::prelude::*;
 
@@ -57,11 +58,13 @@ impl Server {
         reqwest::Url::parse(&string).unwrap()
     }
     /// Gets the port of the TCP server.
+    #[must_use]
     pub fn port(&self) -> u16 {
         self.port
     }
     /// Gets the certificate, if any.
     /// This dictates whether or not HTTPS should be on.
+    #[must_use]
     pub fn cert(&self) -> Option<&rustls::Certificate> {
         self.certificate.as_ref().map(|(cert, _)| cert)
     }
@@ -69,6 +72,7 @@ impl Server {
     /// Gets a [`shutdown::Manager`] which is [`Send`].
     ///
     /// You can shut down Kvarn from another thread using this.
+    #[must_use]
     pub fn get_shutdown_manager(&self) -> Arc<shutdown::Manager> {
         Arc::clone(&self.server)
     }
@@ -89,6 +93,7 @@ impl Drop for Server {
 }
 
 /// A builder struct for starting a test [`Server`].
+#[must_use = "run the server"]
 pub struct ServerBuilder {
     https: bool,
     extensions: Extensions,
@@ -155,12 +160,12 @@ impl ServerBuilder {
         self.handover = Some((
             previous
                 .handover
-                .to_owned()
+                .clone()
                 .expect("Previous server didn't have handover configured!"),
             Some(previous.port()),
         ));
         println!("Previous port {}", previous.port());
-        self.cert = previous.certificate.to_owned();
+        self.cert = previous.certificate.clone();
         self
     }
 
@@ -303,11 +308,12 @@ impl From<(Extensions, host::Options)> for ServerBuilder {
 #[cfg(test)]
 mod tests {
     use super::ServerBuilder;
+    use kvarn::prelude::*;
 
-    fn simple_request(server: &super::Server) {
+    async fn simple_request(server: &super::Server) {
         let response = server
             .get("")
-            .timeout(time::Duration::from_millis(100))
+            .timeout(Duration::from_millis(100))
             .send()
             .await
             .unwrap();
@@ -324,12 +330,12 @@ mod tests {
     #[tokio::test]
     async fn https() {
         let server = ServerBuilder::default().run().await;
-        simple_request(&server);
+        simple_request(&server).await;
     }
     #[tokio::test]
     async fn http() {
         let server = ServerBuilder::default().http().run().await;
-        simple_request(&server);
+        simple_request(&server).await;
     }
 }
 
