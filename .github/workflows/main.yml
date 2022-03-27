@@ -51,6 +51,15 @@ jobs:
               uses: actions-rs/cargo@v1
               with:
                   command: test
+            - name: Testing kvarn-utils
+              run: cargo test
+              working-directory: utils
+            - name: Testing kvarn-async
+              run: cargo test
+              working-directory: async
+            - name: Testing url-crawl
+              run: cargo test
+              working-directory: url-crawl
 
     build:
         needs: [check]
