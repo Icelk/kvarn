@@ -165,6 +165,8 @@ pub mod chars {
     pub const BANG: u8 = b'!';
     /// `"`
     pub const QUOTATION: u8 = b'"';
+    /// `$`
+    pub const DOLLAR: u8 = b'$';
     /// `&`
     pub const AMPERSAND: u8 = b'&';
     /// `.`

@@ -6,7 +6,7 @@ use kvarn_testing::prelude::*;
 async fn basic() {
     let file = "\
 !> tmpl 1.txt\n\
-[1]\
+$[1]\
 ";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
@@ -25,7 +25,7 @@ async fn basic() {
 async fn non_existent() {
     let file = "\
 !> tmpl 1.txt\n\
-[2]\
+$[2]\
 Nothing here!\
 ";
     let mut ext = kvarn_extensions::new();
@@ -45,10 +45,10 @@ Nothing here!\
 async fn several_files() {
     let file = "\
 !> tmpl 1.txt 2.txt\n\
-[
+$[
 2
 ]
-[1!]
+$[1!]
 ";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
@@ -67,7 +67,7 @@ async fn several_files() {
 async fn non_closing() {
     let file = "\
 !> tmpl 2.txt\n\
-[2!]\
+$[2!]\
 ";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
@@ -86,8 +86,8 @@ async fn non_closing() {
 async fn escaping() {
     let file = "\
 !> tmpl 2.txt\n\
-\\[2]
-[\n2\n]";
+\\$[2]
+$[\n2\n]";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
         "/index.html",
@@ -98,14 +98,14 @@ async fn escaping() {
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
     // the `\` in \[2] doesn't get removed. See https://kvarn.org/templates.#limitations
-    assert_eq!(response.text().await.unwrap(), "[2]\n\\[2]\\\\2\\[2]");
+    assert_eq!(response.text().await.unwrap(), "$[2]\n\\$[2]\\\\2\\$[2]");
 }
 
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn spaces_before_template() {
     let file = r"!> tmpl 3.txt
-   [spaces]";
+   $[spaces]";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
         "/index.html",
@@ -124,7 +124,7 @@ async fn complex_data() {
     let file = "\
 !> tmpl 3.txt
 this is complex
-[complex]
+$[complex]
 data";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
@@ -147,7 +147,7 @@ async fn tmpl_ignore() {
     let file = "\
 !> tmpl 1.txt
 <---! tmpl-ignore -->
-[1!]
+$[1!]
 data";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
