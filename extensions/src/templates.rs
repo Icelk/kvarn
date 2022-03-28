@@ -230,7 +230,14 @@ fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
         }
     }
     if let Some(name) = name.take() {
-        templates.insert(name, &file[start_byte.take().unwrap()..]);
+        let mut trim = 0;
+        if file.get(file.len().saturating_sub(2)) == Some(&CR) {
+            trim += 1;
+        }
+        if file.get(file.len().saturating_sub(1)) == Some(&LF) {
+            trim += 1;
+        }
+        templates.insert(name, &file[start_byte.take().unwrap()..file.len() - trim]);
     }
 
     templates

@@ -59,7 +59,7 @@ $[1!]
     );
     let server = ServerBuilder::from(ext).path("./").run().await;
     let response = server.get("/").send().await.unwrap();
-    assert_eq!(response.text().await.unwrap(), "\\[2]\\\\2\\[2]\n111\n");
+    assert_eq!(response.text().await.unwrap(), "\\$[2]\\\\2\\$[2]\n111\n");
 }
 
 #[cfg(feature = "templates")]

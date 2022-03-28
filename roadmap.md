@@ -84,6 +84,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   [x] Parallel handling of requests per connection.
 -   [x] Fix issues with several present extensions.
 -   [x] Improve template performance.
+-   [x] Make templates use `$[]` instead of `[]`.
 
 # v0.5.0 WebSockets & Auth
 

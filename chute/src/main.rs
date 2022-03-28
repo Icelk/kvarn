@@ -6,7 +6,8 @@ use crate::lib::ContinueBehaviour;
 pub mod lib;
 
 const HEADER_PRE_META: &[u8] = b"!> tmpl standard.html markdown.html\n$[head]";
-const HEADER_POST_META: &[u8] = b"$[dependencies]$[md-imports]$[close-head]$[navigation]\n<main><md>";
+const HEADER_POST_META: &[u8] =
+    b"$[dependencies]$[md-imports]$[close-head]$[navigation]\n<main><md>";
 const FOOTER: &[u8] = b"</md></main>\n$[footer]\n";
 const IGNORED_EXTENSIONS: &[&str] = &["hide"];
 
