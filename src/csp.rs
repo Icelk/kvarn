@@ -434,7 +434,6 @@ impl Extensions {
                 if let Some(rule) = csp.get(request.uri().path()) {
                     let nonce = response.headers().get("csp-nonce");
                     if let Some(header) = rule.to_header_nonce(nonce) {
-                    // if let Some(header) = rule.to_header() {
                         utils::replace_header(
                             response.headers_mut(),
                             "content-security-policy",
