@@ -429,6 +429,17 @@ impl Extensions {
         );
         self
     }
+    /// Adds a [`Present`] extension triggered by the internal extension `nonce` which adds nonce
+    /// tags to all scripts with `nonce=` tags.
+    /// You MUST NOT have server caching enabled.
+    /// 
+    /// This integrates with your [`csp`] - if any `nonce` extension is added, the corresponding
+    /// information is added to the `content-security-policy` header.
+    ///
+    /// See [kvarn.org](https://kvarn.org/nonce.) for more details.
+    pub fn with_nonce(&mut self) -> &mut Self {
+        self
+    }
 
     /// Adds a [`Prime`] extension.
     pub fn add_prime(&mut self, extension: Prime, id: Id) {
