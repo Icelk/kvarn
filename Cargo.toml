@@ -73,6 +73,8 @@ auto-hostname = ["x509-parser"]
 # nonce implementation
 nonce = ["rand", "base64", "memchr"]
 
+# also add to https://kvarn.org/cargo-features.
+
 [dev-dependencies]
 kvarn_testing = { path = "testing", version = "0.3" }
 
