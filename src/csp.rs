@@ -3,8 +3,8 @@
 //!
 //! See [`Csp`] for details on how to use this.
 
+use crate::extensions::RuleSet;
 use crate::prelude::*;
-use extensions::RuleSet;
 
 macro_rules! csp_rules {
     (
@@ -56,6 +56,21 @@ macro_rules! csp_rules {
             /// Else, returns a list of all directives and their values.
             #[must_use]
             pub fn to_header(&self) -> Option<HeaderValue> {
+                self.to_header_nonce(None)
+            }
+            /// Returns [`None`] if all the directives are empty.
+            /// Else, returns a list of all directives and their values.
+            ///
+            /// This also takes an optional `nonce` to be applied.
+            /// If it is supplied, a `nonce-<random 128-bit value encoded using Base64>`
+            /// is added to [`Self::script_src`], [`Self::script_src_elem`], [`Self::style_src`],
+            /// and [`Self::style_src_elem`].
+            ///
+            /// # Warnings
+            ///
+            /// Warns (log) if `nonce` is not valid UTF-8. It should be encoded in Base64!
+            #[must_use]
+            pub fn to_header_nonce(&self, nonce: Option<&HeaderValue>) -> Option<HeaderValue> {
                 use bytes::BufMut;
                 // `TODO`: Optimize to use only 1 allocation.
                 // This should be fine for now, as this shouldn't have very many rules, but it
@@ -91,6 +106,14 @@ macro_rules! csp_rules {
                     )+
                 }
 
+                if nonce.is_some() {
+                    empty = false;
+                    len += "script-src".len() + "style-src".len() + "script-src-elem".len() + "style-src-elem".len()
+                        + 4 * (3 + 6 + 24 + " 'self'".len() + 3);
+                    // 3 is the space and quotes, 6 is the `nonce-`, 24 is the value, and 3 is for good measure.
+                    // 'self' is often added, so it's taken into account
+                }
+
                 if empty {
                     return None;
                 }
@@ -99,8 +122,39 @@ macro_rules! csp_rules {
 
                 {
                     $(
-                        if !self.$directive.list.is_empty() {
-                            let s = utils::join(self.$directive.list.iter().map(CspValue::as_str), " ");
+                        let special = {
+                            nonce.is_some() &&
+                            (
+                            $(
+                                $name == "script-src" || $name == "style-src" || $name == "script-src-elem" || $name == "style-src-elem" ||
+                            )+
+                            // or false
+                            false
+                            )
+                        };
+                        if !self.$directive.list.is_empty() || special {
+                            // get the actual header
+                            let mut s = utils::join(self.$directive.list.iter().map(CspValue::as_str), " ");
+                            // pushing this to the HeaderValue is OK, since it originates from a
+                            // header value.
+                            if special {
+                                // UNWRAP: for `special` to be `true`, nonce must satisfy `.is_some`.
+                                if let Ok(nonce) = nonce.as_ref().unwrap().to_str() {
+                                    if !s.is_empty() {
+                                        s.push(' ');
+                                    }else {
+                                        s.push_str("'self' ");
+                                    }
+
+                                    s.push_str("'nonce-");
+                                    s.push_str(nonce);
+                                    s.push('\'');
+                                } else {
+                                    warn!("Read bad `csp-nonce` header. It must be valid UTF-8.");
+                                }
+                            }
+                            // this usually only happens once, write to the rule in the CSP
+                            // report-to and report-url are aliases, so two are ran here.
                             $(
                                 if !bytes.is_empty() {
                                     bytes.put_slice(b"; ");
@@ -378,7 +432,9 @@ impl Extensions {
         self.add_package(
             package!(response, request, _host, move |csp| {
                 if let Some(rule) = csp.get(request.uri().path()) {
-                    if let Some(header) = rule.to_header() {
+                    let nonce = response.headers().get("csp-nonce");
+                    if let Some(header) = rule.to_header_nonce(nonce) {
+                    // if let Some(header) = rule.to_header() {
                         utils::replace_header(
                             response.headers_mut(),
                             "content-security-policy",

@@ -276,6 +276,8 @@ impl Extensions {
     /// - A Package extension (8) to set `referrer-policy` header to `no-referrer` for max security and privacy.
     ///   This is only done when no other `referrer-policy` header has been set earlier in the response.
     /// - A CORS extension to deny all CORS requests. See [`Self::with_cors`] for CORS management.
+    /// - A [nonce](Self::with_nonce) implementation for easy nonce setup. (requires `nonce`
+    ///   feature).
     /// - The default [`Csp`] which only allows requests from `self` and allows unsafe inline
     ///   styles. **This should to a large extent mitigate XSS.**
     pub fn new() -> Self {
@@ -285,6 +287,11 @@ impl Extensions {
             .with_no_referrer()
             .with_disallow_cors()
             .with_csp(Csp::default().arc());
+
+        #[cfg(feature = "nonce")]
+        {
+            new.with_nonce();
+        }
 
         new
     }
@@ -432,12 +439,82 @@ impl Extensions {
     /// Adds a [`Present`] extension triggered by the internal extension `nonce` which adds nonce
     /// tags to all scripts with `nonce=` tags.
     /// You MUST NOT have server caching enabled.
-    /// 
+    ///
     /// This integrates with your [`csp`] - if any `nonce` extension is added, the corresponding
     /// information is added to the `content-security-policy` header.
     ///
     /// See [kvarn.org](https://kvarn.org/nonce.) for more details.
+    #[cfg(feature = "nonce")]
     pub fn with_nonce(&mut self) -> &mut Self {
+        use bytes::BufMut;
+        use rand::Rng;
+
+        self.add_present_internal(
+            "nonce",
+            present!(ext {
+                let data: [u8; 16] = rand::thread_rng().gen();
+                let mut s = BytesMut::with_capacity(24);
+                unsafe { s.set_len(24) };
+
+                let _wrote = base64::encode_config_slice(&data, base64::STANDARD, &mut s);
+                debug_assert_eq!(_wrote, 24);
+
+                let body = ext.response().body();
+                let mut new_body = BytesMut::with_capacity(body.len() + 24*4);
+                let mut last_start = 0;
+
+                let iter = memchr::memmem::find_iter(body, b"nonce=");
+
+                for occurrence in iter {
+                    // +6 as that's the length of b"nonce="
+                    let rest = &body[occurrence + 6..];
+                    let first = rest.first();
+                    let end = match first {
+                        Some(b'"') => memchr::memchr(b'"', &rest[1..]),
+                        Some(b'\'') => memchr::memchr(b'\'', &rest[1..]),
+                        _ => None,
+                    };
+                    // we shortened the list by 1
+                    let end = end.map(|v| v + 1 + 6);
+                    new_body.extend_from_slice(&body[last_start..occurrence + 6]);
+                    if let Some(end) = end {
+                        let double = *first.unwrap() == b'"';
+                        last_start = occurrence + end;
+
+                        if double {
+                            new_body.put_u8(b'"');
+                        } else {
+                            new_body.put_u8(b'\'');
+                        }
+                        new_body.extend_from_slice(&s);
+
+                        if double {
+                            new_body.put_u8(b'"');
+                        } else {
+                            new_body.put_u8(b'\'');
+                        }
+                    } else {
+                        new_body.extend_from_slice(b"\"\"");
+                        last_start = occurrence + 6 + 2;
+                    }
+                }
+
+                new_body.extend_from_slice(&body[last_start.min(body.len())..]);
+
+                *ext.response_mut().body_mut() = new_body.freeze();
+                utils::replace_header(
+                    ext.response_mut().headers_mut(),
+                    "csp-nonce",
+                    HeaderValue::from_maybe_shared(s.freeze()).expect("base64 is valid for a header value")
+                );
+
+                if *ext.server_cache_preference() != comprash::ServerCachePreference::None {
+                    error!("Enabled nonce on page with server caching enabled! This is critical for XSS resilience.\n\
+                           nonces don't work with server caching.");
+                    *ext.server_cache_preference() = comprash::ServerCachePreference::None;
+                }
+            }),
+        );
         self
     }
 
@@ -1028,8 +1105,7 @@ mod macros {
     macro_rules! extension {
         (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $code:block) => {{
             #[allow(unused_imports)]
-            use $crate::extensions::{*, wrappers::*};
-            use $crate::prelude::utils::SuperUnsafePointer;
+            use $crate::{extensions::{*, wrappers::*}, prelude::utils::SuperUnsafePointer};
             #[allow(unused_mut)]
             Box::new(move |
                 $(mut $wrapper_param: $wrapper_param_type,)*

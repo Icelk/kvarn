@@ -26,6 +26,7 @@ members = [
 ]
 
 [dependencies]
+base64 = { version = "0.13", optional = true }
 brotli = { version = "3", optional = true }
 bytes = "1"
 flate2 = { version = "1", optional = true }
@@ -35,9 +36,11 @@ http = "0.2"
 kvarn_async = { path = "async", version = "0.3" }
 kvarn_utils = { path = "utils", version = "0.3" }
 log = "0.4"
+memchr = { version = "2", optional = true }
 mime = "0.3"
 mime_guess = "2"
 percent-encoding = "2"
+rand = { version = "0.8", optional = true, features = ["small_rng"] }
 rustls = { version = "0.20", optional = true }
 rustls-pemfile = { version = "0.3", optional = true }
 time = { version = "0.3.7", features = ["parsing", "formatting", "macros"] }
@@ -49,7 +52,7 @@ x509-parser = { version = "0.13", optional = true }
 default = ["full"]
 
 # Enable all features
-full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname"]
+full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname", "nonce"]
 
 # Compressing
 all-compression = ["br", "gzip"]
@@ -66,6 +69,9 @@ graceful-shutdown = []
 
 # Automatic populating of Host name and alt-names
 auto-hostname = ["x509-parser"]
+
+# nonce implementation
+nonce = ["rand", "base64", "memchr"]
 
 [dev-dependencies]
 kvarn_testing = { path = "testing", version = "0.3" }

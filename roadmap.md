@@ -79,7 +79,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   [x] Reading host names from certificate.
 -   [ ] Graceful restart through systemd service
 -   [x] [doc_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html)
--   [ ] noonce implementation?
+-   [x] noonce implementation
 -   [x] Correct PHP/FastCGI implementation.
 -   [x] Parallel handling of requests per connection.
 -   [x] Fix issues with several present extensions.
