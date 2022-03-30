@@ -456,8 +456,9 @@ impl Extensions {
                 let mut s = BytesMut::with_capacity(24);
                 unsafe { s.set_len(24) };
 
-                let _wrote = base64::encode_config_slice(&data, base64::STANDARD, &mut s);
-                debug_assert_eq!(_wrote, 24);
+                let wrote = base64::encode_config_slice(&data, base64::STANDARD, &mut s);
+                // if didn't write whole, add padding of `=`.
+                s[wrote..].fill(b'=');
 
                 let body = ext.response().body();
                 let mut new_body = BytesMut::with_capacity(body.len() + 24*4);
