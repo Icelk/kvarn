@@ -643,8 +643,8 @@ impl HostValue {
     }
 }
 
-/// A collection of [`Host`]s, with exactly one default and
-/// arbitrarily many other, indexed by [`Host.name`].
+/// A collection of [`Host`]s, with an optional default and
+/// arbitrarily many others, indexed by [`Host.name`].
 ///
 /// Tries to route to the host with it's name.
 /// If no host with a matching name is found, it'll fall back to [`default`](Self::get_default), if

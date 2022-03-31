@@ -116,7 +116,7 @@ impl Manager {
     }
     /// Adds to the count of connections.
     /// When this connection is closed, you must call [`Manager::remove_connection`]
-    /// or a logic error will occur and a shutdown will never occur.
+    /// or a logic error will occur and a shutdown will never happen.
     pub fn add_connection(&self) {
         #[cfg(feature = "graceful-shutdown")]
         {
@@ -151,6 +151,7 @@ impl Manager {
         self.shutdown.load(order)
     }
     /// # Safety
+    ///
     /// We know no other will have mutable access to self by taking `&self`.
     /// We only write to a value in memory. If another thread also does so,
     /// it does not matter which comes first. Also, only one thread should write to this
@@ -162,6 +163,7 @@ impl Manager {
         wakers[index.0] = Some(waker);
     }
     /// # Safety
+    ///
     /// See [`Self::set_waker`].
     #[cfg(feature = "graceful-shutdown")]
     pub(crate) fn remove_waker(&self, index: WakerIndex) {
