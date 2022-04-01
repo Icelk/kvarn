@@ -554,11 +554,7 @@ impl<'a> SendKind<'a> {
                 }
 
                 if let Some(future) = future {
-                    future(
-                        extensions::wrappers::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
-                        extensions::wrappers::HostWrapper::new(host),
-                    )
-                    .await;
+                    future(&mut body_pipe, host).await;
                 }
 
                 // Process post extensions
@@ -586,11 +582,7 @@ impl<'a> SendKind<'a> {
                     );
                 }
                 if let Some(future) = future {
-                    future(
-                        extensions::wrappers::ResponseBodyPipeWrapperMut::new(&mut body_pipe),
-                        extensions::wrappers::HostWrapper::new(host),
-                    )
-                    .await;
+                    future(&mut body_pipe, host).await;
                 }
 
                 if !send_body {

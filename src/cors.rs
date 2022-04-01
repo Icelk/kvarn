@@ -247,55 +247,46 @@ impl Extensions {
     /// This is added when calling [`Extensions::new`].
     pub fn with_disallow_cors(&mut self) -> &mut Self {
         self.add_prime(
-            Box::new(|request, _, _| {
-                box_fut!({
-                    let request = unsafe { request.get_inner() };
-
-                    let missmatch = request
-                        .headers()
-                        .get("origin")
-                        .and_then(|origin| origin.to_str().ok())
-                        .map_or(false, |origin| {
-                            !Cors::is_part_of_origin(origin, request.uri())
-                        });
-                    if missmatch {
-                        Some(Uri::from_static("/./cors_fail"))
-                    } else {
-                        None
-                    }
-                })
+            prime!(request, _, _, {
+                let missmatch = request
+                    .headers()
+                    .get("origin")
+                    .and_then(|origin| origin.to_str().ok())
+                    .map_or(false, |origin| {
+                        !Cors::is_part_of_origin(origin, request.uri())
+                    });
+                if missmatch {
+                    Some(Uri::from_static("/./cors_fail"))
+                } else {
+                    None
+                }
             }),
             Id::new(16_777_216, "Reroute all CORS requests to /./cors_fail"),
         );
 
         self.add_prepare_single(
             "/./cors_fail",
-            Box::new(|_, _, _, _| {
-                ready({
-                    let response = Response::builder()
-                        .status(StatusCode::FORBIDDEN)
-                        .body(Bytes::from_static(b"CORS request denied"))
-                        .expect("we know this is a good request.");
-                    FatResponse::new(response, comprash::ServerCachePreference::Full)
-                })
+            prepare!(_, _, _, _, {
+                let response = Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(Bytes::from_static(b"CORS request denied"))
+                    .expect("we know this is a good request.");
+                FatResponse::new(response, comprash::ServerCachePreference::Full)
             }),
         );
         self.add_prime(
-            Box::new(move |request, _, _| {
-                let request = unsafe { request.get_inner() };
-                ready(
-                    if request.method() == Method::OPTIONS
-                        && request.headers().get("origin").is_some()
-                        && request
-                            .headers()
-                            .get("access-control-request-method")
-                            .is_some()
-                    {
-                        Some(Uri::from_static("/./cors_fail"))
-                    } else {
-                        None
-                    },
-                )
+            prime!(request, _, _, {
+                if request.method() == Method::OPTIONS
+                    && request.headers().get("origin").is_some()
+                    && request
+                        .headers()
+                        .get("access-control-request-method")
+                        .is_some()
+                {
+                    Some(Uri::from_static("/./cors_fail"))
+                } else {
+                    None
+                }
             }),
             Id::new(16_777_215, "Provides CORS preflight request support"),
         );
@@ -313,15 +304,13 @@ impl Extensions {
         // This priority have to be higher than the one in the [`Self::add_disallow_cors`]'s prime
         // extension.
         self.add_prime(
-            Box::new(move |request, _, _| {
-                let request = unsafe { request.get_inner() };
-
+            prime!(request, _, _, move |cors_settings: Arc<Cors>| {
                 let allow = cors_settings.check_cors_request(request);
-                ready(if allow.is_some() {
+                if allow.is_some() {
                     None
                 } else {
                     Some(Uri::from_static("/./cors_fail"))
-                })
+                }
             }),
             Id::new(
                 16_777_216,
@@ -331,9 +320,9 @@ impl Extensions {
 
         // Low priority so it runs last.
         self.add_package(
-            Box::new(move |mut response, request, _| {
-                let (response, request) = unsafe { (response.get_inner(), request.get_inner()) };
-
+            package!(response, request, _, move |package_cors_settings: Arc<
+                Cors,
+            >| {
                 if let Some(origin) = request.headers().get("origin") {
                     let allowed = package_cors_settings.check_cors_request(request).is_some();
                     if allowed {
@@ -344,7 +333,6 @@ impl Extensions {
                         );
                     }
                 }
-                ready(())
             }),
             Id::new(
                 -1024,
@@ -354,18 +342,17 @@ impl Extensions {
 
         self.add_prepare_single(
             "/./cors_options",
-            Box::new(move |mut request, _, _, _| {
-                let request = unsafe { request.get_inner() };
+            prepare!(request, _, _, _, move |options_cors_settings: Arc<Cors>| {
                 let allowed = options_cors_settings.check_cors_request(request);
 
                 if allowed.is_none() {
-                    return ready({
+                    return {
                         let response = Response::builder()
                             .status(StatusCode::FORBIDDEN)
                             .body(Bytes::from_static(b"CORS request denied"))
                             .expect("we know this is a good request.");
                         FatResponse::new(response, comprash::ServerCachePreference::Full)
-                    });
+                    };
                 }
 
                 let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
@@ -418,30 +405,24 @@ impl Extensions {
                         ))
                         .expect("this is a good response.")
                 });
-                ready(FatResponse::new(
-                    response,
-                    comprash::ServerCachePreference::None,
-                ))
+                FatResponse::new(response, comprash::ServerCachePreference::None)
             }),
         );
 
         // This priority has to be above all the above, else it won't be able to get the options.
         self.add_prime(
-            Box::new(move |request, _, _| {
-                let request = unsafe { request.get_inner() };
-                ready(
-                    if request.method() == Method::OPTIONS
-                        && request.headers().get("origin").is_some()
-                        && request
-                            .headers()
-                            .get("access-control-request-method")
-                            .is_some()
-                    {
-                        Some(Uri::from_static("/./cors_options"))
-                    } else {
-                        None
-                    },
-                )
+            prime!(request, _, _, {
+                if request.method() == Method::OPTIONS
+                    && request.headers().get("origin").is_some()
+                    && request
+                        .headers()
+                        .get("access-control-request-method")
+                        .is_some()
+                {
+                    Some(Uri::from_static("/./cors_options"))
+                } else {
+                    None
+                }
             }),
             Id::new(16_777_215, "Provides CORS preflight request support"),
         );

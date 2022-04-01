@@ -9,11 +9,31 @@ use crate::*;
 /// [`SmartPush::default`]), not every time.
 pub fn mount(extensions: &mut Extensions, manager: SmartPush) -> &mut Extensions {
     let manager = Mutex::new(manager);
+    struct PushPost {
+        mutex: Mutex<SmartPush>,
+    }
+    impl extensions::PostCall for PushPost {
+        fn call<'a>(
+            &'a self,
+            request: &'a Request<application::Body>,
+            host: &'a Host,
+            response_pipe: &'a mut application::ResponsePipe,
+            identity_body: Bytes,
+            addr: SocketAddr,
+        ) -> RetFutA<'a, ()> {
+            push(
+                request,
+                host,
+                response_pipe,
+                identity_body,
+                addr,
+                Some(&self.mutex),
+            )
+        }
+    }
+
     extensions.add_post(
-        Box::new(move |request, host, response_pipe, bytes, addr| {
-            let manager = unsafe { utils::SuperUnsafePointer::new(&manager) };
-            push(request, host, response_pipe, bytes, addr, Some(manager))
-        }),
+        Box::new(PushPost { mutex: manager }),
         Id::new(-32, "HTTP/2 push"),
     );
     extensions
@@ -32,13 +52,13 @@ pub fn mount(extensions: &mut Extensions, manager: SmartPush) -> &mut Extensions
 ///     Id::new(-32, "HTTP/2 push"),
 /// );
 /// ```
-pub fn always(
-    request: RequestWrapper,
-    host: HostWrapper,
-    response_pipe: ResponsePipeWrapperMut,
+pub fn always<'a>(
+    request: &'a Request<application::Body>,
+    host: &'a Host,
+    response_pipe: &'a mut application::ResponsePipe,
     bytes: Bytes,
     addr: SocketAddr,
-) -> RetFut<()> {
+) -> RetFutA<'a, ()> {
     push(request, host, response_pipe, bytes, addr, None)
 }
 
@@ -86,18 +106,18 @@ impl Default for SmartPush {
     }
 }
 
-fn push(
-    request: RequestWrapper,
-    host: HostWrapper,
-    mut response_pipe: ResponsePipeWrapperMut,
+fn push<'a>(
+    request: &'a Request<application::Body>,
+    host: &'a Host,
+    response_pipe: &'a mut application::ResponsePipe,
     bytes: Bytes,
     addr: SocketAddr,
-    manager: Option<utils::SuperUnsafePointer<Mutex<SmartPush>>>,
-) -> RetFut<()> {
+    manager: Option<&'a Mutex<SmartPush>>,
+) -> RetFutA<'a, ()> {
     use internals::*;
     Box::pin(async move {
-        let request = unsafe { request.get_inner() };
-        let response_pipe = unsafe { response_pipe.get_inner() };
+        // let request = unsafe { request.get_inner() };
+        // let response_pipe = unsafe { response_pipe.get_inner() };
 
         // If it is not HTTP/1
         #[allow(irrefutable_let_patterns)]
@@ -105,8 +125,8 @@ fn push(
             return;
         }
 
-        if let Some(manager) = manager.as_ref() {
-            let manager = unsafe { manager.get() };
+        if let Some(manager) = manager {
+            // let manager = unsafe { manager.get() };
             let mut lock = manager.lock().await;
             if !lock.accept(addr) {
                 return;
@@ -136,7 +156,7 @@ fn push(
                     .map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) =>
             {
                 let mut urls = url_crawl::get_urls(string);
-                let host = unsafe { host.get_inner() };
+                // let host = unsafe { host.get_inner() };
 
                 urls.retain(|url| {
                     let uri: Option<Uri> = url.parse().ok();
@@ -219,8 +239,8 @@ fn push(
             // Else, do nothing
             _ => {}
         }
-        if let Some(manager) = manager.as_ref() {
-            let manager = unsafe { manager.get() };
+        if let Some(manager) = manager {
+            // let manager = unsafe { manager.get() };
             let mut lock = manager.lock().await;
             lock.register(addr);
         }

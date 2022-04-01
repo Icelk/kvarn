@@ -11,34 +11,52 @@
 //! ```
 
 use crate::prelude::{internals::*, *};
-use wrappers::{
-    EmptyResponseWrapperMut, HostWrapper, PathOptionWrapper, PresentDataWrapper, RequestWrapper,
-    RequestWrapperMut, ResponseBodyPipeWrapperMut, ResponsePipeWrapperMut,
-};
 
 /// A return type for a `dyn` [`Future`].
 ///
 /// Used as the return type for all extensions,
 /// so they can be stored.
-pub type RetFut<T> = Pin<Box<(dyn Future<Output = T> + Send)>>;
+pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + Send + 'a)>>;
 /// Same as [`RetFut`] but also implementing [`Sync`].
 ///
 /// Mostly used for extensions used across yield bounds.
-pub type RetSyncFut<T> = Pin<Box<dyn Future<Output = T> + Send + Sync>>;
+pub type RetSyncFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'a>>;
 
 /// A prime extension.
 ///
 /// Can be created using the [`prime!`] macro.
 ///
+/// Requires an object which implements the [`PrimeCall`] trait. See it for details on arguments.
+///
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
-///
-/// # Arguments
-///
-/// - An immutable reference to the request.
-/// - An immutable reference to the host this request is to.
-/// - The [`SocketAddr`] of the requester.
-pub type Prime =
-    Box<(dyn Fn(RequestWrapper, HostWrapper, SocketAddr) -> RetFut<Option<Uri>> + Sync + Send)>;
+pub type Prime = Box<dyn PrimeCall>;
+/// Implement this to pass your extension to [`Extensions::add_prime`].
+pub trait PrimeCall: Send + Sync {
+    /// # Arguments
+    ///
+    /// - An immutable reference to the request.
+    /// - An immutable reference to the host this request is to.
+    /// - The [`SocketAddr`] of the requester.
+    fn call<'a>(
+        &'a self,
+        request: &'a FatRequest,
+        host: &'a Host,
+        addr: SocketAddr,
+    ) -> RetFut<'a, Option<Uri>>;
+}
+impl<
+        F: for<'a> Fn(&'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, Option<Uri>> + Send + Sync,
+    > PrimeCall for F
+{
+    fn call<'a>(
+        &'a self,
+        request: &'a FatRequest,
+        host: &'a Host,
+        addr: SocketAddr,
+    ) -> RetFut<'a, Option<Uri>> {
+        self(request, host, addr)
+    }
+}
 /// A prepare extension.
 ///
 /// Keep in mind you have to supply the response content type in the headers. Kvarn defaults to HTML.
@@ -47,76 +65,172 @@ pub type Prime =
 ///
 /// Can be created using the [`prepare!`] macro.
 ///
+/// Requires an object which implements the [`PrepareCall`] trait. See it for details on arguments.
+///
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
-///
-/// # Arguments
-///
-/// - A mutable reference to the request.
-/// - An immutable reference to the host this request is to.
-/// - An [`Option`] of a [`Path`]. See the docs at [`prepare!`] for when this is [`None`].
-/// - The [`SocketAddr`] of the requester.
-pub type Prepare = Box<
-    (dyn Fn(RequestWrapperMut, HostWrapper, PathOptionWrapper, SocketAddr) -> RetFut<FatResponse>
-         + Sync
-         + Send),
->;
+pub type Prepare = Box<dyn PrepareCall>;
+/// Implement this to pass your extension to [`Extensions::add_prepare_fn`] or
+/// [`Extensions::add_prepare_single`].
+pub trait PrepareCall: Send + Sync {
+    /// # Arguments
+    ///
+    /// - A mutable reference to the request.
+    /// - An immutable reference to the host this request is to.
+    /// - An [`Option`] of a [`Path`]. See the docs at [`prepare!`] for when this is [`None`].
+    /// - The [`SocketAddr`] of the requester.
+    fn call<'a>(
+        &'a self,
+        request: &'a mut FatRequest,
+        host: &'a Host,
+        path: Option<&'a Path>,
+        addr: SocketAddr,
+    ) -> RetFut<'a, FatResponse>;
+}
+impl<
+        F: for<'a> Fn(
+                &'a mut FatRequest,
+                &'a Host,
+                Option<&Path>,
+                SocketAddr,
+            ) -> RetFut<'a, FatResponse>
+            + Send
+            + Sync,
+    > PrepareCall for F
+{
+    fn call<'a>(
+        &'a self,
+        request: &'a mut FatRequest,
+        host: &'a Host,
+        path: Option<&Path>,
+        addr: SocketAddr,
+    ) -> RetFut<'a, FatResponse> {
+        self(request, host, path, addr)
+    }
+}
 /// A present extension.
 ///
 /// Can be created using the [`present!`] macro.
 ///
+/// Requires an object which implements the [`PresentCall`] trait. See it for details on arguments.
+///
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
-///
-/// # Arguments
-///
-/// [`PresentData`] contains all the references to the data needed.
-///
-/// > The use of a separate struct for all the references is a product of the previous design,
-/// > before the macros and [`utils::SuperUnsafePointer`]s. Then, you had to do the `unsafe` dereferencing
-/// > yourself. Only having to dereference one struct was easier.
-pub type Present = Box<(dyn Fn(PresentDataWrapper) -> RetFut<()> + Sync + Send)>;
+pub type Present = Box<dyn PresentCall>;
+/// Implement this to pass your extension to [`Extensions::add_present_file`] or
+/// [`Extensions::add_present_internal`].
+pub trait PresentCall: Send + Sync {
+    /// # Arguments
+    ///
+    /// [`PresentData`] contains all the references to the data needed.
+    ///
+    /// > The use of a separate struct for all the references is a product of the previous design,
+    /// > before the macros and [`utils::SuperUnsafePointer`]s. Then, you had to do the `unsafe` dereferencing
+    /// > yourself. Only having to dereference one struct was easier.
+    fn call<'a>(&'a self, present_data: &'a mut PresentData) -> RetFut<'a, ()>;
+}
+impl<F: for<'a> Fn(&'a mut PresentData) -> RetFut<'a, ()> + Send + Sync> PresentCall for F {
+    fn call<'a>(&'a self, present_data: &'a mut PresentData) -> RetFut<'a, ()> {
+        self(present_data)
+    }
+}
 /// A package extension.
 ///
 /// Can be created using the [`package!`] macro.
 ///
+/// Requires an object which implements the [`PackageCall`] trait. See it for details on arguments.
+///
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
-///
-/// # Arguments
-///
-/// - A mutable reference to a [`Response`] without the body.
-/// - An immutable reference to the request.
-/// - An immutable reference to the host this request is to.
-pub type Package =
-    Box<(dyn Fn(EmptyResponseWrapperMut, RequestWrapper, HostWrapper) -> RetFut<()> + Sync + Send)>;
+pub type Package = Box<dyn PackageCall>;
+/// Implement this to pass your extension to [`Extensions::add_package`].
+pub trait PackageCall: Send + Sync {
+    /// # Arguments
+    ///
+    /// - A mutable reference to a [`Response`] without the body.
+    /// - An immutable reference to the request.
+    /// - An immutable reference to the host this request is to.
+    fn call<'a>(
+        &'a self,
+        response: &'a mut Response<()>,
+        request: &'a FatRequest,
+        host: &'a Host,
+    ) -> RetFut<'a, ()>;
+}
+impl<
+        'b,
+        F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host) -> RetFut<'a, ()>
+            + Send
+            + Sync
+            + 'b,
+    > PackageCall for &'b F
+{
+    fn call<'a>(
+        &'a self,
+        response: &'a mut Response<()>,
+        request: &'a FatRequest,
+        host: &'a Host,
+    ) -> RetFut<'a, ()> {
+        self(response, request, host)
+    }
+}
 /// A post extension.
 ///
 /// Can be created using the [`post!`] macro.
 ///
+/// Requires an object which implements the [`PostCall`] trait. See it for details on arguments.
+///
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
-///
-/// # Arguments
-///
-/// - An immutable reference to the request.
-/// - An immutable reference to the host this request is to.
-/// - A mutable reference to the [`ResponsePipe`].
-/// - The plain text of the body of the response.
-/// - The [`SocketAddr`] of the requester.
-pub type Post = Box<
-    (dyn Fn(RequestWrapper, HostWrapper, ResponsePipeWrapperMut, Bytes, SocketAddr) -> RetFut<()>
-         + Sync
-         + Send),
->;
+pub type Post = Box<(dyn PostCall + Sync + Send)>;
+/// Implement this to pass your extension to [`Extensions::add_post`].
+pub trait PostCall {
+    /// # Arguments
+    ///
+    /// - An immutable reference to the request.
+    /// - An immutable reference to the host this request is to.
+    /// - A mutable reference to the [`ResponsePipe`].
+    /// - The plain text of the body of the response.
+    /// - The [`SocketAddr`] of the requester.
+    fn call<'a>(
+        &'a self,
+        request: &'a FatRequest,
+        host: &'a Host,
+        response_pipe: &'a mut ResponsePipe,
+        identity_body: Bytes,
+        addr: SocketAddr,
+    ) -> RetFut<'a, ()>;
+}
+impl<
+        'b,
+        F: for<'a> Fn(
+                &'a FatRequest,
+                &'a Host,
+                &'a mut ResponsePipe,
+                Bytes,
+                SocketAddr,
+            ) -> RetFut<'a, ()>
+            + Send
+            + Sync
+            + 'b,
+    > PostCall for F
+{
+    fn call<'a>(
+        &'a self,
+        request: &'a FatRequest,
+        host: &'a Host,
+        response_pipe: &'a mut ResponsePipe,
+        identity_body: Bytes,
+        addr: SocketAddr,
+    ) -> RetFut<'a, ()> {
+        self(request, host, response_pipe, identity_body, addr)
+    }
+}
 /// Dynamic function to check if a extension should be ran.
 ///
 /// Used with [`Prepare`] extensions
 pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool + Sync + Send)>;
 /// A [`Future`] for writing to a [`ResponsePipe`] after the response is sent.
 ///
-/// Used with [`Prepare`] extensions
-pub type ResponsePipeFuture = Box<
-    dyn FnOnce(extensions::ResponseBodyPipeWrapperMut, extensions::HostWrapper) -> RetSyncFut<()>
-        + Send
-        + Sync,
->;
+/// Used with [`Prepare`] extensions in their returned [`FatResponse`].
+pub type ResponsePipeFuture =
+    Box<dyn for<'a> FnOnce(&'a mut ResponseBodyPipe, &'a Host) -> RetSyncFut<'a, ()> + Send + Sync>;
 
 /// A extension Id. The [`Self::priority`] is used for sorting extensions
 /// and [`Self::name`] for debugging which extensions are mounted.
@@ -200,7 +314,7 @@ impl PartialOrd for Id {
 /// Returns a future accepted by all the [`extensions`]
 /// yielding immediately with `value`.
 #[inline]
-pub fn ready<T: 'static + Send>(value: T) -> RetFut<T> {
+pub fn ready<'a, T: 'a + Send>(value: T) -> RetFut<'a, T> {
     Box::pin(core::future::ready(value))
 }
 
@@ -303,7 +417,7 @@ impl Extensions {
     /// See respective documentation for more info.
     pub fn with_uri_redirect(&mut self) -> &mut Self {
         self.add_prime(
-            Box::new(|request, host, _| {
+            prime!(request, host, _, {
                 enum Ending {
                     Dot,
                     Slash,
@@ -320,10 +434,8 @@ impl Extensions {
                         }
                     }
                 }
-                let uri: &Uri = unsafe { request.get_inner() }.uri();
-                let host: &Host = unsafe { host.get_inner() };
-                let append = match Ending::from(uri) {
-                    Ending::Other => return ready(None),
+                let append = match Ending::from(request.uri()) {
+                    Ending::Other => return None,
                     Ending::Dot => host.options.extension_default.as_deref().unwrap_or("html"),
                     Ending::Slash => host
                         .options
@@ -332,7 +444,7 @@ impl Extensions {
                         .unwrap_or("index.html"),
                 };
 
-                let mut uri = uri.clone().into_parts();
+                let mut uri = request.uri().clone().into_parts();
 
                 let path = uri
                     .path_and_query
@@ -356,7 +468,7 @@ impl Extensions {
                 // Again ok, see ↑
                 let uri = Uri::from_parts(uri).unwrap();
 
-                ready(Some(uri))
+                Some(uri)
             }),
             Id::new(-100, "Expanding . and / to reduce URI size"),
         );
@@ -367,14 +479,11 @@ impl Extensions {
     /// This is added when calling [`Extensions::new`].
     pub fn with_no_referrer(&mut self) -> &mut Self {
         self.add_package(
-            Box::new(|mut response, _, _| {
-                let response: &mut Response<()> = unsafe { response.get_inner() };
+            package!(response, _, _, {
                 response
                     .headers_mut()
                     .entry("referrer-policy")
                     .or_insert(HeaderValue::from_static("no-referrer"));
-
-                ready(())
             }),
             Id::new(10, "Set the referrer-policy header to no-referrer"),
         );
@@ -390,10 +499,10 @@ impl Extensions {
         const SPECIAL_PATH: &str = "/./to_https";
         self.add_prepare_single(
             SPECIAL_PATH,
-            Box::new(|mut request, _, _, _| {
+            prepare!(request, _, _, _, {
                 // "/./ path" is special; it will not be accepted from outside; any path containing './' gets rejected.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
-                let request: &FatRequest = unsafe { request.get_inner() };
+                // let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = request.uri();
                 let uri = {
                     let authority = uri.authority().map_or("", uri::Authority::as_str);
@@ -412,16 +521,15 @@ impl Extensions {
                     .status(StatusCode::TEMPORARY_REDIRECT)
                     .header("location", uri);
                 // Unwrap is ok; we know this is valid.
-                ready(
-                    FatResponse::cache(response.body(Bytes::new()).unwrap())
-                        .with_server_cache(comprash::ServerCachePreference::None)
-                        .with_compress(comprash::CompressPreference::None),
-                )
+                FatResponse::cache(response.body(Bytes::new()).unwrap())
+                    .with_server_cache(comprash::ServerCachePreference::None)
+                    .with_compress(comprash::CompressPreference::None)
             }),
+            // Box::new(|mut request, _, _, _| {
+            // }),
         );
         self.add_prime(
-            Box::new(|request, _, _| {
-                let request: &FatRequest = unsafe { request.get_inner() };
+            prime!(request, _, _, {
                 let uri = if request.uri().scheme_str() == Some("http")
                     && request.uri().port().is_none()
                 {
@@ -430,7 +538,7 @@ impl Extensions {
                 } else {
                     None
                 };
-                ready(uri)
+                uri
             }),
             extensions::Id::new(4, "Redirecting to HTTPS"),
         );
@@ -451,7 +559,7 @@ impl Extensions {
 
         self.add_present_internal(
             "nonce",
-            present!(ext {
+            present!(ext, {
                 let data: [u8; 16] = rand::thread_rng().gen();
                 let mut s = BytesMut::with_capacity(24);
                 unsafe { s.set_len(24) };
@@ -620,13 +728,7 @@ impl Extensions {
     ) -> Option<Uri> {
         let mut uri = None;
         for (_, prime) in &self.prime {
-            if let Some(prime) = prime(
-                RequestWrapper::new(request),
-                HostWrapper::new(host),
-                address,
-            )
-            .await
-            {
+            if let Some(prime) = prime.call(request, host, address).await {
                 if prime.path().starts_with("/./") {
                     uri = Some(prime);
                 } else {
@@ -649,25 +751,17 @@ impl Extensions {
             .get(overide_uri.unwrap_or_else(|| request.uri()).path())
         {
             Some(
-                extension(
-                    RequestWrapperMut::new(request),
-                    HostWrapper::new(host),
-                    PathOptionWrapper::new(path),
-                    address,
-                )
-                .await,
+                extension
+                    .call(request, host, path.as_deref(), address)
+                    .await,
             )
         } else {
             for (_, function, extension) in &self.prepare_fn {
                 if function(request, host) {
                     return Some(
-                        extension(
-                            RequestWrapperMut::new(request),
-                            HostWrapper::new(host),
-                            PathOptionWrapper::new(path),
-                            address,
-                        )
-                        .await,
+                        extension
+                            .call(request, host, path.as_deref(), address)
+                            .await,
                     );
                 }
             }
@@ -704,8 +798,7 @@ impl Extensions {
                         response,
                         args: extension_name_args,
                     };
-                    let data = PresentDataWrapper::new(&mut data);
-                    extension(data).await;
+                    extension.call(&mut data).await;
                 }
             }
         }
@@ -725,8 +818,7 @@ impl Extensions {
                 response,
                 args: PresentArguments::empty(),
             };
-            let data = PresentDataWrapper::new(&mut data);
-            extension(data).await;
+            extension.call(&mut data).await;
         }
     }
     pub(crate) async fn resolve_package(
@@ -736,12 +828,7 @@ impl Extensions {
         host: &Host,
     ) {
         for (_, extension) in &self.package {
-            extension(
-                EmptyResponseWrapperMut::new(response),
-                RequestWrapper::new(request),
-                HostWrapper::new(host),
-            )
-            .await;
+            extension.call(response, request, host).await;
         }
     }
     pub(crate) async fn resolve_post(
@@ -753,24 +840,14 @@ impl Extensions {
         host: &Host,
     ) {
         for (_, extension) in self.post.iter().take(self.post.len().saturating_sub(1)) {
-            extension(
-                RequestWrapper::new(request),
-                HostWrapper::new(host),
-                ResponsePipeWrapperMut::new(response_pipe),
-                Bytes::clone(&bytes),
-                addr,
-            )
-            .await;
+            extension
+                .call(request, host, response_pipe, Bytes::clone(&bytes), addr)
+                .await;
         }
         if let Some((_, extension)) = self.post.last() {
-            extension(
-                RequestWrapper::new(request),
-                HostWrapper::new(host),
-                ResponsePipeWrapperMut::new(response_pipe),
-                bytes,
-                addr,
-            )
-            .await;
+            extension
+                .call(request, host, response_pipe, bytes, addr)
+                .await;
         }
     }
 }
@@ -974,94 +1051,6 @@ impl<R> RuleSet<R> {
     }
 }
 
-/// ## Unsafe pointers
-///
-/// This modules contains extensive usage of unsafe pointers.
-///
-/// ### Background
-///
-/// In the extension code, I sometimes have to pass references of data to `Futures` to avoid cloning,
-/// which sometimes is not an option (such as when a `TcpStream` is part of said data).
-/// You cannot share references with `Futures`, and so I've opted to go the unsafe route. Literally.
-/// Various contracts ensure this isn't unsafe or UB.
-///
-/// ### Safety
-///
-/// In this module, there are several `Wrapper` types. They ***must not*** be stored.
-/// It's safe to get the underlying type inside the extension which received the data;
-/// the future is awaited and the referenced data is guaranteed to not be touched by
-/// anyone but the receiving extension. If you use it later, the data can be used
-/// or have been dropped.
-pub mod wrappers {
-    use super::{FatRequest, Host, PathBuf, PresentData, Response, ResponseBodyPipe, ResponsePipe};
-
-    macro_rules! get_unsafe_wrapper {
-    ($main:ident, $return:ty, $link:ty) => {
-        #[doc = "A wrapper type for [`"]
-        #[doc = stringify!($link)]
-        #[doc = "`].\n\nSee [module level documentation](crate::extensions) for more information."]
-        #[allow(missing_debug_implementations)]
-        #[must_use]
-        pub struct $main(*const $return);
-        impl $main {
-            pub(crate) fn new(data: &$return) -> Self {
-                Self(data)
-            }
-            /// # Safety
-            ///
-            /// See [module level documentation](crate::extensions::wrappers).
-            #[inline]
-            #[must_use = "must use extracted reference"]
-            pub unsafe fn get_inner(&self) -> &$return {
-                &*self.0
-            }
-        }
-        unsafe impl Send for $main {}
-        unsafe impl Sync for $main {}
-    };
-    ($main:ident, $return:ty) => {
-        get_unsafe_wrapper!($main, $return, $return);
-    };
-}
-    macro_rules! get_unsafe_mut_wrapper {
-    ($main:ident, $return:ty, $link:ty) => {
-        #[doc = "A wrapper type for [`"]
-        #[doc = stringify!($link)]
-        #[doc = "`].\n\nSee [module level documentation](crate::extensions::wrappers) for more information."]
-        #[allow(missing_debug_implementations)]
-        #[must_use]
-        pub struct $main(*mut $return);
-        impl $main {
-            pub(crate) fn new(data: &mut $return) -> Self {
-                Self(data)
-            }
-            /// # Safety
-            ///
-            /// See [module level documentation](crate::extensions::wrappers).
-            #[inline]
-            #[must_use = "must use extracted reference"]
-            pub unsafe fn get_inner(&mut self) -> &mut $return {
-                &mut *self.0
-            }
-        }
-        unsafe impl Send for $main {}
-        unsafe impl Sync for $main {}
-    };
-    ($main:ident, $return:ty) => {
-        get_unsafe_mut_wrapper!($main, $return, $return);
-    };
-}
-
-    get_unsafe_wrapper!(RequestWrapper, FatRequest);
-    get_unsafe_mut_wrapper!(RequestWrapperMut, FatRequest);
-    get_unsafe_mut_wrapper!(EmptyResponseWrapperMut, Response<()>, Response);
-    get_unsafe_mut_wrapper!(ResponsePipeWrapperMut, ResponsePipe);
-    get_unsafe_wrapper!(HostWrapper, Host);
-    get_unsafe_wrapper!(PathOptionWrapper, Option<PathBuf>);
-    get_unsafe_mut_wrapper!(PresentDataWrapper, PresentData);
-    get_unsafe_mut_wrapper!(ResponseBodyPipeWrapperMut, ResponseBodyPipe);
-}
-
 mod macros {
     /// Makes a pinned future, compatible with [`crate::RetFut`] and [`crate::RetSyncFut`]
     ///
@@ -1091,43 +1080,56 @@ mod macros {
     /// # Examples
     ///
     /// This is similar to the `prepare!` macro.
+    ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// extension!(|
-    ///     request: RequestWrapperMut,
+    /// extension!(
+    ///     PrepareCall,
+    ///     FatResponse,
+    ///     | request: RequestWrapperMut,
     ///     host: HostWrapper,
-    ///     path: PathOptionWrapper |
-    ///     addr: SocketAddr |,
-    ///     ,
+    ///     path: PathOptionWrapper,
+    ///     addr: SocketAddr |, ,
     ///     { println!("Hello world, from extension macro!"); }
     /// );
     /// ```
     #[macro_export]
     macro_rules! extension {
-        (| $($wrapper_param:ident: $wrapper_param_type:ty $(,)?)* |$(,)? $($param:ident: $param_type:ty $(,)?)* |, $($clone:ident)*, $code:block) => {{
+        // pat to also match _
+        ($trait: ident, $ret: ty, | $($param:tt:$param_type:ty ),* |, $($($move:ident:$ty:ty),+)?, $code:block) => {{
             #[allow(unused_imports)]
-            use $crate::{extensions::{*, wrappers::*}, prelude::utils::SuperUnsafePointer};
-            #[allow(unused_mut)]
-            Box::new(move |
-                $(mut $wrapper_param: $wrapper_param_type,)*
-                $(mut $param: $param_type,)*
-            | {
-                // SAFETY: This is safe because we know the future will be ran immediately when it's
-                // returned.
-                // The closure owns a Arc and Kvarn's internals guarantees the future will be
-                // ran in the closure's lifetime.
-                $(let $clone = unsafe { SuperUnsafePointer::new(&$clone) };)*
-                Box::pin(async move {
-                    // SAFETY: as stated in [`kvarn::extensions`], it's safe to get the inner
-                    // value of wrapper struct inside the extension.
-                    $(let $wrapper_param = unsafe { $wrapper_param.get_inner() };)*
-                    // SAFETY: See the comments above.
-                    $(let $clone = unsafe { $clone.get() };)*
+            use $crate::{extensions::*, prelude::*};
 
-                    $code
-                }) as RetSyncFut<_>
+            struct Ext {
+                $(
+                $(
+                    $move: $ty,
+                )+
+                )?
+            }
+            impl $trait for Ext {
+                fn call<'a>(
+                    &'a self,
+                    $($param: $param_type,)*
+                ) -> RetFut<'a, $ret> {
+                    let Self {
+                        $(
+                        $(
+                            $move,
+                        )+
+                        )?
+                    } = self;
+                    Box::pin(async move { $code })
+                }
+            }
+            Box::new(Ext {
+                $(
+                $(
+                    $move,
+                )+
+                )?
             })
-        }}
+        }};
     }
 
     /// Will make a [`Prime`](super::Prime) extension.
@@ -1143,8 +1145,9 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! prime {
-        ($request:ident, $host:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$request: RequestWrapper, $host: HostWrapper | $addr: SocketAddr|, $($($clone)*)*, $code)
+        // pat to also match `_`
+        ($request:pat, $host:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
+            $crate::extension!(PrimeCall, Option<Uri>, |$request: &'a FatRequest, $host: &'a Host, $addr: SocketAddr|, $($($move:$ty)*)*, $code)
         }
     }
     /// Will make a [`Prepare`](super::Prepare) extension.
@@ -1186,13 +1189,14 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! prepare {
-        ($request:ident, $host:ident, $path:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            $crate::extension!(|
-                $request: RequestWrapperMut,
-                $host: HostWrapper,
-                $path: PathOptionWrapper |
+        // pat to also match `_`
+        ($request:pat, $host:pat, $path:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
+            $crate::extension!(PrepareCall, FatResponse, |
+                $request: &'a mut FatRequest,
+                $host: &'a Host,
+                $path: Option<&'a Path>,
                 $addr: SocketAddr |,
-                $($($clone)*)*,
+                $($($move:$ty)*)*,
                 $code
             )
         }
@@ -1210,8 +1214,8 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! present {
-        ($data:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$data: PresentDataWrapper | |, $($($clone)*)*, $code)
+        ($data:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
+            $crate::extension!(PresentCall, (), |$data: &'a mut PresentData|, $($($move:$ty)*)*, $code)
         }
     }
     /// Will make a [`Package`](super::Package) extension.
@@ -1228,8 +1232,8 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! package {
-        ($response:ident, $request:ident, $host:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$response: EmptyResponseWrapperMut, $request: RequestWrapper, $host: HostWrapper | |, $($($clone)*)*, $code)
+        ($response:pat, $request:pat, $host:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
+            $crate::extension!(PackageCall, (), |$response: &'a mut Response<()>, $request: &'a FatRequest, $host: &'a Host |, $($($move:$ty)*)*, $code)
         }
     }
     /// Will make a [`Post`](super::Post) extension.
@@ -1248,8 +1252,8 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! post {
-        ($request:ident, $host:ident, $response_pipe:ident, $bytes:ident, $addr:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$request: RequestWrapper, $host: HostWrapper, $response_pipe: ResponsePipeWrapperMut | $bytes: Bytes, $addr: SocketAddr|, $($($clone)*)*, $code)
+        ($request:pat, $host:pat, $response_pipe:pat, $bytes:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
+            $crate::extension!(PostCall, (), |$request: &'a FatRequest, $host: &'a Host, $response_pipe: &'a mut ResponsePipe, $bytes: Bytes, $addr: SocketAddr|, $($($move:$ty)*)*, $code)
         }
     }
     #[allow(unused_imports)]
@@ -1268,8 +1272,11 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! response_pipe_fut {
-        ($response:ident, $host:ident $(, move |$($clone:ident $(,)?)+|)? $code:block) => {
-            extension!(|$response: ResponseBodyPipeWrapperMut, $host: HostWrapper| |, $($($clone)*)*, $code)
+        ($response:ident, $host:ident $(, move |$($clone:ident ),+|)? $code:block) => {
+            // extension!(|$response: ResponseBodyPipeWrapperMut, $host: HostWrapper| |, $($($clone)*)*, $code)
+            Box::new(|$response: &mut ResponseBodyPipe, &Host| async move {
+                $code
+            })
         }
     }
 }

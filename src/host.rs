@@ -308,10 +308,14 @@ impl Host {
     /// Also see [hstspreload.org](https://hstspreload.org/)
     #[cfg(feature = "https")]
     pub fn with_hsts(&mut self) -> &mut Self {
-        self.extensions.add_package(
-            Box::new(|mut response, request, _| {
-                let response: &mut Response<_> = unsafe { response.get_inner() };
-                let request: &FatRequest = unsafe { request.get_inner() };
+        struct Ext;
+        impl extensions::PackageCall for Ext {
+            fn call<'a>(
+                &'a self,
+                response: &'a mut Response<()>,
+                request: &'a FatRequest,
+                _: &'a Host,
+            ) -> RetFut<'a, ()> {
                 if request.uri().scheme_str() == Some("https") {
                     response
                         .headers_mut()
@@ -322,9 +326,11 @@ impl Host {
                 }
 
                 ready(())
-            }),
-            extensions::Id::new(8, "Adding HSTS header"),
-        );
+            }
+        }
+
+        self.extensions
+            .add_package(Box::new(Ext), extensions::Id::new(8, "Adding HSTS header"));
         self
     }
 
