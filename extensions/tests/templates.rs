@@ -4,14 +4,14 @@ use kvarn_testing::prelude::*;
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn basic() {
-    let file = "\
-!> tmpl 1.txt\n\
-$[1]\
-";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
         "/index.html",
-        prepare!(_req, _host, _path, _addr {
+        prepare!(_req, _host, _path, _addr, {
+            let file = "\
+!> tmpl 1.txt\n\
+$[1]\
+";
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );
@@ -23,15 +23,15 @@ $[1]\
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn non_existent() {
-    let file = "\
+    let mut ext = kvarn_extensions::new();
+    ext.add_prepare_single(
+        "/index.html",
+        prepare!(_req, _host, _path, _addr, {
+            let file = "\
 !> tmpl 1.txt\n\
 $[2]\
 Nothing here!\
 ";
-    let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single(
-        "/index.html",
-        prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );
@@ -43,17 +43,17 @@ Nothing here!\
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn several_files() {
-    let file = "\
-!> tmpl 1.txt 2.txt\n\
+    let mut ext = kvarn_extensions::new();
+    ext.add_prepare_single(
+        "/index.html",
+        prepare!(_req, _host, _path, _addr, {
+            let file = "\
+        !> tmpl 1.txt 2.txt\n\
 $[
 2
 ]
 $[1!]
 ";
-    let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single(
-        "/index.html",
-        prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );
@@ -65,14 +65,14 @@ $[1!]
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn non_closing() {
-    let file = "\
-!> tmpl 2.txt\n\
-$[2!]\
-";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
         "/index.html",
-        prepare!(_req, _host, _path, _addr {
+        prepare!(_req, _host, _path, _addr, {
+            let file = "\
+!> tmpl 2.txt\n\
+$[2!]\
+";
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );
@@ -84,14 +84,14 @@ $[2!]\
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn escaping() {
-    let file = "\
-!> tmpl 2.txt\n\
-\\$[2]
-$[\n2\n]";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
         "/index.html",
-        prepare!(_req, _host, _path, _addr {
+        prepare!(_req, _host, _path, _addr, {
+            let file = "\
+!> tmpl 2.txt\n\
+\\$[2]
+$[\n2\n]";
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );
@@ -104,12 +104,12 @@ $[\n2\n]";
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn spaces_before_template() {
-    let file = r"!> tmpl 3.txt
-   $[spaces]";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
         "/index.html",
-        prepare!(_req, _host, _path, _addr {
+        prepare!(_req, _host, _path, _addr, {
+            let file = r"!> tmpl 3.txt
+   $[spaces]";
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );
@@ -121,15 +121,15 @@ async fn spaces_before_template() {
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn complex_data() {
-    let file = "\
+    let mut ext = kvarn_extensions::new();
+    ext.add_prepare_single(
+        "/index.html",
+        prepare!(_req, _host, _path, _addr, {
+            let file = "\
 !> tmpl 3.txt
 this is complex
 $[complex]
 data";
-    let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single(
-        "/index.html",
-        prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );
@@ -144,15 +144,15 @@ data";
 #[cfg(feature = "templates")]
 #[tokio::test]
 async fn tmpl_ignore() {
-    let file = "\
+    let mut ext = kvarn_extensions::new();
+    ext.add_prepare_single(
+        "/index.html",
+        prepare!(_req, _host, _path, _addr, {
+            let file = "\
 !> tmpl 1.txt
 <---! tmpl-ignore -->
 $[1!]
 data";
-    let mut ext = kvarn_extensions::new();
-    ext.add_prepare_single(
-        "/index.html",
-        prepare!(_req, _host, _path, _addr {
             FatResponse::no_cache(Response::new(Bytes::copy_from_slice(file.as_bytes())))
         }),
     );

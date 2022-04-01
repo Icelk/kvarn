@@ -12,7 +12,6 @@
 #![deny(clippy::all)]
 
 use kvarn::{extensions::*, prelude::*};
-use wrappers::*;
 
 #[cfg(feature = "reverse-proxy")]
 #[path = "reverse-proxy.rs"]
@@ -109,14 +108,13 @@ pub mod parse {
 }
 
 /// Makes the client download the file.
-pub fn download(mut data: PresentDataWrapper) -> RetFut<()> {
-    let data = unsafe { data.get_inner() };
+pub fn download(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     let headers = data.response_mut().headers_mut();
     utils::replace_header_static(headers, "content-type", "application/octet-stream");
     ready(())
 }
 
-pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
+pub fn cache(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     fn parse<'a, I: Iterator<Item = &'a str>>(
         iter: I,
     ) -> (
@@ -147,7 +145,6 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
         }
         (c, s)
     }
-    let data = unsafe { data.get_inner() };
     let preference = parse(data.args().iter());
     if let Some(c) = preference.0 {
         *data.client_cache_preference() = c;
@@ -158,9 +155,8 @@ pub fn cache(mut data: PresentDataWrapper) -> RetFut<()> {
     ready(())
 }
 
-pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
+pub fn hide(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     box_fut!({
-        let data = unsafe { data.get_inner() };
         let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
         let arguments = utils::extensions::PresentExtensions::new(error.body().clone());
         if let Some(arguments) = &arguments {
@@ -181,9 +177,8 @@ pub fn hide(mut data: PresentDataWrapper) -> RetFut<()> {
     })
 }
 
-pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
+pub fn ip_allow(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     box_fut!({
-        let data = unsafe { data.get_inner() };
         let mut matched = false;
         // Loop over denied ip in args
         for denied in data.args().iter() {
@@ -219,24 +214,32 @@ pub fn ip_allow(mut data: PresentDataWrapper) -> RetFut<()> {
 ///    `/articles/rust_Target`.
 ///
 /// The priority for the [`Package`] extension is `16`
-pub fn force_cache(
-    extensions: &mut Extensions,
-    rules: &'static [(&'static str, comprash::ClientCachePreference)],
-) {
-    extensions.add_package(package!(response, req, _host {
-        let extension = req.uri().path().split('.').last();
-        let path = req.uri().path();
-        if let Some(extension) = extension {
-            for (rule, preference) in rules {
-                let replace = (rule.starts_with('/') && path.starts_with(rule))
-                    || rule.strip_prefix('.').map_or(false, |ext| ext == extension)
-                    || rule.strip_prefix('*').and_then(|rule| rule.strip_suffix('*')).map_or(false, |rule| path.contains(rule));
-                if replace {
-                    utils::replace_header(response.headers_mut(), "cache-control", preference.as_header());
+pub type ForceCacheRules = &'static [(&'static str, comprash::ClientCachePreference)];
+pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
+    extensions.add_package(
+        package!(response, req, _, move |rules: ForceCacheRules| {
+            let extension = req.uri().path().split('.').last();
+            let path = req.uri().path();
+            if let Some(extension) = extension {
+                for (rule, preference) in *rules {
+                    let replace = (rule.starts_with('/') && path.starts_with(rule))
+                        || rule.strip_prefix('.').map_or(false, |ext| ext == extension)
+                        || rule
+                            .strip_prefix('*')
+                            .and_then(|rule| rule.strip_suffix('*'))
+                            .map_or(false, |rule| path.contains(rule));
+                    if replace {
+                        utils::replace_header(
+                            response.headers_mut(),
+                            "cache-control",
+                            preference.as_header(),
+                        );
+                    }
                 }
             }
-        }
-    }), extensions::Id::new(16, "Adding cache-control header (force-cache)"));
+        }),
+        extensions::Id::new(16, "Adding cache-control header (force-cache)"),
+    );
 }
 
 #[cfg(test)]

@@ -389,146 +389,171 @@ impl Manager {
             };
         }
 
+        let timeout = self.timeout;
+        let rewrite_url = self.rewrite_url;
+
         extensions.add_prepare_fn(
             self.when,
-            prepare!(req, host, _path, _addr, move |connection, modify| {
-                let mut empty_req = utils::empty_clone_request(req);
-                let mut bytes = return_status!(
-                    req.body_mut().read_to_bytes().await.ok(),
-                    StatusCode::BAD_GATEWAY,
-                    host
-                );
+            prepare!(
+                req,
+                host,
+                _path,
+                _addr,
+                move |connection: GetConnectionFn,
+                      modify: ModifyRequestFn,
+                      timeout: Duration,
+                      rewrite_url: bool| {
+                    let mut empty_req = utils::empty_clone_request(req);
+                    let mut bytes = return_status!(
+                        req.body_mut().read_to_bytes().await.ok(),
+                        StatusCode::BAD_GATEWAY,
+                        host
+                    );
 
-                let connection =
-                    return_status!(connection(req, &bytes), StatusCode::BAD_REQUEST, host);
-                let mut connection = return_status!(
-                    connection.establish().await.ok(),
-                    StatusCode::GATEWAY_TIMEOUT,
-                    host
-                );
+                    let connection =
+                        return_status!(connection(req, &bytes), StatusCode::BAD_REQUEST, host);
+                    let mut connection = return_status!(
+                        connection.establish().await.ok(),
+                        StatusCode::GATEWAY_TIMEOUT,
+                        host
+                    );
 
-                utils::replace_header_static(
-                    empty_req.headers_mut(),
-                    "accept-encoding",
-                    "identity",
-                );
+                    utils::replace_header_static(
+                        empty_req.headers_mut(),
+                        "accept-encoding",
+                        "identity",
+                    );
 
-                if utils::header_eq(empty_req.headers(), "connection", "keep-alive") {
-                    utils::replace_header_static(empty_req.headers_mut(), "connection", "close");
-                }
+                    if utils::header_eq(empty_req.headers(), "connection", "keep-alive") {
+                        utils::replace_header_static(
+                            empty_req.headers_mut(),
+                            "connection",
+                            "close",
+                        );
+                    }
 
-                *empty_req.version_mut() = Version::HTTP_11;
+                    *empty_req.version_mut() = Version::HTTP_11;
 
-                if let Ok(value) = host.name.parse() {
-                    utils::replace_header(empty_req.headers_mut(), "host", value);
-                }
+                    if let Ok(value) = host.name.parse() {
+                        utils::replace_header(empty_req.headers_mut(), "host", value);
+                    }
 
-                let wait = matches!(empty_req.method(), &Method::CONNECT)
-                    || empty_req.headers().get("upgrade")
-                        == Some(&HeaderValue::from_static("websocket"));
+                    let wait = matches!(empty_req.method(), &Method::CONNECT)
+                        || empty_req.headers().get("upgrade")
+                            == Some(&HeaderValue::from_static("websocket"));
 
-                let path = empty_req.uri().path().to_owned();
+                    let path = empty_req.uri().path().to_owned();
 
-                modify(&mut empty_req, &mut bytes);
+                    modify(&mut empty_req, &mut bytes);
 
-                let mut response = match connection.request(&empty_req, &bytes, self.timeout).await
-                {
-                    Ok(mut response) => {
-                        // The response's body will not be compressed, as we set the
-                        // `accept-encoding` to `identity` before.
+                    let mut response = match connection.request(&empty_req, &bytes, *timeout).await
+                    {
+                        Ok(mut response) => {
+                            // The response's body will not be compressed, as we set the
+                            // `accept-encoding` to `identity` before.
 
-                        if self.rewrite_url {
-                            let content_type = response
-                                .headers()
-                                .get("content-type")
-                                .and_then(|ct| ct.to_str().ok())
-                                .and_then(|ct| ct.parse::<Mime>().ok());
-                            if let Some(
-                                (mime::TEXT, mime::HTML | mime::CSS)
-                                | (mime::APPLICATION, mime::JAVASCRIPT),
-                            ) = content_type.as_ref().map(|ct| (ct.type_(), ct.subtype()))
-                            {
-                                if let Some(prefix) = path.strip_suffix(empty_req.uri().path()) {
-                                    // Since we strip `.path` (which starts with `/`, Kvarn denies requests with more than one `/`),
-                                    // prefix is guaranteed not to end with `/`.
-                                    response = response
-                                        .map(|body| url_rewrite::absolute(&body, prefix).freeze());
+                            if *rewrite_url {
+                                let content_type = response
+                                    .headers()
+                                    .get("content-type")
+                                    .and_then(|ct| ct.to_str().ok())
+                                    .and_then(|ct| ct.parse::<Mime>().ok());
+                                if let Some(
+                                    (mime::TEXT, mime::HTML | mime::CSS)
+                                    | (mime::APPLICATION, mime::JAVASCRIPT),
+                                ) = content_type.as_ref().map(|ct| (ct.type_(), ct.subtype()))
+                                {
+                                    if let Some(prefix) = path.strip_suffix(empty_req.uri().path())
+                                    {
+                                        // Since we strip `.path` (which starts with `/`, Kvarn denies requests with more than one `/`),
+                                        // prefix is guaranteed not to end with `/`.
+                                        response = response.map(|body| {
+                                            url_rewrite::absolute(&body, prefix).freeze()
+                                        });
+                                    }
+                                }
+
+                                let headers = response.headers_mut();
+                                utils::remove_all_headers(headers, "keep-alive");
+                                utils::remove_all_headers(headers, "content-length");
+                                if !utils::header_eq(headers, "connection", "upgrade") {
+                                    utils::remove_all_headers(headers, "connection");
                                 }
                             }
 
-                            let headers = response.headers_mut();
-                            utils::remove_all_headers(headers, "keep-alive");
-                            utils::remove_all_headers(headers, "content-length");
-                            if !utils::header_eq(headers, "connection", "upgrade") {
-                                utils::remove_all_headers(headers, "connection");
-                            }
+                            FatResponse::cache(response)
                         }
+                        Err(err) => {
+                            warn!("Got error {:?}", err);
+                            default_error_response(
+                                match err {
+                                    GatewayError::Io(_) | GatewayError::Parse(_) => {
+                                        StatusCode::BAD_GATEWAY
+                                    }
+                                    GatewayError::Timeout => StatusCode::GATEWAY_TIMEOUT,
+                                },
+                                host,
+                                None,
+                            )
+                            .await
+                        }
+                    };
 
-                        FatResponse::cache(response)
-                    }
-                    Err(err) => {
-                        warn!("Got error {:?}", err);
-                        default_error_response(
-                            match err {
-                                GatewayError::Io(_) | GatewayError::Parse(_) => {
-                                    StatusCode::BAD_GATEWAY
-                                }
-                                GatewayError::Timeout => StatusCode::GATEWAY_TIMEOUT,
-                            },
-                            host,
-                            None,
-                        )
-                        .await
-                    }
-                };
+                    if wait {
+                        info!("Keeping the pipe open!");
+                        let future = response_pipe_fut!(
+                            response_pipe,
+                            _,
+                            move |connection: EstablishedConnection| {
+                                let udp_connection =
+                                    matches!(connection, EstablishedConnection::Udp(_));
 
-                if wait {
-                    info!("Keeping the pipe open!");
-                    let future = response_pipe_fut!(response_pipe, _host {
-                        let udp_connection = matches!(connection, EstablishedConnection::Udp(_));
+                                let mut open_back = ByteProxy::new(response_pipe, connection);
+                                debug!("Created open back!");
 
-                        let mut open_back = ByteProxy::new(response_pipe, &mut connection);
-                        debug!("Created open back!");
+                                loop {
+                                    // Add 90 second timeout to UDP connections.
+                                    let timeout_result = if udp_connection {
+                                        tokio::time::timeout(
+                                            Duration::from_secs(90),
+                                            open_back.channel(),
+                                        )
+                                        .await
+                                    } else {
+                                        Ok(open_back.channel().await)
+                                    };
 
-                        loop {
-                            // Add 90 second timeout to UDP connections.
-                            let timeout_result = if udp_connection {
-                                timeout(Duration::from_secs(90), open_back.channel())
-                                .await
-                            }else {
-                                Ok(open_back.channel().await)
-                            };
-
-                            if let Ok(r) = timeout_result
-                            {
-                                debug!("Open back responded! {:?}", r);
-                                match r {
-                                    Err(err) => {
-                                        if !matches!(
-                                            err.get_io_kind(),
-                                            io::ErrorKind::ConnectionAborted
-                                                | io::ErrorKind::ConnectionReset
-                                                | io::ErrorKind::BrokenPipe
-                                        ) {
-                                            warn!("Reverse proxy io error: {:?}", err);
+                                    if let Ok(r) = timeout_result {
+                                        debug!("Open back responded! {:?}", r);
+                                        match r {
+                                            Err(err) => {
+                                                if !matches!(
+                                                    err.get_io_kind(),
+                                                    io::ErrorKind::ConnectionAborted
+                                                        | io::ErrorKind::ConnectionReset
+                                                        | io::ErrorKind::BrokenPipe
+                                                ) {
+                                                    warn!("Reverse proxy io error: {:?}", err);
+                                                }
+                                                break;
+                                            }
+                                            Ok(()) => continue,
                                         }
+                                    } else {
                                         break;
-                                    },
-                                    Ok(()) => continue,
+                                    }
                                 }
-                            } else {
-                                break;
                             }
-                        }
-                    });
+                        );
 
-                    response = response
-                        .with_future(future)
-                        .with_compress(comprash::CompressPreference::None);
+                        response = response
+                            .with_future(future)
+                            .with_compress(comprash::CompressPreference::None);
+                    }
+
+                    response
                 }
-
-                response
-            }),
+            ),
             extensions::Id::new(-128, "Reverse proxy").no_override(),
         );
     }

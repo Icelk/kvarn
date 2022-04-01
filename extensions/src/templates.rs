@@ -6,9 +6,8 @@ enum Stage {
     Placeholder,
 }
 
-pub fn templates(mut data: PresentDataWrapper) -> RetFut<()> {
+pub fn templates(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     box_fut!({
-        let data = unsafe { data.get_inner() };
         let bytes = handle_template(data.args(), data.response().body(), data.host()).await;
         *data.response_mut().body_mut() = bytes;
     })

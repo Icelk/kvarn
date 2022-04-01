@@ -9,31 +9,26 @@ use crate::*;
 /// [`SmartPush::default`]), not every time.
 pub fn mount(extensions: &mut Extensions, manager: SmartPush) -> &mut Extensions {
     let manager = Mutex::new(manager);
-    struct PushPost {
-        mutex: Mutex<SmartPush>,
-    }
-    impl extensions::PostCall for PushPost {
-        fn call<'a>(
-            &'a self,
-            request: &'a Request<application::Body>,
-            host: &'a Host,
-            response_pipe: &'a mut application::ResponsePipe,
-            identity_body: Bytes,
-            addr: SocketAddr,
-        ) -> RetFutA<'a, ()> {
-            push(
-                request,
-                host,
-                response_pipe,
-                identity_body,
-                addr,
-                Some(&self.mutex),
-            )
-        }
-    }
 
     extensions.add_post(
-        Box::new(PushPost { mutex: manager }),
+        post!(
+            request,
+            host,
+            response_pipe,
+            identity_body,
+            addr,
+            move |manager: Mutex<SmartPush>| {
+                push(
+                    request,
+                    host,
+                    response_pipe,
+                    identity_body,
+                    addr,
+                    Some(manager),
+                )
+                .await
+            }
+        ),
         Id::new(-32, "HTTP/2 push"),
     );
     extensions
@@ -58,7 +53,7 @@ pub fn always<'a>(
     response_pipe: &'a mut application::ResponsePipe,
     bytes: Bytes,
     addr: SocketAddr,
-) -> RetFutA<'a, ()> {
+) -> RetFut<'a, ()> {
     push(request, host, response_pipe, bytes, addr, None)
 }
 
@@ -113,7 +108,7 @@ fn push<'a>(
     bytes: Bytes,
     addr: SocketAddr,
     manager: Option<&'a Mutex<SmartPush>>,
-) -> RetFutA<'a, ()> {
+) -> RetFut<'a, ()> {
     use internals::*;
     Box::pin(async move {
         // let request = unsafe { request.get_inner() };

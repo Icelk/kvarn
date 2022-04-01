@@ -79,12 +79,13 @@ async fn basic() {
         .with_extensions(|ext| {
             ext.add_prepare_single(
                 "/api",
-                kvarn::prepare!(req, _host, _path, addr {
+                kvarn::prepare!(req, _host, _path, addr, {
                     let bytes = kvarn::prelude::build_bytes!(
                         b"The SocketAddr of the proxy's request is ",
                         addr.to_string().as_bytes(),
                         b".\nThe `proxy` header is `",
-                        format!("{:?}", req.headers().get("proxy")).as_bytes(), b"`."
+                        format!("{:?}", req.headers().get("proxy")).as_bytes(),
+                        b"`."
                     );
                     let response = Response::new(bytes);
                     FatResponse::no_cache(response)
@@ -107,16 +108,22 @@ async fn basic() {
 #[tokio::test]
 #[cfg(feature = "reverse-proxy")]
 async fn base() {
-    let backend = ServerBuilder::default().http().with_extensions(|ext|{
-        ext.add_prepare_single(
+    let backend = ServerBuilder::default()
+        .http()
+        .with_extensions(|ext| {
+            ext.add_prepare_single(
                 "/user-agent",
-                kvarn::prepare!(req, _host, _path, _addr {
-                    let bytes = Bytes::copy_from_slice(format!("{:?}", req.headers().get("user-agent")).as_bytes());
+                kvarn::prepare!(req, _host, _path, _addr, {
+                    let bytes = Bytes::copy_from_slice(
+                        format!("{:?}", req.headers().get("user-agent")).as_bytes(),
+                    );
                     let response = Response::new(bytes);
                     FatResponse::no_cache(response)
                 }),
             )
-    }).run().await;
+        })
+        .run()
+        .await;
     let mut extensions = Extensions::new();
     kvarn_extensions::ReverseProxy::base(
         "/api",
@@ -143,16 +150,23 @@ async fn base() {
 #[tokio::test]
 #[cfg(feature = "reverse-proxy")]
 async fn chunked_encoding() {
-    let backend = ServerBuilder::default().http().with_extensions(|ext|{
-        ext.add_prepare_single(
+    let backend = ServerBuilder::default()
+        .http()
+        .with_extensions(|ext| {
+            ext.add_prepare_single(
                 "/chunked",
-                kvarn::prepare!(_req, _host, _path, _addr {
+                kvarn::prepare!(_req, _host, _path, _addr, {
                     let bytes = Bytes::from_static(b"5\r\nhello\r\n7\r\n world!\r\n0\r\n\r\n");
-                    let response = Response::builder().header("transfer-encoding", "chunked").body(bytes).unwrap();
+                    let response = Response::builder()
+                        .header("transfer-encoding", "chunked")
+                        .body(bytes)
+                        .unwrap();
                     FatResponse::no_cache(response)
                 }),
             )
-    }).run().await;
+        })
+        .run()
+        .await;
     let mut extensions = Extensions::new();
     kvarn_extensions::ReverseProxy::base(
         "/api",

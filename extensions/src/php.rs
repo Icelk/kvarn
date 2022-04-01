@@ -19,22 +19,20 @@ pub fn mount_php(
             (!host.options.disable_fs && req.uri().path().ends_with(".php"))
                 || (capture_fn.as_ref().map_or(false, |f| f(req, host)))
         }),
-        Box::new(move |req, host, path, addr| php(req, host, path, addr, connection)),
+        prepare!(req, host, path, addr, move |connection: Connection| {
+            php(req, host, path, addr, *connection).await
+        }),
         extensions::Id::new(-8, "PHP"),
     );
 }
-fn php(
-    mut req: RequestWrapperMut,
-    host: HostWrapper,
-    path: PathOptionWrapper,
+fn php<'a>(
+    req: &'a mut FatRequest,
+    host: &'a Host,
+    path: Option<&'a Path>,
     address: SocketAddr,
     connection: Connection,
-) -> RetFut<FatResponse> {
-    Box::pin(async move {
-        let req = unsafe { req.get_inner() };
-        let host = unsafe { host.get_inner() };
-        let path = unsafe { path.get_inner() };
-
+) -> RetFut<'a, FatResponse> {
+    box_fut!({
         // This will be `Some`.
         // The only reason a path isn't `Some` is if the `disable_fs` flag is set in `host::Options`,
         // which we check for in the `If` predicate above.
