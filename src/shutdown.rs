@@ -139,7 +139,6 @@ impl Manager {
                 let shutdown = self.shutdown.load(Ordering::Acquire);
                 if shutdown {
                     info!("Sending shutdown signal");
-                    self.wakers.notify();
                     drop(self.channel.0.send(()));
                 }
             }
@@ -192,10 +191,11 @@ impl Manager {
         }
 
         if self.connections.load(Ordering::Acquire) == 0 {
-            self.wakers.notify();
-
             drop(self.channel.0.send(()));
         }
+
+        // we stop listening immediately
+        self.wakers.notify();
     }
     /// Waits for Kvarn to enter the `shutdown` state.
     /// When the feature `graceful-shutdown` has been disabled, this blocks forever.
@@ -239,7 +239,6 @@ impl AcceptManager {
     /// Please increase the count of connections on [`Manager`] when this connection is accepted
     /// and decrease it when the connection dies.
     pub async fn accept(&mut self, _manager: &Manager) -> AcceptAction {
-        // self.listener.poll_accept(cx)
         let action = AcceptFuture {
             #[cfg(feature = "graceful-shutdown")]
             manager: _manager,

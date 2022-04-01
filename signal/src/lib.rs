@@ -4,6 +4,7 @@ pub mod unix {
     use std::io;
     use std::ops::Deref;
     use std::path::Path;
+    use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
 
@@ -67,7 +68,7 @@ pub mod unix {
     /// The `handler` gets the data from the request, and should return whether to close the
     /// listener and the data to send back.
     pub async fn start_at(
-        handler: impl Fn(&[u8]) -> (bool, Vec<u8>) + Send + 'static,
+        handler: impl Fn(&[u8]) -> (bool, Vec<u8>) + Send + Sync + 'static,
         path: impl AsRef<Path>,
     ) {
         let path = path.as_ref();
@@ -81,13 +82,17 @@ pub mod unix {
             ),
             Ok(listener) => {
                 tokio::spawn(async move {
+                    let handler = Arc::new(handler);
                     while let Ok((mut connection, _addr)) = listener.accept().await {
                         let mut data = Vec::new();
                         if let Err(err) = connection.read_to_end(&mut data).await {
                             warn!("Failed on reading request: {err:?}");
                             continue;
                         }
-                        let (close, data) = handler(&data);
+                        let handler = Arc::clone(&handler);
+                        let (close, data) = tokio::task::spawn_blocking(move || handler(&data))
+                            .await
+                            .unwrap();
                         if let Err(err) = connection.write_all(&data).await {
                             warn!("Failed to write response: {err:?}");
                             continue;

@@ -270,9 +270,9 @@ impl ServerBuilder {
             };
             let mut config = RunConfig::new().bind(port_descriptor);
             if let Some((handover_path, _)) = &handover {
-                config = config.set_handover_socket_path(handover_path);
+                config = config.set_ctl_path(handover_path);
             } else {
-                config = config.disable_handover();
+                config = config.disable_ctl();
             }
 
             // Last check for collisions
