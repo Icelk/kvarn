@@ -23,6 +23,7 @@ members = [
   "async",
   "url-crawl",
   "testing",
+  "signal",
 ]
 
 [dependencies]
@@ -35,6 +36,7 @@ h2 = { version = "0.3", default-features = false, optional = true }
 http = "0.2"
 kvarn_async = { path = "async", version = "0.3" }
 kvarn_utils = { path = "utils", version = "0.3" }
+kvarn_signal = { path = "signal", version = "0.1" }
 log = "0.4"
 memchr = { version = "2", optional = true }
 mime = "0.3"

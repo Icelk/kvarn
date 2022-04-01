@@ -54,6 +54,7 @@ pub mod application;
 pub mod comprash;
 pub mod cors;
 pub mod csp;
+pub mod ctl;
 pub mod encryption;
 pub mod error;
 pub mod extensions;
@@ -100,16 +101,20 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 #[must_use = "must start a server if creating a config"]
 pub struct RunConfig {
     ports: Vec<PortDescriptor>,
-    handover: bool,
-    handover_socket_path: Option<PathBuf>,
+    ctl: bool,
+    ctl_path: Option<PathBuf>,
+
+    plugins: ctl::Plugins,
 }
 impl RunConfig {
     /// Creates an empty [`RunConfig`].
     pub fn new() -> Self {
         RunConfig {
             ports: vec![],
-            handover: true,
-            handover_socket_path: None,
+            ctl: true,
+            ctl_path: None,
+
+            plugins: ctl::Plugins::default(),
         }
     }
 
@@ -118,20 +123,23 @@ impl RunConfig {
         self.ports.push(port);
         self
     }
-    /// Disables [handover](https://kvarn.org/shutdown-handover.) for the instance of Kvarn.
+    /// Disables [handover](https://kvarn.org/shutdown-handover.)
+    /// and [ctl](https://kvarn.org/ctl/)
+    /// for the instance of Kvarn.
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
-    pub fn disable_handover(mut self) -> Self {
-        self.handover = false;
+    pub fn disable_ctl(mut self) -> Self {
+        self.ctl = false;
         self
     }
     /// Sets the path of the socket where the [handover](https://kvarn.org/shutdown-handover.)
+    /// and [ctl](https://kvarn.org/ctl/)
     /// is managed.
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
     /// If each application (as in an use for Kvarn) has it's own path, multiple can coexist.
-    pub fn set_handover_socket_path(mut self, path: impl AsRef<Path>) -> Self {
-        self.handover_socket_path = Some(path.as_ref().to_path_buf());
+    pub fn set_ctl_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.ctl_path = Some(path.as_ref().to_path_buf());
         self
     }
 
@@ -171,13 +179,16 @@ impl RunConfig {
     pub async fn execute(self) -> Arc<shutdown::Manager> {
         let RunConfig {
             ports,
-            handover,
-            handover_socket_path,
+            ctl,
+            ctl_path,
+            plugins,
         } = self;
         info!("Starting server on {} ports.", ports.len());
 
         let len = ports.len();
         let mut shutdown_manager = shutdown::Manager::new(len);
+
+        let ports_clone = Arc::new(ports.clone());
 
         let mut listeners = Vec::with_capacity(len * 2);
         for descriptor in ports {
@@ -202,6 +213,7 @@ impl RunConfig {
                 shutdown_manager.add_listener(listener)
             }
 
+            // we later need this in an Arc
             let descriptor = Arc::new(descriptor);
 
             if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
@@ -230,8 +242,20 @@ impl RunConfig {
 
         let shutdown_manager = shutdown_manager.build();
 
-        if handover {
-            shutdown::Manager::initiate_handover(&shutdown_manager, handover_socket_path).await;
+        if ctl {
+            // make sure we shut down before listening
+            #[cfg(any(
+                not(feature = "graceful-shutdown"),
+                target_os = "illumos",
+                target_os = "solaris"
+            ))]
+            ctl::listen(
+                plugins,
+                ports_clone,
+                Arc::clone(&shutdown_manager),
+                ctl_path,
+            )
+            .await;
         }
 
         for (listener, descriptor) in listeners {
@@ -243,6 +267,20 @@ impl RunConfig {
             };
 
             tokio::spawn(future);
+        }
+        if ctl {
+            #[cfg(all(
+                feature = "graceful-shutdown",
+                not(target_os = "illumos"),
+                not(target_os = "solaris")
+            ))]
+            ctl::listen(
+                plugins,
+                ports_clone,
+                Arc::clone(&shutdown_manager),
+                ctl_path,
+            )
+            .await;
         }
 
         shutdown_manager

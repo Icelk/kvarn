@@ -1,0 +1,16 @@
+[package]
+name = "kvarn_signal"
+version = "0.1.0"
+authors = ["Icelk <main@icelk.dev>"]
+edition = "2021"
+rust-version = "1.56"
+description = "Easy-to-use IPC signaling library, mainly used for kvarnctl"
+readme = "README.md"
+homepage = "https://kvarn.org/ctl/"
+repository = "https://github.com/Icelk/kvarn/"
+license = "Apache-2.0"
+keywords = ["ipc", "kvarn"]
+
+[dependencies]
+log = "0.4"
+tokio = { version = "1", features = ["net", "time"] }
