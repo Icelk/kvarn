@@ -553,8 +553,8 @@ impl<'a> SendKind<'a> {
                     ret_log_app_error!(body_pipe.send_with_maybe_close(body, false).await);
                 }
 
-                if let Some(future) = future {
-                    future(&mut body_pipe, host).await;
+                if let Some(mut future) = future {
+                    future.call(&mut body_pipe, host).await;
                 }
 
                 // Process post extensions
@@ -581,8 +581,8 @@ impl<'a> SendKind<'a> {
                             .await
                     );
                 }
-                if let Some(future) = future {
-                    future(&mut body_pipe, host).await;
+                if let Some(mut future) = future {
+                    future.call(&mut body_pipe, host).await;
                 }
 
                 if !send_body {
