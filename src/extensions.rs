@@ -1095,10 +1095,10 @@ mod macros {
     /// extension!(
     ///     kvarn::extensions::PrepareCall,
     ///     FatResponse,
-    ///     | request: &'a mut FatRequest,
-    ///     host: &'a Host,
-    ///     path: Option<&'a Path>,
-    ///     addr: SocketAddr |, , {
+    ///     | request: &'a mut FatRequest: arg1,
+    ///     host: &'a Host: arg2,
+    ///     path: Option<&'a Path>: arg3,
+    ///     addr: SocketAddr: arg4 |, , {
     ///         println!("Hello world, from extension macro!");
     ///         FatResponse::no_cache(Response::new(Bytes::from_static(b"Hi!")))
     ///     }
