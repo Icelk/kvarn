@@ -7,7 +7,7 @@ async fn basic() {
         .with_extensions(|ext| {
             ext.add_prepare_single(
                 "/slow-response",
-                prepare!(_req, _host, _path, _addr {
+                prepare!(_, _, _, _, {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     FatResponse::no_cache(Response::new(Bytes::from_static(b"Finally here!")))
                 }),

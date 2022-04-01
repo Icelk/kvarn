@@ -8,7 +8,7 @@ fn get_server() -> ServerBuilder {
     ServerBuilder::default().with_extensions(|ext| {
         ext.add_prepare_single(
             "/index.html",
-            prepare!(_request, _host, _path, _addr {
+            prepare!(_, _, _, _, {
                 let bytes = Bytes::from_static(DATA.as_bytes());
                 FatResponse::cache(Response::new(bytes))
             }),

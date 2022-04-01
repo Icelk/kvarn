@@ -1086,11 +1086,13 @@ mod macros {
     /// extension!(
     ///     PrepareCall,
     ///     FatResponse,
-    ///     | request: RequestWrapperMut,
-    ///     host: HostWrapper,
-    ///     path: PathOptionWrapper,
-    ///     addr: SocketAddr |, ,
-    ///     { println!("Hello world, from extension macro!"); }
+    ///     | request: &'a mut FatRequest,
+    ///     host: &'a Host,
+    ///     path: Option<&'a Path>,
+    ///     addr: SocketAddr |, , {
+    ///         println!("Hello world, from extension macro!");
+    ///         FatResponse::no_cache(Response::new(Bytes::from_static(b"Hi!")))
+    ///     }
     /// );
     /// ```
     #[macro_export]
@@ -1135,12 +1137,14 @@ mod macros {
     /// Will make a [`Prime`](super::Prime) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
+    /// See [`extensions::PrimeCall`] for a list of arguments.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// let extension = prime!(req, host, addr {
-    ///     default_error_response(StatusCode::BAD_REQUEST, host, None).await
+    /// let extension = prime!(_, _host, _addr, {
+    ///     Some(Uri::from_static("https://doc.icelk.dev/"))
     /// });
     /// ```
     #[macro_export]
@@ -1151,6 +1155,8 @@ mod macros {
         }
     }
     /// Will make a [`Prepare`](super::Prepare) extension.
+    ///
+    /// See [`extensions::PrepareCall`] for a list of arguments.
     ///
     /// > The `path` will be [`None`] if and only if [`crate::host::Options::disable_fs`] is true *or* percent
     /// > decoding failed. `request.uri().path()` will not have it's percent encoding decoded.
@@ -1172,7 +1178,7 @@ mod macros {
     ///
     /// let times_called = Arc::new(atomic::AtomicUsize::new(0));
     ///
-    /// prepare!(req, host, path, addr, move |times_called| {
+    /// prepare!(req, host, _path, _, move |times_called: Arc<atomic::AtomicUsize>| {
     ///     let times_called = times_called.fetch_add(1, atomic::Ordering::Relaxed);
     ///     println!("Called {} time(s). Request {:?}", times_called, req);
     ///
@@ -1181,9 +1187,10 @@ mod macros {
     /// ```
     ///
     /// To capture no variables, just leave out the `move ||`.
+    ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// prepare!(req, host, path, addr {
+    /// prepare!(_request, host, _, _addr, {
     ///     default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await
     /// });
     /// ```
@@ -1204,11 +1211,13 @@ mod macros {
     /// Will make a [`Present`](super::Present) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
+    /// See [`extensions::PresentCall`] for a list of arguments.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// let extension = present!(data {
+    /// let extension = present!(data, {
     ///     println!("Calling uri {}", data.request().uri());
     /// });
     /// ```
@@ -1221,11 +1230,13 @@ mod macros {
     /// Will make a [`Package`](super::Package) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
+    /// See [`extensions::PackageCall`] for a list of arguments.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// let extension = package!(response, request, host {
+    /// let extension = package!(response, _, _, {
     ///     response.headers_mut().insert("x-author", HeaderValue::from_static("Icelk"));
     ///     println!("Response headers {:#?}", response.headers());
     /// });
@@ -1239,11 +1250,13 @@ mod macros {
     /// Will make a [`Post`](super::Post) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
+    /// See [`extensions::PostCall`] for a list of arguments.
     ///
     /// # Examples
+    ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// let extension = post!(request, host, response_pipe, bytes, addr {
+    /// let extension = post!(_, _, response_pipe, _, _, {
     ///     match response_pipe {
     ///         application::ResponsePipe::Http1(c) => println!("This is a HTTP/1 connection. {:?}", c),
     ///         application::ResponsePipe::Http2(c) => println!("This is a HTTP/2 connection. {:?}", c),
@@ -1253,7 +1266,7 @@ mod macros {
     #[macro_export]
     macro_rules! post {
         ($request:pat, $host:pat, $response_pipe:pat, $bytes:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!(PostCall, (), |$request: &'a FatRequest, $host: &'a Host, $response_pipe: &'a mut ResponsePipe, $bytes: Bytes, $addr: SocketAddr|, $($($move:$ty)*)*, $code)
+            $crate::extension!(PostCall, (), |$request: &'a FatRequest, $host: &'a Host, $response_pipe: &'a mut application::ResponsePipe, $bytes: Bytes, $addr: SocketAddr|, $($($move:$ty)*)*, $code)
         }
     }
     #[allow(unused_imports)]
@@ -1261,22 +1274,23 @@ mod macros {
     /// Creates a [`ResponsePipeFuture`].
     ///
     /// # Examples
+    ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// prepare!(req, host, path, addr {
+    /// prepare!(_req, host, _, _, {
     ///     let response = default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await;
-    ///     response.with_future(response_pipe_fut!(response_pipe, host {
+    ///     response.with_future(response_pipe_fut!(response_pipe, host, {
     ///         response_pipe.send(Bytes::from_static(b"This will be appended to the body!")).await;
     ///     }))
     /// });
     /// ```
     #[macro_export]
     macro_rules! response_pipe_fut {
-        ($response:ident, $host:ident $(, move |$($clone:ident ),+|)? $code:block) => {
+        ($response:ident, $host:ident, $(move |$($clone:ident ),+|)? $code:block) => {
             // extension!(|$response: ResponseBodyPipeWrapperMut, $host: HostWrapper| |, $($($clone)*)*, $code)
-            Box::new(|$response: &mut ResponseBodyPipe, &Host| async move {
+            Box::new(|$response: &mut $crate::application::ResponseBodyPipe, $host: &$crate::host::Host| Box::pin(async move {
                 $code
-            })
+            }))
         }
     }
 }

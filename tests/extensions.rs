@@ -48,7 +48,7 @@ async fn package_and_post() {
             _response,
             _body,
             _addr,
-            move |run_validation| {
+            move |run_validation: Arc<threading::atomic::AtomicBool>| {
                 run_validation.store(true, threading::Ordering::Release);
             }
         ),
@@ -79,23 +79,23 @@ async fn body() {
         .with_extensions(|extensions| {
             extensions.add_prepare_single(
                 "/api-1",
-                prepare!(req, _host, path, _addr {
+                prepare!(req, _, path, _, {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
                     let body = str::from_utf8(&body).unwrap();
 
                     assert_eq!(body, "This is the full body.");
-                    assert_eq!(path.as_deref(), Some(Path::new("tests/public/api-1")));
+                    assert_eq!(path, Some(Path::new("tests/public/api-1")));
 
                     FatResponse::no_cache(Response::new(Bytes::from_static(b"OK")))
                 }),
             );
             extensions.add_prepare_single(
                 "/api-2",
-                prepare!(req, _host, _path, _addr {
+                prepare!(req, _, _, _, move |length: usize| {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
 
                     println!("Body len: {}", body.len());
-                    let expected = vec![chars::SPACE; length];
+                    let expected = vec![chars::SPACE; *length];
 
                     assert_eq!(&body, &expected);
 
@@ -104,7 +104,7 @@ async fn body() {
             );
             extensions.add_prepare_single(
                 "/api-3",
-                prepare!(req, _host, _path, _addr {
+                prepare!(req, _host, _path, _addr, {
                     let body = req.body_mut().read_to_bytes().await.unwrap();
                     let body = str::from_utf8(&body).unwrap();
 
@@ -144,32 +144,40 @@ async fn body() {
 fn get_extensions() -> Extensions {
     let mut extensions = Extensions::empty();
 
-    extensions.add_prime(prime!(request, host, addr {
-        assert_eq!(host.name, "localhost");
-        assert_eq!(addr.ip(), net::Ipv6Addr::LOCALHOST);
+    extensions.add_prime(
+        prime!(request, host, addr, {
+            assert_eq!(host.name, "localhost");
+            assert_eq!(addr.ip(), net::Ipv6Addr::LOCALHOST);
 
-        if request.uri().path() == "/" {
-            // This maps the Option<HeaderValue> to Option<Result<&str, _>> which the
-            // `.and_then(Result::ok)` makes Option<&str>, returning `Some` if the value is both `Ok` and `Some`.
-            // Could also be written as
-            // `.get("user-agent").and_then(|header| header.to_str().ok())`.
-            if let Some(ua) = request.headers().get("user-agent").map(HeaderValue::to_str).and_then(Result::ok) {
-                if ua.contains("curl") {
-                    Some(Uri::from_static("/ip"))
+            if request.uri().path() == "/" {
+                // This maps the Option<HeaderValue> to Option<Result<&str, _>> which the
+                // `.and_then(Result::ok)` makes Option<&str>, returning `Some` if the value is both `Ok` and `Some`.
+                // Could also be written as
+                // `.get("user-agent").and_then(|header| header.to_str().ok())`.
+                if let Some(ua) = request
+                    .headers()
+                    .get("user-agent")
+                    .map(HeaderValue::to_str)
+                    .and_then(Result::ok)
+                {
+                    if ua.contains("curl") {
+                        Some(Uri::from_static("/ip"))
+                    } else {
+                        Some(Uri::from_static("/index.html"))
+                    }
                 } else {
-                    Some(Uri::from_static("/index.html"))
+                    None
                 }
             } else {
                 None
             }
-        } else {
-            None
-        }
-    }), extensions::Id::new(16, "Redirect `/`"));
+        }),
+        extensions::Id::new(16, "Redirect `/`"),
+    );
 
     extensions.add_prepare_single(
         "/ip",
-        prepare!(_request, _host, _path, addr {
+        prepare!(_request, _host, _path, addr, {
             let ip = addr.ip().to_string();
             let response = Response::new(Bytes::copy_from_slice(ip.as_bytes()));
             FatResponse::no_cache(response)
@@ -177,7 +185,7 @@ fn get_extensions() -> Extensions {
     );
     extensions.add_prepare_single(
         "/index.html",
-        prepare!(_request, _host, _path, addr {
+        prepare!(_request, _host, _path, addr, {
             let content = format!(
                 "!> simple-head Your IP address\n\
                 <h2>Your IP address is {}</h2>",
@@ -190,7 +198,7 @@ fn get_extensions() -> Extensions {
 
     extensions.add_present_internal(
         "simple-head",
-        present!(present_data {
+        present!(present_data, {
             let content = present_data.response().body();
 
             let start = "\
@@ -205,26 +213,41 @@ fn get_extensions() -> Extensions {
             let end = "\
 </body>
 </html>";
-            let title = present_data.args().iter().fold(String::new(), |mut acc, arg| {
-                acc.push_str(arg);
-                acc.push(' ');
-                acc
-            });
+            let title = present_data
+                .args()
+                .iter()
+                .fold(String::new(), |mut acc, arg| {
+                    acc.push_str(arg);
+                    acc.push(' ');
+                    acc
+                });
 
-            let bytes = build_bytes!(start.as_bytes(), title.as_bytes(), middle.as_bytes(), content, end.as_bytes());
+            let bytes = build_bytes!(
+                start.as_bytes(),
+                title.as_bytes(),
+                middle.as_bytes(),
+                content,
+                end.as_bytes()
+            );
             *present_data.response_mut().body_mut() = bytes;
         }),
     );
     extensions.add_package(
-        package!(response, _request, _host {
-            response.headers_mut().insert("fun-header", HeaderValue::from_static("why not?"));
-            utils::replace_header_static(response.headers_mut(), "content-security-policy", "default-src 'self'; style-src 'unsafe-inline' 'self'");
+        package!(response, _request, _host, {
+            response
+                .headers_mut()
+                .insert("fun-header", HeaderValue::from_static("why not?"));
+            utils::replace_header_static(
+                response.headers_mut(),
+                "content-security-policy",
+                "default-src 'self'; style-src 'unsafe-inline' 'self'",
+            );
         }),
         extensions::Id::new(-1024, "add headers"),
     );
 
     extensions.add_post(
-        post!(_request, host, _response_pipe, body, addr {
+        post!(_request, host, _response_pipe, body, addr, {
             if let Ok(mut body) = str::from_utf8(&body) {
                 body = body.get(0..512).unwrap_or(body);
                 println!("Sent {:?} to {} from {}", body, addr, host.name);

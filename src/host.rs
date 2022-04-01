@@ -159,7 +159,7 @@ impl Host {
     ///     "localhost",
     ///     cert,
     ///     pk,
-    ///     PathBuf::from("tests"),
+    ///     "tests",
     ///     Extensions::default(),
     ///     host::Options::default(),
     /// );
