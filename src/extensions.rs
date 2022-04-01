@@ -1107,36 +1107,35 @@ mod macros {
     #[macro_export]
     macro_rules! extension {
         // pat to also match _
-        ($trait: ty, $ret: ty, $(($meta:tt) ,)? | $($param:tt:$param_type:ty ),* |, $(($($move:ident:$ty:ty),+))?, $code:block) => {{
-            #[allow(unused_imports)]
-            struct Ext {
-                $(
-                $(
-                    $move: $ty,
-                )+
-                )?
+        // the $meta and $mut (in move || section) signals that this needs to be mut - if both are
+        // specified (see `response_pipe_fut` below), the impl and provided variables are mutable.
+        //
+        // `name` for the params is used to locally bind the params, as the `param` can be `_`.
+        ($trait: ty, $ret: ty, $(($meta:tt) ,)? | $($param:tt:$param_type:ty:$name:ident ),* |, $(($($(($mut:tt))? $move:ident:$ty:ty),+))?, $code:block) => {{
+            // we go through all this hassle of having a closure to capture dynamic environment.
+            struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> {
+                ext_function_private: F,
+                $($($move:$ty,)+)?
             }
-            impl $trait for Ext {
+            impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> $trait for Ext<F> {
                 fn call<'a>(
                     &'a $($meta)? self,
-                    $($param: $param_type,)*
+                    $($name: $param_type,)*
                 ) -> $crate::extensions::RetFut<'a, $ret> {
                     let Self {
-                        $(
-                        $(
-                            $move,
-                        )+
-                        )?
+                        ext_function_private,
+                        $($($move,)+)?
                     } = self;
-                    Box::pin(async move { $code })
+                    (ext_function_private)($($name,)* $($($move,)+)?)
                 }
             }
             Box::new(Ext {
-                $(
-                $(
-                    $move,
-                )+
-                )?
+                ext_function_private: move |$($param,)* $($($move,)+)?| {
+                    Box::pin(async move {
+                        $code
+                    })
+                },
+                $($($move,)+)?
             })
         }};
     }
@@ -1158,7 +1157,7 @@ mod macros {
     macro_rules! prime {
         // pat to also match `_`
         ($request:pat, $host:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PrimeCall, Option<$crate::prelude::Uri>, |$request: &'a $crate::FatRequest, $host: &'a $crate::prelude::Host, $addr: $crate::prelude::SocketAddr|, $(($($move:$ty),+))?, $code)
+            $crate::extension!($crate::extensions::PrimeCall, Option<$crate::prelude::Uri>, |$request: &'a $crate::FatRequest:a1, $host: &'a $crate::prelude::Host:a2, $addr: $crate::prelude::SocketAddr:a3|, $(($($move:$ty),+))?, $code)
         }
     }
     /// Will make a [`Prepare`](super::Prepare) extension.
@@ -1206,10 +1205,10 @@ mod macros {
         // pat to also match `_`
         ($request:pat, $host:pat, $path:pat, $addr:pat, $(move |$($move:ident:$ty:ty),+|)? $code:block) => {
             $crate::extension!($crate::extensions::PrepareCall, $crate::FatResponse, |
-                $request: &'a mut $crate::FatRequest,
-                $host: &'a $crate::prelude::Host,
-                $path: Option<&'a $crate::prelude::Path>,
-                $addr: $crate::prelude::SocketAddr |,
+                $request: &'a mut $crate::FatRequest: a1,
+                $host: &'a $crate::prelude::Host: a2,
+                $path: Option<&'a $crate::prelude::Path>: a3,
+                $addr: $crate::prelude::SocketAddr: a4 |,
                 $(($($move:$ty),+))?,
                 $code
             )
@@ -1231,7 +1230,7 @@ mod macros {
     #[macro_export]
     macro_rules! present {
         ($data:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PresentCall, (), |$data: &'a mut $crate::extensions::PresentData|, $(($($move:$ty),+))?, $code)
+            $crate::extension!($crate::extensions::PresentCall, (), |$data: &'a mut $crate::extensions::PresentData: a1|, $(($($move:$ty),+))?, $code)
         }
     }
     /// Will make a [`Package`](super::Package) extension.
@@ -1251,7 +1250,7 @@ mod macros {
     #[macro_export]
     macro_rules! package {
         ($response:pat, $request:pat, $host:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PackageCall, (), |$response: &'a mut $crate::prelude::Response<()>, $request: &'a $crate::FatRequest, $host: &'a $crate::prelude::Host |, $(($($move:$ty),+))?, $code)
+            $crate::extension!($crate::extensions::PackageCall, (), |$response: &'a mut $crate::prelude::Response<()>: a1, $request: &'a $crate::FatRequest: a2, $host: &'a $crate::prelude::Host: a3 |, $(($($move:$ty),+))?, $code)
         }
     }
     /// Will make a [`Post`](super::Post) extension.
@@ -1273,7 +1272,7 @@ mod macros {
     #[macro_export]
     macro_rules! post {
         ($request:pat, $host:pat, $response_pipe:pat, $bytes:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PostCall, (), |$request: &'a $crate::FatRequest, $host: &'a $crate::prelude::Host, $response_pipe: &'a mut $crate::application::ResponsePipe, $bytes: $crate::prelude::Bytes, $addr: $crate::prelude::SocketAddr|, $(($($move:$ty),+))?, $code)
+            $crate::extension!($crate::extensions::PostCall, (), |$request: &'a $crate::FatRequest: a1, $host: &'a $crate::prelude::Host: a2, $response_pipe: &'a mut $crate::application::ResponsePipe: a3, $bytes: $crate::prelude::Bytes: a4, $addr: $crate::prelude::SocketAddr: a5|, $(($($move:$ty),+))?, $code)
         }
     }
     /// Creates a [`super::ResponsePipeFuture`].
@@ -1292,7 +1291,7 @@ mod macros {
     #[macro_export]
     macro_rules! response_pipe_fut {
         ($response:pat, $host:pat, $(move |$($move:ident:$ty:ty),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::ResponsePipeFutureCall, (), (mut), |$response: &'a mut $crate::application::ResponseBodyPipe, $host: &'a $crate::prelude::Host|, $(($($move:$ty),+))?, $code)
+            $crate::extension!($crate::extensions::ResponsePipeFutureCall, (), (mut), |$response: &'a mut $crate::application::ResponseBodyPipe: a1, $host: &'a $crate::prelude::Host: a2|, $(($((mut) $move:$ty),+))?, $code)
         };
     }
 }
