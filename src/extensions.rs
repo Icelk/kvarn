@@ -894,8 +894,6 @@ impl Debug for Extensions {
 
 /// Add data pretending to present state in creating the response.
 ///
-/// Can be acquired from [`PresentDataWrapper`].
-///
 /// See [module level documentation](crate::extensions).
 #[allow(missing_debug_implementations)]
 pub struct PresentData {
@@ -1095,7 +1093,7 @@ mod macros {
     /// ```
     /// # use kvarn::prelude::*;
     /// extension!(
-    ///     PrepareCall,
+    ///     kvarn::extensions::PrepareCall,
     ///     FatResponse,
     ///     | request: &'a mut FatRequest,
     ///     host: &'a Host,
@@ -1146,7 +1144,7 @@ mod macros {
     /// Will make a [`Prime`](super::Prime) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
-    /// See [`extensions::PrimeCall`] for a list of arguments.
+    /// See [`super::PrimeCall`] for a list of arguments.
     ///
     /// # Examples
     ///
@@ -1165,7 +1163,7 @@ mod macros {
     }
     /// Will make a [`Prepare`](super::Prepare) extension.
     ///
-    /// See [`extensions::PrepareCall`] for a list of arguments.
+    /// See [`super::PrepareCall`] for a list of arguments.
     ///
     /// > The `path` will be [`None`] if and only if [`crate::host::Options::disable_fs`] is true *or* percent
     /// > decoding failed. `request.uri().path()` will not have it's percent encoding decoded.
@@ -1220,7 +1218,7 @@ mod macros {
     /// Will make a [`Present`](super::Present) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
-    /// See [`extensions::PresentCall`] for a list of arguments.
+    /// See [`super::PresentCall`] for a list of arguments.
     ///
     /// # Examples
     ///
@@ -1239,7 +1237,7 @@ mod macros {
     /// Will make a [`Package`](super::Package) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
-    /// See [`extensions::PackageCall`] for a list of arguments.
+    /// See [`super::PackageCall`] for a list of arguments.
     ///
     /// # Examples
     ///
@@ -1259,7 +1257,7 @@ mod macros {
     /// Will make a [`Post`](super::Post) extension.
     ///
     /// See [`prepare!`] for usage and useful examples.
-    /// See [`extensions::PostCall`] for a list of arguments.
+    /// See [`super::PostCall`] for a list of arguments.
     ///
     /// # Examples
     ///
@@ -1278,7 +1276,7 @@ mod macros {
             $crate::extension!($crate::extensions::PostCall, (), |$request: &'a $crate::FatRequest, $host: &'a $crate::prelude::Host, $response_pipe: &'a mut $crate::application::ResponsePipe, $bytes: $crate::prelude::Bytes, $addr: $crate::prelude::SocketAddr|, $(($($move:$ty),+))?, $code)
         }
     }
-    /// Creates a [`ResponsePipeFuture`].
+    /// Creates a [`super::ResponsePipeFuture`].
     ///
     /// # Examples
     ///
@@ -1295,13 +1293,6 @@ mod macros {
     macro_rules! response_pipe_fut {
         ($response:pat, $host:pat, $(move |$($move:ident:$ty:ty),+|)? $code:block) => {
             $crate::extension!($crate::extensions::ResponsePipeFutureCall, (), (mut), |$response: &'a mut $crate::application::ResponseBodyPipe, $host: &'a $crate::prelude::Host|, $(($($move:$ty),+))?, $code)
-            // Box::new(
-                // |$response: &mut $crate::application::ResponseBodyPipe,
-                 // $host: &$crate::host::Host| {
-                    // Box::pin(async move { $code })
-                        // as Pin<Box<dyn Future<Output = ()> + Send + Sync>>
-                // },
-            // ) as $crate::extensions::ResponsePipeFuture
         };
     }
 }
