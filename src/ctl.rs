@@ -76,30 +76,20 @@ impl Debug for Plugins {
 }
 impl Plugins {
     pub(crate) fn new() -> Self {
+        #[allow(unused_mut)] // if the feature `graceful-shutdown` isn't enabled.
         let mut me = Self::empty();
+        #[cfg(feature = "graceful-shutdown")]
         me.add_plugin(
             "shutdown",
-            Box::new(|args, _, _shutdown| {
+            Box::new(|args, _, shutdown| {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
-                #[cfg(not(feature = "graceful-shutdown"))]
-                {
-                    PluginResponse {
-                        kind: PluginResponseKind::Error {
-                            data: Some("graceful shutdown not enabled".into()),
-                        },
-                        close: false,
-                    }
-                }
-                #[cfg(feature = "graceful-shutdown")]
-                {
-                    _shutdown.shutdown();
-                    futures::executor::block_on(_shutdown.wait());
-                    PluginResponse {
-                        kind: PluginResponseKind::Ok { data: None },
-                        close: true,
-                    }
+                shutdown.shutdown();
+                futures::executor::block_on(shutdown.wait());
+                PluginResponse {
+                    kind: PluginResponseKind::Ok { data: None },
+                    close: true,
                 }
             }),
         );
@@ -155,32 +145,36 @@ pub(crate) async fn listen(
             }
         }
 
-        match kvarn_signal::unix::send_to(b"shutdown", &path)
-            .await
-            .as_deref()
-        {
-            kvarn_signal::unix::UnixResponse::Data(b"ok")
-            | kvarn_signal::unix::UnixResponse::NotFound => {
-                // continue normally
-            }
-            kvarn_signal::unix::UnixResponse::Data(data) => {
-                error!(
-                    "Got unexpected reply from previous Kvarn instance: {:?}. \
-                    Will not be listening for kvarnctl messages.",
-                    str::from_utf8(data).unwrap_or("[binary]")
-                );
-                return;
-            }
-            kvarn_signal::unix::UnixResponse::Error => {
-                error!(
-                    "Failed to message previous Kvarn instance. \
-                    It might still be running. Will not be listening for kvarnctl messages."
-                );
-                return;
-            }
-        };
+        let supports_shutdown = plugins.plugins.contains_key("shutdown");
 
-        kvarn_signal::unix::start_at(
+        if supports_shutdown {
+            match kvarn_signal::unix::send_to(b"shutdown", &path)
+                .await
+                .as_deref()
+            {
+                kvarn_signal::unix::UnixResponse::Data(b"ok")
+                | kvarn_signal::unix::UnixResponse::NotFound => {
+                    // continue normally
+                }
+                kvarn_signal::unix::UnixResponse::Data(data) => {
+                    error!(
+                        "Got unexpected reply from previous Kvarn instance: {:?}. \
+                    Will not be listening for kvarnctl messages.",
+                        str::from_utf8(data).unwrap_or("[binary]")
+                    );
+                    return;
+                }
+                kvarn_signal::unix::UnixResponse::Error => {
+                    error!(
+                        "Failed to message previous Kvarn instance. \
+                    It might still be running. Will not be listening for kvarnctl messages."
+                    );
+                    return;
+                }
+            };
+        }
+
+        let overriden = kvarn_signal::unix::start_at(
             move |data| {
                 let data = if let Ok(s) = str::from_utf8(data) {
                     s
@@ -227,6 +221,15 @@ pub(crate) async fn listen(
             &path,
         )
         .await;
+
+        if overriden {
+            if supports_shutdown {
+                info!("Removed old kvarnctl socket.");
+            } else {
+                warn!("Removed old kvarnctl socket. The other instance might still be running. \
+                      Consider adding a `shutdown` plugin or enabling the `graceful-shutdown` cargo feature.");
+            }
+        }
     }
     #[cfg(windows)]
     {

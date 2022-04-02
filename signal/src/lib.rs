@@ -67,14 +67,19 @@ pub mod unix {
     ///
     /// The `handler` gets the data from the request, and should return whether to close the
     /// listener and the data to send back.
+    ///
+    /// # Return value
+    ///
+    /// Returns `true` if we removed an existing socket, `false` otherwise.
+    /// The removed socket might be live or a leftover from a previous call to this (or any other
+    /// UNIX socket creation).
     pub async fn start_at(
         handler: impl Fn(&[u8]) -> (bool, Vec<u8>) + Send + Sync + 'static,
         path: impl AsRef<Path>,
-    ) {
+    ) -> bool {
         let path = path.as_ref();
-        if tokio::fs::remove_file(path).await.is_ok() {
-            warn!("Removed old Kvarn socket.");
-        }
+        let overridden = tokio::fs::remove_file(path).await.is_ok();
+
         match UnixListener::bind(path) {
             Err(err) => error!(
                 "Failed to listen on {:?}. Handover will not work! {:?}",
@@ -107,5 +112,6 @@ pub mod unix {
                 });
             }
         }
+        overridden
     }
 }
