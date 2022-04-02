@@ -1,4 +1,6 @@
 //! Control the Kvarn server from the outside.
+//!
+//! [`Plugin`]s can be added using [`RunConfig::add_plugin`].
 use crate::prelude::*;
 
 /// The arguments passed by `kvarnctl` to a [`Plugin`].

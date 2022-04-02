@@ -142,6 +142,15 @@ impl RunConfig {
         self.ctl_path = Some(path.as_ref().to_path_buf());
         self
     }
+    /// Add `plugin` to be executed when a command with `name` is received from `kvarnctl`.
+    ///
+    /// Adding multiple with the same name overrides the old one.
+    /// If the feature `graceful-shutdown` is enabled, a plugin with the name `shutdown` is
+    /// added. It's functionality can be changed by overriding using this with `name` being `shutdown`.
+    pub fn add_plugin(mut self, name: impl AsRef<str>, plugin: ctl::Plugin) -> Self {
+        self.plugins.add_plugin(name, plugin);
+        self
+    }
 
     /// Run the Kvarn web server on `ports`.
     ///
