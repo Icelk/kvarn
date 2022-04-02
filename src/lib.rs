@@ -1180,6 +1180,9 @@ pub struct PortDescriptor {
     version: BindIpVersion,
     // also update Debug implementation when adding fields
 }
+/// Creation and configuration.
+///
+/// Used when creating a server.
 impl PortDescriptor {
     /// Uses the defaults for non-secure HTTP with `host_data`
     pub fn http(host_data: Arc<HostCollection>) -> Self {
@@ -1254,6 +1257,37 @@ impl PortDescriptor {
     pub fn ipv6_only(mut self) -> Self {
         self.version = BindIpVersion::V6;
         self
+    }
+}
+/// Inspection.
+///
+/// Used in [`ctl::Plugin`]s.
+// these return references of the Arc values so they can't escape the Plugins.
+// This is just restrictive in case we change the API later.
+impl PortDescriptor {
+    /// Get the port this description is associated with.
+    #[must_use]
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+    /// Get a reference to this port's optional TLS config.
+    #[cfg(feature = "https")]
+    #[must_use]
+    pub fn tls_config(&self) -> Option<&rustls::ServerConfig> {
+        self.server_config.as_deref()
+    }
+    /// Get the associated hosts.
+    ///
+    /// This can be used to remove entries from the response & file cache.
+    ///
+    /// Remember, this collection can be the same as for any other port descriptor.
+    pub fn hosts(&self) -> &HostCollection {
+        &self.data
+    }
+    /// Get the version of the internet protocol (IP) we are listening on
+    /// through [`Self::port`].
+    pub fn internet_protocol(&self) -> BindIpVersion {
+        self.version
     }
 }
 impl Debug for PortDescriptor {
