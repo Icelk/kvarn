@@ -188,7 +188,7 @@ impl Manager {
 
     /// Makes Kvarn perform a graceful shutdown.
     ///
-    /// This requires you to be on a thread with a 
+    /// This requires you to be on a thread with a
     /// [Tokio runtime](https://docs.rs/tokio/latest/tokio/runtime/struct.Runtime.html).
     /// If you create new `std` threads, you can use
     /// [`Handle::current()`](https://docs.rs/tokio/latest/tokio/runtime/struct.Handle.html#method.current)
