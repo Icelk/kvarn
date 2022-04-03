@@ -152,10 +152,10 @@ pub(crate) async fn listen(
                 .await
                 .as_deref()
             {
-                kvarn_signal::unix::Response::Data(b"ok")
-                | kvarn_signal::unix::Response::NotFound => {
-                    // continue normally
-                }
+                // continue normally
+                kvarn_signal::unix::Response::Data(data) if data.starts_with(b"ok") => {}
+                kvarn_signal::unix::Response::NotFound => {}
+
                 kvarn_signal::unix::Response::Data(data) => {
                     error!(
                         "Got unexpected reply from previous Kvarn instance: {:?}. \
