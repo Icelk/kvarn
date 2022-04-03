@@ -184,9 +184,7 @@ pub(crate) async fn listen(
                         "error Received binary content. Requests have to be UTF-8.".into(),
                     );
                 };
-                let mut iter = data
-                    .split_ascii_whitespace()
-                    .map(std::borrow::ToOwned::to_owned);
+                let mut iter = utils::quoted_str_split(data);
                 let name = iter.next().unwrap_or_default();
                 let args = iter.collect();
                 let arguments = Arguments { name, args };
