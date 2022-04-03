@@ -769,8 +769,14 @@ impl<'a> Iterator for QuotedStrSplitIter<'a> {
             if c == '\\' {
                 self.escaped += 1;
                 // skip to the next iteration.
-                if self.escaped == 1 {
-                    continue;
+                match self.escaped {
+                    1 => continue,
+                    2 => {
+                        self.current.push('\\');
+                        self.escaped = 0;
+                        continue;
+                    }
+                    _ => {}
                 }
             }
             if self.escaped != 1 {
