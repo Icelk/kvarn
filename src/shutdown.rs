@@ -217,6 +217,7 @@ impl Manager {
         // we stop listening immediately
         self.wakers.notify();
     }
+    #[cfg(feature = "graceful-shutdown")]
     fn _shutdown(&self) {
         let channel = self.channel.0.clone();
         let pre_channel = self.pre_shutdown_channel.0.clone();
