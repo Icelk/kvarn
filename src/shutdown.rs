@@ -73,7 +73,14 @@ pub struct Manager {
     wakers: WakerList,
 
     #[cfg(feature = "graceful-shutdown")]
-    channel: (WatchSender<()>, WatchReceiver<()>),
+    channel: (Arc<WatchSender<()>>, WatchReceiver<()>),
+    #[cfg(feature = "graceful-shutdown")]
+    pre_shutdown_channel: (
+        Arc<WatchSender<tokio::sync::mpsc::UnboundedSender<()>>>,
+        WatchReceiver<tokio::sync::mpsc::UnboundedSender<()>>,
+    ),
+    #[cfg(feature = "graceful-shutdown")]
+    pre_shutdown_count: Arc<atomic::AtomicUsize>,
 
     #[cfg(feature = "graceful-shutdown")]
     pub(crate) handover_socket_path: Option<PathBuf>,
@@ -83,13 +90,17 @@ impl Manager {
     pub fn new(_capacity: usize) -> Self {
         #[cfg(feature = "graceful-shutdown")]
         {
+            let channel = watch_channel(());
+            let pre_shutdown_channel = watch_channel(tokio::sync::mpsc::unbounded_channel().0);
             Self {
                 shutdown: AtomicBool::new(false),
                 connections: AtomicIsize::new(0),
 
                 wakers: WakerList::new(_capacity),
 
-                channel: watch_channel(()),
+                channel: (Arc::new(channel.0), channel.1),
+                pre_shutdown_channel: (Arc::new(pre_shutdown_channel.0), pre_shutdown_channel.1),
+                pre_shutdown_count: Arc::new(atomic::AtomicUsize::new(0)),
 
                 handover_socket_path: None,
             }
@@ -138,8 +149,7 @@ impl Manager {
                 debug!("Connection count is 0.");
                 let shutdown = self.shutdown.load(Ordering::Acquire);
                 if shutdown {
-                    info!("Sending shutdown signal");
-                    drop(self.channel.0.send(()));
+                    self._shutdown();
                 }
             }
         }
@@ -191,14 +201,40 @@ impl Manager {
         }
 
         if self.connections.load(Ordering::Acquire) == 0 {
-            drop(self.channel.0.send(()));
+            self._shutdown();
         }
 
         // we stop listening immediately
         self.wakers.notify();
     }
+    fn _shutdown(&self) {
+        let channel = self.channel.0.clone();
+        let pre_channel = self.pre_shutdown_channel.0.clone();
+        let count = self.pre_shutdown_count.clone();
+        tokio::spawn(async move {
+            let mut confirmation_channel = tokio::sync::mpsc::unbounded_channel();
+            // UNWRAP: `self` will always have 1 instance,
+            // and `self` doesn't get dropped before we tell `channel` to shutdown.
+            pre_channel.send(confirmation_channel.0).unwrap();
+            let mut recieved = 0;
+            let wanted = count.load(Ordering::Acquire);
+            loop {
+                confirmation_channel.1.recv().await;
+                recieved += 1;
+                if recieved >= wanted {
+                    break;
+                }
+            }
+            info!("Sending shutdown signal");
+            drop(channel.send(()));
+        });
+    }
     /// Waits for Kvarn to enter the `shutdown` state.
-    /// When the feature `graceful-shutdown` has been disabled, this blocks forever.
+    ///
+    /// This is ran after the [`Self::wait_for_pre_shutdown`] hook, which enables you to do work
+    /// before this is resolved.
+    ///
+    /// If the feature `graceful-shutdown` is disabled, this blocks forever.
     pub async fn wait(&self) {
         #[cfg(feature = "graceful-shutdown")]
         {
@@ -209,6 +245,28 @@ impl Manager {
         #[cfg(not(feature = "graceful-shutdown"))]
         {
             std::future::pending::<()>().await;
+        }
+    }
+    /// Hooks into the stage before Kvarn signals it's [shutdown](Self::wait).
+    ///
+    /// You MUST send `()` to the returned sender ONCE when you are done shutting down.
+    /// Abuse of this guarantee leads to unwanted timing of shutdown, or none.
+    ///
+    /// If the feature `graceful-shutdown` is disabled, this blocks forever.
+    pub async fn wait_for_pre_shutdown(&self) -> tokio::sync::mpsc::UnboundedSender<()> {
+        #[cfg(feature = "graceful-shutdown")]
+        {
+            let mut receiver = WatchReceiver::clone(&self.pre_shutdown_channel.1);
+            self.pre_shutdown_count.fetch_add(1, Ordering::SeqCst);
+            drop(receiver.changed().await);
+            info!("Received pre shutdown signal");
+            let borrow = receiver.borrow();
+            (*borrow).clone()
+        }
+        #[cfg(not(feature = "graceful-shutdown"))]
+        {
+            std::future::pending::<()>().await;
+            unreachable!()
         }
     }
 }
