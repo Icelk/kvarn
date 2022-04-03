@@ -43,6 +43,11 @@ jobs:
               with:
                   command: clippy
                   args: --all-targets --all-features -- -D warnings
+            - name: Checking lints with no features
+              uses: actions-rs/cargo@v1
+              with:
+                  command: clippy
+                  args: --no-default-features -- -D warnings
             - name: Checking doc references
               uses: Icelk/rustdoc-link-check@v1
               with:
