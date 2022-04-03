@@ -846,6 +846,25 @@ pub fn quoted_str_split(s: &str) -> QuotedStrSplitIter {
         escaped: 0,
     }
 }
+/// Encodes, to be decoded by [`quoted_str_split`], `src` by appending to `dest`.
+///
+/// This takes care of escapes, quotes, etc. The output of [`quoted_str_split`] when given `dest`
+/// should be the same as `src`.
+///
+/// Capacity on `dest` is reserved using heuristics - you don't need to use `with_capacity` or
+/// `reserve` on `dest`.
+pub fn encode_quoted_str(src: &str, dest: &mut String) {
+    dest.reserve(src.len() + 2 + 4); // 2 for quotes and 4 for good measure (e.g. capacity for \\, \")
+    dest.push('"');
+    for c in src.chars() {
+        match c {
+            '"' => dest.push_str("\\\""),
+            '\\' => dest.push_str("\\\\"),
+            _ => dest.push(c),
+        }
+    }
+    dest.push('"');
+}
 
 #[cfg(test)]
 mod tests {
@@ -1071,5 +1090,20 @@ mod tests {
             quoted_str_split(s).collect::<Vec<_>>(),
             ["This", "is a quote \" inside a quote. "]
         );
+    }
+    #[test]
+    fn quoted_str_split_6() {
+        let s = r#"h"i \\\\\" the"re"#;
+        assert_eq!(quoted_str_split(s).collect::<Vec<_>>(), [r#"hi \\" there"#]);
+    }
+    #[test]
+    fn quoted_str_encode_decode_1() {
+        let src = r#"program arg1 'arg "'two\ st\\\"il"l goes "on. 'third-arg "#;
+        let mut dest = String::new();
+        encode_quoted_str(src, &mut dest);
+
+        let mut iter = quoted_str_split(&dest);
+        assert_eq!(iter.next().unwrap(), src);
+        assert_eq!(iter.next(), None);
     }
 }
