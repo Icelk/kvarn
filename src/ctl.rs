@@ -48,6 +48,8 @@ impl Debug for PluginResponse {
     }
 }
 /// These are ran on separate threads, so they can block.
+///
+/// They are ran within a tokio context, so you can use e.g. [`tokio::spawn`].
 pub type Plugin = Box<
     dyn Fn(Arguments, &Vec<PortDescriptor>, &shutdown::Manager) -> PluginResponse + Send + Sync,
 >;
@@ -103,7 +105,7 @@ impl Plugins {
                     return r;
                 }
                 shutdown.shutdown();
-                futures::executor::block_on(async move {
+                tokio::runtime::Handle::current().block_on(async move {
                     let sender = shutdown.wait_for_pre_shutdown().await;
 
                     PluginResponse {
@@ -199,8 +201,10 @@ pub(crate) async fn listen(
             };
         }
 
+        let runtime = tokio::runtime::Handle::current();
         let overriden = kvarn_signal::unix::start_at(
             move |data| {
+                let _rt = runtime.enter();
                 let data = if let Ok(s) = str::from_utf8(data) {
                     s
                 } else {

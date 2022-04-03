@@ -289,7 +289,7 @@ impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> B
         Poll::Pending
     }
     pub async fn channel(&mut self) -> Result<(), OpenBackError> {
-        futures::future::poll_fn(|cx| self.poll_channel(cx)).await
+        futures_util::future::poll_fn(|cx| self.poll_channel(cx)).await
     }
 }
 
