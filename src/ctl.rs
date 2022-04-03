@@ -24,12 +24,28 @@ pub enum PluginResponseKind {
     },
 }
 /// A response in reply to the [request](Arguments) `kvarnctl` sent.
-#[derive(Debug, Clone)]
 pub struct PluginResponse {
     /// The kind of response.
     pub kind: PluginResponseKind,
     /// If the communication should be closed.
     pub close: bool,
+    /// A function to run after sending the response.
+    pub post_send: Option<Box<dyn FnOnce() + Send + Sync>>,
+}
+impl Debug for PluginResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct(utils::ident_str!(PluginResponse));
+        utils::fmt_fields!(
+            s,
+            (self.kind),
+            (self.close),
+            (
+                self.post_send,
+                &self.post_send.as_ref().map(|_| "[fn]".as_clean())
+            )
+        );
+        s.finish()
+    }
 }
 /// These are ran on separate threads, so they can block.
 pub type Plugin = Box<
@@ -48,6 +64,7 @@ pub fn check_no_arguments(args: &Arguments) -> Result<(), PluginResponse> {
                 data: Some("no arguments were expected".into()),
             },
             close: false,
+            post_send: None,
         })
     }
 }
@@ -86,11 +103,19 @@ impl Plugins {
                     return r;
                 }
                 shutdown.shutdown();
-                futures::executor::block_on(shutdown.wait());
-                PluginResponse {
-                    kind: PluginResponseKind::Ok { data: None },
-                    close: true,
-                }
+                futures::executor::block_on(async move {
+                    let sender = shutdown.wait_for_pre_shutdown().await;
+
+                    PluginResponse {
+                        kind: PluginResponseKind::Ok {
+                            data: Some("'Successfully completed a graceful shutdown.'".into()),
+                        },
+                        close: true,
+                        post_send: Some(Box::new(move || {
+                            sender.send(()).expect("failed to shut down");
+                        })),
+                    }
+                })
             }),
         );
         me
@@ -179,10 +204,11 @@ pub(crate) async fn listen(
                 let data = if let Ok(s) = str::from_utf8(data) {
                     s
                 } else {
-                    return (
-                        false,
-                        "error Received binary content. Requests have to be UTF-8.".into(),
-                    );
+                    return kvarn_signal::unix::HandlerResponse {
+                        data: "error Received binary content. Requests have to be UTF-8.".into(),
+                        close: false,
+                        post_send: None,
+                    };
                 };
                 let mut iter = utils::quoted_str_split(data);
                 let name = iter.next().unwrap_or_default();
@@ -191,7 +217,7 @@ pub(crate) async fn listen(
 
                 if let Some(plugin) = plugins.plugins.get(&arguments.name) {
                     let response = (plugin)(arguments, &ports, &shutdown);
-                    let (data, add) = match response.kind {
+                    let (data, prepend) = match response.kind {
                         PluginResponseKind::Error { data } => {
                             if let Some(data) = data.as_deref() {
                                 warn!(
@@ -206,14 +232,22 @@ pub(crate) async fn listen(
                         PluginResponseKind::Ok { data } => (data, "ok"),
                     };
                     let mut data = data.unwrap_or_default();
-                    let len = add.len() + if data.is_empty() { 0 } else { 1 };
+                    let len = prepend.len() + if data.is_empty() { 0 } else { 1 };
                     (0..len).for_each(|_| data.insert(0, b' '));
-                    data[..add.len()].copy_from_slice(add.as_bytes());
+                    data[..prepend.len()].copy_from_slice(prepend.as_bytes());
 
-                    (response.close, data)
+                    kvarn_signal::unix::HandlerResponse {
+                        data,
+                        close: response.close,
+                        post_send: response.post_send,
+                    }
                 } else {
                     warn!("Got unexpected message on socket: {:?}", data,);
-                    (false, Vec::from("error"))
+                    kvarn_signal::unix::HandlerResponse {
+                        data: Vec::from("error 'Command not found.'"),
+                        close: false,
+                        post_send: None,
+                    }
                 }
             },
             &path,
