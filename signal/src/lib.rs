@@ -36,6 +36,15 @@ pub mod unix {
         }
     }
 
+    pub struct HandlerResponse {
+        /// The response body.
+        pub data: Vec<u8>,
+        /// If the communication should be closed.
+        pub close: bool,
+        /// A function to run after sending the response.
+        pub post_send: Option<Box<dyn FnOnce() + Send + Sync>>,
+    }
+
     /// Sends `data` to a [`UnixListener`] at `path`.
     pub async fn send_to(data: &[u8], path: impl AsRef<Path>) -> Response<Vec<u8>> {
         let path = path.as_ref();
@@ -79,7 +88,7 @@ pub mod unix {
     /// The removed socket might be live or a leftover from a previous call to this (or any other
     /// UNIX socket creation).
     pub async fn start_at(
-        handler: impl Fn(&[u8]) -> (bool, Vec<u8>) + Send + Sync + 'static,
+        handler: impl Fn(&[u8]) -> HandlerResponse + Send + Sync + 'static,
         path: impl AsRef<Path>,
     ) -> bool {
         let path = path.as_ref();
@@ -100,15 +109,23 @@ pub mod unix {
                             continue;
                         }
                         let handler = Arc::clone(&handler);
-                        let (close, data) = tokio::task::spawn_blocking(move || handler(&data))
+                        let HandlerResponse {
+                            data,
+                            close,
+                            post_send,
+                        } = tokio::task::spawn_blocking(move || handler(&data))
                             .await
                             .unwrap();
+
                         if let Err(err) = connection.write_all(&data).await {
                             warn!("Failed to write response: {err:?}");
                             continue;
                         }
                         if let Err(err) = connection.shutdown().await {
                             error!("Failed to flush content. {:?}", err);
+                        }
+                        if let Some(post_send) = post_send {
+                            post_send();
                         }
                         if close {
                             break;
