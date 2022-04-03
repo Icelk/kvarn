@@ -187,6 +187,16 @@ impl Manager {
     }
 
     /// Makes Kvarn perform a graceful shutdown.
+    ///
+    /// This requires you to be on a thread with a 
+    /// [Tokio runtime](https://docs.rs/tokio/latest/tokio/runtime/struct.Runtime.html).
+    /// If you create new `std` threads, you can use
+    /// [`Handle::current()`](https://docs.rs/tokio/latest/tokio/runtime/struct.Handle.html#method.current)
+    /// to get a movable handle of your runtime. Then call
+    /// [`Handle::enter`](https://docs.rs/tokio/latest/tokio/runtime/struct.Handle.html#method.enter)
+    /// at the start of your thread's execution and bind it to a shadow variable
+    /// (e.g. `let _runtime = runtime_handle.enter()`). That keeps the reference alive during the
+    /// thread's whole lifespan.
     #[cfg(feature = "graceful-shutdown")]
     pub fn shutdown(&self) {
         info!(
