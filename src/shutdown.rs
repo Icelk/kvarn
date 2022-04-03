@@ -230,11 +230,11 @@ impl Manager {
             let mut recieved = 0;
             let wanted = count.load(Ordering::Acquire);
             loop {
-                confirmation_channel.1.recv().await;
-                recieved += 1;
                 if recieved >= wanted {
                     break;
                 }
+                confirmation_channel.1.recv().await;
+                recieved += 1;
             }
             info!("Sending shutdown signal");
             drop(channel.send(()));
