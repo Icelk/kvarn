@@ -13,4 +13,4 @@ keywords = ["ipc", "kvarn"]
 
 [dependencies]
 log = "0.4"
-tokio = { version = "1", features = ["net", "time"] }
+tokio = { version = "1", features = ["net", "time", "io-util", "rt", "fs"] }

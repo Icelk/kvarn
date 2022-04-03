@@ -152,11 +152,11 @@ pub(crate) async fn listen(
                 .await
                 .as_deref()
             {
-                kvarn_signal::unix::UnixResponse::Data(b"ok")
-                | kvarn_signal::unix::UnixResponse::NotFound => {
+                kvarn_signal::unix::Response::Data(b"ok")
+                | kvarn_signal::unix::Response::NotFound => {
                     // continue normally
                 }
-                kvarn_signal::unix::UnixResponse::Data(data) => {
+                kvarn_signal::unix::Response::Data(data) => {
                     error!(
                         "Got unexpected reply from previous Kvarn instance: {:?}. \
                     Will not be listening for kvarnctl messages.",
@@ -164,7 +164,7 @@ pub(crate) async fn listen(
                     );
                     return;
                 }
-                kvarn_signal::unix::UnixResponse::Error => {
+                kvarn_signal::unix::Response::Error => {
                     error!(
                         "Failed to message previous Kvarn instance. \
                     It might still be running. Will not be listening for kvarnctl messages."

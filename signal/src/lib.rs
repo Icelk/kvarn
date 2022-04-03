@@ -1,3 +1,10 @@
+//! Inter process signalling library used by `kvarnctl` to communicate with Kvarn.
+
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![deny(clippy::all, clippy::pedantic)]
+#![allow(clippy::missing_panics_doc)]
+
 #[cfg(unix)]
 pub mod unix {
     use log::{error, warn};
@@ -8,44 +15,42 @@ pub mod unix {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
 
-    pub enum UnixResponse<T> {
+    pub enum Response<T> {
         /// The socket wasn't found, or had no listener.
         NotFound,
-        /// An error occured in reading or writing.
+        /// An error occurred in reading or writing.
         Error,
         /// Successful transmission.
         Data(T),
     }
-    impl<D: ?Sized, T: Deref<Target = D>> UnixResponse<T> {
+    impl<D: ?Sized, T: Deref<Target = D>> Response<T> {
         /// Turns `&UnixResponse<T>` to `UnixResponse<&D>`
         /// where `T: Deref<Target = D>`.
         /// For example, `UnixResponse<Vec<u8>>.as_deref() == &UnixResponse<&[u8]>`
-        pub fn as_deref(&self) -> UnixResponse<&D> {
+        pub fn as_deref(&self) -> Response<&D> {
             match self {
-                Self::NotFound => UnixResponse::NotFound,
-                Self::Error => UnixResponse::Error,
-                Self::Data(t) => UnixResponse::Data(&**t),
+                Self::NotFound => Response::NotFound,
+                Self::Error => Response::Error,
+                Self::Data(t) => Response::Data(&**t),
             }
         }
     }
 
     /// Sends `data` to a [`UnixListener`] at `path`.
-    pub async fn send_to(data: &[u8], path: impl AsRef<Path>) -> UnixResponse<Vec<u8>> {
+    pub async fn send_to(data: &[u8], path: impl AsRef<Path>) -> Response<Vec<u8>> {
         let path = path.as_ref();
         match UnixStream::connect(path).await {
             Err(err) => match err.kind() {
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
-                    UnixResponse::NotFound
-                }
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => Response::NotFound,
                 _ => {
                     error!("Got error when trying to shut down previous instance of Kvarn: {:?}\nTrying to start server anyway.", err);
-                    UnixResponse::Error
+                    Response::Error
                 }
             },
             Ok(mut connection) => {
                 if let Err(err) = connection.write_all(data).await {
                     error!("Failed to send message! {:?}", err);
-                    UnixResponse::Error
+                    Response::Error
                 } else {
                     // Flushes the data.
                     connection.shutdown().await.unwrap();
@@ -53,9 +58,9 @@ pub mod unix {
                     let mut buf = Vec::new();
                     if let Err(err) = connection.read_to_end(&mut buf).await {
                         error!("Failed to receive message. {:?}", err);
-                        UnixResponse::Error
+                        Response::Error
                     } else {
-                        UnixResponse::Data(buf)
+                        Response::Data(buf)
                     }
                 }
             }

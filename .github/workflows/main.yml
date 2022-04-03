@@ -60,6 +60,9 @@ jobs:
             - name: Testing kvarn-testing
               run: cargo test
               working-directory: testing
+            - name: Testing kvarn_signal
+              run: cargo test
+              working-directory: signal
             - name: Testing url-crawl
               run: cargo test
               working-directory: url-crawl
