@@ -14,5 +14,8 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "3", features = ["cargo"] }
+env_logger = "0.9"
 kvarn_signal = { path = "../signal", version = "0.1" }
+kvarn_utils = { path = "../utils", version = "0.3" }
+log = "0.4"
 tokio = { version = "1", features = ["rt", "io-util", "macros"] }
