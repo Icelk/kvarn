@@ -259,6 +259,7 @@ impl Manager {
         }
     }
     /// Hooks into the stage before Kvarn signals it's [shutdown](Self::wait).
+    /// **Use with care.** See comment below.
     ///
     /// You MUST send `()` to the returned sender ONCE when you are done shutting down.
     /// Abuse of this guarantee leads to unwanted timing of shutdown, or none.
