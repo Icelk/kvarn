@@ -730,6 +730,117 @@ pub fn join<S: AsRef<str>, I: Iterator<Item = S> + Clone>(
     string
 }
 
+#[derive(Debug, Clone, Copy)]
+enum InQuotes {
+    No,
+    Single,
+    Double,
+}
+impl InQuotes {
+    fn quoted(self) -> bool {
+        matches!(self, Self::Single | Self::Double)
+    }
+}
+/// Iterator for [`quoted_str_split`].
+/// Returns owned strings.
+#[derive(Debug, Clone)]
+#[must_use = "consume the iterator"]
+pub struct QuotedStrSplitIter<'a> {
+    iter: std::str::Chars<'a>,
+    quotes: InQuotes,
+    current: String,
+    escaped: usize,
+}
+impl<'a> Iterator for QuotedStrSplitIter<'a> {
+    type Item = String;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            #[allow(clippy::single_match_else)] // clarity
+            let c = match self.iter.next() {
+                Some(c) => c,
+                None => {
+                    if !self.current.is_empty() {
+                        return Some(std::mem::take(&mut self.current));
+                    }
+                    return None;
+                }
+            };
+            // check this before the exceptions below
+            if c == '\\' {
+                self.escaped += 1;
+                // skip to the next iteration.
+                if self.escaped == 1 {
+                    continue;
+                }
+            }
+            if self.escaped != 1 {
+                match c {
+                    ' ' if !self.quotes.quoted() => {
+                        if self.current.is_empty() {
+                            continue;
+                        }
+                        return Some(std::mem::replace(
+                            &mut self.current,
+                            String::with_capacity(16),
+                        ));
+                    }
+                    '"' => match self.quotes {
+                        InQuotes::No => {
+                            self.quotes = InQuotes::Double;
+                            continue;
+                        }
+                        InQuotes::Double => {
+                            self.quotes = InQuotes::No;
+                            continue;
+                        }
+                        InQuotes::Single => {}
+                    },
+                    '\'' => match self.quotes {
+                        InQuotes::No => {
+                            self.quotes = InQuotes::Single;
+                            continue;
+                        }
+                        InQuotes::Single => {
+                            self.quotes = InQuotes::No;
+                            continue;
+                        }
+                        InQuotes::Double => {}
+                    },
+                    _ => {}
+                }
+            }
+            if c != '\\' {
+                self.escaped = 0;
+            }
+            self.current.push(c);
+        }
+    }
+}
+/// Shell-like splitting of `s`.
+///
+/// Quotes (both single and double) and backslashes `\` disables spaces'
+/// effect.
+///
+/// # Examples
+///
+/// This is quote a convoluted example which shows some of the more intrecate edge-cases.
+/// Refer to the tests at the bottom of this
+/// [source file](https://github.com/Icelk/kvarn/blob/main/utils/src/lib.rs) for more examples.
+///
+/// ```
+/// # use kvarn_utils::*;
+/// let s = r#"program arg1 'arg "'two\ st\"il"l goes "on. 'third-arg "#;
+/// assert_eq!(quoted_str_split(s).collect::<Vec<_>>(), ["program", "arg1", "arg \"two st\"ill goes on.", "third-arg "]);
+/// ```
+pub fn quoted_str_split(s: &str) -> QuotedStrSplitIter {
+    QuotedStrSplitIter {
+        iter: s.chars(),
+        quotes: InQuotes::No,
+        current: String::with_capacity(16),
+        escaped: 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -913,5 +1024,46 @@ mod tests {
             Some(&HeaderValue::from_static("tinyquest"))
         );
         assert!(headers.get("accept").is_some());
+    }
+
+    #[test]
+    fn quoted_str_split_1() {
+        let s = r#"this" should be" quoted. Is\ it?"#;
+        assert_eq!(
+            quoted_str_split(s).collect::<Vec<_>>(),
+            ["this should be", "quoted.", "Is it?"]
+        );
+    }
+    #[test]
+    fn quoted_str_split_2() {
+        let s = r#" yay! this\\ works\ ! "#;
+        assert_eq!(
+            quoted_str_split(s).collect::<Vec<_>>(),
+            ["yay!", "this\\", "works !"]
+        );
+    }
+    #[test]
+    fn quoted_str_split_3() {
+        let s = r#" how' bou't this?' no end to this quote "#;
+        assert_eq!(
+            quoted_str_split(s).collect::<Vec<_>>(),
+            ["how bout", "this? no end to this quote "]
+        );
+    }
+    #[test]
+    fn quoted_str_split_4() {
+        let s = r#"Just normal quotes:\ \" and \'."#;
+        assert_eq!(
+            quoted_str_split(s).collect::<Vec<_>>(),
+            ["Just", "normal", "quotes: \"", "and", "'."]
+        );
+    }
+    #[test]
+    fn quoted_str_split_5() {
+        let s = r#"This 'is a quote " inside a quote. "#;
+        assert_eq!(
+            quoted_str_split(s).collect::<Vec<_>>(),
+            ["This", "is a quote \" inside a quote. "]
+        );
     }
 }
