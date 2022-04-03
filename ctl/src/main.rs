@@ -78,6 +78,7 @@ async fn main() {
                     s
                 },
                 |mut acc, arg| {
+                    acc.push(' ');
                     wrap_quotes(arg, &mut acc);
                     acc
                 },
