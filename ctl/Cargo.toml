@@ -1,0 +1,18 @@
+[package]
+name = "kvarnctl"
+version = "0.1.0"
+authors = ["Icelk <main@icelk.dev>"]
+edition = "2021"
+rust-version = "1.56"
+description = "Communication with Kvarn from the command line."
+readme = "README.md"
+homepage = "https://kvarn.org/ctl/"
+repository = "https://github.com/Icelk/kvarn/"
+license = "Apache-2.0"
+keywords = ["ipc", "kvarn"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+clap = { version = "3", features = ["cargo"] }
+kvarn_signal = { path = "../signal", version = "0.1" }
+tokio = { version = "1", features = ["rt", "io-util", "macros"] }

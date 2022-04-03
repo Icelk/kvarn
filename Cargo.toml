@@ -24,6 +24,7 @@ members = [
   "url-crawl",
   "testing",
   "signal",
+  "ctl",
 ]
 
 [dependencies]
