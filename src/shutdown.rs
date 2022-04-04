@@ -354,7 +354,7 @@ impl<'a> Future for AcceptFuture<'a> {
         #[cfg(feature = "graceful-shutdown")]
         {
             debug!(
-                "Current connections: {}",
+                "Shutting down? {}",
                 me.manager.shutdown.load(Ordering::Acquire)
             );
             if me.manager.shutdown.load(Ordering::Acquire) {
