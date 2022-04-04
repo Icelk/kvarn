@@ -11,18 +11,6 @@ The exit status means: 0 for success; 1 for a error from the target Kvarn instan
 4 means the first space-separated word of the response is unrecognized; \
 5 signals an empty response; and 6 is for when the response is binary data.";
 
-fn wrap_quotes(src: &str, target: &mut String) {
-    target.reserve(src.len() + 2 + 4);
-    target.push('"');
-    for c in src.chars() {
-        match c {
-            '"' => target.push_str("\\\""),
-            _ => target.push(c),
-        }
-    }
-    target.push('"');
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     env_logger::init_from_env("KVARNCTL_LOG");
@@ -69,7 +57,7 @@ async fn main() {
             args.fold(
                 {
                     let mut s = String::new();
-                    wrap_quotes(
+                    kvarn_utils::encode_quoted_str(
                         matches
                             .value_of("command")
                             .expect("the command is required"),
@@ -79,7 +67,7 @@ async fn main() {
                 },
                 |mut acc, arg| {
                     acc.push(' ');
-                    wrap_quotes(arg, &mut acc);
+                    kvarn_utils::encode_quoted_str(arg, &mut acc);
                     acc
                 },
             )
