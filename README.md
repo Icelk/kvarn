@@ -48,6 +48,8 @@ and download the appropriate artefact.
 For Kvarn chute downloads for Linux, go [here](https://github.com/Icelk/kvarn/actions/workflows/chute.yml)
 and download the artefact from the topmost job.
 
+`kvarnctl` is also available as [CI builds](https://github.com/Icelk/kvarn/actions/workflows/kvarnctl.yml).
+
 # Documentation
 
 Documentation of the main branch can be found at [doc.kvarn.org](https://doc.kvarn.org/).

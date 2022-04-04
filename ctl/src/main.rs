@@ -3,9 +3,12 @@ use std::path::Path;
 use clap::{Arg, ValueHint};
 use log::error;
 
-const ABOUT: &str = "Communicate with Kvarn instances.\n\
+const ABOUT: &str = "\nCommunicate with Kvarn instances.\n\
 Use the `KVARNCTL_LOG` environment variable to set verbosity. \
 Levels `info`, `warn`, `error`, and `off` are available.\n\
+\n\
+A list of common commands can be found at the GitHub.\n\
+\n\
 The exit status means: 0 for success; 1 for a error from the target Kvarn instance; \
 2 for communication errors, such as insufficient privileges; 3 for when the socket isn't found; \
 4 means the first space-separated word of the response is unrecognized; \

@@ -1,4 +1,4 @@
-# Kvarn Chute
+# [Kvarn Chute](https://kvarn.org/chute/)
 
 > A chute to transport .md files to be refined by Kvarn
 
@@ -6,6 +6,8 @@ This is a small binary designed to convert from CommonMark to HTML using the
 [`kvarn-extensions`](https://kvarn.org/ecosystem/#extensions) [template system](https://kvarn.org/features/#templates).
 
 It supports watching a directory for changes to .md files, or simply converting a single file on command.
+
+See [the CI on GitHub](https://github.com/Icelk/kvarn/actions/workflows/chute.yml) for Linux downloads.
 
 # Shell completion
 
