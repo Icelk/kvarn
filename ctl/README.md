@@ -4,7 +4,7 @@
 
 kvarnctl takes a command from you and sends it to Kvarn.
 
-The Kvarn instance listening for commands may implement arbetrary commands through the [plugin interface](https://doc.kvarn.org/kvarn/struct.RunConfig.html#method.add_plugin).
+The Kvarn instance listening for commands may implement arbitrary commands through the [plugin interface](https://doc.kvarn.org/kvarn/struct.RunConfig.html#method.add_plugin).
 
 See [the CI on GitHub](https://github.com/Icelk/kvarn/actions/workflows/kvarnctl.yml) for Linux downloads.
 
