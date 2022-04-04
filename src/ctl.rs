@@ -27,10 +27,34 @@ pub enum PluginResponseKind {
 pub struct PluginResponse {
     /// The kind of response.
     pub kind: PluginResponseKind,
-    /// If the communication should be closed.
+    /// If the socket should be closed. Should ONLY be used when we are immediately shutting down.
     pub close: bool,
     /// A function to run after sending the response.
     pub post_send: Option<Box<dyn FnOnce() + Send + Sync>>,
+}
+impl PluginResponse {
+    /// Crates a new response which doesn't close the connection.
+    #[must_use]
+    pub fn new(kind: PluginResponseKind) -> Self {
+        Self {
+            kind,
+            close: false,
+            post_send: None,
+        }
+    }
+    /// Close the ctl socket after this is returned.
+    /// Use this only is you shut Kvarn down immediately in your plugin.
+    #[must_use]
+    pub fn close(mut self) -> Self {
+        self.close = true;
+        self
+    }
+    /// Add a callback to fun after the response is sent.
+    #[must_use]
+    pub fn post_send(mut self, f: impl FnOnce() + Send + Sync + 'static) -> Self {
+        self.post_send = Some(Box::new(f));
+        self
+    }
 }
 impl Debug for PluginResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -108,15 +132,13 @@ impl Plugins {
                 tokio::runtime::Handle::current().block_on(async move {
                     let sender = shutdown.wait_for_pre_shutdown().await;
 
-                    PluginResponse {
-                        kind: PluginResponseKind::Ok {
-                            data: Some("'Successfully completed a graceful shutdown.'".into()),
-                        },
-                        close: true,
-                        post_send: Some(Box::new(move || {
-                            sender.send(()).expect("failed to shut down");
-                        })),
-                    }
+                    PluginResponse::new(PluginResponseKind::Ok {
+                        data: Some("'Successfully completed a graceful shutdown.'".into()),
+                    })
+                    .close()
+                    .post_send(move || {
+                        sender.send(()).expect("failed to shut down");
+                    })
                 })
             }),
         );
