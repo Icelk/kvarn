@@ -1,0 +1,51 @@
+name: kvarnctl Continuous Integration
+
+on:
+    push:
+        paths:
+            - "ctl/**"
+            - "utils/**"
+            - ".github/workflows/kvarnctl.yml"
+
+env:
+    CARGO_TERM_COLOR: always
+
+defaults:
+    run:
+        working-directory: ctl
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checking out sources
+              uses: actions/checkout@v1
+            - name: Installing Rust toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+            - uses: Swatinem/rust-cache@v1
+            - name: Checking formatting
+              run: cargo fmt -- --check
+            - name: Checking lints
+              run: cargo clippy --all-targets -- -D warnings
+
+    build:
+        needs: [check]
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checking out sources
+              uses: actions/checkout@v1
+            - name: Installing Rust toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  profile: minimal
+            - uses: Swatinem/rust-cache@v1
+            - name: Compiling
+              run: cargo rustc --release
+            - name: Upload bin artefact
+              uses: actions/upload-artifact@v2
+              with:
+                  name: kvarnctl
+                  path: target/release/kvarnctl
