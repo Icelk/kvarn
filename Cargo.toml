@@ -1,5 +1,6 @@
 [package]
 name = "kvarn"
+# also bump all other versions (e.g. `grep 0\\.3`)
 version = "0.3.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
@@ -79,6 +80,12 @@ nonce = ["rand", "base64", "memchr"]
 
 [dev-dependencies]
 kvarn_testing = { path = "testing", version = "0.3" }
+
+# profile for binary sub-crates.
+[profile.distribution]
+inherits = "release"
+lto = true
+strip = true
 
 [package.metadata.docs.rs]
 all-features = true

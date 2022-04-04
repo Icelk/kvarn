@@ -42,7 +42,7 @@ jobs:
                   profile: minimal
             - uses: Swatinem/rust-cache@v1
             - name: Compiling
-              run: cargo rustc --release
+              run: cargo rustc --profile distribution
             - name: Upload bin artefact
               uses: actions/upload-artifact@v2
               with:
