@@ -348,7 +348,10 @@ async fn accept(
 
     loop {
         match listener.accept(shutdown_manager).await {
-            AcceptAction::Shutdown => return Ok(()),
+            AcceptAction::Shutdown => {
+                debug!("Closing listener.");
+                return Ok(());
+            }
             AcceptAction::Accept(result) => match result {
                 Ok((socket, addr)) => {
                     match descriptor.data.limiter().register(addr.ip()) {
@@ -454,6 +457,7 @@ pub async fn handle_connection(
         )
         .await
     {
+        debug!("We got a new request on connection.");
         trace!("Got request {:#?}", request);
         let host = if let Some(host) = descriptor
             .data
@@ -519,6 +523,7 @@ pub async fn handle_connection(
             break;
         }
     }
+    debug!("Connection finished.");
 
     Ok(())
 }

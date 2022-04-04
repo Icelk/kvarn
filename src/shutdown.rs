@@ -132,6 +132,10 @@ impl Manager {
         #[cfg(feature = "graceful-shutdown")]
         {
             self.connections.fetch_add(1, Ordering::Release);
+            debug!(
+                "Current connections: {}",
+                self.connections.load(Ordering::Acquire)
+            );
         }
     }
     /// Removes from the count of connections.
@@ -146,12 +150,16 @@ impl Manager {
                 error!("Connection count is less than 0. Please report this error.");
             }
             if connections <= 0 {
-                debug!("Connection count is 0.");
+                debug!("There are no connections. Shutting down.");
                 let shutdown = self.shutdown.load(Ordering::Acquire);
                 if shutdown {
                     self._shutdown();
                 }
             }
+            debug!(
+                "Current connections: {}",
+                self.connections.load(Ordering::Acquire)
+            );
         }
     }
     /// Gets the value of the internal shutdown flag. This signals a graceful shutdown is underway.
@@ -213,8 +221,13 @@ impl Manager {
         if self.connections.load(Ordering::Acquire) == 0 {
             self._shutdown();
         }
+        debug!(
+            "Current connections: {}",
+            self.connections.load(Ordering::Acquire)
+        );
 
         // we stop listening immediately
+        info!("Notifying wakers.");
         self.wakers.notify();
     }
     #[cfg(feature = "graceful-shutdown")]
@@ -340,9 +353,14 @@ impl<'a> Future for AcceptFuture<'a> {
 
         #[cfg(feature = "graceful-shutdown")]
         {
+            debug!(
+                "Current connections: {}",
+                me.manager.shutdown.load(Ordering::Acquire)
+            );
             if me.manager.shutdown.load(Ordering::Acquire) {
                 Poll::Ready(AcceptAction::Shutdown)
             } else {
+                debug!("Set listener waker.");
                 me.manager.set_waker(me.index, Waker::clone(cx.waker()));
                 let poll = me.listener.poll_accept(cx);
 
