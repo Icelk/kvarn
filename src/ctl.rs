@@ -119,7 +119,6 @@ impl Debug for Plugins {
 }
 impl Plugins {
     pub(crate) fn new() -> Self {
-        #[allow(unused_mut)] // if the feature `graceful-shutdown` isn't enabled.
         let mut me = Self::empty();
         #[cfg(feature = "graceful-shutdown")]
         me.add_plugin(
@@ -139,6 +138,23 @@ impl Plugins {
                     .post_send(move || {
                         sender.send(()).expect("failed to shut down");
                     })
+                })
+            }),
+        );
+        me.add_plugin(
+            "ping",
+            Box::new(|args, _, _| {
+                let mut data = args.args.iter().fold(String::new(), |mut acc, arg| {
+                    acc.push(' ');
+                    utils::encode_quoted_str(arg, &mut acc);
+                    acc
+                });
+                // remove first space
+                if !data.is_empty() {
+                    data.remove(0);
+                }
+                PluginResponse::new(PluginResponseKind::Ok {
+                    data: Some(data.into_bytes()),
                 })
             }),
         );
