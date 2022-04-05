@@ -150,9 +150,9 @@ impl Manager {
                 error!("Connection count is less than 0. Please report this error.");
             }
             if connections <= 0 {
-                debug!("There are no connections. Shutting down.");
                 let shutdown = self.shutdown.load(Ordering::Acquire);
                 if shutdown {
+                    debug!("There are no connections. Shutting down.");
                     self._shutdown();
                 }
             }

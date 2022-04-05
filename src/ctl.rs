@@ -243,10 +243,8 @@ pub(crate) async fn listen(
             };
         }
 
-        let runtime = tokio::runtime::Handle::current();
         let overriden = kvarn_signal::unix::start_at(
             move |data| {
-                let _rt = runtime.enter();
                 let data = if let Ok(s) = str::from_utf8(data) {
                     s
                 } else {
