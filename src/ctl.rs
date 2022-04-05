@@ -238,13 +238,9 @@ impl Plugins {
                     });
                 }
 
-                let executable = std::env::current_exe()
-                    .map(PathBuf::into_os_string)
-                    .or_else(|_| {
-                        std::env::args_os().next().ok_or_else(|| {
-                            io::Error::new(io::ErrorKind::NotFound, "executable not found")
-                        })
-                    });
+                let executable = std::env::args_os()
+                    .next()
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "executable not found"));
                 let program = match executable {
                     Ok(p) => p,
                     Err(err) => {
