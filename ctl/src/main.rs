@@ -34,6 +34,18 @@ async fn main() {
                 .default_value("kvarn.sock"),
         )
         .arg(
+            Arg::new("silent")
+                .short('s')
+                .long("quiet")
+                .help("Silence output"),
+        )
+        .arg(
+            Arg::new("accept-not-found")
+                .short('i')
+                .long("accept-not-found")
+                .help("Consider 'not found' error to be a success."),
+        )
+        .arg(
             Arg::new("wait")
                 .short('w')
                 .long("wait")
@@ -111,8 +123,12 @@ async fn main() {
                 .to_owned()
         });
 
-    match request(message.as_bytes(), &path, true).await {
-        Ok(args) => println!("{args}"),
+    let accept_not_found = matches.is_present("accept-not-found");
+
+    match request(message.as_bytes(), &path, !accept_not_found).await {
+        Ok(args) if !matches.is_present("silent") => println!("{args}"),
+        Ok(_) => {}
+        Err(3) if accept_not_found => {}
         Err(status) => std::process::exit(status),
     }
 }
