@@ -127,6 +127,10 @@ pub fn check_no_arguments(args: &Arguments) -> Result<(), PluginResponse> {
 ///
 /// If handover isn't supported, there will be a few milliseconds where no one's listening
 /// on the port.
+///
+/// ## `wait`
+///
+/// Waits for the Kvarn instance to shut down.
 pub struct Plugins {
     plugins: HashMap<String, Plugin>,
     // remember to add fields to debug implementation
@@ -155,7 +159,7 @@ impl Plugins {
         let mut me = Self::empty();
         #[cfg(feature = "graceful-shutdown")]
         me.with_shutdown();
-        me.with_ping().with_reload();
+        me.with_ping().with_reload().with_wait();
         me
     }
     pub(crate) fn empty() -> Self {
@@ -226,7 +230,7 @@ impl Plugins {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
-                if !plugins.contain_plugin("shutdown") {
+                if !plugins.contains_plugin("shutdown") {
                     return PluginResponse::new(PluginResponseKind::Error {
                         data: Some(
                             "No shutdown plugin was found. It is required for reload.".into(),
@@ -273,12 +277,25 @@ impl Plugins {
         );
         self
     }
+    pub(crate) fn with_wait(&mut self) -> &mut Self {
+        self.add_plugin(
+            "wait",
+            plugin!(|args, _, shutdown, _| {
+                if let Err(r) = check_no_arguments(&args) {
+                    return r;
+                }
+                shutdown.wait().await;
+                PluginResponse::new(PluginResponseKind::Ok { data: None })
+            }),
+        );
+        self
+    }
 
     // public getters
     /// Check if plugin with `name` is present.
     /// This means it can be called from `kvarnctl`.
     #[must_use]
-    pub fn contain_plugin(&self, name: impl AsRef<str>) -> bool {
+    pub fn contains_plugin(&self, name: impl AsRef<str>) -> bool {
         self.plugins.contains_key(name.as_ref())
     }
     /// Get an iterator of all the plugins attached to this instance.
