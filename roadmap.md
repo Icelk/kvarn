@@ -74,10 +74,10 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 
 ## To do
 
--   [ ] A `kvarnctl` executable to control the running kvarn instance.
+-   [x] A `kvarnctl` executable to control the running kvarn instance.
 -   [x] Production ready reverse proxy.
 -   [x] Reading host names from certificate.
--   [ ] Graceful restart through systemd service
+-   [x] Graceful restart through systemd service
 -   [x] [doc_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html)
 -   [x] noonce implementation
 -   [x] Correct PHP/FastCGI implementation.

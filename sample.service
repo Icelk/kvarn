@@ -1,0 +1,24 @@
+# This could be copied to either ~/.config/systemd/user/ or /etc/systemd/system/
+# Note that home `~` is used here, if you install it to /etc/, consider placing it in
+# /usr/bin/ and just execute the binary name (as /usr/bin/ is in your path).
+#
+# This uses kvarnctl to control your Kvarn instance.
+[Unit]
+Description=My Kvarn server
+After=network-online.target
+
+[Service]
+# Start binary, but send it to background (`&`)
+#
+# If your Kvarn instance listens on another socket (can be changed on the RunConfig),
+# you can add the argument `-p "<your path>"`
+#
+# This assumes kvarnctl is in your path. If you've ran `cargo install`,
+# replace `kvarnctl` with ~/.cargo/bin/kvarnctl (you need to use a shell if you use `~`)
+# This assumes you're running this as a user, else, copy the binary to /usr/bin/
+ExecStart=sh -c "~/kvarn/kvarn-reference/target/release/kvarn-reference & kvarnctl --wait"
+ExecStop=kvarnctl -i shutdown
+ExecReload=kvarnctl reload
+
+[Install]
+WantedBy=default.target

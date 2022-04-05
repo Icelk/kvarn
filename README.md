@@ -37,6 +37,14 @@ The two heavy-hitters are `tokio` (async runtime for async networking, file acce
 `brotli` and `flate2` are enabled by default to provide compression, but can be turned off.
 `h2` provides optional (but _strongly preferred_) support for the HTTP/2 protocol.
 
+## Pushing to production
+
+Take a look at the [sample.service](https://github.com/Icelk/kvarn/blob/main/sample.service)
+for how to configure systemd to use [kvarnctl](https://kvarn.org/ctl/) to manage Kvarn.
+
+You can now use `systemctl --user reload kvarn` or similar to reload the server if you've recompiled.
+This ensures ([exceptions](https://kvarn.org/shutdown-handover.#handover)) **NO downtime**. Not even a few milliseconds.
+
 # Downloads
 
 If you want to download the `.rlib` files, they are published in [actions](https://github.com/Icelk/kvarn/actions) after each good commit.
