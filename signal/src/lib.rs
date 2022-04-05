@@ -103,10 +103,7 @@ pub mod unix {
         let overridden = tokio::fs::remove_file(path).await.is_ok();
 
         match UnixListener::bind(path) {
-            Err(err) => error!(
-                "Failed to listen on {:?}. Handover will not work! {:?}",
-                path, err
-            ),
+            Err(_err) => {}
             Ok(listener) => {
                 tokio::spawn(async move {
                     let handler = Arc::new(handler);
