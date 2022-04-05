@@ -75,7 +75,12 @@ impl Debug for PluginResponse {
 ///
 /// They are ran within a tokio context, so you can use e.g. [`tokio::spawn`].
 pub type Plugin = Box<
-    dyn Fn(Arguments, &Vec<PortDescriptor>, &shutdown::Manager, &Plugins) -> PluginResponse
+    dyn for<'a> Fn(
+            Arguments,
+            &'a Vec<PortDescriptor>,
+            &'a shutdown::Manager,
+            &'a Plugins,
+        ) -> Pin<Box<dyn Future<Output = PluginResponse> + Send + Sync + 'a>>
         + Send
         + Sync,
 >;
@@ -119,6 +124,9 @@ pub fn check_no_arguments(args: &Arguments) -> Result<(), PluginResponse> {
 /// Starts a new instance of Kvarn which takes control.
 /// Requires a `shutdown` plugin to be present and
 /// [handover support](https://kvarn.org/shutdown-handover.#handover).
+///
+/// If handover isn't supported, there will be a few milliseconds where no one's listening
+/// on the port.
 pub struct Plugins {
     plugins: HashMap<String, Plugin>,
     // remember to add fields to debug implementation
@@ -161,29 +169,31 @@ impl Plugins {
         self.plugins.insert(name.as_ref().to_owned(), plugin);
         self
     }
+    pub(crate) fn _add_plugin(&mut self, name: String, plugin: Plugin) -> &mut Self {
+        self.plugins.insert(name, plugin);
+        self
+    }
     #[cfg(feature = "graceful-shutdown")]
     pub(crate) fn with_shutdown(&mut self) -> &mut Self {
         self.add_plugin(
             "shutdown",
-            Box::new(|args, _, shutdown, _| {
+            plugin!(|args, _, shutdown, _| {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
-                tokio::runtime::Handle::current().block_on(async move {
-                    // we register (with the call to `wait_for_pre_shutdown`),
-                    // then shut down, then wait.
-                    // If we shut down before registering, we could hang forever
-                    let sender = shutdown.wait_for_pre_shutdown();
-                    shutdown.shutdown();
-                    let sender = sender.await;
+                // we register (with the call to `wait_for_pre_shutdown`),
+                // then shut down, then wait.
+                // If we shut down before registering, we could hang forever
+                let sender = shutdown.wait_for_pre_shutdown();
+                shutdown.shutdown();
+                let sender = sender.await;
 
-                    PluginResponse::new(PluginResponseKind::Ok {
-                        data: Some("'Successfully completed a graceful shutdown.'".into()),
-                    })
-                    .close()
-                    .post_send(move || {
-                        sender.send(()).expect("failed to shut down");
-                    })
+                PluginResponse::new(PluginResponseKind::Ok {
+                    data: Some("'Successfully completed a graceful shutdown.'".into()),
+                })
+                .close()
+                .post_send(move || {
+                    sender.send(()).expect("failed to shut down");
                 })
             }),
         );
@@ -192,7 +202,7 @@ impl Plugins {
     pub(crate) fn with_ping(&mut self) -> &mut Self {
         self.add_plugin(
             "ping",
-            Box::new(|args, _, _, _| {
+            plugin!(|args, _, _, _| {
                 let mut data = args.args.iter().fold(String::new(), |mut acc, arg| {
                     acc.push(' ');
                     utils::encode_quoted_str(arg, &mut acc);
@@ -212,13 +222,18 @@ impl Plugins {
     pub(crate) fn with_reload(&mut self) -> &mut Self {
         self.add_plugin(
             "reload",
-            Box::new(|args, _, shutdown, _| {
+            plugin!(|args, _, shutdown, plugins| {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
+                if !plugins.contain_plugin("shutdown") {
+                    return PluginResponse::new(PluginResponseKind::Error {
+                        data: Some(
+                            "No shutdown plugin was found. It is required for reload.".into(),
+                        ),
+                    });
+                }
 
-                let mut args = std::env::args_os();
-                let _executable = args.next();
                 let executable = std::env::current_exe();
                 let program = match executable {
                     Ok(p) => p,
@@ -230,7 +245,9 @@ impl Plugins {
                     }
                 };
                 let mut command = std::process::Command::new(program);
-                command.args(args).stdin(std::process::Stdio::inherit());
+                command
+                    .args(std::env::args_os().skip(1))
+                    .stdin(std::process::Stdio::inherit());
 
                 if let Ok(cwd) = std::env::current_dir() {
                     command.current_dir(cwd);
@@ -246,8 +263,7 @@ impl Plugins {
                     }
                 };
 
-                let sender =
-                    tokio::runtime::Handle::current().block_on(shutdown.wait_for_pre_shutdown());
+                let sender = shutdown.wait_for_pre_shutdown().await;
 
                 PluginResponse::new(PluginResponseKind::Ok {
                     data: Some("successfully reloaded Kvarn".into()),
@@ -275,6 +291,33 @@ impl Default for Plugins {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Create a [`Plugin`].
+///
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// use ctl::*;
+/// let mut config = RunConfig::new();
+/// config.add_plugin(
+///     "wait",
+///     plugin!(|args, _, shutdown, _| {
+///         if let Err(r) = check_no_arguments(&args) {
+///             return r;
+///         }
+///         shutdown.wait().await;
+///         PluginResponse::new(PluginResponseKind::Ok { data: None })
+///     })
+/// );
+#[macro_export]
+macro_rules! plugin {
+    (|$args:tt, $ports:tt, $shutdown:tt, $plugins:tt $(,)?|  $code:block ) => {{
+        Box::new(|$args, $ports, $shutdown, $plugins| {
+            Box::pin(async move { $code }) as $crate::extensions::RetSyncFut<'_, _>
+        })
+    }};
 }
 
 /// Default message path.
@@ -340,56 +383,65 @@ pub(crate) async fn listen(
             };
         }
 
+        let plugins = Arc::new(plugins);
         let overriden = kvarn_signal::unix::start_at(
             move |data| {
-                let data = if let Ok(s) = str::from_utf8(data) {
-                    s
-                } else {
-                    return kvarn_signal::unix::HandlerResponse {
-                        data: "error Received binary content. Requests have to be UTF-8.".into(),
-                        close: false,
-                        post_send: None,
-                    };
-                };
-                let mut iter = utils::quoted_str_split(data);
-                let name = iter.next().unwrap_or_default();
-                let args = iter.collect();
-                let arguments = Arguments { name, args };
+                let plugins = Arc::clone(&plugins);
+                let shutdown = Arc::clone(&shutdown);
+                let ports = Arc::clone(&ports);
 
-                if let Some(plugin) = plugins.plugins.get(&arguments.name) {
-                    let response = (plugin)(arguments, &ports, &shutdown, &plugins);
-                    let (data, prepend) = match response.kind {
-                        PluginResponseKind::Error { data } => {
-                            if let Some(data) = data.as_deref() {
-                                warn!(
-                                    "Encountered error on kvarnctl socket: {:?}",
-                                    String::from_utf8_lossy(data)
-                                );
-                            } else {
-                                warn!("Encountered error on kvarnctl socket.");
+                Box::pin(async move {
+                    let data = &data;
+                    let data = if let Ok(s) = str::from_utf8(data) {
+                        s
+                    } else {
+                        return kvarn_signal::unix::HandlerResponse {
+                            data: "error Received binary content. Requests have to be UTF-8."
+                                .into(),
+                            close: false,
+                            post_send: None,
+                        };
+                    };
+                    let mut iter = utils::quoted_str_split(data);
+                    let name = iter.next().unwrap_or_default();
+                    let args = iter.collect();
+                    let arguments = Arguments { name, args };
+
+                    if let Some(plugin) = plugins.plugins.get(&arguments.name) {
+                        let response = (plugin)(arguments, &ports, &shutdown, &plugins).await;
+                        let (data, prepend) = match response.kind {
+                            PluginResponseKind::Error { data } => {
+                                if let Some(data) = data.as_deref() {
+                                    warn!(
+                                        "Encountered error on kvarnctl socket: {:?}",
+                                        String::from_utf8_lossy(data)
+                                    );
+                                } else {
+                                    warn!("Encountered error on kvarnctl socket.");
+                                }
+                                (data, "error")
                             }
-                            (data, "error")
-                        }
-                        PluginResponseKind::Ok { data } => (data, "ok"),
-                    };
-                    let mut data = data.unwrap_or_default();
-                    let len = prepend.len() + if data.is_empty() { 0 } else { 1 };
-                    (0..len).for_each(|_| data.insert(0, b' '));
-                    data[..prepend.len()].copy_from_slice(prepend.as_bytes());
+                            PluginResponseKind::Ok { data } => (data, "ok"),
+                        };
+                        let mut data = data.unwrap_or_default();
+                        let len = prepend.len() + if data.is_empty() { 0 } else { 1 };
+                        (0..len).for_each(|_| data.insert(0, b' '));
+                        data[..prepend.len()].copy_from_slice(prepend.as_bytes());
 
-                    kvarn_signal::unix::HandlerResponse {
-                        data,
-                        close: response.close,
-                        post_send: response.post_send,
+                        kvarn_signal::unix::HandlerResponse {
+                            data,
+                            close: response.close,
+                            post_send: response.post_send,
+                        }
+                    } else {
+                        warn!("Got unexpected message on socket: {:?}", data,);
+                        kvarn_signal::unix::HandlerResponse {
+                            data: Vec::from("error 'Command not found.'"),
+                            close: false,
+                            post_send: None,
+                        }
                     }
-                } else {
-                    warn!("Got unexpected message on socket: {:?}", data,);
-                    kvarn_signal::unix::HandlerResponse {
-                        data: Vec::from("error 'Command not found.'"),
-                        close: false,
-                        post_send: None,
-                    }
-                }
+                }) as RetSyncFut<'_, kvarn_signal::unix::HandlerResponse>
             },
             &path,
         )

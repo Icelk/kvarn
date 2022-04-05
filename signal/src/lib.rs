@@ -9,9 +9,11 @@
 pub mod unix {
     use futures_util::FutureExt;
     use log::{error, warn};
+    use std::future::Future;
     use std::io;
     use std::ops::Deref;
     use std::path::Path;
+    use std::pin::Pin;
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
@@ -83,7 +85,7 @@ pub mod unix {
     /// The `handler` gets the data from the request, and should return whether to close the
     /// listener and the data to send back.
     ///
-    /// `handler` is guaranteed to be inside a Tokio context - you can use e.g. [`tokio::spawn`].
+    /// `handler` is guaranteed to be inside an async Tokio context - you can use e.g. [`tokio::spawn`].
     ///
     /// # Return value
     ///
@@ -91,7 +93,10 @@ pub mod unix {
     /// The removed socket might be live or a leftover from a previous call to this (or any other
     /// UNIX socket creation).
     pub async fn start_at(
-        handler: impl Fn(&[u8]) -> HandlerResponse + Send + Sync + 'static,
+        handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse> + Send + Sync>>
+            + Send
+            + Sync
+            + 'static,
         path: impl AsRef<Path>,
     ) -> bool {
         let path = path.as_ref();
@@ -123,19 +128,11 @@ pub mod unix {
                                 }
                                 let handler = Arc::clone(&handler);
 
-                                // enter the runtime below to be able to spawn tokio tasks inside
-                                // the handler.
-                                let runtime = tokio::runtime::Handle::current();
                                 let HandlerResponse {
                                     data,
                                     close,
                                     post_send,
-                                } = tokio::task::spawn_blocking(move || {
-                                    let _rt = runtime.enter();
-                                    handler(&data)
-                                })
-                                .await
-                                .unwrap();
+                                } = handler(data).await;
 
                                 if let Err(err) = connection.write_all(&data).await {
                                     warn!("Failed to write response: {err:?}");
