@@ -75,7 +75,9 @@ impl Debug for PluginResponse {
 ///
 /// They are ran within a tokio context, so you can use e.g. [`tokio::spawn`].
 pub type Plugin = Box<
-    dyn Fn(Arguments, &Vec<PortDescriptor>, &shutdown::Manager) -> PluginResponse + Send + Sync,
+    dyn Fn(Arguments, &Vec<PortDescriptor>, &shutdown::Manager, &Plugins) -> PluginResponse
+        + Send
+        + Sync,
 >;
 
 /// Check if `args` has no arguments. If that's the case, an error with the appropriate
@@ -95,7 +97,29 @@ pub fn check_no_arguments(args: &Arguments) -> Result<(), PluginResponse> {
     }
 }
 
-pub(crate) struct Plugins {
+/// The plugins this Kvarn instance supports.
+///
+/// All plugins added by [`RunConfig::add_plugin`] are available to [`Plugin`]s in runtime.
+///
+/// # Defaults
+///
+/// More info can be found at [kvarn.org](https://kvarn.org/ctl/).
+///
+/// ## `shutdown`
+///
+/// If the feature `graceful-shutdown` is enabled, a plugin with the name `shutdown` is
+/// added. It's functionality can be changed by adding a new plugin with the same name.
+///
+/// ## `ping`
+///
+/// The `ping` plugin sends back all the args we received.
+///
+/// ## `reload`
+///
+/// Starts a new instance of Kvarn which takes control.
+/// Requires a `shutdown` plugin to be present and
+/// [handover support](https://kvarn.org/shutdown-handover.#handover).
+pub struct Plugins {
     plugins: HashMap<String, Plugin>,
     // remember to add fields to debug implementation
 }
@@ -118,12 +142,30 @@ impl Debug for Plugins {
     }
 }
 impl Plugins {
+    // constructors
     pub(crate) fn new() -> Self {
         let mut me = Self::empty();
         #[cfg(feature = "graceful-shutdown")]
-        me.add_plugin(
+        me.with_shutdown();
+        me.with_ping().with_reload();
+        me
+    }
+    pub(crate) fn empty() -> Self {
+        Self {
+            plugins: HashMap::new(),
+        }
+    }
+
+    // add plugins
+    pub(crate) fn add_plugin(&mut self, name: impl AsRef<str>, plugin: Plugin) -> &mut Self {
+        self.plugins.insert(name.as_ref().to_owned(), plugin);
+        self
+    }
+    #[cfg(feature = "graceful-shutdown")]
+    pub(crate) fn with_shutdown(&mut self) -> &mut Self {
+        self.add_plugin(
             "shutdown",
-            Box::new(|args, _, shutdown| {
+            Box::new(|args, _, shutdown, _| {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
@@ -145,9 +187,12 @@ impl Plugins {
                 })
             }),
         );
-        me.add_plugin(
+        self
+    }
+    pub(crate) fn with_ping(&mut self) -> &mut Self {
+        self.add_plugin(
             "ping",
-            Box::new(|args, _, _| {
+            Box::new(|args, _, _, _| {
                 let mut data = args.args.iter().fold(String::new(), |mut acc, arg| {
                     acc.push(' ');
                     utils::encode_quoted_str(arg, &mut acc);
@@ -162,9 +207,12 @@ impl Plugins {
                 })
             }),
         );
-        me.add_plugin(
+        self
+    }
+    pub(crate) fn with_reload(&mut self) -> &mut Self {
+        self.add_plugin(
             "reload",
-            Box::new(|args, _, shutdown| {
+            Box::new(|args, _, shutdown, _| {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
@@ -207,16 +255,20 @@ impl Plugins {
                 .post_send(move || sender.send(()).unwrap())
             }),
         );
-        me
-    }
-    pub(crate) fn add_plugin(&mut self, name: impl AsRef<str>, plugin: Plugin) -> &mut Self {
-        self.plugins.insert(name.as_ref().to_owned(), plugin);
         self
     }
-    pub(crate) fn empty() -> Self {
-        Self {
-            plugins: HashMap::new(),
-        }
+
+    // public getters
+    /// Check if plugin with `name` is present.
+    /// This means it can be called from `kvarnctl`.
+    #[must_use]
+    pub fn contain_plugin(&self, name: impl AsRef<str>) -> bool {
+        self.plugins.contains_key(name.as_ref())
+    }
+    /// Get an iterator of all the plugins attached to this instance.
+    /// All of the returned names are commands which can be called from `kvarnctl`.
+    pub fn iter(&self) -> impl Iterator<Item = &str> + Send + Sync + '_ {
+        self.plugins.iter().map(|(key, _)| key.as_str())
     }
 }
 impl Default for Plugins {
@@ -305,7 +357,7 @@ pub(crate) async fn listen(
                 let arguments = Arguments { name, args };
 
                 if let Some(plugin) = plugins.plugins.get(&arguments.name) {
-                    let response = (plugin)(arguments, &ports, &shutdown);
+                    let response = (plugin)(arguments, &ports, &shutdown, &plugins);
                     let (data, prepend) = match response.kind {
                         PluginResponseKind::Error { data } => {
                             if let Some(data) = data.as_deref() {
