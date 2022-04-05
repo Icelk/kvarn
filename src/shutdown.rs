@@ -67,6 +67,8 @@ pub struct Manager {
     #[cfg(feature = "graceful-shutdown")]
     shutdown: AtomicBool,
     #[cfg(feature = "graceful-shutdown")]
+    shutting_down: AtomicBool,
+    #[cfg(feature = "graceful-shutdown")]
     connections: AtomicIsize,
 
     #[cfg(feature = "graceful-shutdown")]
@@ -94,6 +96,7 @@ impl Manager {
             let pre_shutdown_channel = watch_channel(tokio::sync::mpsc::unbounded_channel().0);
             Self {
                 shutdown: AtomicBool::new(false),
+                shutting_down: AtomicBool::new(false),
                 connections: AtomicIsize::new(0),
 
                 wakers: WakerList::new(_capacity),
@@ -232,6 +235,9 @@ impl Manager {
     }
     #[cfg(feature = "graceful-shutdown")]
     fn _shutdown(&self) {
+        if self.shutting_down.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let channel = self.channel.0.clone();
         let pre_channel = self.pre_shutdown_channel.0.clone();
         let count = Arc::clone(&self.pre_shutdown_count);
