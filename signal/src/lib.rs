@@ -7,6 +7,7 @@
 
 #[cfg(unix)]
 pub mod unix {
+    use futures_util::FutureExt;
     use log::{error, warn};
     use std::io;
     use std::ops::Deref;
@@ -82,6 +83,8 @@ pub mod unix {
     /// The `handler` gets the data from the request, and should return whether to close the
     /// listener and the data to send back.
     ///
+    /// `handler` is guaranteed to be inside a Tokio context - you can use e.g. [`tokio::spawn`].
+    ///
     /// # Return value
     ///
     /// Returns `true` if we removed an existing socket, `false` otherwise.
@@ -102,35 +105,59 @@ pub mod unix {
             Ok(listener) => {
                 tokio::spawn(async move {
                     let handler = Arc::new(handler);
-                    while let Ok((mut connection, _addr)) = listener.accept().await {
-                        let mut data = Vec::new();
-                        if let Err(err) = connection.read_to_end(&mut data).await {
-                            warn!("Failed on reading request: {err:?}");
-                            continue;
-                        }
-                        let handler = Arc::clone(&handler);
-                        let HandlerResponse {
-                            data,
-                            close,
-                            post_send,
-                        } = tokio::task::spawn_blocking(move || handler(&data))
-                            .await
-                            .unwrap();
+                    // use a sender to poll both the listen loop and the receiver, which receives
+                    // when the listen loop wants to break.
+                    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
 
-                        if let Err(err) = connection.write_all(&data).await {
-                            warn!("Failed to write response: {err:?}");
-                            continue;
+                    let listen_loop = Box::pin(async move {
+                        while let Ok((mut connection, _addr)) = listener.accept().await {
+                            let handler = Arc::clone(&handler);
+                            let sender = sender.clone();
+
+                            // spawn here so the listening isn't blocked.
+                            tokio::spawn(async move {
+                                let mut data = Vec::new();
+                                if let Err(err) = connection.read_to_end(&mut data).await {
+                                    warn!("Failed on reading request: {err:?}");
+                                    return;
+                                }
+                                let handler = Arc::clone(&handler);
+
+                                // enter the runtime below to be able to spawn tokio tasks inside
+                                // the handler.
+                                let runtime = tokio::runtime::Handle::current();
+                                let HandlerResponse {
+                                    data,
+                                    close,
+                                    post_send,
+                                } = tokio::task::spawn_blocking(move || {
+                                    let _rt = runtime.enter();
+                                    handler(&data)
+                                })
+                                .await
+                                .unwrap();
+
+                                if let Err(err) = connection.write_all(&data).await {
+                                    warn!("Failed to write response: {err:?}");
+                                    return;
+                                }
+                                if let Err(err) = connection.shutdown().await {
+                                    warn!("Failed to flush content. {:?}", err);
+                                }
+                                if let Some(post_send) = post_send {
+                                    (post_send)();
+                                }
+                                if close {
+                                    sender.send(()).await.unwrap();
+                                }
+                            });
                         }
-                        if let Err(err) = connection.shutdown().await {
-                            error!("Failed to flush content. {:?}", err);
-                        }
-                        if let Some(post_send) = post_send {
-                            post_send();
-                        }
-                        if close {
-                            break;
-                        }
-                    }
+                    });
+                    let mut break_recv = Box::pin(receiver.recv().fuse());
+                    futures_util::select! {
+                        _ = listen_loop.fuse() => (),
+                        _ = break_recv => (),
+                    };
                 });
             }
         }
