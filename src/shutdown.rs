@@ -234,7 +234,7 @@ impl Manager {
     fn _shutdown(&self) {
         let channel = self.channel.0.clone();
         let pre_channel = self.pre_shutdown_channel.0.clone();
-        let count = self.pre_shutdown_count.clone();
+        let count = Arc::clone(&self.pre_shutdown_count);
         tokio::spawn(async move {
             let mut confirmation_channel = tokio::sync::mpsc::unbounded_channel();
             // UNWRAP: `self` will always have 1 instance,
@@ -271,22 +271,31 @@ impl Manager {
             std::future::pending::<()>().await;
         }
     }
+    #[allow(rustdoc::broken_intra_doc_links)]
     /// Hooks into the stage before Kvarn signals it's [shutdown](Self::wait).
     /// **Use with care.** See comment below.
     ///
     /// You MUST send `()` to the returned sender ONCE when you are done shutting down.
     /// Abuse of this guarantee leads to unwanted timing of shutdown, or none.
     ///
+    /// You can call [`Self::shutdown`] before awaiting the returned future.
+    ///
     /// If the feature `graceful-shutdown` is disabled, this blocks forever.
-    pub async fn wait_for_pre_shutdown(&self) -> tokio::sync::mpsc::UnboundedSender<()> {
+    pub fn wait_for_pre_shutdown(
+        &self,
+    ) -> impl Future<Output = tokio::sync::mpsc::UnboundedSender<()>> + '_ {
         #[cfg(feature = "graceful-shutdown")]
         {
             let mut receiver = WatchReceiver::clone(&self.pre_shutdown_channel.1);
+            // we MUST add this before the user can call shutdown, else, it'll load this before the
+            // future is ran
             self.pre_shutdown_count.fetch_add(1, Ordering::SeqCst);
-            drop(receiver.changed().await);
-            info!("Received pre shutdown signal");
-            let borrow = receiver.borrow();
-            (*borrow).clone()
+            async move {
+                drop(receiver.changed().await);
+                info!("Received pre shutdown signal");
+                let borrow = receiver.borrow();
+                (*borrow).clone()
+            }
         }
         #[cfg(not(feature = "graceful-shutdown"))]
         {

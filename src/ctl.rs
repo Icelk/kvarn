@@ -127,9 +127,13 @@ impl Plugins {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
-                shutdown.shutdown();
                 tokio::runtime::Handle::current().block_on(async move {
-                    let sender = shutdown.wait_for_pre_shutdown().await;
+                    // we register (with the call to `wait_for_pre_shutdown`),
+                    // then shut down, then wait.
+                    // If we shut down before registering, we could hang forever
+                    let sender = shutdown.wait_for_pre_shutdown();
+                    shutdown.shutdown();
+                    let sender = sender.await;
 
                     PluginResponse::new(PluginResponseKind::Ok {
                         data: Some("'Successfully completed a graceful shutdown.'".into()),
