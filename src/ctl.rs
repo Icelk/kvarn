@@ -162,6 +162,51 @@ impl Plugins {
                 })
             }),
         );
+        me.add_plugin(
+            "reload",
+            Box::new(|args, _, shutdown| {
+                if let Err(r) = check_no_arguments(&args) {
+                    return r;
+                }
+
+                let mut args = std::env::args_os();
+                let _executable = args.next();
+                let executable = std::env::current_exe();
+                let program = match executable {
+                    Ok(p) => p,
+                    Err(err) => {
+                        error!("Could not reload - arg0 isn't found: {err}");
+                        return PluginResponse::new(PluginResponseKind::Error {
+                            data: Some(format!("arg0 isn't found: {err}").into()),
+                        });
+                    }
+                };
+                let mut command = std::process::Command::new(program);
+                command.args(args).stdin(std::process::Stdio::inherit());
+
+                if let Ok(cwd) = std::env::current_dir() {
+                    command.current_dir(cwd);
+                }
+
+                let mut _child = match command.spawn() {
+                    Ok(c) => c,
+                    Err(err) => {
+                        error!("Failed to spawn child when reloading: {err}");
+                        return PluginResponse::new(PluginResponseKind::Error {
+                            data: Some(format!("failed to spawn child: {err}").into()),
+                        });
+                    }
+                };
+
+                let sender =
+                    tokio::runtime::Handle::current().block_on(shutdown.wait_for_pre_shutdown());
+
+                PluginResponse::new(PluginResponseKind::Ok {
+                    data: Some("successfully reloaded Kvarn".into()),
+                })
+                .post_send(move || sender.send(()).unwrap())
+            }),
+        );
         me
     }
     pub(crate) fn add_plugin(&mut self, name: impl AsRef<str>, plugin: Plugin) -> &mut Self {
