@@ -284,7 +284,8 @@ impl Plugins {
                 if let Err(r) = check_no_arguments(&args) {
                     return r;
                 }
-                shutdown.wait().await;
+                let sender = shutdown.wait_for_pre_shutdown().await;
+                sender.send(()).unwrap();
                 PluginResponse::new(PluginResponseKind::Ok { data: None })
             }),
         );
