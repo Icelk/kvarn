@@ -277,7 +277,6 @@ impl Manager {
             std::future::pending::<()>().await;
         }
     }
-    #[allow(rustdoc::broken_intra_doc_links)]
     /// Hooks into the stage before Kvarn signals it's [shutdown](Self::wait).
     /// **Use with care.** See comment below.
     ///
@@ -287,6 +286,7 @@ impl Manager {
     /// You can call [`Self::shutdown`] before awaiting the returned future.
     ///
     /// If the feature `graceful-shutdown` is disabled, this blocks forever.
+    #[allow(clippy::manual_async_fn)] // cfg
     pub fn wait_for_pre_shutdown(
         &self,
     ) -> impl Future<Output = tokio::sync::mpsc::UnboundedSender<()>> + '_ {
@@ -304,7 +304,7 @@ impl Manager {
             }
         }
         #[cfg(not(feature = "graceful-shutdown"))]
-        {
+        async {
             std::future::pending::<()>().await;
             unreachable!()
         }
