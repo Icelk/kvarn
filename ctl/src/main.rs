@@ -34,11 +34,22 @@ async fn main() {
                 .default_value("kvarn.sock"),
         )
         .arg(
+            Arg::new("wait")
+                .short('w')
+                .long("wait")
+                .help(
+                    "Waits for Kvarn to turn off. This doesn't get affected by reloads. \
+                    If no Kvarn instance is running, \
+                    this will wait for a) one to start and b) for it to turn off.",
+                )
+                .conflicts_with("command"),
+        )
+        .arg(
             Arg::new("command")
                 .takes_value(true)
                 .value_hint(ValueHint::Other)
                 .value_name("COMMAND")
-                .required(true),
+                .required_unless_present("wait"),
         )
         .arg(
             Arg::new("args")
@@ -54,6 +65,24 @@ async fn main() {
             .value_of("path")
             .expect("we provided a default path value"),
     );
+
+    if matches.is_present("wait") {
+        let mut found = false;
+        loop {
+            match request(b"wait", &path, false).await {
+                Ok(_) => found = true,
+                Err(status) => match status {
+                    3 if found => break,
+                    3 if !found => {}
+                    _ => std::process::exit(status),
+                },
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        // exit
+        return;
+    };
+
     let message = matches
         .values_of("args")
         .map(|args| {
@@ -82,12 +111,21 @@ async fn main() {
                 .to_owned()
         });
 
-    let status = match kvarn_signal::unix::send_to(message.as_bytes(), &path).await {
+    match request(message.as_bytes(), &path, true).await {
+        Ok(args) => println!("{args}"),
+        Err(status) => std::process::exit(status),
+    }
+}
+
+async fn request(message: &[u8], path: &Path, err_not_found: bool) -> Result<String, i32> {
+    let status = match kvarn_signal::unix::send_to(message, &path).await {
         kvarn_signal::unix::Response::NotFound => {
-            error!(
-                "A Kvarn instance isn't running at the specified path ({}).",
-                path.display()
-            );
+            if err_not_found {
+                error!(
+                    "A Kvarn instance isn't running at the specified path ({}).",
+                    path.display()
+                );
+            }
             3
         }
         kvarn_signal::unix::Response::Error => {
@@ -101,8 +139,7 @@ async fn main() {
                 let args = kvarn_utils::join(iter, " ");
                 match command.as_deref() {
                     Some("ok") => {
-                        println!("{args}");
-                        0
+                        return Ok(args);
                     }
                     Some("error") => {
                         if args.trim().is_empty() {
@@ -127,5 +164,5 @@ async fn main() {
             }
         }
     };
-    std::process::exit(status);
+    Err(status)
 }
