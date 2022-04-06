@@ -681,17 +681,12 @@ impl Debug for CacheReply {
     }
 }
 
-/// Will handle a single request, check the cache, process if needed, and caches it.
-/// This is where the response is sent.
-///
-/// This is [layer 4](https://kvarn.org/pipeline.#layer-4--caching-and-compression)
-pub async fn handle_cache(
-    request: &mut Request<application::Body>,
-    address: SocketAddr,
-    host: &Host,
-) -> CacheReply {
+mod handle_cache_helpers {
+    use crate::prelude::*;
     /// Get a [`comprash::CompressedResponse`].
-    async fn get_response(
+    ///
+    /// Handles `sanitize_data` and present extensions.
+    pub(super) async fn get_response(
         request: &mut Request<application::Body>,
         host: &Host,
         sanitize_data: &Result<utils::CriticalRequestComponents, SanitizeError>,
@@ -771,15 +766,17 @@ pub async fn handle_cache(
             path_query,
         )
     }
-
-    async fn maybe_cache<T>(
+    /// Cache `response` if allowed by the other arguments.
+    ///
+    /// Returns the `response` if it wasn't cached.
+    pub(super) async fn maybe_cache<T>(
         host: &Host,
         server_cache: comprash::ServerCachePreference,
         path_query: PathQuery,
         response: VariedResponse,
         method: &Method,
         future: &Option<T>,
-    ) -> bool {
+    ) -> Option<VariedResponse> {
         if future.is_none() {
             if let Some(response_cache) = &host.response_cache {
                 // Call `host::Options::status_code_cache_filter`
@@ -796,90 +793,24 @@ pub async fn handle_cache(
                     };
                     info!("Caching uri {:?}!", &key);
                     lock.cache(key, response);
-                    return true;
+                    return None;
                 }
             }
         } else {
             info!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
         }
-        false
+        Some(response)
     }
-
-    type CacheMutexGuard<'a> =
-        Option<tokio::sync::RwLockReadGuard<'a, Cache<UriKey, VariedResponse>>>;
-    async fn get_lock(host: &Host) -> CacheMutexGuard<'_> {
-        if let Some(response_cache) = &host.response_cache {
-            Some(response_cache.read().await)
-        } else {
-            None
-        }
-    }
-    async fn get_mut_lock(
-        host: &Host,
-    ) -> Option<tokio::sync::RwLockWriteGuard<'_, Cache<UriKey, VariedResponse>>> {
-        if let Some(response_cache) = &host.response_cache {
-            Some(response_cache.write().await)
-        } else {
-            None
-        }
-    }
-    type Cached<'a> = (
-        Option<&'a (VariedResponse, (OffsetDateTime, Option<Duration>))>,
-        UriKey,
-    );
-    type CachedMut<'a> = (
-        Option<&'a mut (VariedResponse, (OffsetDateTime, Option<Duration>))>,
-        UriKey,
-    );
-    fn get_cached(
-        lock: &mut Option<impl std::ops::Deref<Target = comprash::Cache<UriKey, VariedResponse>>>,
-        uri_key: UriKey,
-    ) -> Cached {
-        // For clarity
-        #[allow(clippy::option_if_let_else)]
-        if let Some(lock) = lock {
-            if lock.get_with_lifetime(&uri_key).into_option().is_some() {
-                (lock.get_with_lifetime(&uri_key).into_option(), uri_key)
-            } else {
-                match uri_key {
-                    UriKey::Path(_) => (None, uri_key),
-                    UriKey::PathQuery(p) => {
-                        let p = UriKey::Path(p.into_path());
-                        let t = lock.get_with_lifetime(&p).into_option();
-                        (t, p)
-                    }
-                }
-            }
-        } else {
-            (None, uri_key)
-        }
-    }
-    fn get_cached_mut(
-        lock: &mut Option<
-            impl std::ops::DerefMut<Target = comprash::Cache<UriKey, VariedResponse>>,
-        >,
-        uri_key: UriKey,
-    ) -> CachedMut {
-        // For clarity
-        #[allow(clippy::option_if_let_else)]
-        if let Some(lock) = lock {
-            if lock.get_with_lifetime(&uri_key).into_option().is_some() {
-                (lock.get_mut_with_lifetime(&uri_key).into_option(), uri_key)
-            } else {
-                match uri_key {
-                    UriKey::Path(_) => (None, uri_key),
-                    UriKey::PathQuery(p) => {
-                        let p = UriKey::Path(p.into_path());
-                        let t = lock.get_mut_with_lifetime(&p).into_option();
-                        (t, p)
-                    }
-                }
-            }
-        } else {
-            (None, uri_key)
-        }
-    }
-
+}
+/// Will handle a single request, check the cache, process if needed, and caches it.
+/// This is where the response is sent.
+///
+/// This is [layer 4](https://kvarn.org/pipeline.#layer-4--caching-and-compression)
+pub async fn handle_cache(
+    request: &mut Request<application::Body>,
+    address: SocketAddr,
+    host: &Host,
+) -> CacheReply {
     let sanitize_data = utils::sanitize_request(request);
 
     let overide_uri = host.extensions.resolve_prime(request, host, address).await;
@@ -887,11 +818,20 @@ pub async fn handle_cache(
     let uri_key =
         comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
 
-    let mut lock = get_lock(host).await;
+    let mut lock = if let Some(response_cache) = &host.response_cache {
+        Some(response_cache.read().await)
+    } else {
+        None
+    };
 
+    let cached = if let Some(lock) = &mut lock {
+        uri_key.call_all(|key| lock.get_with_lifetime(key).into_option())
+    } else {
+        (uri_key, None)
+    };
     #[allow(clippy::single_match_else, clippy::unnested_or_patterns)]
-    let (response, identity, future) = match get_cached(&mut lock, uri_key) {
-        (Some((resp, (creation, _))), uri_key)
+    let (response, identity, future) = match cached {
+        (uri_key, Some((resp, (creation, _))))
             if sanitize_data.is_ok()
                 && matches!(request.method(), &Method::GET | &Method::HEAD) =>
         {
@@ -931,17 +871,19 @@ pub async fn handle_cache(
                 *response.status_mut() = StatusCode::NOT_MODIFIED;
                 (response, Bytes::new(), None)
             } else {
+                // get the cached response
                 let (resp_vary, future) = match resp.get_by_request(request) {
                     Ok(arc) => {
                         let arc = Arc::clone(arc);
                         drop(lock);
                         (arc, None)
                     }
+                    // the varied response didn't have any version which matches the request.
                     Err(params) => {
                         // Drop lock during response creation
                         drop(lock);
                         let (compressed_response, _, server_cache, future, path_query) =
-                            get_response(
+                            handle_cache_helpers::get_response(
                                 request,
                                 host,
                                 &sanitize_data,
@@ -950,14 +892,39 @@ pub async fn handle_cache(
                             )
                             .await;
 
-                        let mut lock = get_mut_lock(host).await;
+                        let mut lock = if let Some(response_cache) = &host.response_cache {
+                            Some(response_cache.write().await)
+                        } else {
+                            None
+                        };
                         // Try to get back varied response. If not there, recreate it, as the
                         // match-arm below does.
-                        let arc = match get_cached_mut(&mut lock, uri_key) {
-                            (Some((resp, _)), _) => {
+                        let cached = if let Some(lock) = &mut lock {
+                            {
+                                // inline `UriKey::call_all` because of annoying Rust semantics
+                                // regarding calling impl Fns. We also had to deal with this in
+                                // `kvarn::extensions`.
+                                match lock.get_mut_with_lifetime(&uri_key).into_option() {
+                                    Some(t) => (uri_key, Some(t)),
+                                    None => match uri_key {
+                                        UriKey::Path(_) => (uri_key, None),
+                                        UriKey::PathQuery(path_query) => {
+                                            let uri_key = UriKey::Path(path_query.into_path());
+                                            let result =
+                                                lock.get_mut_with_lifetime(&uri_key).into_option();
+                                            (uri_key, result)
+                                        }
+                                    },
+                                }
+                            }
+                        } else {
+                            (uri_key, None)
+                        };
+                        let arc = match cached {
+                            (_, Some((resp, _))) => {
                                 Arc::clone(resp.push_response(compressed_response, params))
                             }
-                            (None, _) => {
+                            (_, None) => {
                                 let vary_rules = host.vary.rules_from_request(request);
 
                                 // SAFETY: The requirements are met; the cache we're storing this is is part of the
@@ -972,7 +939,7 @@ pub async fn handle_cache(
 
                                 let arc = Arc::clone(varied_response.first());
 
-                                maybe_cache(
+                                handle_cache_helpers::maybe_cache(
                                     host,
                                     server_cache,
                                     path_query,
@@ -1031,7 +998,14 @@ pub async fn handle_cache(
             let sanitize_data = &sanitize_data;
             let overide_uri = overide_uri.as_ref();
             let (compressed_response, _, server_cache, future, path_query) =
-                get_response(request, host, sanitize_data, address, overide_uri).await;
+                handle_cache_helpers::get_response(
+                    request,
+                    host,
+                    sanitize_data,
+                    address,
+                    overide_uri,
+                )
+                .await;
 
             let vary_rules = host.vary.rules_from_request(request);
 
@@ -1060,7 +1034,7 @@ pub async fn handle_cache(
             let vary = &varied_response.first().1;
             vary::apply_header(&mut response, vary);
 
-            let cached = maybe_cache(
+            let cache_rejected = handle_cache_helpers::maybe_cache(
                 host,
                 server_cache,
                 path_query,
@@ -1070,7 +1044,7 @@ pub async fn handle_cache(
             )
             .await;
 
-            if !host.options.disable_if_modified_since && cached {
+            if !host.options.disable_if_modified_since && cache_rejected.is_none() {
                 let last_modified = HeaderValue::from_str(
                     &OffsetDateTime::now_utc()
                         .format(&comprash::HTTP_DATE)
