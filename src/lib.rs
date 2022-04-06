@@ -802,6 +802,76 @@ mod handle_cache_helpers {
         }
         Some(response)
     }
+    pub(super) async fn handle_vary_missing(
+        request: &mut FatRequest,
+        host: &Host,
+        sanitize_data: &Result<utils::CriticalRequestComponents, SanitizeError>,
+        address: SocketAddr,
+        overide_uri: Option<&Uri>,
+        uri_key: UriKey,
+        params: vary::CacheParams,
+    ) -> (
+        Arc<(comprash::CompressedResponse, vary::HeaderCollection)>,
+        Option<extensions::ResponsePipeFuture>,
+    ) {
+        let (compressed_response, _, server_cache, future, path_query) =
+            get_response(request, host, sanitize_data, address, overide_uri).await;
+
+        let mut lock = if let Some(response_cache) = &host.response_cache {
+            Some(response_cache.write().await)
+        } else {
+            None
+        };
+        // Try to get back varied response. If not there, recreate it, as the
+        // match-arm below does.
+        let cached = if let Some(lock) = &mut lock {
+            {
+                // inline `UriKey::call_all` because of annoying Rust semantics
+                // regarding calling impl Fns. We also had to deal with this in
+                // `kvarn::extensions`.
+                match lock.get_mut_with_lifetime(&uri_key).into_option() {
+                    Some(t) => (uri_key, Some(t)),
+                    None => match uri_key {
+                        UriKey::Path(_) => (uri_key, None),
+                        UriKey::PathQuery(path_query) => {
+                            let uri_key = UriKey::Path(path_query.into_path());
+                            let result = lock.get_mut_with_lifetime(&uri_key).into_option();
+                            (uri_key, result)
+                        }
+                    },
+                }
+            }
+        } else {
+            (uri_key, None)
+        };
+        let arc = match cached {
+            (_, Some((resp, _))) => Arc::clone(resp.push_response(compressed_response, params)),
+            (_, None) => {
+                let vary_rules = host.vary.rules_from_request(request);
+
+                // SAFETY: The requirements are met; the cache we're storing this is is part of the
+                // `host`; the `host` will outlive this struct.
+                let varied_response = unsafe {
+                    VariedResponse::new(compressed_response, request, vary_rules.as_ref())
+                };
+
+                let arc = Arc::clone(varied_response.first());
+
+                handle_cache_helpers::maybe_cache(
+                    host,
+                    server_cache,
+                    path_query,
+                    varied_response,
+                    request.method(),
+                    &future,
+                )
+                .await;
+
+                arc
+            }
+        };
+        (arc, future)
+    }
 }
 /// Will handle a single request, check the cache, process if needed, and caches it.
 /// This is where the response is sent.
@@ -883,78 +953,18 @@ pub async fn handle_cache(
                     Err(params) => {
                         // Drop lock during response creation
                         drop(lock);
-                        let (compressed_response, _, server_cache, future, path_query) =
-                            handle_cache_helpers::get_response(
-                                request,
-                                host,
-                                &sanitize_data,
-                                address,
-                                overide_uri.as_ref(),
-                            )
-                            .await;
-
-                        let mut lock = if let Some(response_cache) = &host.response_cache {
-                            Some(response_cache.write().await)
-                        } else {
-                            None
-                        };
-                        // Try to get back varied response. If not there, recreate it, as the
-                        // match-arm below does.
-                        let cached = if let Some(lock) = &mut lock {
-                            {
-                                // inline `UriKey::call_all` because of annoying Rust semantics
-                                // regarding calling impl Fns. We also had to deal with this in
-                                // `kvarn::extensions`.
-                                match lock.get_mut_with_lifetime(&uri_key).into_option() {
-                                    Some(t) => (uri_key, Some(t)),
-                                    None => match uri_key {
-                                        UriKey::Path(_) => (uri_key, None),
-                                        UriKey::PathQuery(path_query) => {
-                                            let uri_key = UriKey::Path(path_query.into_path());
-                                            let result =
-                                                lock.get_mut_with_lifetime(&uri_key).into_option();
-                                            (uri_key, result)
-                                        }
-                                    },
-                                }
-                            }
-                        } else {
-                            (uri_key, None)
-                        };
-                        let arc = match cached {
-                            (_, Some((resp, _))) => {
-                                Arc::clone(resp.push_response(compressed_response, params))
-                            }
-                            (_, None) => {
-                                let vary_rules = host.vary.rules_from_request(request);
-
-                                // SAFETY: The requirements are met; the cache we're storing this is is part of the
-                                // `host`; the `host` will outlive this struct.
-                                let varied_response = unsafe {
-                                    VariedResponse::new(
-                                        compressed_response,
-                                        request,
-                                        vary_rules.as_ref(),
-                                    )
-                                };
-
-                                let arc = Arc::clone(varied_response.first());
-
-                                handle_cache_helpers::maybe_cache(
-                                    host,
-                                    server_cache,
-                                    path_query,
-                                    varied_response,
-                                    request.method(),
-                                    &future,
-                                )
-                                .await;
-
-                                arc
-                            }
-                        };
-
-                        (arc, future)
+                        // in a sepparate function as this is a cold path and to reduce the length
+                        // of this fn
+                        handle_cache_helpers::handle_vary_missing(
+                            request,
+                            host,
+                            &sanitize_data,
+                            address,
+                            overide_uri.as_ref(),
+                            uri_key,
+                            params,
+                        )
+                        .await
                     }
                 };
                 let (resp, vary) = &*resp_vary;
