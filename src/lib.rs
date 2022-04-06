@@ -231,7 +231,7 @@ impl RunConfig {
                         TcpSocket::new_v4()
                             .expect("Failed to create a new IPv4 socket configuration")
                     },
-                    net::SocketAddrV4::new(net::Ipv4Addr::UNSPECIFIED, descriptor.port).into(),
+                    SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), descriptor.port),
                     &mut shutdown_manager,
                 );
                 listeners.push((listener, Arc::clone(&descriptor)));
@@ -683,11 +683,12 @@ impl Debug for CacheReply {
 
 mod handle_cache_helpers {
     use crate::prelude::*;
+
     /// Get a [`comprash::CompressedResponse`].
     ///
     /// Handles `sanitize_data` and present extensions.
     pub(super) async fn get_response(
-        request: &mut Request<application::Body>,
+        request: &mut FatRequest,
         host: &Host,
         sanitize_data: &Result<utils::CriticalRequestComponents, SanitizeError>,
         address: SocketAddr,
@@ -807,7 +808,7 @@ mod handle_cache_helpers {
 ///
 /// This is [layer 4](https://kvarn.org/pipeline.#layer-4--caching-and-compression)
 pub async fn handle_cache(
-    request: &mut Request<application::Body>,
+    request: &mut FatRequest,
     address: SocketAddr,
     host: &Host,
 ) -> CacheReply {
@@ -1070,9 +1071,9 @@ pub async fn handle_cache(
 ///
 /// This is [layer 5](https://kvarn.org/pipeline.#layer-5--pathing)
 pub async fn handle_request(
-    request: &mut Request<application::Body>,
+    request: &mut FatRequest,
     overide_uri: Option<&Uri>,
-    address: net::SocketAddr,
+    address: SocketAddr,
     host: &Host,
     path: &Option<PathBuf>,
 ) -> FatResponse {

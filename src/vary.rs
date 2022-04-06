@@ -254,7 +254,7 @@ struct ReferenceHeader {
 /// A list of [`Header`]s.
 ///
 /// Used as all the [`Header`]s that govern the caching of a single response.
-type HeaderCollection = Vec<Header>;
+pub(crate) type HeaderCollection = Vec<Header>;
 /// The parameters needed to cache a response.
 ///
 /// Can be obtained from [`VariedResponse::get_by_request`].

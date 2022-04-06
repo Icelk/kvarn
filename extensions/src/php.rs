@@ -12,7 +12,7 @@ use crate::*;
 pub fn mount_php(
     extensions: &mut Extensions,
     connection: Connection,
-    capture_fn: Option<impl Fn(&Request<application::Body>, &Host) -> bool + Send + Sync + 'static>,
+    capture_fn: Option<impl Fn(&FatRequest, &Host) -> bool + Send + Sync + 'static>,
 ) {
     extensions.add_prepare_fn(
         Box::new(move |req, host| {

@@ -48,7 +48,7 @@ pub fn mount(extensions: &mut Extensions, manager: SmartPush) -> &mut Extensions
 /// );
 /// ```
 pub fn always<'a>(
-    request: &'a Request<application::Body>,
+    request: &'a FatRequest,
     host: &'a Host,
     response_pipe: &'a mut application::ResponsePipe,
     bytes: Bytes,
@@ -102,7 +102,7 @@ impl Default for SmartPush {
 }
 
 fn push<'a>(
-    request: &'a Request<application::Body>,
+    request: &'a FatRequest,
     host: &'a Host,
     response_pipe: &'a mut application::ResponsePipe,
     bytes: Bytes,
