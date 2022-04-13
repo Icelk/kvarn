@@ -35,34 +35,35 @@ async fn basic() {
                 .map(kvarn_extensions::Connection::Tcp)
         });
 
-    let modify: kvarn_extensions::reverse_proxy::ModifyRequestFn = Arc::new(move |request, _, _| {
-        let path = Arc::clone(&path);
+    let modify: kvarn_extensions::reverse_proxy::ModifyRequestFn =
+        Arc::new(move |request, _, _| {
+            let path = Arc::clone(&path);
 
-        request
-            .headers_mut()
-            .insert("proxy", HeaderValue::from_static("Kvarn"));
+            request
+                .headers_mut()
+                .insert("proxy", HeaderValue::from_static("Kvarn"));
 
-        // We know this is a good path and query; we've just removed the first x bytes.
-        let stripped_path = request.uri().path().get(path.as_str().len()..);
-        if let Some(stripped_path) = stripped_path {
-            let pos = stripped_path.find('/').map(|pos| pos + path.len());
-            if let Some(pos) = pos {
-                let mut parts = request.uri().clone().into_parts();
+            // We know this is a good path and query; we've just removed the first x bytes.
+            let stripped_path = request.uri().path().get(path.as_str().len()..);
+            if let Some(stripped_path) = stripped_path {
+                let pos = stripped_path.find('/').map(|pos| pos + path.len());
+                if let Some(pos) = pos {
+                    let mut parts = request.uri().clone().into_parts();
 
-                if let Some(short_path) = request.uri().path().get(pos..) {
-                    let short = uri::PathAndQuery::from_maybe_shared(Bytes::copy_from_slice(
-                        short_path.as_bytes(),
-                    ))
-                    .unwrap();
-                    parts.path_and_query = Some(short);
-                    parts.scheme = Some(uri::Scheme::HTTP);
-                    // For unwrap, see ↑
-                    let uri = Uri::from_parts(parts).unwrap();
-                    *request.uri_mut() = uri;
+                    if let Some(short_path) = request.uri().path().get(pos..) {
+                        let short = uri::PathAndQuery::from_maybe_shared(Bytes::copy_from_slice(
+                            short_path.as_bytes(),
+                        ))
+                        .unwrap();
+                        parts.path_and_query = Some(short);
+                        parts.scheme = Some(uri::Scheme::HTTP);
+                        // For unwrap, see ↑
+                        let uri = Uri::from_parts(parts).unwrap();
+                        *request.uri_mut() = uri;
+                    }
                 }
             }
-        }
-    });
+        });
     let manager = kvarn_extensions::ReverseProxy::new(
         when,
         connection,
