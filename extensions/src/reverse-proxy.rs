@@ -344,6 +344,17 @@ impl Manager {
         self.modify.push(modify);
         self
     }
+    /// [Add a modify fn](Self::add_modify_fn) which adds the IP of the request as the header
+    /// `x-real-ip`.
+    pub fn with_x_real_ip(self) -> Self {
+        self.add_modify_fn(Arc::new(|req, _, addr| {
+            utils::replace_header(
+                req.headers_mut(),
+                "x-real-ip",
+                HeaderValue::try_from(addr.ip().to_string()).unwrap(),
+            );
+        }))
+    }
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
     pub fn base(base_path: &str, connection: GetConnectionFn, timeout: Duration) -> Self {
         assert_eq!(base_path.chars().next(), Some('/'));
