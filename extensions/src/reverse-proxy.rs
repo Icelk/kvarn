@@ -308,6 +308,7 @@ pub struct Manager {
     modify: ModifyRequestFn,
     timeout: Duration,
     rewrite_url: bool,
+    priority: i32,
 }
 impl Manager {
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
@@ -323,12 +324,18 @@ impl Manager {
             modify,
             timeout,
             rewrite_url: true,
+            priority: -128,
         }
     }
     /// Disables the built-in feature of rewriting the relative URLs so they point to the forwarded
     /// site.
     pub fn disable_url_rewrite(mut self) -> Self {
         self.rewrite_url = false;
+        self
+    }
+    /// Set the priority of the extension. The default is `-128`.
+    pub fn with_priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
         self
     }
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
@@ -374,6 +381,7 @@ impl Manager {
 
         Self::new(when, connection, modify, timeout)
     }
+    /// Attach this reverse proxy to `extensions`.
     pub fn mount(self, extensions: &mut Extensions) {
         let connection = self.connection;
         let modify = self.modify;
@@ -554,7 +562,7 @@ impl Manager {
                     response
                 }
             ),
-            extensions::Id::new(-128, "Reverse proxy").no_override(),
+            extensions::Id::new(self.priority, "Reverse proxy").no_override(),
         );
     }
 }
