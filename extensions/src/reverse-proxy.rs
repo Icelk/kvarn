@@ -293,7 +293,7 @@ impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> B
     }
 }
 
-pub type ModifyRequestFn = Arc<dyn Fn(&mut Request<()>, &mut Bytes) + Send + Sync>;
+pub type ModifyRequestFn = Arc<dyn Fn(&mut Request<()>, &mut Bytes, SocketAddr) + Send + Sync>;
 pub type GetConnectionFn = Arc<dyn (Fn(&FatRequest, &Bytes) -> Option<Connection>) + Send + Sync>;
 
 /// Creates a new [`GetConnectionFn`] which always returns `kind`
@@ -349,7 +349,7 @@ impl Manager {
             request.uri().path().starts_with(when_path.as_str())
         });
 
-        let modify: ModifyRequestFn = Arc::new(move |request, _| {
+        let modify: ModifyRequestFn = Arc::new(move |request, _, _| {
             let path = Arc::clone(&path);
 
             let mut parts = request.uri().clone().into_parts();
@@ -398,7 +398,7 @@ impl Manager {
                 req,
                 host,
                 _path,
-                _addr,
+                addr,
                 move |connection: GetConnectionFn,
                       modify: ModifyRequestFn,
                       timeout: Duration,
@@ -444,7 +444,7 @@ impl Manager {
 
                     let path = empty_req.uri().path().to_owned();
 
-                    modify(&mut empty_req, &mut bytes);
+                    modify(&mut empty_req, &mut bytes, addr);
 
                     let mut response = match connection.request(&empty_req, &bytes, *timeout).await
                     {
