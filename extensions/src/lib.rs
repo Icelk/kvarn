@@ -16,6 +16,7 @@ use kvarn::{extensions::*, prelude::*};
 #[cfg(feature = "reverse-proxy")]
 #[path = "reverse-proxy.rs"]
 pub mod reverse_proxy;
+#[cfg(feature = "connection")]
 pub use connection::Connection;
 #[cfg(feature = "reverse-proxy")]
 pub use reverse_proxy::{localhost, static_connection, Manager as ReverseProxy};
@@ -38,6 +39,7 @@ pub mod templates;
 #[cfg(feature = "templates")]
 pub use templates::templates as templates_ext;
 
+#[cfg(feature = "connection")]
 pub mod connection;
 
 /// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
@@ -157,10 +159,13 @@ pub fn cache(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
 
 pub fn hide(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     box_fut!({
+        #[allow(unused_mut)] // cfg
         let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
         let arguments = utils::extensions::PresentExtensions::new(error.body().clone());
         if let Some(arguments) = &arguments {
+            #[allow(unused_variables)] // cfg
             for argument in arguments.iter() {
+                #[cfg(feature = "templates")]
                 if argument.name() == "tmpl" {
                     let body = templates::handle_template(
                         &argument,

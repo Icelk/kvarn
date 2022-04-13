@@ -21,10 +21,11 @@ async_chunked_transfer = "1.4"
 
 [features]
 default = ["php", "templates", "push"]
-php = ["kvarn-fastcgi-client", "tokio"]
+connection = ["tokio"]
+php = ["kvarn-fastcgi-client", "connection"]
 templates = []
 push = ["url-crawl"]
-reverse-proxy = ["tokio"]
+reverse-proxy = ["connection"]
 
 [dev-dependencies]
 tokio = { version = "1.17", features = ["net", "io-util", "macros"] }
