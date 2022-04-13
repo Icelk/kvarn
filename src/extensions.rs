@@ -1157,7 +1157,15 @@ mod macros {
     macro_rules! prime {
         // pat to also match `_`
         ($request:pat, $host:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PrimeCall, Option<$crate::prelude::Uri>, |$request: &'a $crate::FatRequest:a1, $host: &'a $crate::prelude::Host:a2, $addr: $crate::prelude::SocketAddr:a3|, $(($($move:$ty),+))?, $code)
+            $crate::extension!(
+                $crate::extensions::PrimeCall,
+                Option<$crate::prelude::Uri>,
+                |$request: &'a $crate::FatRequest:a1,
+                $host: &'a $crate::prelude::Host:a2,
+                $addr: $crate::prelude::SocketAddr:a3|,
+                $(($($move:$ty),+))?,
+                $code
+            ) as $crate::extensions::Prime
         }
     }
     /// Will make a [`Prepare`](super::Prepare) extension.
@@ -1211,7 +1219,7 @@ mod macros {
                 $addr: $crate::prelude::SocketAddr: a4 |,
                 $(($($move:$ty),+))?,
                 $code
-            )
+            ) as $crate::extensions::Prepare
         }
     }
     /// Will make a [`Present`](super::Present) extension.
@@ -1230,7 +1238,13 @@ mod macros {
     #[macro_export]
     macro_rules! present {
         ($data:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PresentCall, (), |$data: &'a mut $crate::extensions::PresentData: a1|, $(($($move:$ty),+))?, $code)
+            $crate::extension!(
+                $crate::extensions::PresentCall,
+                (),
+                |$data: &'a mut $crate::extensions::PresentData: a1|,
+                $(($($move:$ty),+))?,
+                $code
+            ) as $crate::extensions::Present
         }
     }
     /// Will make a [`Package`](super::Package) extension.
@@ -1250,7 +1264,15 @@ mod macros {
     #[macro_export]
     macro_rules! package {
         ($response:pat, $request:pat, $host:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PackageCall, (), |$response: &'a mut $crate::prelude::Response<()>: a1, $request: &'a $crate::FatRequest: a2, $host: &'a $crate::prelude::Host: a3 |, $(($($move:$ty),+))?, $code)
+            $crate::extension!(
+                $crate::extensions::PackageCall,
+                (),
+                |$response: &'a mut $crate::prelude::Response<()>: a1,
+                $request: &'a $crate::FatRequest: a2,
+                $host: &'a $crate::prelude::Host: a3 |,
+                $(($($move:$ty),+))?,
+                $code
+            ) as $crate::extensions::Package
         }
     }
     /// Will make a [`Post`](super::Post) extension.
@@ -1272,7 +1294,17 @@ mod macros {
     #[macro_export]
     macro_rules! post {
         ($request:pat, $host:pat, $response_pipe:pat, $bytes:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::PostCall, (), |$request: &'a $crate::FatRequest: a1, $host: &'a $crate::prelude::Host: a2, $response_pipe: &'a mut $crate::application::ResponsePipe: a3, $bytes: $crate::prelude::Bytes: a4, $addr: $crate::prelude::SocketAddr: a5|, $(($($move:$ty),+))?, $code)
+            $crate::extension!(
+                $crate::extensions::PostCall,
+                (),
+                |$request: &'a $crate::FatRequest: a1,
+                $host: &'a $crate::prelude::Host: a2,
+                $response_pipe: &'a mut $crate::application::ResponsePipe: a3,
+                $bytes: $crate::prelude::Bytes: a4,
+                $addr: $crate::prelude::SocketAddr: a5|,
+                $(($($move:$ty),+))?,
+                $code
+            ) as $crate::extensions::Post
         }
     }
     /// Creates a [`super::ResponsePipeFuture`].
