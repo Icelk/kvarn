@@ -419,11 +419,17 @@ fn _process<P: AsRef<Path>>(
         "date".to_owned(),
         Box::new(|_inner, mut ext| {
             use fmt::Write;
+            use time_tz::OffsetDateTimeExt;
 
-
-            let date = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-            write!(ext, "{}", date.format(FORMAT).expect("failed to format datetime"))
-                .expect("failed to push to string");
+            let now = time::OffsetDateTime::now_utc();
+            let offset = time_tz::system::get_timezone();
+            let date = offset.map_or(now, |offset| now.to_timezone(offset));
+            write!(
+                ext,
+                "{}",
+                date.format(FORMAT).expect("failed to format datetime")
+            )
+            .expect("failed to push to string");
         }),
     );
 

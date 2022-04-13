@@ -23,6 +23,7 @@ pulldown-cmark = { version = "0.9", default-features = false, features = ["simd"
 notify = "4"
 unicode_categories = "0.1"
 time = { version = "0.3", optional = true, features = ["formatting", "macros", "local-offset"] }
+time-tz = { version = "1", optional = true, features = ["system"] }
 kvarn_utils = "0.3.1"
 
 # Bin deps
@@ -32,7 +33,7 @@ env_logger = { version = "0.9", optional = true, default-features = false, featu
 
 [features]
 default = ["date", "bin", "completion"]
-date = ["time"]
+date = ["time", "time-tz"]
 
 bin = ["env_logger", "clap"]
 completion = ["clap_autocomplete"]
