@@ -305,7 +305,7 @@ pub fn static_connection(kind: Connection) -> GetConnectionFn {
 pub struct Manager {
     when: extensions::If,
     connection: GetConnectionFn,
-    modify: ModifyRequestFn,
+    modify: Vec<ModifyRequestFn>,
     timeout: Duration,
     rewrite_url: bool,
     priority: i32,
@@ -321,7 +321,7 @@ impl Manager {
         Self {
             when,
             connection,
-            modify,
+            modify: vec![modify],
             timeout,
             rewrite_url: true,
             priority: -128,
@@ -336,6 +336,12 @@ impl Manager {
     /// Set the priority of the extension. The default is `-128`.
     pub fn with_priority(mut self, priority: i32) -> Self {
         self.priority = priority;
+        self
+    }
+    /// Add a function to run before the request is sent.
+    /// These are ran in the order they are added in.
+    pub fn add_modify_fn(mut self, modify: ModifyRequestFn) -> Self {
+        self.modify.push(modify);
         self
     }
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
@@ -408,7 +414,7 @@ impl Manager {
                 _path,
                 addr,
                 move |connection: GetConnectionFn,
-                      modify: ModifyRequestFn,
+                      modify: Vec<ModifyRequestFn>,
                       timeout: Duration,
                       rewrite_url: bool| {
                     let mut empty_req = utils::empty_clone_request(req);
@@ -452,7 +458,9 @@ impl Manager {
 
                     let path = empty_req.uri().path().to_owned();
 
-                    modify(&mut empty_req, &mut bytes, addr);
+                    for modify in &*modify {
+                        modify(&mut empty_req, &mut bytes, addr);
+                    }
 
                     let mut response = match connection.request(&empty_req, &bytes, *timeout).await
                     {
