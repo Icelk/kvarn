@@ -35,7 +35,7 @@ async fn basic() {
                 .map(kvarn_extensions::Connection::Tcp)
         });
 
-    let modify: kvarn_extensions::reverse_proxy::ModifyRequestFn = Arc::new(move |request, _| {
+    let modify: kvarn_extensions::reverse_proxy::ModifyRequestFn = Arc::new(move |request, _, _| {
         let path = Arc::clone(&path);
 
         request
