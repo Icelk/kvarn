@@ -39,7 +39,7 @@ jobs:
               uses: actions-rs/cargo@v1
               with:
                   command: clippy
-                  args: --all-targets -- -D warnings
+                  args: --workspace --all-targets -- -D warnings
             - name: Checking lints with all features
               uses: actions-rs/cargo@v1
               with:
@@ -49,7 +49,7 @@ jobs:
               uses: actions-rs/cargo@v1
               with:
                   command: clippy
-                  args: --no-default-features -- -D warnings
+                  args: --workspace --no-default-features -- -D warnings
             - name: Checking doc references
               uses: Icelk/rustdoc-link-check@v1
               with:
@@ -58,21 +58,7 @@ jobs:
               uses: actions-rs/cargo@v1
               with:
                   command: test
-            - name: Testing kvarn-utils
-              run: cargo test
-              working-directory: utils
-            - name: Testing kvarn-async
-              run: cargo test
-              working-directory: async
-            - name: Testing kvarn-testing
-              run: cargo test
-              working-directory: testing
-            - name: Testing kvarn_signal
-              run: cargo test
-              working-directory: signal
-            - name: Testing url-crawl
-              run: cargo test
-              working-directory: url-crawl
+                  args: --workspace
 
     build:
         needs: [check]
