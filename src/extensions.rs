@@ -1061,7 +1061,7 @@ impl<R> RuleSet<R> {
 }
 
 mod macros {
-    /// Makes a pinned future, compatible with [`crate::RetFut`] and [`crate::RetSyncFut`]
+    /// Makes a pinned future, compatible with [`crate::RetFut`].
     ///
     /// # Examples
     ///
@@ -1078,7 +1078,7 @@ mod macros {
     #[macro_export]
     macro_rules! box_fut {
         ($code:block) => {
-            Box::pin(async move { $code })
+            Box::pin(async move { $code }) as $crate::extensions::RetFut<_>
         };
     }
 
