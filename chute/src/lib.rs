@@ -126,7 +126,8 @@ pub fn read_continue_behaviour(
     }
 }
 #[must_use = "you have promted the user for input, so use it"]
-/// The message is in the beginning of the print so it should be capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
+/// The message is in the beginning of the print so it should be
+/// capitalized and contain a punctuation marking the end of a sentence (e.g. `.?!`).
 ///
 /// The message should not contain the word continue, since it is used extensively in this fn.
 pub fn read_continue(message: impl AsRef<str>, default: bool) -> bool {
@@ -189,11 +190,13 @@ pub fn read_continue(message: impl AsRef<str>, default: bool) -> bool {
 
 /// Process the document at the given path.
 ///
-/// If a Kvarn extension resides in the beginning of the header, make sure it has a newline in the end if only extension declaration; else parsing will fail.
+/// If a Kvarn extension resides in the beginning of the header, make sure
+/// it has a newline in the end if only extension declaration; else parsing will fail.
 ///
 /// # Errors
 ///
-/// Prints an error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder).
+/// Prints an error if writing to the output file failed or if the file
+/// specified cannot be accessed (privileges, if it's a folder).
 /// Should not panic.
 ///
 /// The returned result indicates whether everything went fine.
@@ -225,6 +228,14 @@ pub fn process_document<P: AsRef<Path>>(
         }
     }
 }
+
+#[cfg(feature = "date")]
+static FORMAT: &[time::format_description::FormatItem] = time::macros::format_description!(
+    "[weekday repr:short], \
+    [year]-[month repr:numerical]-[day], \
+    [hour]:[minute] [offset_hour sign:mandatory]:[offset_minute]"
+);
+
 #[allow(clippy::too_many_lines)]
 fn _process<P: AsRef<Path>>(
     path: P,
@@ -349,8 +360,10 @@ fn _process<P: AsRef<Path>>(
     // Write header after meta
     write_file.write_all(header_post_meta)?;
 
-    let input = std::str::from_utf8(&buffer[file_content_start..])
-        .expect("we tried to split the beginning of MarkDown on a character boundary, or the input file isn't valid UTF-8");
+    let input = std::str::from_utf8(&buffer[file_content_start..]).expect(
+        "we tried to split the beginning of MarkDown on a \
+        character boundary, or the input file isn't valid UTF-8",
+    );
 
     let mut headers = Vec::new();
     get_headers(&mut headers, input);
@@ -400,13 +413,13 @@ fn _process<P: AsRef<Path>>(
             }
         }),
     );
+
     #[cfg(feature = "date")]
     tags.insert(
         "date".to_owned(),
         Box::new(|_inner, mut ext| {
             use fmt::Write;
 
-            static FORMAT: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short], [year]-[month repr:numerical]-[day], [hour]:[minute] [offset_hour sign:mandatory]:[offset_minute]");
 
             let date = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
             write!(ext, "{}", date.format(FORMAT).expect("failed to format datetime"))
@@ -469,11 +482,14 @@ fn _process<P: AsRef<Path>>(
 
 /// Watch the given directory.
 ///
-/// If a Kvarn extension resides in the beginning of the header, make sure it has a newline in the end if only extension declaration; else parsing will fail.
+/// If a Kvarn extension resides in the beginning of the header,
+/// make sure it has a newline in the end if only extension declaration;
+/// else parsing will fail.
 ///
 /// # Errors
 ///
-/// Prints an error if writing to the output file failed or if the file specified cannot be accessed (privileges, if it's a folder).
+/// Prints an error if writing to the output file failed or if
+/// the file specified cannot be accessed (privileges, if it's a folder).
 /// Should not panic.
 pub fn watch<P: AsRef<Path>>(
     path: P,
