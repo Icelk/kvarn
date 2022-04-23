@@ -1061,7 +1061,7 @@ impl<R> RuleSet<R> {
 }
 
 mod macros {
-    /// Makes a pinned future, compatible with [`crate::RetFut`].
+    /// Create a pinned future, compatible with [`crate::RetFut`].
     ///
     /// # Examples
     ///
@@ -1140,7 +1140,7 @@ mod macros {
         }};
     }
 
-    /// Will make a [`Prime`](super::Prime) extension.
+    /// Construct a [`Prime`](super::Prime) extension like you write closures.
     ///
     /// See [`prepare!`] for usage and useful examples.
     /// See [`super::PrimeCall`] for a list of arguments.
@@ -1168,7 +1168,7 @@ mod macros {
             ) as $crate::extensions::Prime
         }
     }
-    /// Will make a [`Prepare`](super::Prepare) extension.
+    /// Construct a [`Prepare`](super::Prepare) extension like you write closures.
     ///
     /// See [`super::PrepareCall`] for a list of arguments.
     ///
@@ -1222,7 +1222,7 @@ mod macros {
             ) as $crate::extensions::Prepare
         }
     }
-    /// Will make a [`Present`](super::Present) extension.
+    /// Construct a [`Present`](super::Present) extension like you write closures.
     ///
     /// See [`prepare!`] for usage and useful examples.
     /// See [`super::PresentCall`] for a list of arguments.
@@ -1247,7 +1247,7 @@ mod macros {
             ) as $crate::extensions::Present
         }
     }
-    /// Will make a [`Package`](super::Package) extension.
+    /// Construct a [`Package`](super::Package) extension like you write closures.
     ///
     /// See [`prepare!`] for usage and useful examples.
     /// See [`super::PackageCall`] for a list of arguments.
@@ -1275,7 +1275,7 @@ mod macros {
             ) as $crate::extensions::Package
         }
     }
-    /// Will make a [`Post`](super::Post) extension.
+    /// Construct a [`Post`](super::Post) extension like you write closures.
     ///
     /// See [`prepare!`] for usage and useful examples.
     /// See [`super::PostCall`] for a list of arguments.
