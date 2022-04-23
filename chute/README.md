@@ -15,3 +15,12 @@ Using the subcommand `completion`, Chute automatically generates shell completio
 
 When using Bash or Zsh, you should run Chute as root, as we need root privileges to write to their completion directories.
 Alternatively, use the `--print` option to yourself write the completion file.
+
+# Changelog
+
+## v0.3.0
+
+- Improved performance of shell completion.
+- Local time is now working again.
+- Support the new template syntax (now `$[template name]` instead of `[template name]`)
+- Decremented count of dependencies, slimming binary size.
