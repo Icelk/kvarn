@@ -9,6 +9,20 @@ pub struct Arguments {
     name: String,
     args: Vec<String>,
 }
+impl Arguments {
+    /// Get a reference to the name of this request.
+    /// This will be the same as your plugin's name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.name.as_ref()
+    }
+
+    /// Get a reference to the arguments.
+    #[must_use]
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.args.iter().map(|s| s.as_str())
+    }
+}
 /// The kind of response to send back to `kvarnctl`.
 #[derive(Debug, Clone)]
 pub enum PluginResponseKind {
@@ -33,7 +47,7 @@ pub struct PluginResponse {
     pub post_send: Option<Box<dyn FnOnce() + Send + Sync>>,
 }
 impl PluginResponse {
-    /// Crates a new response which doesn't close the connection.
+    /// Creates a new response which doesn't close the connection.
     #[must_use]
     pub fn new(kind: PluginResponseKind) -> Self {
         Self {
