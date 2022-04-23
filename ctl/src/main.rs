@@ -7,7 +7,7 @@ const ABOUT: &str = "\nCommunicate with Kvarn instances.\n\
 Use the `KVARNCTL_LOG` environment variable to set verbosity. \
 Levels `info`, `warn`, `error`, and `off` are available.\n\
 \n\
-A list of common commands can be found at the GitHub.\n\
+A list of common commands can be found at the GitHub or using the shell completion.\n\
 \n\
 The exit status means: 0 for success; 1 for a error from the target Kvarn instance; \
 2 for communication errors, such as insufficient privileges; 3 for when the socket isn't found; \
@@ -57,11 +57,21 @@ async fn main() {
                 .conflicts_with("command"),
         )
         .arg(
-            Arg::new("command")
+            Arg::new("explicit_command")
                 .takes_value(true)
                 .value_hint(ValueHint::Other)
                 .value_name("COMMAND")
-                .required_unless_present("wait"),
+                .short('c')
+                .help(
+                    "The command to send to Kvarn. \
+                    You can omit `-c` when COMMAND isn't a special subcommand.",
+                ),
+        )
+        .arg(
+            Arg::new("command")
+                .takes_value(true)
+                .value_hint(ValueHint::Other)
+                .value_name("COMMAND"),
         )
         .arg(
             Arg::new("args")
@@ -71,7 +81,49 @@ async fn main() {
                 .value_hint(ValueHint::Other),
         );
 
+    command = clap_autocomplete::add_subcommand(command);
+
+    let command_error = command.error(
+        clap::ErrorKind::MissingRequiredArgument,
+        "COMMAND is required unless --wait or complete is used",
+    );
+
+    let mut shell_completion_command = command.clone();
+    {
+        shell_completion_command = shell_completion_command
+            .subcommand(
+                clap::Command::new("wait")
+                    .about("Waits for Kvarn to shut down. Consider using the --wait flag instead."),
+            )
+            .subcommand(clap::Command::new("shutdown").about(
+                "Tell Kvarn to perform a shutdown, often implemented as a graceful shutdown.",
+            ))
+            .subcommand(
+                clap::Command::new("ping")
+                    .about("Ping Kvarn with a message. It will send back the same message.")
+                    .arg(
+                        Arg::new("args")
+                            .takes_value(true)
+                            .multiple_values(true)
+                            .value_name("CONTENT"),
+                    ),
+            )
+            .subcommand(clap::Command::new("reload").about(
+                "Restart Kvarn with 0 downtime. \
+                Put simply, it replaces itself with the current version of the executable.",
+            ));
+    }
     let matches = command.get_matches();
+
+    if let Some(result) = clap_autocomplete::test_subcommand(&matches, shell_completion_command) {
+        if let Err(err) = result {
+            eprintln!("Insufficient permissions: {err}");
+            std::process::exit(1);
+        } else {
+            std::process::exit(0);
+        }
+    }
+
     let path = Path::new("/tmp").join(
         matches
             .value_of("path")
@@ -119,7 +171,8 @@ async fn main() {
         .unwrap_or_else(|| {
             matches
                 .value_of("command")
-                .expect("the command is required")
+                .or_else(|| matches.value_of("explicit_command"))
+                .unwrap_or_else(|| command_error.exit())
                 .to_owned()
         });
 
