@@ -75,7 +75,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 ## To do
 
 -   [x] A `kvarnctl` executable to control the running kvarn instance.
-    -   [ ] Implement all methods used in [`kvarn-reference`](https://github.com/Icelk/kvarn-reference)
+    -   [x] Implement all methods used in [`kvarn-reference`](https://github.com/Icelk/kvarn-reference)
 -   [x] Production ready reverse proxy.
 -   [x] Reading host names from certificate.
 -   [x] Graceful restart through systemd service
