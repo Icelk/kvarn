@@ -819,19 +819,19 @@ impl Collection {
     ///
     /// This will probably become a error enum in the future.
     ///
-    /// It will lever return (false, true).
+    /// It will never return (false, true).
     pub async fn clear_page(&self, host: &str, uri: &Uri) -> (bool, bool) {
         let key = UriKey::path_and_query(uri);
 
         let mut found = false;
         let mut cleared = false;
         if host.is_empty() || host == "default" {
-            found = true;
             if let Some(cache) = self
                 .get_default()
                 .as_ref()
                 .and_then(|h| h.response_cache.as_ref())
             {
+                found = true;
                 let mut lock = cache.write().await;
                 if key
                     .call_all(|key| lock.remove(key).into_option())
@@ -865,26 +865,45 @@ impl Collection {
             }
         }
     }
-    /// Clears the `path` from all caches.
+    /// Clears a single `path` in `host`.
+    /// If `host` is `""` or `"default"`, the [default](Self::get_default) host is used.
+    ///
+    /// # Returns
+    ///
+    /// (if host was found, cleared page)
+    ///
+    /// This will probably become a error enum in the future.
+    ///
+    /// It will never return (false, true).
     ///
     /// This iterates over all caches and [locks](RwLock::write) them, which takes a lot of time.
     /// Though, it's not blocking.
-    pub async fn clear_file_in_cache<P: AsRef<Path>>(&self, path: &P) -> bool {
+    pub async fn clear_file(&self, host: &str, path: impl AsRef<Path>) -> (bool, bool) {
+        let path = path.as_ref();
         let mut found = false;
-        for host in self.by_name.values().filter_map(HostValue::as_host) {
+        let mut cleared = false;
+        if host.is_empty() || host == "default" {
+            if let Some(cache) = self
+                .get_default()
+                .as_ref()
+                .and_then(|h| h.file_cache.as_ref())
+            {
+                found = true;
+                let mut lock = cache.write().await;
+                if lock.remove(path).into_option().is_some() {
+                    cleared = true;
+                }
+            }
+        } else if let Some(host) = self.get_host(host) {
+            found = true;
             if let Some(cache) = &host.file_cache {
-                if cache
-                    .write()
-                    .await
-                    .remove(path.as_ref())
-                    .into_option()
-                    .is_some()
-                {
-                    found = true;
+                let mut lock = cache.write().await;
+                if lock.remove(path).into_option().is_some() {
+                    cleared = true;
                 }
             }
         }
-        found
+        (found, cleared)
     }
 }
 #[cfg(feature = "https")]
