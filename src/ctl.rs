@@ -196,7 +196,7 @@ impl Plugins {
         let mut me = Self::empty();
         #[cfg(feature = "graceful-shutdown")]
         me.with_shutdown();
-        me.with_ping().with_reload().with_wait();
+        me.with_ping().with_reload().with_wait().with_clear();
         me
     }
     pub(crate) fn empty() -> Self {
@@ -313,10 +313,117 @@ impl Plugins {
                 }
                 let sender = shutdown.wait_for_pre_shutdown().await;
                 sender.send(()).unwrap();
-                PluginResponse::new(PluginResponseKind::Ok { data: None })
+                PluginResponse::ok_empty()
             }),
         );
         self
+    }
+    pub(crate) fn with_clear(&mut self) -> &mut Self {
+        self.add_plugin(
+            "clear",
+            plugin!(|args, ports, _, _| {
+                let mut args = args.iter();
+                let msg = match args.next() {
+                    Some("all") => {
+                        for hosts in ports.iter().map(PortDescriptor::hosts) {
+                            hosts.clear_response_caches().await;
+                            hosts.clear_file_caches().await;
+                        }
+                        "clear all caches".to_owned()
+                    }
+                    Some("files") => {
+                        for hosts in ports.iter().map(PortDescriptor::hosts) {
+                            hosts.clear_file_caches().await;
+                        }
+                        "cleared all file caches".to_owned()
+                    }
+                    Some("responses") => {
+                        for hosts in ports.iter().map(PortDescriptor::hosts) {
+                            hosts.clear_response_caches().await;
+                        }
+                        "cleared all response caches".to_owned()
+                    }
+                    Some("file") => {
+                        let host = if let Some(a) = args.next() {
+                            a
+                        } else {
+                            return PluginResponse::error(
+                                "please supply the host you want to clear the response from",
+                            );
+                        };
+                        let path = if let Some(a) = args.next() {
+                            a
+                        } else {
+                            return PluginResponse::error(
+                                "please supply response you want to clear after the host",
+                            );
+                        };
+                        let mut cleared = false;
+                        let mut found = false;
+                        for hosts in ports.iter().map(PortDescriptor::hosts) {
+                            let (f, c) = hosts.clear_file(host, path).await;
+                            cleared = cleared || c;
+                            found = found || f;
+                        }
+
+                        if !found {
+                            return PluginResponse::error(
+                                "didn't find the target host. Use 'default' for the default host",
+                            );
+                        } else if !cleared {
+                            return PluginResponse::error("target file isn't in the cache");
+                        }
+                        format!("cleared {path:?} from {host:?}")
+                    }
+                    Some("response") => {
+                        let host = if let Some(a) = args.next() {
+                            a
+                        } else {
+                            return PluginResponse::error(
+                                "please supply the host you want to clear the response from",
+                            );
+                        };
+                        let response = if let Some(a) = args.next() {
+                            a
+                        } else {
+                            return PluginResponse::error(
+                                "please supply response you want to clear after the host",
+                            );
+                        };
+                        let uri = match Uri::builder().path_and_query(response).build() {
+                            Ok(uri) => uri,
+                            Err(..) => {
+                                return PluginResponse::error("failed to format target response");
+                            }
+                        };
+                        let mut cleared = false;
+                        let mut found = false;
+                        for hosts in ports.iter().map(PortDescriptor::hosts) {
+                            let (f, c) = hosts.clear_page(host, &uri).await;
+                            cleared = cleared || c;
+                            found = found || f;
+                        }
+
+                        if !found {
+                            return PluginResponse::error(
+                                "didn't find the target host. Use 'default' for the default host",
+                            );
+                        } else if !cleared {
+                            return PluginResponse::error("target response isn't in the cache");
+                        }
+                        format!("cleared {response:?} from {host:?}")
+                    }
+                    Some(_) => return PluginResponse::error("clear method invalid"),
+                    None => return PluginResponse::error("you must specify what to clear"),
+                };
+
+                if args.next().is_some() {
+                    return PluginResponse::error("unexpected argument");
+                }
+
+                PluginResponse::ok(msg)
+            }),
+        )
     }
 
     // public getters
