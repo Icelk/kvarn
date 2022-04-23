@@ -93,13 +93,23 @@ async fn main() {
         shell_completion_command = shell_completion_command
             .subcommand(
                 clap::Command::new("wait")
+                    .disable_help_flag(true)
+                    .disable_version_flag(true)
                     .about("Waits for Kvarn to shut down. Consider using the --wait flag instead."),
             )
-            .subcommand(clap::Command::new("shutdown").about(
-                "Tell Kvarn to perform a shutdown, often implemented as a graceful shutdown.",
-            ))
+            .subcommand(
+                clap::Command::new("shutdown")
+                    .disable_help_flag(true)
+                    .disable_version_flag(true)
+                    .about(
+                        "Tell Kvarn to perform a shutdown, \
+                        often implemented as a graceful shutdown.",
+                    ),
+            )
             .subcommand(
                 clap::Command::new("ping")
+                    .disable_help_flag(true)
+                    .disable_version_flag(true)
                     .about("Ping Kvarn with a message. It will send back the same message.")
                     .arg(
                         Arg::new("args")
@@ -108,10 +118,86 @@ async fn main() {
                             .value_name("CONTENT"),
                     ),
             )
-            .subcommand(clap::Command::new("reload").about(
-                "Restart Kvarn with 0 downtime. \
-                Put simply, it replaces itself with the current version of the executable.",
-            ));
+            .subcommand(
+                clap::Command::new("reload")
+                    .disable_help_flag(true)
+                    .disable_version_flag(true)
+                    .about(
+                        "Restart Kvarn with 0 downtime. \
+                        Put simply, it replaces itself with the current version of the executable.",
+                    ),
+            )
+            .subcommand(
+                clap::Command::new("clear")
+                    .disable_help_flag(true)
+                    .disable_version_flag(true)
+                    .about("Clears caches.")
+                    .subcommand(
+                        clap::Command::new("all")
+                            .about("Clears all caches.")
+                            .disable_help_flag(true)
+                            .disable_version_flag(true),
+                    )
+                    .subcommand(
+                        clap::Command::new("files")
+                            .about("Clears all file caches.")
+                            .disable_help_flag(true)
+                            .disable_version_flag(true),
+                    )
+                    .subcommand(
+                        clap::Command::new("responses")
+                            .about("Clears all response caches.")
+                            .disable_help_flag(true)
+                            .disable_version_flag(true),
+                    )
+                    .subcommand(
+                        clap::Command::new("file")
+                            .disable_help_flag(true)
+                            .disable_version_flag(true)
+                            .about("Clear a specific file.")
+                            .arg(
+                                Arg::new("host")
+                                    .required(true)
+                                    .help("The host of the cache to remove the file from.")
+                                    .value_hint(ValueHint::Other)
+                                    .takes_value(true)
+                                    .value_name("HOST"),
+                            )
+                            .arg(
+                                Arg::new("file")
+                                    .required(true)
+                                    .help(
+                                        "The file to remove. This is often relative \
+                                      (e.g. '../icelk.dev/public/index.html').",
+                                    )
+                                    .value_hint(ValueHint::FilePath)
+                                    .takes_value(true)
+                                    .value_name("FILE"),
+                            ),
+                    )
+                    .subcommand(
+                        clap::Command::new("response")
+                            .disable_help_flag(true)
+                            .disable_version_flag(true)
+                            .about("Clear a specific response.")
+                            .arg(
+                                Arg::new("host")
+                                    .required(true)
+                                    .help("The host of the cache to remove the response from.")
+                                    .value_hint(ValueHint::Other)
+                                    .takes_value(true)
+                                    .value_name("HOST"),
+                            )
+                            .arg(
+                                Arg::new("file")
+                                    .required(true)
+                                    .help("The response to remove (e.g. '/index.html').")
+                                    .value_hint(ValueHint::Other)
+                                    .takes_value(true)
+                                    .value_name("RESPONSE"),
+                            ),
+                    ),
+            );
     }
     let matches = command.get_matches();
 

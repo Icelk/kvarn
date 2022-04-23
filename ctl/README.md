@@ -18,6 +18,8 @@ you can specify it using the `-p` flag. If the path is relative, its base is `/t
 -   `kvarnctl shutdown` - this gracefully shuts Kvarn down (if the Kvarn feature `graceful-shutdown` is enabled)
 -   `kvarnctl reload` - [handover](https://kvarn.org/shutdown-handover.) to the new binary, located on the same path as the current was started on.
 -   `kvarnctl ping <message>` - test if the Kvarn instance is responsive. It will return `<message>` and print it to the terminal.
+-   `kvarnctl wait` - waits for Kvarn to shut down
+-   `kvarnctl clear <method> (<host> <file/URI>)` - clears caches. Methods available are `all`, `files`, `responses`, and two which clear a specific resource, `file` and `response`.
 
 ## Platform support
 
