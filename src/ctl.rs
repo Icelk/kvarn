@@ -18,9 +18,8 @@ impl Arguments {
     }
 
     /// Get a reference to the arguments.
-    #[must_use]
     pub fn iter(&self) -> impl Iterator<Item = &str> {
-        self.args.iter().map(|s| s.as_str())
+        self.args.iter().map(String::as_str)
     }
 }
 /// The kind of response to send back to `kvarnctl`.
@@ -55,6 +54,30 @@ impl PluginResponse {
             close: false,
             post_send: None,
         }
+    }
+    /// Creates a new OK response with content.
+    #[must_use]
+    pub fn ok(data: impl Into<Vec<u8>>) -> Self {
+        Self::new(PluginResponseKind::Ok {
+            data: Some(data.into()),
+        })
+    }
+    /// Creates a new OK response without content.
+    #[must_use]
+    pub fn ok_empty() -> Self {
+        Self::new(PluginResponseKind::Ok { data: None })
+    }
+    /// Creates a new response signalling an error, with content.
+    #[must_use]
+    pub fn error(data: impl Into<Vec<u8>>) -> Self {
+        Self::new(PluginResponseKind::Error {
+            data: Some(data.into()),
+        })
+    }
+    /// Creates a new response signalling an error, without content.
+    #[must_use]
+    pub fn error_empty() -> Self {
+        Self::new(PluginResponseKind::Error { data: None })
     }
     /// Close the ctl socket after this is returned.
     /// Use this only is you shut Kvarn down immediately in your plugin.
@@ -206,13 +229,11 @@ impl Plugins {
                 shutdown.shutdown();
                 let sender = sender.await;
 
-                PluginResponse::new(PluginResponseKind::Ok {
-                    data: Some("'Successfully completed a graceful shutdown.'".into()),
-                })
-                .close()
-                .post_send(move || {
-                    sender.send(()).expect("failed to shut down");
-                })
+                PluginResponse::ok("'Successfully completed a graceful shutdown.'")
+                    .close()
+                    .post_send(move || {
+                        sender.send(()).expect("failed to shut down");
+                    })
             }),
         );
         self
@@ -230,9 +251,7 @@ impl Plugins {
                 if !data.is_empty() {
                     data.remove(0);
                 }
-                PluginResponse::new(PluginResponseKind::Ok {
-                    data: Some(data.into_bytes()),
-                })
+                PluginResponse::ok(data)
             }),
         );
         self
@@ -245,11 +264,9 @@ impl Plugins {
                     return r;
                 }
                 if !plugins.contains_plugin("shutdown") {
-                    return PluginResponse::new(PluginResponseKind::Error {
-                        data: Some(
-                            "No shutdown plugin was found. It is required for reload.".into(),
-                        ),
-                    });
+                    return PluginResponse::error(
+                        "No shutdown plugin was found. It is required for reload.",
+                    );
                 }
 
                 let executable = std::env::args_os()
@@ -259,9 +276,7 @@ impl Plugins {
                     Ok(p) => p,
                     Err(err) => {
                         error!("Could not reload - arg0 isn't found: {err}");
-                        return PluginResponse::new(PluginResponseKind::Error {
-                            data: Some(format!("arg0 isn't found: {err}").into()),
-                        });
+                        return PluginResponse::error(format!("arg0 isn't found: {err}"));
                     }
                 };
                 let mut command = std::process::Command::new(program);
@@ -277,18 +292,14 @@ impl Plugins {
                     Ok(c) => c,
                     Err(err) => {
                         error!("Failed to spawn child when reloading: {err}");
-                        return PluginResponse::new(PluginResponseKind::Error {
-                            data: Some(format!("failed to spawn child: {err}").into()),
-                        });
+                        return PluginResponse::error(format!("failed to spawn child: {err}"));
                     }
                 };
 
                 let sender = shutdown.wait_for_pre_shutdown().await;
 
-                PluginResponse::new(PluginResponseKind::Ok {
-                    data: Some("successfully reloaded Kvarn".into()),
-                })
-                .post_send(move || sender.send(()).unwrap())
+                PluginResponse::ok("successfully reloaded Kvarn")
+                    .post_send(move || sender.send(()).unwrap())
             }),
         );
         self
@@ -342,7 +353,7 @@ impl Default for Plugins {
 ///             return r;
 ///         }
 ///         shutdown.wait().await;
-///         PluginResponse::new(PluginResponseKind::Ok { data: None })
+///         PluginResponse::ok_empty()
 ///     })
 /// );
 #[macro_export]
