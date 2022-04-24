@@ -528,7 +528,9 @@ pub(crate) async fn listen(
                 kvarn_signal::unix::Response::Error => {
                     error!(
                         "Failed to message previous Kvarn instance. \
-                    It might still be running. Will not be listening for kvarnctl messages."
+                        It might still be running or \
+                        you don't have sufficient privileges to remove leftovers from previous instance. \
+                        Will not be listening for kvarnctl messages."
                     );
                     return;
                 }
