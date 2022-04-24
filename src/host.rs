@@ -565,11 +565,15 @@ pub struct CollectionBuilder(Collection);
 impl CollectionBuilder {
     /// Adds `host` to the builder.
     /// This will match the `host` header and SNI hostname for [`Host.name`].
+    ///
+    /// If it is the first call to this function, [`Self::set_pre_host_limiter`] is called
+    /// with [`Host::limiter`].
     #[inline]
     pub fn insert(mut self, host: Host) -> Self {
         self.check_secure(&host);
         if self.0.first.is_none() {
             self.0.first = Some(host.name.clone());
+            self.0.pre_host_limiter = host.limiter.clone();
         }
         // it's important to insert the alt-names first, as they might contain the main name.
         // If that happens, the inserted reference is overridden below.
