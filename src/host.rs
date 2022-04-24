@@ -738,6 +738,7 @@ impl Collection {
                 if base_host == Some("localhost")
                     || base_host == Some("127.0.0.1")
                     || base_host == Some("::1")
+                    || base_host == Some("[::1]")
                 {
                     self.first.as_ref().and_then(|host| self.get_host(host))
                 } else {
