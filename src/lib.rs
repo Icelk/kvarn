@@ -906,7 +906,7 @@ pub async fn handle_cache(
             if sanitize_data.is_ok()
                 && matches!(request.method(), &Method::GET | &Method::HEAD) =>
         {
-            info!("Found in cache!");
+            debug!("Found in cache!");
 
             let creation = *creation;
 
