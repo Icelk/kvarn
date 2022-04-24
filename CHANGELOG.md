@@ -1,8 +1,7 @@
 # [v0.4.0 ctl](https://github.com/Icelk/kvarn/compare/v0.3.0...v0.4.0)
 
-A smaller release to improve the experience with Kvarn.
-
-Notable, a `kvarnctl` executable will allow you to change a running Kvarn instance, including restarting the server in-place, with **zero downtime**.
+A smaller release to improve the experience working with Kvarn.
+Notably, a `kvarnctl` executable allows you to change a running Kvarn instance, including restarting the server in-place, with **zero downtime**.
 
 ## Added
 
@@ -11,6 +10,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
     -   [Plugins](https://doc.kvarn.org/kvarn/macro.plugin.html) to add interfaces to Kvarn which can be accessed through `kvarnctl`.
     -   Shell completion for most commonly used methods in `kvarnctl`.
 -   Extension system [doesn't use unsafe](https://github.com/Icelk/kvarn/commit/83b5d10)!
+-   Dozens of [webpages](https://github.com/Icelk/kvarn.org) to read more about [Kvarn](https://kvarn.org) on.
 -   [Reading host names from certificate](https://doc.kvarn.org/kvarn/host/struct.Host.html#method.new_name_from_cert). ([commit](https://github.com/Icelk/kvarn/commit/2bb32cb))
 -   [Graceful restart through systemd service](https://github.com/Icelk/kvarn/blob/main/sample.service)
 -   [doc_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html) (implemented through use of [doc_auto_cfg](https://doc.rust-lang.org/beta/unstable-book/language-features/doc-auto-cfg.html)).
