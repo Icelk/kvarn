@@ -17,6 +17,6 @@ clap = { version = "3", features = ["cargo"] }
 clap_autocomplete = "=0.2.1"
 env_logger = { version = "0.9", default-features = false, features = ["termcolor", "atty", "humantime"] }
 kvarn_signal = { path = "../signal", version = "0.1" }
-kvarn_utils = { path = "../utils", version = "0.3" }
+kvarn_utils = { path = "../utils", version = "0.4" }
 log = "0.4"
 tokio = { version = "1.17", features = ["rt", "io-util", "macros", "time"] }

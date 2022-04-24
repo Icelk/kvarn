@@ -1,7 +1,8 @@
 [package]
 name = "kvarn"
 # also bump all other versions (e.g. `grep 0\\.3`)
-version = "0.3.0"
+# remove "#![doc(html_root_url = "https://doc.kvarn.org/")]" from lib.rs
+version = "0.4.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
 rust-version = "1.56"
@@ -35,8 +36,8 @@ bytes = "1"
 flate2 = { version = "1", optional = true }
 h2 = { version = "0.3", default-features = false, optional = true }
 http = "0.2"
-kvarn_async = { path = "async", version = "0.3" }
-kvarn_utils = { path = "utils", version = "0.3" }
+kvarn_async = { path = "async", version = "0.4" }
+kvarn_utils = { path = "utils", version = "0.4" }
 kvarn_signal = { path = "signal", version = "0.1" }
 log = "0.4"
 memchr = { version = "2", optional = true }
@@ -79,7 +80,7 @@ nonce = ["rand", "base64", "memchr"]
 # also add to https://kvarn.org/cargo-features.
 
 [dev-dependencies]
-kvarn_testing = { path = "testing", version = "0.3" }
+kvarn_testing = { path = "testing", version = "0.4" }
 
 # profile for binary sub-crates.
 [profile.distribution]

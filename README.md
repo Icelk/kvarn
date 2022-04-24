@@ -19,7 +19,7 @@ See the [roadmap](roadmap.md) or visit [kvarn.org](https://kvarn.org/) for more 
 
 # Current state
 
-Now that `v0.3.0` is out, a stable API is available and the crate is on [crates.io](https://crates.io/crates/kvarn).
+A stable [API](https://doc.kvarn.org) is available and the crate is on [crates.io](https://crates.io/crates/kvarn).
 
 [At least for now](https://kvarn.org/config.) you'll have to configure Kvarn through code
 (e.g. add extensions from [`kvarn_extensions`](extensions/README.md) and configuring hosts).
@@ -36,6 +36,8 @@ To increase security, build-times, reliability, and speed, I use the minimal rea
 The two heavy-hitters are `tokio` (async runtime for async networking, file access, and extensions) and `rustls` (for encryption, optional if you want to run a unsafe (often local) web server).
 `brotli` and `flate2` are enabled by default to provide compression, but can be turned off.
 `h2` provides optional (but _strongly preferred_) support for the HTTP/2 protocol.
+
+See [kvarn.org](https://kvarn.org/cargo-features.) for more details.
 
 ## Pushing to production
 

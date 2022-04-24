@@ -18,9 +18,13 @@ Alternatively, use the `--print` option to yourself write the completion file.
 
 # Changelog
 
+## v0.3.1
+
+-   Update to `kvarn_utils = "0.4"`
+
 ## v0.3.0
 
-- Improved performance of shell completion.
-- Local time is now working again.
-- Support the new template syntax (now `$[template name]` instead of `[template name]`)
-- Decremented count of dependencies, slimming binary size.
+-   Improved performance of shell completion.
+-   Local time is now working again.
+-   Support the new template syntax (now `$[template name]` instead of `[template name]`)
+-   Decremented count of dependencies, slimming binary size.

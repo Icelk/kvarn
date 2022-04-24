@@ -52,6 +52,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   [Cache performance](https://github.com/Icelk/kvarn/commit/614f57b)
 -   [Limiting performance](https://github.com/Icelk/kvarn/commit/fc704c6)
 -   [Testing on CI](https://github.com/Icelk/kvarn/commit/38c7d7b) for all crates.
+-   Debug implementations are less prone to errors and easier to maintain.
 
 # [v0.3.0 Ext](https://github.com/Icelk/kvarn/compare/v0.2.0...v0.3.0)
 

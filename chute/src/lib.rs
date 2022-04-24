@@ -511,7 +511,6 @@ pub fn watch<P: AsRef<Path>>(
         RecursiveMode, Watcher,
     };
     use std::sync::mpsc::channel;
-    use std::time::Duration;
 
     let path = path.as_ref();
 
