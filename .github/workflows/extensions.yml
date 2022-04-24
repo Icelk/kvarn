@@ -11,6 +11,7 @@ on:
             - ".github/workflows/kvarnctl.yml"
             - ".github/dependabot.yml"
             - "README.md"
+            - "CHANGELOG.md"
             - "roadmap.md"
             - "LICENSE"
 

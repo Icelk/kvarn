@@ -4,6 +4,7 @@ on:
     push:
         paths:
             - "chute/**"
+            - "utils/**"
             - ".github/workflows/chute.yml"
 
 env:
