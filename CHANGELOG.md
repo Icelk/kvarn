@@ -39,7 +39,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   All components of Kvarn are now shut down when you drop Kvarn's references. No memory leaks.
 -   Hosts are now [recognized](https://github.com/Icelk/kvarn/commit/8934160) even if they are accessed through their FQDN.
 
-## Improvements
+## Improved
 
 -   Stability improvements
 -   Production ready reverse proxy.
@@ -75,7 +75,7 @@ The name comes from the current plan to move core stuff into it's own crate.
 -   [CI](https://github.com/Icelk/kvarn/actions)
 -   [Content Security Policy](https://kvarn.org/csp.)
 
-## Improvements
+## Improved
 
 -   `read_to_bytes()` performance
 
