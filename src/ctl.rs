@@ -329,7 +329,7 @@ impl Plugins {
                             hosts.clear_response_caches().await;
                             hosts.clear_file_caches().await;
                         }
-                        "clear all caches".to_owned()
+                        "cleared all caches".to_owned()
                     }
                     Some("files") => {
                         for hosts in ports.iter().map(PortDescriptor::hosts) {
