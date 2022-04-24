@@ -1,92 +1,10 @@
-# v0.1.0
-
-This milestone is reached. It was the first working state of the web server.
-
-It's slow, not having async IO except for requests; FS is utterly slow and
-making any other async requests to a database or to proxy another server does not work
-(technically it does, but performance is miserable).
-
-# v0.2.0 Tokio
-
-This version HTTP/2, fast async IO, a new superior extension system, and nearly no code left from v0.1.0!
-This release is now currently running [icelk.dev](https://icelk.dev) and [kvarn.org](https://kvarn.org).
-
-This is a _real_ performance uplift. It's essentially a complete rewrite of Kvarn.
-The pages at kvarn.org, especially the one about [extensions](https://kvarn.org/extensions/) and
-the [request pipeline](https://kvarn.org/pipeline.html) should make the design choices more clear.
-It should be understandable even for non-programmers and make it easier to integrate with Kvarn.
-
-> One other big thing is HTTP/2 Push, which makes loading web sites more than 2 times faster.
-> Without doing anything from your part, you can expect automatic push to work, resulting in the
-> described benefits. Soon, Smart Push will be part of Kvarn, further increasing performance.
-
-## Changes
-
-### Added
-
--   Use Tokio as the async runtime
--   [Async](https://kvarn.org/async.) io
--   [Async](https://kvarn.org/async.) extensions
--   Flexible interface for HTTP versions
--   [HTTP/2](https://kvarn.org/http2.)
--   [request limiting](https://kvarn.org/limiting.)
--   handling of HEAD HTTP method
--   more #\[inline] (better performance)
--   [Referrer header](https://doc.kvarn.org/kvarn/extensions/struct.Extensions.#method.with_no_referrer) in `Extensions::new()`
--   [cfg](https://kvarn.org/cargo-features.) (https, multithreading, http2)
-
-### Changed
-
--   Everything else.
--   Future plan for routing and extensions
-
-### Fixed
-
--   Everything.
-
-# v0.3.0 Ext
-
-This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small features necessary for a _solid_ web server.
-
-The name comes from the current plan to move core stuff into it's own crate.
-
-## Changes
-
-### Added
-
--   [Full doc coverage](https://doc.kvarn.org) (this took _way_ too long...)
--   Good test coverage
--   Proper extension macros
--   Additional server-side cache options, including parsing `cache-control` header
--   Cache handling of [Vary](https://kvarn.org/vary.) header (definitely the hardest)
--   Support for request byte ranges
--   Implement an [easy-to-configure proxy extension](https://doc.kvarn.org/kvarn_extensions/reverse_proxy/struct.Manager.html) in kvarn_extensions
--   [If-Modified-Since](https://doc.kvarn.org/kvarn/host/struct.Options.html#structfield.disable_if_modified_since) header to increase client cache performance
--   Smart push (so all other data isn't pushed on every request)
--   [Graceful shutdown and handover](https://kvarn.org/shutdown-handover.). Maintenance and updates are now a non-issue!
--   IPv6
--   [CI](https://github.com/Icelk/kvarn/actions)
--   [Content Security Policy](https://kvarn.org/csp.)
-
-### Improvements
-
--   `read_to_bytes()` performance
-
-### Changed
-
--   Extension macros
--   Construction of a server instance
--   Move core stuff
-
-# v0.4.0 ctl
+# [v0.4.0 ctl](https://github.com/Icelk/kvarn/compare/v0.3.0...v0.4.0)
 
 A smaller release to improve the experience with Kvarn.
 
 Notable, a `kvarnctl` executable will allow you to change a running Kvarn instance, including restarting the server in-place, with **zero downtime**.
 
-## [Changes](https://github.com/Icelk/kvarn/compare/v0.3.0...v0.4.0)
-
-### Added
+## Added
 
 -   A [`kvarnctl` executable to control](https://kvarn.org/ctl/) the running Kvarn instance.
     -   Implement all methods used in [`kvarn-reference`](https://github.com/Icelk/kvarn-reference)
@@ -104,12 +22,12 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   [Added option](https://github.com/Icelk/kvarn/commit/1b39289) to change directory where Kvarn gets it's error responses from.
 -   [Shell completion](https://github.com/Icelk/clap_autocomplete) to all binaries.
 
-### Changed
+## Changed
 
 -   Constructor methods on [CORS](https://doc.kvarn.org/kvarn/cors/) and [CSP](https://doc.kvarn.org/kvarn/csp/).
 -   Make templates use `$[]` instead of `[]`.
 
-### Fixed
+## Fixed
 
 -   Correct [PHP/FastCGI](https://doc.kvarn.org/kvarn_extensions/php/fn.mount_php.html) implementation.
 -   Percent decoding of requests
@@ -121,7 +39,7 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   All components of Kvarn are now shut down when you drop Kvarn's references. No memory leaks.
 -   Hosts are now [recognized](https://github.com/Icelk/kvarn/commit/8934160) even if they are accessed through their FQDN.
 
-### Improvements
+## Improvements
 
 -   Stability improvements
 -   Production ready reverse proxy.
@@ -134,3 +52,79 @@ Notable, a `kvarnctl` executable will allow you to change a running Kvarn instan
 -   [Cache performance](https://github.com/Icelk/kvarn/commit/614f57b)
 -   [Limiting performance](https://github.com/Icelk/kvarn/commit/fc704c6)
 -   [Testing on CI](https://github.com/Icelk/kvarn/commit/38c7d7b) for all crates.
+
+# [v0.3.0 Ext](https://github.com/Icelk/kvarn/compare/v0.2.0...v0.3.0)
+
+This is a ~~smaller~~ less headline-feature-rich release, fixing several bugs, increasing performance, and adding small features necessary for a _solid_ web server.
+
+The name comes from the current plan to move core stuff into it's own crate.
+
+## Added
+
+-   [Full doc coverage](https://doc.kvarn.org) (this took _way_ too long...)
+-   Good test coverage
+-   Proper extension macros
+-   Additional server-side cache options, including parsing `cache-control` header
+-   Cache handling of [Vary](https://kvarn.org/vary.) header (definitely the hardest)
+-   Support for request byte ranges
+-   Implement an [easy-to-configure proxy extension](https://doc.kvarn.org/kvarn_extensions/reverse_proxy/struct.Manager.html) in kvarn_extensions
+-   [If-Modified-Since](https://doc.kvarn.org/kvarn/host/struct.Options.html#structfield.disable_if_modified_since) header to increase client cache performance
+-   Smart push (so all other data isn't pushed on every request)
+-   [Graceful shutdown and handover](https://kvarn.org/shutdown-handover.). Maintenance and updates are now a non-issue!
+-   IPv6
+-   [CI](https://github.com/Icelk/kvarn/actions)
+-   [Content Security Policy](https://kvarn.org/csp.)
+
+## Improvements
+
+-   `read_to_bytes()` performance
+
+## Changed
+
+-   Extension macros
+-   Construction of a server instance
+-   Move core stuff
+
+# [v0.2.0 Tokio](https://github.com/Icelk/kvarn/compare/v0.1.0...v0.2.0)
+
+This version HTTP/2, fast async IO, a new superior extension system, and nearly no code left from v0.1.0!
+This release is now currently running [icelk.dev](https://icelk.dev) and [kvarn.org](https://kvarn.org).
+
+This is a _real_ performance uplift. It's essentially a complete rewrite of Kvarn.
+The pages at kvarn.org, especially the one about [extensions](https://kvarn.org/extensions/) and
+the [request pipeline](https://kvarn.org/pipeline.html) should make the design choices more clear.
+It should be understandable even for non-programmers and make it easier to integrate with Kvarn.
+
+> One other big thing is HTTP/2 Push, which makes loading web sites more than 2 times faster.
+> Without doing anything from your part, you can expect automatic push to work, resulting in the
+> described benefits. Soon, Smart Push will be part of Kvarn, further increasing performance.
+
+## Added
+
+-   Use Tokio as the async runtime
+-   [Async](https://kvarn.org/async.) io
+-   [Async](https://kvarn.org/async.) extensions
+-   Flexible interface for HTTP versions
+-   [HTTP/2](https://kvarn.org/http2.)
+-   [request limiting](https://kvarn.org/limiting.)
+-   handling of HEAD HTTP method
+-   more #\[inline] (better performance)
+-   [Referrer header](https://doc.kvarn.org/kvarn/extensions/struct.Extensions.#method.with_no_referrer) in `Extensions::new()`
+-   [cfg](https://kvarn.org/cargo-features.) (https, multithreading, http2)
+
+## Changed
+
+-   Everything else.
+-   Future plan for routing and extensions
+
+## Fixed
+
+-   Everything.
+
+# v0.1.0
+
+This milestone is reached. It was the first working state of the web server.
+
+It's slow, not having async IO except for requests; FS is utterly slow and
+making any other async requests to a database or to proxy another server does not work
+(technically it does, but performance is miserable).
