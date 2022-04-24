@@ -54,10 +54,7 @@ pub mod unix {
         match UnixStream::connect(path).await {
             Err(err) => match err.kind() {
                 io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => Response::NotFound,
-                _ => {
-                    error!("Got error when trying to shut down previous instance of Kvarn: {:?}\nTrying to start server anyway.", err);
-                    Response::Error
-                }
+                _ => Response::Error,
             },
             Ok(mut connection) => {
                 if let Err(err) = connection.write_all(data).await {
