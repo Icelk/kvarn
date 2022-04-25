@@ -35,7 +35,7 @@ _Well..._
 
 # v0.7.0 DynLan
 
-This is where **_dyn_**amic **_lan_**guages are introduced to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
+This is where *dyn*amic *lan*guages are introduced to Kvarn. I currently plan on integrating `Wren` and `Lua` to `kvarn_extensions`,
 because `Wren` seems very fast and interesting, while `Lua` is simply a classic, with JIT support in Rust.
 
 Also, I'll maybe crate bindings for the Zend engine (PHP) and make a PHP crate. It would allow to run the PHP interpreter
