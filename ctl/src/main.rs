@@ -27,7 +27,7 @@ async fn main() {
                 .long("socket-path")
                 .help(
                     "The name of the socket to communicate over. \
-                    If the path is relative, /tmp/ is prepended.",
+                    If the path is relative, /run/ is prepended.",
                 )
                 .value_name("UNIX SOCKET")
                 .value_hint(ValueHint::FilePath)
@@ -210,7 +210,7 @@ async fn main() {
         }
     }
 
-    let path = Path::new("/tmp").join(
+    let path = Path::new("/run").join(
         matches
             .value_of("path")
             .expect("we provided a default path value"),

@@ -93,7 +93,7 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 ///
 /// let config = RunConfig::new()
 ///     .bind(port_descriptor)
-///     .set_ctl_path("/tmp/kvarn-instance-1.sock");
+///     .set_ctl_path("/run/kvarn-instance-1.sock");
 /// config.execute().await.shutdown();
 /// # };
 /// ```

@@ -11,7 +11,7 @@ See [the CI on GitHub](https://github.com/Icelk/kvarn/actions/workflows/kvarnctl
 ## Custom ctl path
 
 If you [configured Kvarn to listen to a custom path](https://doc.kvarn.org/kvarn/struct.RunConfig.html#method.set_ctl_path),
-you can specify it using the `-p` flag. If the path is relative, its base is `/tmp/`.
+you can specify it using the `-p` flag. If the path is relative, its base is `/run/`.
 
 ## Common commands
 

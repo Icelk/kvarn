@@ -498,7 +498,7 @@ macro_rules! plugin {
 }
 
 /// Default message path.
-pub(crate) const SOCKET_PATH: &str = "/tmp/kvarn.sock";
+pub(crate) const SOCKET_PATH: &str = "/run/kvarn.sock";
 
 /// Initiates the handover from a old instance to the one currently running, if the
 /// `graceful-shutdown` feature is enabled. Else, just opens the socket at `path`.
