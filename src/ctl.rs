@@ -23,6 +23,7 @@ impl Arguments {
     }
 }
 /// The kind of response to send back to `kvarnctl`.
+/// See [`PluginResponse`] for more details.
 #[derive(Debug, Clone)]
 pub enum PluginResponseKind {
     /// The request was executed without errors.
@@ -108,16 +109,33 @@ impl Debug for PluginResponse {
         s.finish()
     }
 }
-/// These are ran on separate threads, so they can block.
+/// A plugin, similar to the [`extensions`].
+/// One can easily be constructed using the [`plugin!`] macro.
 ///
-/// They are ran within a tokio context, so you can use e.g. [`tokio::spawn`].
+/// # Examples
+///
+/// ```
+/// # use kvarn::prelude::*;
+/// let mut config = RunConfig::new();
+/// let plugin: ctl::Plugin = Box::new(|args, _port_descriptors, _shutdown_manager, _plugins| {
+///     Box::pin(async move {
+///         let mut s = args.name().to_owned();
+///         for arg in args.iter() {
+///             s.push(' ');
+///             s.push_str(arg);
+///         }
+///         ctl::PluginResponse::ok(s)
+///     }) as extensions::RetSyncFut<'_, _>
+/// });
+/// config = config.add_plugin("my-plugin", plugin);
+/// ```
 pub type Plugin = Box<
     dyn for<'a> Fn(
             Arguments,
             &'a Vec<PortDescriptor>,
             &'a shutdown::Manager,
             &'a Plugins,
-        ) -> Pin<Box<dyn Future<Output = PluginResponse> + Send + Sync + 'a>>
+        ) -> RetSyncFut<'a, PluginResponse>
         + Send
         + Sync,
 >;
@@ -149,7 +167,7 @@ pub fn check_no_arguments(args: &Arguments) -> Result<(), PluginResponse> {
 ///
 /// ## `shutdown`
 ///
-/// If the feature `graceful-shutdown` is enabled, a plugin with the name `shutdown` is
+/// If the [feature](https://kvarn.org/cargo-features.) `graceful-shutdown` is enabled, a plugin with the name `shutdown` is
 /// added. It's functionality can be changed by adding a new plugin with the same name.
 ///
 /// ## `ping`
@@ -168,6 +186,13 @@ pub fn check_no_arguments(args: &Arguments) -> Result<(), PluginResponse> {
 /// ## `wait`
 ///
 /// Waits for the Kvarn instance to shut down.
+///
+/// ## `clear`
+///
+/// Format: `kvarnctl clear <method> (<host> <file/URI>)`
+///
+/// Clears caches. Methods available are `all`, `files`, `responses`,
+/// and two which clear a specific resource, `file` and `response`.
 pub struct Plugins {
     plugins: HashMap<String, Plugin>,
     // remember to add fields to debug implementation
