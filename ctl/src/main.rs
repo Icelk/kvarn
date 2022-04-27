@@ -27,7 +27,7 @@ async fn main() {
                 .long("socket-path")
                 .help(
                     "The name of the socket to communicate over. \
-                    If the path is relative, /run/ is prepended.",
+                    If the path is relative, /run/(user/<uid>/ if not root) is prepended.",
                 )
                 .value_name("UNIX SOCKET")
                 .value_hint(ValueHint::FilePath)
@@ -210,7 +210,8 @@ async fn main() {
         }
     }
 
-    let path = Path::new("/run").join(
+    let mut path = socket_path();
+    path.push(
         matches
             .value_of("path")
             .expect("we provided a default path value"),
@@ -320,4 +321,18 @@ async fn request(message: &[u8], path: &Path, err_not_found: bool) -> Result<Str
         }
     };
     Err(status)
+}
+
+/// Without file name
+pub(crate) fn socket_path() -> std::path::PathBuf {
+    let mut p = Path::new("/run").to_path_buf();
+    #[cfg(unix)]
+    {
+        let user: u32 = unsafe { libc::getuid() };
+        if user != 0 {
+            p.push("user");
+            p.push(user.to_string());
+        }
+    }
+    p
 }

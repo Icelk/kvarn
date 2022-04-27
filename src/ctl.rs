@@ -498,7 +498,19 @@ macro_rules! plugin {
 }
 
 /// Default message path.
-pub(crate) const SOCKET_PATH: &str = "/run/kvarn.sock";
+pub(crate) fn socket_path() -> PathBuf {
+    let mut p = Path::new("/run").to_path_buf();
+    #[cfg(unix)]
+    {
+        let user: u32 = unsafe { libc::getuid() };
+        if user != 0 {
+            p.push("user");
+            p.push(user.to_string());
+        }
+    }
+    p.push("kvarn.sock");
+    p
+}
 
 /// Initiates the handover from a old instance to the one currently running, if the
 /// `graceful-shutdown` feature is enabled. Else, just opens the socket at `path`.
@@ -515,7 +527,7 @@ pub(crate) async fn listen(
 ) {
     #[cfg(unix)]
     {
-        let path = path.map_or_else(|| PathBuf::from(SOCKET_PATH), |p| p.as_ref().to_path_buf());
+        let path = path.map_or_else(socket_path, |p| p.as_ref().to_path_buf());
 
         #[cfg(feature = "graceful-shutdown")]
         {

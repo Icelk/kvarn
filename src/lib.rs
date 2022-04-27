@@ -133,8 +133,10 @@ impl RunConfig {
         self
     }
     /// Sets the path of the socket where the [handover](https://kvarn.org/shutdown-handover.)
-    /// and [ctl](https://kvarn.org/ctl/)
-    /// is managed.
+    /// and [ctl](https://kvarn.org/ctl/) is managed.
+    ///
+    /// By default, this is `/run/user/<uid>/kvarn.sock` for users and `/run/kvarn.sock` for root
+    /// users.
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
     /// If each application (as in an use for Kvarn) has it's own path, multiple can coexist.
