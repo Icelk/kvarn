@@ -44,6 +44,19 @@ pub trait PrimeCall: Send + Sync {
         addr: SocketAddr,
     ) -> RetFut<'a, Option<Uri>>;
 }
+impl<
+        F: for<'a> Fn(&'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, Option<Uri>> + Send + Sync,
+    > PrimeCall for F
+{
+    fn call<'a>(
+        &'a self,
+        request: &'a FatRequest,
+        host: &'a Host,
+        addr: SocketAddr,
+    ) -> RetFut<'a, Option<Uri>> {
+        self(request, host, addr)
+    }
+}
 /// A prepare extension.
 ///
 /// Keep in mind you have to supply the response content type in the headers. Kvarn defaults to HTML.
@@ -73,6 +86,27 @@ pub trait PrepareCall: Send + Sync {
         addr: SocketAddr,
     ) -> RetFut<'a, FatResponse>;
 }
+impl<
+        F: for<'a> Fn(
+                &'a mut FatRequest,
+                &'a Host,
+                Option<&Path>,
+                SocketAddr,
+            ) -> RetFut<'a, FatResponse>
+            + Send
+            + Sync,
+    > PrepareCall for F
+{
+    fn call<'a>(
+        &'a self,
+        request: &'a mut FatRequest,
+        host: &'a Host,
+        path: Option<&Path>,
+        addr: SocketAddr,
+    ) -> RetFut<'a, FatResponse> {
+        self(request, host, path, addr)
+    }
+}
 /// A present extension.
 ///
 /// Can be created using the [`present!`] macro.
@@ -92,6 +126,11 @@ pub trait PresentCall: Send + Sync {
     /// > before the macros and [`utils::SuperUnsafePointer`]s. Then, you had to do the `unsafe` dereferencing
     /// > yourself. Only having to dereference one struct was easier.
     fn call<'a>(&'a self, present_data: &'a mut PresentData) -> RetFut<'a, ()>;
+}
+impl<F: for<'a> Fn(&'a mut PresentData) -> RetFut<'a, ()> + Send + Sync> PresentCall for F {
+    fn call<'a>(&'a self, present_data: &'a mut PresentData) -> RetFut<'a, ()> {
+        self(present_data)
+    }
 }
 /// A package extension.
 ///
@@ -114,6 +153,19 @@ pub trait PackageCall: Send + Sync {
         request: &'a FatRequest,
         host: &'a Host,
     ) -> RetFut<'a, ()>;
+}
+impl<
+        F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host) -> RetFut<'a, ()> + Send + Sync,
+    > PackageCall for F
+{
+    fn call<'a>(
+        &'a self,
+        response: &'a mut Response<()>,
+        request: &'a FatRequest,
+        host: &'a Host,
+    ) -> RetFut<'a, ()> {
+        self(response, request, host)
+    }
 }
 /// A post extension.
 ///
@@ -140,6 +192,29 @@ pub trait PostCall: Send + Sync {
         identity_body: Bytes,
         addr: SocketAddr,
     ) -> RetFut<'a, ()>;
+}
+impl<
+        F: for<'a> Fn(
+                &'a FatRequest,
+                &'a Host,
+                &'a mut ResponsePipe,
+                Bytes,
+                SocketAddr,
+            ) -> RetFut<'a, ()>
+            + Send
+            + Sync,
+    > PostCall for F
+{
+    fn call<'a>(
+        &'a self,
+        request: &'a FatRequest,
+        host: &'a Host,
+        response_pipe: &'a mut ResponsePipe,
+        identity_body: Bytes,
+        addr: SocketAddr,
+    ) -> RetFut<'a, ()> {
+        self(request, host, response_pipe, identity_body, addr)
+    }
 }
 /// Dynamic function to check if a extension should be ran.
 ///
