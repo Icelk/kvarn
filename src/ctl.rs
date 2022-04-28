@@ -514,7 +514,7 @@ pub(crate) fn socket_path() -> PathBuf {
 
 /// Initiates the handover from a old instance to the one currently running, if the
 /// `graceful-shutdown` feature is enabled. Else, just opens the socket at `path`.
-/// [`SOCKET_PATH`] is the fallback.
+/// [`socket_path`] is the fallback.
 ///
 /// This sends a `shutdown` message, waits for a reply, and then starts listening.
 ///
