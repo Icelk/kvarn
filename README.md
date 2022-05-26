@@ -1,6 +1,6 @@
 [![crates.io version](https://img.shields.io/crates/v/kvarn)](https://crates.io/crates/kvarn)
 ![lines of code](https://img.shields.io/tokei/lines/github/Icelk/kvarn)
-![license](https://img.shields.io/github/license/Icelk/kvarn)
+[![license](https://img.shields.io/github/license/Icelk/kvarn)](#contributing)
 [![CI status](https://img.shields.io/github/workflow/status/Icelk/kvarn/Continuous%20Integration)](https://github.com/Icelk/kvarn/actions)
 [![open issues](https://img.shields.io/github/issues-raw/Icelk/kvarn)](https://github.com/Icelk/kvarn/issues)
 [![dependency status](https://deps.rs/repo/github/Icelk/kvarn/status.svg)](https://deps.rs/repo/github/Icelk/kvarn)
@@ -14,7 +14,7 @@
 
 Kvarn is an extendable backend library with [native async everywhere](https://kvarn.org/extensions/);
 [zero downtime](https://kvarn.org/features/#graceful-shutdown--handover); and
-safe & fast defaults.
+[safe & fast defaults](https://kvarn.org/features/#sane-defaults).
 
 Kvarn is batteries-included (optional defaults) with support for reverse proxying, auto HTTP/2 push,
 in-memory caching (proper cache invalidation), server communication through [`kvarnctl`](https://github.com/Icelk/kvarn/tree/main/ctl/),
