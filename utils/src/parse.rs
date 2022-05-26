@@ -828,8 +828,8 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
     let mut header_end = 0;
     let mut lf_in_row = 0;
     let mut header_name_start = 0;
-    let mut header_name_end = 0;
-    let mut header_value_start = 0;
+    let mut name_end = 0;
+    let mut value_start = 0;
     for (pos, byte) in bytes.iter().copied().enumerate() {
         header_end += 1;
         if byte == chars::CR {
@@ -846,28 +846,34 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
         match parse_stage {
             RequestParseStage::HeaderName(..) => {
                 if byte == chars::COLON {
-                    header_name_end = pos;
+                    name_end = pos;
                     if bytes.get(pos + 1) != Some(&chars::SPACE) {
                         parse_stage.next();
-                        header_value_start = pos + 1;
+                        let rest = &bytes[pos..];
+                        value_start =
+                            rest.iter().copied().position(|b| b != b' ').unwrap_or(0) + pos;
                     }
                     continue;
                 }
                 if byte == chars::SPACE {
                     parse_stage.next();
-                    header_value_start = pos + 1;
+                    let rest = &bytes[pos..];
+                    value_start = rest.iter().copied().position(|b| b != b' ').unwrap_or(0) + pos;
                     continue;
                 }
             }
             RequestParseStage::HeaderValue(..) => {
                 if byte == chars::LF {
-                    let name = HeaderName::from_bytes(&bytes[header_name_start..header_name_end])
+                    let name = HeaderName::from_bytes(
+                        bytes
+                            .get(header_name_start..name_end)
+                            .ok_or(Error::IllegalName)?,
+                    )
+                    .ok()
+                    .ok_or(Error::IllegalName)?;
+                    let value = HeaderValue::from_maybe_shared(bytes.slice(value_start..pos - 1))
                         .ok()
-                        .ok_or(Error::IllegalName)?;
-                    let value =
-                        HeaderValue::from_maybe_shared(bytes.slice(header_value_start..pos - 1))
-                            .ok()
-                            .ok_or(Error::IllegalValue)?;
+                        .ok_or(Error::IllegalValue)?;
                     headers.insert(name, value);
                     parse_stage.next();
                     header_name_start = pos + 1;
