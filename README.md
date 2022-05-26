@@ -12,14 +12,19 @@
 
 > An extensible and efficient forwards thinking web server.
 
-Kvarn is a modular web server, designed from the ground up without excessive dependencies.
-It supports several types of [extensions](https://kvarn.org/extensions/) to make it your own.
+Kvarn is an extendable backend library with [native async everywhere](https://kvarn.org/extensions/);
+[zero downtime](https://kvarn.org/features/#graceful-shutdown--handover); and
+safe & fast defaults.
+Kvarn is batteries-included (optional defaults) with support for reverse proxying, auto HTTP/2 push,
+in-memory caching (proper cache invalidation), server communication through [`kvarnctl`](https://github.com/Icelk/kvarn/tree/main/ctl/),
+and easy website creation through Markdown and [Chute](https://github.com/Icelk/kvarn/tree/main/chute/).
 
-See the [roadmap](roadmap.md) or visit [kvarn.org](https://kvarn.org/) for more info.
+See the [roadmap](roadmap.md) or visit [our website](https://kvarn.org/) for more info.
 
 # Current state
 
-A stable [API](https://doc.kvarn.org) is available and the crate is on [crates.io](https://crates.io/crates/kvarn).
+A stable API is available and the crate is on [crates.io](https://crates.io/crates/kvarn).
+You can view the latest documentation [online](https://doc.kvarn.org).
 
 [At least for now](https://kvarn.org/config.) you'll have to configure Kvarn through code
 (e.g. add extensions from [`kvarn_extensions`](extensions/README.md) and configuring hosts).
