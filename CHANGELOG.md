@@ -1,3 +1,17 @@
+# [v0.4.1](https://github.com/Icelk/kvarn/compare/v0.4.0...v0.4.1)
+
+## Fixed
+
+-   Fixed panic when parsing malicious HTTP request.
+    All crates using `kvarn_utils` should upgrade it to `=0.4.1` if you use the function `headers` and accept arbitrary input.
+
+## Changed
+
+-   Default path for `kvarnctl`.
+    -   In root contexts, it was moved from `/tmp/kvarn.sock` to `/run/kvarn.sock`
+    -   In user contexts, it was moved from `/tmp/kvarn.sock` to `/run/user/<uid>/kvarn.sock`
+    -   This fixed the socket being garbage collected by the OS.
+
 # [v0.4.0 ctl](https://github.com/Icelk/kvarn/compare/v0.3.0...v0.4.0)
 
 A smaller release to improve the experience working with Kvarn.
