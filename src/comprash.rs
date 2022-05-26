@@ -433,8 +433,6 @@ impl CompressedResponse {
         }
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(response.body()).is_ok();
 
-        // Looks a lot better.
-        #[allow(clippy::single_match_else)]
         match response.headers().get("content-type") {
             Some(content_type) => {
                 if let Some(mime_type) = content_type
@@ -442,6 +440,7 @@ impl CompressedResponse {
                     .ok()
                     .and_then(|s| s.parse::<Mime>().ok())
                 {
+                    #[allow(clippy::match_same_arms)] // we have comments
                     match mime_type.get_param("charset") {
                         // Has charset attribute.
                         Some(_) => {}
