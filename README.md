@@ -10,7 +10,7 @@
 
 # [Kvarn](https://kvarn.org/)
 
-> An extensible and efficient forwards thinking web server.
+> An extensible and efficient forward-thinking web server.
 
 Kvarn is an extendable backend library with [native async everywhere](https://kvarn.org/extensions/);
 [zero downtime](https://kvarn.org/features/#graceful-shutdown--handover); and
