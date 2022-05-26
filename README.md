@@ -15,6 +15,7 @@
 Kvarn is an extendable backend library with [native async everywhere](https://kvarn.org/extensions/);
 [zero downtime](https://kvarn.org/features/#graceful-shutdown--handover); and
 safe & fast defaults.
+
 Kvarn is batteries-included (optional defaults) with support for reverse proxying, auto HTTP/2 push,
 in-memory caching (proper cache invalidation), server communication through [`kvarnctl`](https://github.com/Icelk/kvarn/tree/main/ctl/),
 and easy website creation through Markdown and [Chute](https://github.com/Icelk/kvarn/tree/main/chute/).
