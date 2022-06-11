@@ -494,7 +494,7 @@ pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &s
 /// ```
 #[macro_export]
 macro_rules! starts_with_any {
-    ($e:expr, $($match:expr),*) => {
+    ($e:expr, $($match:expr),* $(,)?) => {
         $($e.starts_with($match) || )* false
     };
 }
@@ -503,8 +503,24 @@ macro_rules! starts_with_any {
 #[must_use]
 pub fn valid_method(bytes: &[u8]) -> bool {
     starts_with_any!(
-        bytes, b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE", b"OPTIONS", b"CONNECT",
-        b"PATCH"
+        bytes,
+        b"GET",
+        b"HEAD",
+        b"POST",
+        b"PUT",
+        b"DELETE",
+        b"TRACE",
+        b"OPTIONS",
+        b"CONNECT",
+        b"PATCH",
+        // WebDAV
+        b"COPY",
+        b"LOCK",
+        b"MKCOL",
+        b"MOVE",
+        b"PROPFIND",
+        b"PROPPATCH",
+        b"UNLOCK",
     )
 }
 /// Checks if `bytes` starts with a valid [`Version`]
