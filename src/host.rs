@@ -931,11 +931,12 @@ impl ResolvesServerCert for Collection {
 #[must_use]
 pub fn alpn() -> Vec<Vec<u8>> {
     #[allow(unused_mut)]
-    let mut vec = Vec::with_capacity(4);
+    let mut vec = vec![b"http/1.1".to_vec()];
     #[cfg(feature = "http2")]
     {
         vec.push(b"h2".to_vec());
     }
+    vec.shrink_to_fit();
     vec
 }
 
