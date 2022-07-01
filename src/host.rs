@@ -203,7 +203,7 @@ impl Host {
         extensions: Extensions,
         options: Options,
     ) -> Self {
-        use x509_parser::traits::FromDer;
+        use x509_parser::prelude::FromDer;
         let tbs = x509_parser::certificate::X509Certificate::from_der(&cert[0].0)
             .expect("certificate invalid, failed to get host name")
             .1
