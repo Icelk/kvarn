@@ -391,7 +391,11 @@ fn _process<P: AsRef<Path>>(
             }
 
             let mut indent_counter = IndentCounter::new();
-            write!(ext, "|Contents|\n|---|\n").unwrap();
+            writeln!(
+                ext,
+                "<table id=\"toc\"><thead><tr><th>Contents</th></tr></thead><tbody>"
+            )
+            .unwrap();
             for Header {
                 name,
                 anchor,
@@ -406,11 +410,12 @@ fn _process<P: AsRef<Path>>(
 
                 writeln!(
                     ext,
-                    "|{} [{} {}](#{})|",
-                    margin, indent_counter, name, anchor
+                    "<tr><td>{}<a href=\"#{}\">{} {}</a></td></tr>",
+                    margin, anchor, indent_counter, name
                 )
                 .unwrap();
             }
+            writeln!(ext, "</tbody></table>").unwrap();
         }),
     );
 
