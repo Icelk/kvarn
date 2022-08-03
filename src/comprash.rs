@@ -442,15 +442,11 @@ impl CompressedResponse {
                 {
                     #[allow(clippy::match_same_arms)] // we have comments
                     match mime_type.get_param("charset") {
-                        // Has charset attribute.
-                        Some(_) => {}
                         None if utf_8 => {
                             add_utf_8(response.headers_mut(), &mime_type);
                         }
-
-                        None => {
-                            // We should not add charset parameter
-                        }
+                        // Has charset attribute or we shouldn't add a charset parameter
+                        Some(_) | None => {}
                     }
                 }
             }

@@ -165,6 +165,18 @@ impl Manager {
             );
         }
     }
+    /// Retrieves the number of current connections.
+    /// Returns `0` if the feature `graceful-shutdown is disabled`.
+    pub fn get_connecions(&self) -> isize {
+        #[cfg(feature = "graceful-shutdown")]
+        {
+            self.connections.load(Ordering::Acquire)
+        }
+        #[cfg(not(feature = "graceful-shutdown"))]
+        {
+            0
+        }
+    }
     /// Gets the value of the internal shutdown flag. This signals a graceful shutdown is underway.
     #[cfg(feature = "graceful-shutdown")]
     pub fn get_shutdown(&self, order: Ordering) -> bool {

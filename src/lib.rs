@@ -386,8 +386,16 @@ async fn accept(
                     continue;
                 }
                 Err(err) => {
+                    #[cfg(feature = "graceful-shutdown")]
+                    let connections = format!(
+                        " {} current connections.",
+                        shutdown_manager.get_connecions()
+                    );
+                    #[cfg(not(feature = "graceful-shutdown"))]
+                    let connections = "";
+
                     // An error occurred
-                    error!("Failed to accept() on listener");
+                    error!("Failed to accept() on listener.{connections}");
 
                     return Err(err);
                 }
@@ -509,6 +517,8 @@ pub async fn handle_connection(
             {
                 error!("Got error from writing response: {:?}", err);
             }
+            drop(request);
+            drop(response_pipe);
         };
 
         // When version is HTTP/1, we block the socket if we begin listening to it again.
@@ -524,6 +534,7 @@ pub async fn handle_connection(
         }
     }
     debug!("Connection finished.");
+    http.shutdown().await;
 
     Ok(())
 }

@@ -250,6 +250,16 @@ impl HttpConnection {
             },
         }
     }
+    /// Ask this connection to shutdown.
+    pub async fn shutdown(self) {
+        match self {
+            Self::Http1(h) => {
+                drop(h.lock().await.shutdown().await);
+            }
+            #[cfg(feature = "http2")]
+            Self::Http2(_h) => {}
+        }
+    }
 }
 
 mod request {
