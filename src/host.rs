@@ -203,7 +203,7 @@ impl Host {
         extensions: Extensions,
         options: Options,
     ) -> Self {
-        use x509_parser::traits::FromDer;
+        use x509_parser::prelude::FromDer;
         let tbs = x509_parser::certificate::X509Certificate::from_der(&cert[0].0)
             .expect("certificate invalid, failed to get host name")
             .1
@@ -930,14 +930,11 @@ impl ResolvesServerCert for Collection {
 /// are set in [`host::Collection::make_config()`].*
 #[must_use]
 pub fn alpn() -> Vec<Vec<u8>> {
-    #[allow(unused_mut)]
-    let mut vec = vec![];
-    #[cfg(feature = "http2")]
-    {
-        vec.push(b"h2".to_vec());
-    }
-    vec.push(b"http/1.1".to_vec());
-    vec.shrink_to_fit();
+    let vec = vec![
+        #[cfg(feature = "http2")]
+        b"h2".to_vec(),
+        b"http/1.1".to_vec(),
+    ];
     vec
 }
 
