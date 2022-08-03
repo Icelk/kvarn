@@ -476,8 +476,7 @@ impl Manager {
                     let result = connection.request(&empty_req, &bytes, *timeout).await;
                     drop(connection.shutdown().await);
                     drop(connection);
-                    let mut response = match result
-                    {
+                    let mut response = match result {
                         Ok(mut response) => {
                             // The response's body will not be compressed, as we set the
                             // `accept-encoding` to `identity` before.
