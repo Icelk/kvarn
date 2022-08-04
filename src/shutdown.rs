@@ -167,6 +167,7 @@ impl Manager {
     }
     /// Retrieves the number of current connections.
     /// Returns `0` if the feature `graceful-shutdown is disabled`.
+    #[must_use]
     pub fn get_connecions(&self) -> isize {
         #[cfg(feature = "graceful-shutdown")]
         {

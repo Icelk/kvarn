@@ -18,11 +18,12 @@ kvarn-fastcgi-client = { version = "0.1", optional = true }
 tokio = { version = "1.17", optional = true, features = ["net", "io-util"] }
 url-crawl = { version = "0.1", optional = true }
 async_chunked_transfer = "1.4"
+percent-encoding = { version = "2", optional = true }
 
 [features]
 default = ["php", "templates", "push"]
 connection = ["tokio"]
-php = ["kvarn-fastcgi-client", "connection"]
+php = ["kvarn-fastcgi-client", "connection", "percent-encoding"]
 templates = []
 push = ["url-crawl"]
 reverse-proxy = ["connection"]
