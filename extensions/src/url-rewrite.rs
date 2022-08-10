@@ -27,10 +27,15 @@ impl<'a> AbsolutePathIter<'a> {
             if *byte == final_byte {
                 break;
             }
+            let illegal = if final_byte == b'`' {
+                matches!(*byte, b'\\' | b'*' | b'\n')
+            }else {
+                matches!(*byte, b'\\' | b'*' | b'\n' | b'$' | b'{' | b'}' | b':')
+            };
+            if illegal {
+                return None;
+            }
             match *byte {
-                b'\\' | b'*' | b'\n' | b'$' | b'{' | b'}' | b':' => {
-                    return None;
-                }
                 b'/' if last_was_slash => return None,
                 b'/' if !last_was_slash => last_was_slash = true,
                 _ if last_was_slash => last_was_slash = false,
@@ -50,16 +55,19 @@ impl<'a> AbsolutePathIter<'a> {
             // How long the character is - skip non-ascii characters
             if eq_byte(byte, 0b11000000, 0b11100000) {
                 self.invalid = 1;
+                continue;
             }
             if eq_byte(byte, 0b11100000, 0b11110000) {
                 self.invalid = 2;
+                continue;
             }
             if eq_byte(byte, 0b11110000, 0b11111000) {
                 self.invalid = 3;
+                continue;
             }
 
             if !self.last_was_illegal
-                && (byte == b'"' || byte == b'\'')
+                && matches!(byte, b'"' | b'\'' | b'`')
                 && self.data.get(pos + 1) == Some(&b'/')
             {
                 let quote_type = QuoteType::from_byte(byte).unwrap();
@@ -110,12 +118,14 @@ impl<'a> Iterator for AbsolutePathIter<'a> {
 enum QuoteType {
     Single,
     Double,
+    Backtick,
 }
 impl QuoteType {
     fn from_byte(b: u8) -> Option<Self> {
         Some(match b {
             b'"' => Self::Double,
             b'\'' => Self::Single,
+            b'`' => Self::Backtick,
             _ => return None,
         })
     }
@@ -123,6 +133,7 @@ impl QuoteType {
         match self {
             Self::Single => b'\'',
             Self::Double => b'"',
+            Self::Backtick => b'`',
         }
     }
 }
