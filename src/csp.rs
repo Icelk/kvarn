@@ -24,6 +24,7 @@ macro_rules! csp_rules {
             /// Creates a new, **empty** CSP rule.
             /// Consider using [`Self::default`] to get sensible defaults, which **include**
             /// `default-src 'self'`.
+            /// An empty rule means NO CSP header being sent.
             ///
             /// Populate it with the various directive methods.
             #[inline]
