@@ -29,7 +29,7 @@ impl<'a> AbsolutePathIter<'a> {
             }
             let illegal = if final_byte == b'`' {
                 matches!(*byte, b'\\' | b'*' | b'\n')
-            }else {
+            } else {
                 matches!(*byte, b'\\' | b'*' | b'\n' | b'$' | b'{' | b'}' | b':')
             };
             if illegal {
