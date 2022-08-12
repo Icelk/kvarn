@@ -469,7 +469,7 @@ impl Manager {
 
                     let path = empty_req.uri().path().to_owned();
 
-                    for modify in &*modify {
+                    for modify in modify {
                         modify(&mut empty_req, &mut bytes, addr);
                     }
 
