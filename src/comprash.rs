@@ -165,6 +165,8 @@ pub fn do_compress(mime: &Mime, check_utf8: impl Fn() -> bool) -> bool {
                 || mime.subtype() == "graphql"
                 || mime.subtype() == mime::JSON
                 || mime.subtype() == mime::XML
+                || mime.subtype() == "wasm"
+                || mime.subtype() == "octet-stream"
                 || check_utf8()))
 }
 
