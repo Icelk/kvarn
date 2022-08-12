@@ -1133,7 +1133,7 @@ mod macros {
 
     /// Construct a [`Prime`](super::Prime) extension like you write closures.
     ///
-    /// See [`prepare!`] for usage and useful examples.
+    /// See [`crate::prepare!`] for usage and useful examples.
     /// See [`super::PrimeCall`] for a list of arguments.
     ///
     /// # Examples
@@ -1215,7 +1215,7 @@ mod macros {
     }
     /// Construct a [`Present`](super::Present) extension like you write closures.
     ///
-    /// See [`prepare!`] for usage and useful examples.
+    /// See [`crate::prepare!`] for usage and useful examples.
     /// See [`super::PresentCall`] for a list of arguments.
     ///
     /// # Examples
@@ -1240,7 +1240,7 @@ mod macros {
     }
     /// Construct a [`Package`](super::Package) extension like you write closures.
     ///
-    /// See [`prepare!`] for usage and useful examples.
+    /// See [`crate::prepare!`] for usage and useful examples.
     /// See [`super::PackageCall`] for a list of arguments.
     ///
     /// # Examples
@@ -1268,7 +1268,7 @@ mod macros {
     }
     /// Construct a [`Post`](super::Post) extension like you write closures.
     ///
-    /// See [`prepare!`] for usage and useful examples.
+    /// See [`crate::prepare!`] for usage and useful examples.
     /// See [`super::PostCall`] for a list of arguments.
     ///
     /// # Examples
