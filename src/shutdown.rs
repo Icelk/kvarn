@@ -349,6 +349,7 @@ impl AcceptManager {
     ///
     /// Please increase the count of connections on [`Manager`] when this connection is accepted
     /// and decrease it when the connection dies.
+    #[allow(clippy::let_and_return)] // cfg
     pub async fn accept(&mut self, _manager: &Manager) -> AcceptAction {
         let action = AcceptFuture {
             #[cfg(feature = "graceful-shutdown")]

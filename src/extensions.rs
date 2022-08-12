@@ -535,15 +535,12 @@ impl Extensions {
         );
         self.add_prime(
             prime!(request, _, _, {
-                let uri = if request.uri().scheme_str() == Some("http")
-                    && request.uri().port().is_none()
-                {
+                if request.uri().scheme_str() == Some("http") && request.uri().port().is_none() {
                     // redirect
                     Some(Uri::from_static(SPECIAL_PATH))
                 } else {
                     None
-                };
-                uri
+                }
             }),
             extensions::Id::new(4, "Redirecting to HTTPS"),
         );
