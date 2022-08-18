@@ -30,27 +30,40 @@ members = [
 ]
 
 [dependencies]
-base64 = { version = "0.13", optional = true }
-brotli = { version = "3", optional = true }
 bytes = "1"
-flate2 = { version = "1", optional = true }
 h2 = { version = "0.3", default-features = false, optional = true }
 http = "0.2"
 kvarn_async = { path = "async", version = "=0.4.1" }
 kvarn_utils = { path = "utils", version = "=0.4.1" }
 kvarn_signal = { path = "signal", version = "0.1" }
 log = "0.4"
-memchr = { version = "2", optional = true }
 mime = "0.3"
 mime_guess = "2"
 percent-encoding = "2"
-rand = { version = "0.8", optional = true, features = ["small_rng"] }
-rustls = { version = "0.20", optional = true }
-rustls-pemfile = { version = "1.0", optional = true }
 time = { version = "0.3.7", features = ["parsing", "formatting", "macros"] }
 tokio = { version = "1.17", features = ["rt", "io-util", "net", "fs", "sync", "parking_lot", "time"] }
+
+# HTTPS
+rustls = { version = "0.20", optional = true }
+rustls-pemfile = { version = "1.0", optional = true }
 webpki = { version = "0.22", optional = true }
+
+# nonce
+base64 = { version = "0.13", optional = true }
+memchr = { version = "2", optional = true }
+rand = { version = "0.8", optional = true, features = ["small_rng"] }
+
+# Automatic hostname
 x509-parser = { version = "0.14", optional = true }
+
+# Compression
+brotli = { version = "3", optional = true }
+flate2 = { version = "1", optional = true }
+
+# WebSockets
+tokio-tungstenite = { version = "0.17", optional = true, default-features = false }
+sha-1 = { version = "0.10", optional = true }
+futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", default-features = false }
@@ -59,7 +72,7 @@ libc = { version = "0.2", default-features = false }
 default = ["full"]
 
 # Enable all features
-full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname", "nonce"]
+full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname", "nonce", "websocket"]
 
 # Compressing
 all-compression = ["br", "gzip"]
@@ -79,6 +92,9 @@ auto-hostname = ["x509-parser"]
 
 # nonce implementation
 nonce = ["rand", "base64", "memchr"]
+
+# WebSockets
+websocket = ["tokio-tungstenite", "sha-1", "base64", "futures-util"]
 
 # also add to https://kvarn.org/cargo-features.
 

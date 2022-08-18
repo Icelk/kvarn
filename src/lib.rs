@@ -64,6 +64,7 @@ pub mod prelude;
 pub mod read;
 pub mod shutdown;
 pub mod vary;
+pub mod websocket;
 
 use prelude::{chrono::*, internals::*, networking::*, *};
 // When user only imports kvarn::* and not kvarn::prelude::*
