@@ -370,7 +370,7 @@ pub fn hardcoded_error_body(code: http::StatusCode, message: Option<&[u8]>) -> B
     // Get code and reason!
     let reason = code.canonical_reason();
 
-    body.extend(b"<html><head><title>");
+    body.extend(b"<!DOCTYPE html><html><head><title>");
     // Code and reason
     body.extend(code.as_str().as_bytes());
     body.extend(b" ");
