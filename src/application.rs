@@ -411,23 +411,25 @@ mod response {
             }
             let mut buffer = BytesMut::with_capacity(len);
             if len < self.bytes.len() {
-                buffer.extend(&self.bytes[..len]);
+                buffer.extend_from_slice(&self.bytes[..len]);
+                self.offset = len;
             } else {
-                buffer.extend(&self.bytes);
-                if let Ok(result) = timeout(
-                    Duration::from_millis(250),
-                    async_bits::read_to_end_or_max(&mut buffer, &mut *self, len),
-                )
-                .await
-                {
-                    result?;
-                } else {
-                    self.content_length = 0;
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "Reading of request body timed out.",
-                    ));
-                }
+                buffer.extend_from_slice(&self.bytes);
+                self.offset = self.bytes.len();
+            }
+            if let Ok(result) = timeout(
+                Duration::from_millis(250),
+                async_bits::read_to_end_or_max(&mut buffer, &mut *self, len),
+            )
+            .await
+            {
+                result?;
+            } else {
+                self.content_length = 0;
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Reading of request body timed out.",
+                ));
             }
 
             // Don't return anything next time we are called!
@@ -467,15 +469,18 @@ mod response {
                     buf.put_slice(&self.bytes[self.offset..]);
                     self.offset = self.bytes.len();
                 }
+                cx.waker().wake_by_ref();
                 Poll::Pending
             } else {
-                let mut reader = match self.reader.try_lock() {
-                    Err(_) => return Poll::Pending,
-                    Ok(r) => r,
+                let mut lock = self.reader.lock();
+                let mut reader = match unsafe { Pin::new_unchecked(&mut lock) }.poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(r) => r,
                 };
                 let size = buf.filled().len();
                 let result = unsafe { Pin::new_unchecked(&mut *reader).poll_read(cx, buf) };
                 drop(reader);
+                drop(lock);
                 let difference = buf.filled().len() - size;
                 self.offset += difference;
                 if self.offset == self.content_length {
