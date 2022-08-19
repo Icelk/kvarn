@@ -112,7 +112,10 @@ pub mod parse {
 /// Makes the client download the file.
 pub fn download(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     let headers = data.response_mut().headers_mut();
-    utils::replace_header_static(headers, "content-type", "application/octet-stream");
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("application/octet-stream"),
+    );
     ready(())
 }
 
@@ -234,11 +237,11 @@ pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
                             .and_then(|rule| rule.strip_suffix('*'))
                             .map_or(false, |rule| path.contains(rule));
                     if replace {
-                        utils::replace_header(
-                            response.headers_mut(),
-                            "cache-control",
-                            preference.as_header(),
-                        );
+                        if let Some(h) = preference.as_header() {
+                        response
+                            .headers_mut()
+                            .insert("cache-control",h);
+                        }
                     }
                 }
             }

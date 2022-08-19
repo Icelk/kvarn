@@ -437,13 +437,16 @@ impl Extensions {
                     let some_nonce = nonce.is_some();
                     if let Some(header) = rule.to_header_nonce(nonce) {
                         if let Some(header) = response.headers().get("content-security-policy") {
-                            warn!("Overriding current `content-security-policy` header: {:?} at page {:?}", header, request.uri());
+                            warn!(
+                                "Overriding current `content-security-policy` \
+                                header: {:?} at page {:?}",
+                                header,
+                                request.uri()
+                            );
                         }
-                        utils::replace_header(
-                            response.headers_mut(),
-                            "content-security-policy",
-                            header,
-                        );
+                        response
+                            .headers_mut()
+                            .insert("content-security-policy", header);
                     }
                     if some_nonce {
                         utils::remove_all_headers(response.headers_mut(), "csp-nonce");

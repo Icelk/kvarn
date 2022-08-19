@@ -227,7 +227,7 @@ fn get_header(headers: &[Header]) -> HeaderValue {
 /// Converts and applies the varied `headers` to the `response`.
 pub(crate) fn apply_header<T>(response: &mut Response<T>, headers: &[Header]) {
     let header = get_header(headers);
-    utils::replace_header(response.headers_mut(), "vary", header);
+    response.headers_mut().insert("vary", header);
 }
 
 /// A header that is subject to the `vary` header.

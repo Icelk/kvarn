@@ -1009,11 +1009,10 @@ pub async fn handle_cache(
                         .expect("failed to format datetime"),
                 )
                 .expect("We know these bytes are valid.");
-                utils::replace_header(
-                    response_data.0.headers_mut(),
-                    "last-modified",
-                    last_modified,
-                );
+                response_data
+                    .0
+                    .headers_mut()
+                    .insert("last-modified", last_modified);
             }
             response_data
         }
@@ -1076,7 +1075,9 @@ pub async fn handle_cache(
                         .expect("failed to format datetime"),
                 )
                 .expect("We know these bytes are valid.");
-                utils::replace_header(response.headers_mut(), "last-modified", last_modified);
+                response
+                    .headers_mut()
+                    .insert("last-modified", last_modified);
             }
 
             (response, identity_body, future)
@@ -1419,10 +1420,9 @@ impl FatResponse {
     /// It's unknown if this can even happen at all.
     /// If it does happen, it's in the [`Mime::params`].
     pub fn with_content_type(mut self, content_type: &Mime) -> Self {
-        utils::replace_header(
-            self.response.headers_mut(),
+        self.response.headers_mut().insert(
             "content-type",
-            // UNWRAP: We know the mime type is valid.
+            // UNWRAP: We know the mime type is a valid HeaderValue.
             HeaderValue::from_maybe_shared::<Bytes>(content_type.to_string().into_bytes().into())
                 .unwrap(),
         );

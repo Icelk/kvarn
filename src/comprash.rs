@@ -412,11 +412,13 @@ impl CompressedResponse {
         disable_client_cache: bool,
     ) {
         let header = if disable_client_cache {
-            HeaderValue::from_static("no-store")
+            Some(HeaderValue::from_static("no-store"))
         } else {
             preference.as_header()
         };
-        headers.entry("cache-control").or_insert(header);
+        if let Some(h) = header {
+            headers.entry("cache-control").or_insert(h);
+        }
     }
     fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
         fn add_utf_8(headers: &mut HeaderMap, mime: &Mime) {
@@ -431,7 +433,7 @@ impl CompressedResponse {
             header.push_str(charset);
             let content_type =
                 HeaderValue::from_maybe_shared::<Bytes>(header.into_bytes().into()).unwrap();
-            utils::replace_header(headers, "content-type", content_type);
+            headers.insert("content-type", content_type);
         }
         let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(response.body()).is_ok();
 
@@ -490,7 +492,7 @@ impl CompressedResponse {
                 headers.get("content-encoding"),
                 headers.get("content-type"),
             );
-            utils::replace_header(headers, "content-encoding", compression);
+            headers.insert("content-encoding", compression);
         }
         *builder.headers_mut().unwrap() = map;
         builder.body(new_data).unwrap()
@@ -666,6 +668,8 @@ impl str::FromStr for ServerCachePreference {
 /// If a `cache-control` header is already present, it will be prioritized.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum ClientCachePreference {
+    /// Don't manage the `cache-control` header.
+    Ignore,
     /// Will not cache on client
     None,
     /// A two-minute cache lifetime
@@ -682,8 +686,9 @@ impl ClientCachePreference {
     /// Gets the [`HeaderValue`] representation of the preference.
     #[inline]
     #[must_use]
-    pub fn as_header(self) -> HeaderValue {
-        match self {
+    pub fn as_header(self) -> Option<HeaderValue> {
+        Some(match self {
+            Self::Ignore => return None,
             Self::None => HeaderValue::from_static("no-store"),
             Self::Changing => HeaderValue::from_static("max-age=2"),
             Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
@@ -700,7 +705,7 @@ impl ClientCachePreference {
                 // We know these bytes are safe.
                 HeaderValue::from_maybe_shared(bytes).unwrap()
             }
-        }
+        })
     }
 }
 impl str::FromStr for ClientCachePreference {
@@ -715,6 +720,7 @@ impl str::FromStr for ClientCachePreference {
             }
         }
         Ok(match s {
+            "ignore" => ClientCachePreference::Ignore,
             "full" => ClientCachePreference::Full,
             "changing" => ClientCachePreference::Changing,
             "none" => ClientCachePreference::None,

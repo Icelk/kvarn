@@ -433,36 +433,6 @@ pub fn split_response<T>(response: Response<T>) -> (Response<()>, T) {
     (response, body.unwrap())
 }
 
-/// Replaces the header `name` with `new` in `headers`.
-///
-/// Removes all other occurrences of `name`.
-#[inline]
-pub fn replace_header<K: header::IntoHeaderName + Copy>(
-    headers: &mut HeaderMap,
-    name: K,
-    new: HeaderValue,
-) {
-    match headers.entry(name) {
-        header::Entry::Vacant(slot) => {
-            slot.insert(new);
-        }
-        header::Entry::Occupied(slot) => {
-            slot.remove_entry_mult();
-            headers.insert(name, new);
-        }
-    }
-}
-/// Replaces header `name` with `new` (a &'static str) in `headers`.
-///
-/// See [`replace_header`] for more info.
-#[inline]
-pub fn replace_header_static<K: header::IntoHeaderName + Copy>(
-    headers: &mut HeaderMap,
-    name: K,
-    new: &'static str,
-) {
-    replace_header(headers, name, HeaderValue::from_static(new));
-}
 /// Removes all headers from `headers` with `name`.
 #[inline]
 pub fn remove_all_headers<K: header::IntoHeaderName>(headers: &mut HeaderMap, name: K) {
@@ -559,10 +529,9 @@ pub fn get_body_length_request<T>(request: &Request<T>) -> usize {
 /// See [`replace_header`] for details.
 #[inline]
 pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
-    // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
-    replace_header(
-        headers,
+    headers.insert(
         "content-length",
+        // unwrap is ok, we know the formatted bytes from a number are (0-9) or `.`
         HeaderValue::from_str(len.to_string().as_str()).unwrap(),
     );
 }
@@ -982,10 +951,9 @@ mod tests {
         assert_eq!(get_body_length_response(&response1, Some(&Method::PUT)), 0);
 
         let mut response2 = empty_clone_response(&response1).map(|()| data);
-        replace_header_static(
-            response2.headers_mut(),
+        response2.headers_mut().insert(
             "Content-Length",
-            "invalid content-length",
+            HeaderValue::from_static("invalid content-length"),
         );
         assert_eq!(get_body_length_response(&response2, Some(&Method::GET)), 0);
     }
@@ -1035,14 +1003,9 @@ mod tests {
     fn header_management2() {
         let start = std::time::Instant::now();
         let mut headers = get_headers();
-        replace_header(
-            &mut headers,
-            "user-agent",
-            HeaderValue::from_str("tinyquest").unwrap(),
-        );
+        headers.insert("user-agent", HeaderValue::from_str("tinyquest").unwrap());
         let processing_time = start.elapsed().as_micros().to_string();
-        replace_header(
-            &mut headers,
+        headers.insert(
             "x-processing-time",
             HeaderValue::from_str(&processing_time).unwrap(),
         );
@@ -1059,7 +1022,7 @@ mod tests {
     #[test]
     fn header_management3() {
         let mut headers = get_headers();
-        replace_header_static(&mut headers, "user-agent", "tinyquest");
+        headers.insert("user-agent", HeaderValue::from_static("tinyquest"));
         assert_eq!(
             headers.get("user-agent"),
             Some(&HeaderValue::from_static("tinyquest"))

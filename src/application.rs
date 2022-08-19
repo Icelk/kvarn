@@ -516,11 +516,11 @@ mod response {
                         .map(HeaderValue::to_str)
                         .and_then(Result::ok)
                     {
-                        Some("close") | None => utils::replace_header_static(
-                            response.headers_mut(),
-                            "connection",
-                            "keep-alive",
-                        ),
+                        Some("close") | None => {
+                            response
+                                .headers_mut()
+                                .insert("connection", HeaderValue::from_static("keep-alive"));
+                        }
                         _ => {}
                     }
                     let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);

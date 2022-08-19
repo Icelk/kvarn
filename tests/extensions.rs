@@ -237,10 +237,9 @@ fn get_extensions() -> Extensions {
             response
                 .headers_mut()
                 .insert("fun-header", HeaderValue::from_static("why not?"));
-            utils::replace_header_static(
-                response.headers_mut(),
+            response.headers_mut().insert(
                 "content-security-policy",
-                "default-src 'self'; style-src 'unsafe-inline' 'self'",
+                HeaderValue::from_static("default-src 'self'; style-src 'unsafe-inline' 'self'"),
             );
         }),
         extensions::Id::new(-1024, "add headers"),

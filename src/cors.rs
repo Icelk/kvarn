@@ -326,11 +326,9 @@ impl Extensions {
                 if let Some(origin) = request.headers().get("origin") {
                     let allowed = package_cors_settings.check_cors_request(request).is_some();
                     if allowed {
-                        utils::replace_header(
-                            response.headers_mut(),
-                            "access-control-allow-origin",
-                            origin.clone(),
-                        );
+                        response
+                            .headers_mut()
+                            .insert("access-control-allow-origin", origin.clone());
                     }
                 }
             }),

@@ -348,8 +348,7 @@ impl Manager {
     /// `x-real-ip`.
     pub fn with_x_real_ip(self) -> Self {
         self.add_modify_fn(Arc::new(|req, _, addr| {
-            utils::replace_header(
-                req.headers_mut(),
+            req.headers_mut().insert(
                 "x-real-ip",
                 HeaderValue::try_from(addr.ip().to_string()).unwrap(),
             );
@@ -443,24 +442,20 @@ impl Manager {
                         host
                     );
 
-                    utils::replace_header_static(
-                        empty_req.headers_mut(),
-                        "accept-encoding",
-                        "identity",
-                    );
+                    empty_req
+                        .headers_mut()
+                        .insert("accept-encoding", HeaderValue::from_static("identity"));
 
                     if utils::header_eq(empty_req.headers(), "connection", "keep-alive") {
-                        utils::replace_header_static(
-                            empty_req.headers_mut(),
-                            "connection",
-                            "close",
-                        );
+                        empty_req
+                            .headers_mut()
+                            .insert("connection", HeaderValue::from_static("close"));
                     }
 
                     *empty_req.version_mut() = Version::HTTP_11;
 
                     if let Ok(value) = host.name.parse() {
-                        utils::replace_header(empty_req.headers_mut(), "host", value);
+                        empty_req.headers_mut().insert("host", value);
                     }
 
                     let wait = matches!(empty_req.method(), &Method::CONNECT)

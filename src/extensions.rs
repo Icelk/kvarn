@@ -481,6 +481,7 @@ impl Extensions {
     }
     /// Adds a [`Package`] extension to set the `referrer-policy` to `no-referrer`
     /// for maximum privacy and security.
+    /// If another `referrer-policy` is already present, nothing happens.
     /// This is added when calling [`Extensions::new`].
     pub fn with_no_referrer(&mut self) -> &mut Self {
         self.add_package(
@@ -571,7 +572,7 @@ impl Extensions {
                 s[wrote..].fill(b'=');
 
                 let body = ext.response().body();
-                let mut new_body = BytesMut::with_capacity(body.len() + 24*4);
+                let mut new_body = BytesMut::with_capacity(body.len() + 24 * 4);
                 let mut last_start = 0;
 
                 let iter = memchr::memmem::find_iter(body, b"nonce=");
@@ -613,15 +614,18 @@ impl Extensions {
                 new_body.extend_from_slice(&body[last_start.min(body.len())..]);
 
                 *ext.response_mut().body_mut() = new_body.freeze();
-                utils::replace_header(
-                    ext.response_mut().headers_mut(),
+                ext.response_mut().headers_mut().insert(
                     "csp-nonce",
-                    HeaderValue::from_maybe_shared(s.freeze()).expect("base64 is valid for a header value")
+                    HeaderValue::from_maybe_shared(s.freeze())
+                        .expect("base64 is valid for a header value"),
                 );
 
                 if *ext.server_cache_preference() != comprash::ServerCachePreference::None {
-                    error!("Enabled nonce on page with server caching enabled! This is critical for XSS resilience.\n\
-                           nonces don't work with server caching.");
+                    error!(
+                        "Enabled nonce on page with server caching enabled! \
+                        This is critical for XSS resilience.\n\
+                        nonces don't work with server caching."
+                    );
                     *ext.server_cache_preference() = comprash::ServerCachePreference::None;
                 }
             }),

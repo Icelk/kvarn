@@ -684,8 +684,7 @@ impl CriticalRequestComponents {
             let bytes =
                 crate::build_bytes!(start.as_bytes(), b"-", end.as_bytes(), b"/", len.as_bytes());
 
-            crate::replace_header(
-                response.headers_mut(),
+            response.headers_mut().insert(
                 "content-range",
                 // We know integers, b"-", and b"/" are OK!
                 HeaderValue::from_maybe_shared(bytes).unwrap(),
@@ -697,7 +696,9 @@ impl CriticalRequestComponents {
                 *response.status_mut() = StatusCode::PARTIAL_CONTENT;
             }
         } else if !response.body().is_empty() {
-            crate::replace_header_static(response.headers_mut(), "accept-ranges", "bytes");
+            response
+                .headers_mut()
+                .insert("accept-ranges", HeaderValue::from_static("bytes"));
         }
         Ok(())
     }
