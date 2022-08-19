@@ -454,7 +454,7 @@ impl CompressedResponse {
                     }
                 }
             }
-            None => {
+            None if !response.body().is_empty() => {
                 let mime = if utf_8 {
                     mime::TEXT_HTML_UTF_8
                 } else {
@@ -472,6 +472,7 @@ impl CompressedResponse {
                     response.headers_mut().insert("content-type", content_type);
                 }
             }
+            None => {}
         }
     }
 
