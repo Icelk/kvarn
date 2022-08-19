@@ -1515,4 +1515,4 @@ pub const SERVER: &str = "Kvarn/0.4.1 (FreeBSD)";
     target_os = "linux",
     target_os = "freebsd"
 )))]
-pub const SERVER: &str = "Kvarn/0.4.1 (unknown OS)";
+pub const SERVER: &str = "Kvarn/0.4.1";
