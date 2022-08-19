@@ -41,15 +41,15 @@ static SEC_MAGIC_STRING: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /// );
 /// ```
 pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture) -> FatResponse {
-    if req.headers().get("connection").map_or(false, |conn| {
-        conn.to_str().map_or(false, |s| {
+    if req.headers().get("connection").map_or(true, |conn| {
+        conn.to_str().map_or(true, |s| {
             !s.split(',')
                 .any(|s| s.trim().eq_ignore_ascii_case("upgrade"))
         })
     }) || req
         .headers()
         .get("upgrade")
-        .map_or(false, |upg| upg != "websocket")
+        .map_or(true, |upg| upg != "websocket")
     {
         let mut response = default_error(StatusCode::UPGRADE_REQUIRED, Some(host), None).await;
         response
