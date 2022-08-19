@@ -238,9 +238,7 @@ pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
                             .map_or(false, |rule| path.contains(rule));
                     if replace {
                         if let Some(h) = preference.as_header() {
-                        response
-                            .headers_mut()
-                            .insert("cache-control",h);
+                            response.headers_mut().insert("cache-control", h);
                         }
                     }
                 }
