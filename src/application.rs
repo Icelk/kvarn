@@ -6,7 +6,7 @@
 //! The main types are [`HttpConnection`], representing a single encrypted generic http connection.
 //!
 //! When accepting on the [`HttpConnection`], you get a [`FatRequest`]; a [`http::Request`] with a [`Body`].
-//! The [`Body`] is a stream providing the body of a response if you need it, to avoid unnecessary allocations.
+//! The [`Body`] is a stream providing the body of the request if you need it, to avoid unnecessary allocations.
 use crate::prelude::{internals::*, *};
 pub use response::Http1Body;
 

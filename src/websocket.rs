@@ -71,14 +71,6 @@ pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture)
         )
         .await;
     }
-    if !req.headers().contains_key("origin") {
-        return default_error_response(
-            StatusCode::BAD_REQUEST,
-            host,
-            Some("The WebSocket connection doesn't have a origin header"),
-        )
-        .await;
-    }
     let key = if let Some(k) = req.headers().get("sec-websocket-key") {
         k
     } else {
