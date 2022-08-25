@@ -150,7 +150,11 @@ impl Manager {
             // - 1 at the end because fetch returns the old value.
             let connections = self.connections.fetch_sub(1, Ordering::AcqRel) - 1;
             if connections < 0 {
-                error!("Connection count is less than 0. Please report this error.");
+                info!(
+                    "Connection count is less than 0. \
+                    This might be an issue if you didn't explicitly \
+                    call `ShutdownManager::remove_connection` in your code."
+                );
             }
             if connections <= 0 {
                 let shutdown = self.shutdown.load(Ordering::Acquire);
