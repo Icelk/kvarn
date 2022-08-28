@@ -242,6 +242,72 @@ impl<'a> MethodAllowList<'a> {
     }
 }
 
+fn options_prepare(options_cors_settings: Arc<Cors>) -> Prepare {
+    prepare!(request, _, _, _, move |options_cors_settings: Arc<Cors>| {
+        let allowed = options_cors_settings.check_cors_request(request);
+
+        if allowed.is_none() {
+            return {
+                let response = Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(Bytes::from_static(b"CORS request denied"))
+                    .expect("we know this is a good request.");
+                FatResponse::new(response, comprash::ServerCachePreference::Full)
+            };
+        }
+
+        let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
+
+        if let Some((methods, headers, cache_for)) = allowed {
+            let methods = methods.to_bytes();
+            let headers = headers
+                .iter()
+                .enumerate()
+                .fold(BytesMut::with_capacity(24), |mut acc, (pos, header)| {
+                    acc.extend_from_slice(header.as_str().as_bytes());
+                    if pos + 1 != headers.len() {
+                        acc.extend_from_slice(b", ");
+                    }
+                    acc
+                })
+                .freeze();
+
+            builder = builder
+                .header(
+                    "access-control-allow-methods",
+                    // We know all the characters from [`Method::as_str`] are valid.
+                    HeaderValue::from_maybe_shared(methods).unwrap(),
+                )
+                .header(
+                    "access-control-allow-headers",
+                    // We know all the characters from [`HeaderName::as_str()`] are valid.
+                    // See https://docs.rs/http/0.2.4/http/header/struct.HeaderValue.html#impl-From%3CHeaderName%3E
+                    HeaderValue::from_maybe_shared(headers).unwrap(),
+                )
+                .header(
+                    "access-control-max-age",
+                    // We know a number is valid
+                    HeaderValue::try_from(
+                        // if > second integer, add 1 second (ceil the duration).
+                        // i64::from(bool) returns 1 if true.
+                        (cache_for.as_secs() + u64::from(cache_for.subsec_nanos() > 0)).to_string(),
+                    )
+                    .unwrap(),
+                );
+        }
+
+        let response = builder.body(Bytes::new()).unwrap_or_else(|_| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(utils::hardcoded_error_body(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    None,
+                ))
+                .expect("this is a good response.")
+        });
+        FatResponse::new(response, comprash::ServerCachePreference::None)
+    })
+}
 impl Extensions {
     /// Adds extensions to disallow all CORS requests.
     /// This is added when calling [`Extensions::new`].
@@ -274,6 +340,7 @@ impl Extensions {
                 FatResponse::new(response, comprash::ServerCachePreference::Full)
             }),
         );
+        self.add_prepare_single("/./cors_options", options_prepare(Cors::empty().arc()));
         self.add_prime(
             prime!(request, _, _, {
                 if request.method() == Method::OPTIONS
@@ -283,7 +350,7 @@ impl Extensions {
                         .get("access-control-request-method")
                         .is_some()
                 {
-                    Some(Uri::from_static("/./cors_fail"))
+                    Some(Uri::from_static("/./cors_options"))
                 } else {
                     None
                 }
@@ -299,6 +366,7 @@ impl Extensions {
         self.with_disallow_cors();
 
         let options_cors_settings = Arc::clone(&cors_settings);
+        self.add_prepare_single("/./cors_options", options_prepare(options_cors_settings));
         let package_cors_settings = Arc::clone(&cors_settings);
 
         // This priority have to be higher than the one in the [`Self::add_disallow_cors`]'s prime
@@ -336,93 +404,6 @@ impl Extensions {
                 -1024,
                 "Adds access-control-allow-origin depending on if CORS request is allowed",
             ),
-        );
-
-        self.add_prepare_single(
-            "/./cors_options",
-            prepare!(request, _, _, _, move |options_cors_settings: Arc<Cors>| {
-                let allowed = options_cors_settings.check_cors_request(request);
-
-                if allowed.is_none() {
-                    return {
-                        let response = Response::builder()
-                            .status(StatusCode::FORBIDDEN)
-                            .body(Bytes::from_static(b"CORS request denied"))
-                            .expect("we know this is a good request.");
-                        FatResponse::new(response, comprash::ServerCachePreference::Full)
-                    };
-                }
-
-                let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
-
-                if let Some((methods, headers, cache_for)) = allowed {
-                    let methods = methods.to_bytes();
-                    let headers = headers
-                        .iter()
-                        .enumerate()
-                        .fold(BytesMut::with_capacity(24), |mut acc, (pos, header)| {
-                            acc.extend_from_slice(header.as_str().as_bytes());
-                            if pos + 1 != headers.len() {
-                                acc.extend_from_slice(b", ");
-                            }
-                            acc
-                        })
-                        .freeze();
-
-                    builder = builder
-                        .header(
-                            "access-control-allow-methods",
-                            // We know all the characters from [`Method::as_str`] are valid.
-                            HeaderValue::from_maybe_shared(methods).unwrap(),
-                        )
-                        .header(
-                            "access-control-allow-headers",
-                            // We know all the characters from [`HeaderName::as_str()`] are valid.
-                            // See https://docs.rs/http/0.2.4/http/header/struct.HeaderValue.html#impl-From%3CHeaderName%3E
-                            HeaderValue::from_maybe_shared(headers).unwrap(),
-                        )
-                        .header(
-                            "access-control-max-age",
-                            // We know a number is valid
-                            HeaderValue::try_from(
-                                // if > second integer, add 1 second (ceil the duration).
-                                // i64::from(bool) returns 1 if true.
-                                (cache_for.as_secs() + u64::from(cache_for.subsec_nanos() > 0))
-                                    .to_string(),
-                            )
-                            .unwrap(),
-                        );
-                }
-
-                let response = builder.body(Bytes::new()).unwrap_or_else(|_| {
-                    Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(utils::hardcoded_error_body(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            None,
-                        ))
-                        .expect("this is a good response.")
-                });
-                FatResponse::new(response, comprash::ServerCachePreference::None)
-            }),
-        );
-
-        // This priority has to be above all the above, else it won't be able to get the options.
-        self.add_prime(
-            prime!(request, _, _, {
-                if request.method() == Method::OPTIONS
-                    && request.headers().get("origin").is_some()
-                    && request
-                        .headers()
-                        .get("access-control-request-method")
-                        .is_some()
-                {
-                    Some(Uri::from_static("/./cors_options"))
-                } else {
-                    None
-                }
-            }),
-            Id::new(16_777_215, "Provides CORS preflight request support"),
         );
 
         self
