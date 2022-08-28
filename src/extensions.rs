@@ -508,7 +508,6 @@ impl Extensions {
             prepare!(request, _, _, _, {
                 // "/./ path" is special; it will not be accepted from outside; any path containing './' gets rejected.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
-                // let request: &FatRequest = unsafe { request.get_inner() };
                 let uri = request.uri();
                 let uri = {
                     let authority = uri.authority().map_or("", uri::Authority::as_str);
@@ -520,7 +519,7 @@ impl Extensions {
                         uri.query().map_or(b"".as_ref(), str::as_bytes)
                     );
                     // Ok, since we just introduced https:// in the start, which are valid bytes.
-                    unsafe { HeaderValue::from_maybe_shared_unchecked(bytes) }
+                    HeaderValue::from_maybe_shared(bytes).unwrap()
                 };
 
                 let response = Response::builder()
