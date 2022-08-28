@@ -496,7 +496,7 @@ impl Extensions {
         self
     }
 
-    /// Adds a [`Prepare`] and a [`Prime`] extension (with a priority of `4`) which redirects requests using HTTP to HTTPS
+    /// Adds a [`Prepare`] and a [`Prime`] extension (with a priority of `86881`) which redirects requests using HTTP to HTTPS
     /// with a [`StatusCode::TEMPORARY_REDIRECT`].
     ///
     /// For more info about how it works, see the source of this function.
@@ -531,8 +531,6 @@ impl Extensions {
                     .with_server_cache(comprash::ServerCachePreference::None)
                     .with_compress(comprash::CompressPreference::None)
             }),
-            // Box::new(|mut request, _, _, _| {
-            // }),
         );
         self.add_prime(
             prime!(request, _, _, {
@@ -543,7 +541,7 @@ impl Extensions {
                     None
                 }
             }),
-            extensions::Id::new(4, "Redirecting to HTTPS"),
+            extensions::Id::new(86881, "Redirecting to HTTPS"),
         );
         self
     }
