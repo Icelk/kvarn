@@ -326,7 +326,7 @@ pub enum Value {
     /// Also used for [`CspRule::report`]. Then, only a path should be supplied.
     Uri(String),
     /// Only allow loading of resources over a specific scheme, should always end with `:`. e.g. `https:`, `http:`, `data:` etc.
-    Scheme(uri::Scheme),
+    Scheme(String),
 }
 impl Value {
     /// Returns a string representing `self`.
@@ -340,7 +340,7 @@ impl Value {
             Self::UnsafeInline => "'unsafe-inline'",
             Self::UnsafeEval => "'unsafe-eval'",
             Self::Uri(s) => s,
-            Self::Scheme(scheme) => scheme.as_str(),
+            Self::Scheme(scheme) => scheme,
         }
     }
 }
@@ -382,9 +382,18 @@ impl ValueSet {
         self.push(Value::Uri(uri.as_ref().to_string()))
     }
     /// Adds `scheme` to `self`.
+    /// `scheme` has to end in `:`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `scheme` doesn't end with `:`.
     #[inline]
-    pub fn scheme(self, scheme: uri::Scheme) -> Self {
-        self.push(Value::Scheme(scheme))
+    pub fn scheme(self, scheme: impl AsRef<str>) -> Self {
+        let s = scheme.as_ref();
+        if !s.ends_with(':') {
+            panic!("scheme has to end with ':'.");
+        }
+        self.push(Value::Scheme(s.to_owned()))
     }
     /// Pushes another `value` to the set of values of `self`.
     #[inline]
