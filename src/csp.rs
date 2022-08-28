@@ -390,9 +390,7 @@ impl ValueSet {
     #[inline]
     pub fn scheme(self, scheme: impl AsRef<str>) -> Self {
         let s = scheme.as_ref();
-        if !s.ends_with(':') {
-            panic!("scheme has to end with ':'.");
-        }
+        assert!(s.ends_with(':'), "scheme has to end with ':'.");
         self.push(Value::Scheme(s.to_owned()))
     }
     /// Pushes another `value` to the set of values of `self`.
