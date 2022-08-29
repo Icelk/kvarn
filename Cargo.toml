@@ -14,7 +14,7 @@ homepage = "https://kvarn.org/"
 repository = "https://github.com/Icelk/kvarn/"
 license = "Apache-2.0"
 keywords = ["web", "web-server", "web-application", "web-framework"]
-categories = ["web-programming", "web-programming::http-server"]
+categories = ["web-programming", "web-programming::http-server", "web-programming::websocket"]
 
 [workspace]
 members = [
