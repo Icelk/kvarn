@@ -7,17 +7,6 @@ Info on changes in older versions are available at the [changelog](CHANGELOG.md)
 > The work will be taking place in branches, named after the target release. The order of these feature releases are not set in stone;
 > the features of 0.7.0 might come out as version 0.6.0
 
-# v0.5.0 WebSockets & Auth
-
-This release should contain good WebSocket integration and an easy-to-use Auth API
-for quickly adding secure and _extremely speedy_ authentication.
-
-## To do
-
--   [ ] WebSocket integration
--   [ ] Authentication API in Layer 6
-    -   [ ] Add `web-programming::websocket` to `Cargo.toml#categories`
-
 # v0.6.0 HTTP/3
 
 This is where Kvarn turns into a cutting-edge web server.

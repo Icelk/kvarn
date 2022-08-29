@@ -1,3 +1,41 @@
+# [v0.5.0](https://github.com/Icelk/kvarn/compare/v0.4.1...v0.5.0)
+
+This release adds support for [WebSocket](https://doc.kvarn.org/kvarn/websocket/fn.response.html#examples)s.
+It's trivial to add WebSocket support for both HTTP and HTTPS; an echo socket takes 15 lines to implement,
+thanks to  Kvarn's robust extension system.
+
+A new extension has also been developed, namely `kvarn-auth`, a fast and easy-to-configure authentication service.
+You just need to provide a callback which returns whether or not the user with the provided password is authorized,
+and any other data associated with that user (e.g. it's permissions).
+
+## Added
+
+-   Simple WebSocket integration.
+-   Secure and fast [authentication](https://doc.icelk.dev/kvarn-auth/kvarn_auth/) for all your Kvarn instances.
+    Supports multiple authentication systems per host.
+-   Simpler PHP for specific paths wich need to correspond to a certain directory.
+-   HTML id `toc` to `kvarn-chute` `${toc}` generation.
+
+## Improved
+
+-   URL rewrite in reverse-proxy treats backticks as quotes when adding to the path.
+-   Various documentation improvements.
+-   Don't send `vary` and `content-type` headers for responses with no body.
+
+## Fixed
+
+-   WebDAV methods are allowed.
+-   Issues with ALPN (we didn't advertise HTTP/1.1).
+-   Add `<!DOCTYPE html>` to default errors.
+-   Reading HTTP/1.1 request bodies.
+-   CORS preflight is by default allowed from the same site.
+
+## Changed
+
+-   [`CspValueSet::scheme`](https://doc.kvarn.org/kvarn/csp/struct.ValueSet.html#method.scheme) now takes a string.
+-   The priority of the [`http_to_https`](https://doc.kvarn.org/kvarn/extensions/struct.Extensions.html#method.with_http_to_https_redirect) extension is bumped.
+    (the cause of this was partially to have priority over `kvarn-auth`'s redirect to login page)
+
 # [v0.4.1](https://github.com/Icelk/kvarn/compare/v0.4.0...v0.4.1)
 
 ## Fixed

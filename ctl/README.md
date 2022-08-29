@@ -26,3 +26,9 @@ is `/run/user/<uid>/` for users and `/run/` for root.
 
 This isn't supported on Windows as it relies on UNIX socket.
 It's unfeasible we get this working on Windows, as handover isn't possible and the need for remote management on Windows is a very slim market. PRs to `kvarn-socket` with named pipe support is however welcome :)
+
+## Changelog
+
+### v0.1.1
+
+-   Update to `kvarn_utils = "0.5"`

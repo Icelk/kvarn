@@ -1,6 +1,6 @@
 [package]
 name = "kvarn-extensions"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
 description = "Extensions for the Kvarn web server. Features HTTP/2 automatic push and a templating engine."
@@ -13,9 +13,9 @@ categories = ["template-engine"]
 
 [dependencies]
 futures-util = "0.3"
-kvarn = { path = "../", default-features = false, version = "=0.4.1" }
+kvarn = { path = "../", default-features = false, version = "0.5" }
 kvarn-fastcgi-client = { version = "0.1", optional = true }
-tokio = { version = "1.17", optional = true, features = ["net", "io-util"] }
+tokio = { version = "1.20", optional = true, features = ["net", "io-util"] }
 url-crawl = { version = "0.1", optional = true }
 async_chunked_transfer = "1.4"
 percent-encoding = { version = "2", optional = true }
@@ -29,8 +29,8 @@ push = ["url-crawl"]
 reverse-proxy = ["connection"]
 
 [dev-dependencies]
-tokio = { version = "1.17", features = ["net", "io-util", "macros"] }
-kvarn_testing = { path = "../testing", version = "=0.4.1" }
+tokio = { version = "1.20", features = ["net", "io-util", "macros"] }
+kvarn_testing = { path = "../testing", version = "0.5" }
 
 [package.metadata.docs.rs]
 all-features = true

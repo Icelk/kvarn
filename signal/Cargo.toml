@@ -14,7 +14,7 @@ keywords = ["ipc", "kvarn"]
 [dependencies]
 futures-util = "0.3"
 log = "0.4"
-tokio = { version = "1.17", features = ["net", "time", "io-util", "rt", "fs", "sync"] }
+tokio = { version = "1.20", features = ["net", "time", "io-util", "rt", "fs", "sync"] }
 
 [package.metadata.docs.rs]
 all-features = true

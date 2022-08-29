@@ -18,6 +18,10 @@ Alternatively, use the `--print` option to yourself write the completion file.
 
 # Changelog
 
+## v0.3.2
+
+-   Update to `kvarn_utils = "0.5"`
+
 ## v0.3.1
 
 -   Update to `kvarn_utils = "0.4"`

@@ -1488,24 +1488,24 @@ impl Debug for FatResponse {
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "windows")]
-pub const SERVER: &str = "Kvarn/0.4.1 (Windows)";
+pub const SERVER: &str = "Kvarn/0.5.0 (Windows)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "macos")]
-pub const SERVER: &str = "Kvarn/0.4.1 (macOS)";
+pub const SERVER: &str = "Kvarn/0.5.0 (macOS)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "linux")]
 // See https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html & https://github.com/rust-lang/rust/pull/89596
 #[cfg_attr(docsrs, doc(cfg(all())))]
-pub const SERVER: &str = "Kvarn/0.4.1 (Linux)";
+pub const SERVER: &str = "Kvarn/0.5.0 (Linux)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
 #[cfg(target_os = "freebsd")]
-pub const SERVER: &str = "Kvarn/0.4.1 (FreeBSD)";
+pub const SERVER: &str = "Kvarn/0.5.0 (FreeBSD)";
 /// The Kvarn `server` header.
 /// Can also be used for identifying the client when using
 /// Kvarn as a reverse-proxy.
@@ -1515,4 +1515,4 @@ pub const SERVER: &str = "Kvarn/0.4.1 (FreeBSD)";
     target_os = "linux",
     target_os = "freebsd"
 )))]
-pub const SERVER: &str = "Kvarn/0.4.1";
+pub const SERVER: &str = "Kvarn/0.5.0";
