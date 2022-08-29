@@ -1305,9 +1305,9 @@ mod macros {
     ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// prepare!(_req, host, _, _, {
+    /// prepare!(_req, host, _, addr, {
     ///     let response = default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None).await;
-    ///     response.with_future(response_pipe_fut!(response_pipe, host, {
+    ///     response.with_future(response_pipe_fut!(response_pipe, host, move |addr: SocketAddr| {
     ///         response_pipe.send(Bytes::from_static(b"This will be appended to the body!")).await;
     ///     }))
     /// });
