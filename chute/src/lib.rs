@@ -491,6 +491,35 @@ fn _process<P: AsRef<Path>>(
     Ok(())
 }
 
+enum EventAction {
+    Create(PathBuf),
+    Remove(PathBuf),
+    Modify(PathBuf),
+    MoveTo(PathBuf),
+    MoveFrom(PathBuf),
+}
+fn resolve_event(ev: notify::Event) -> Vec<EventAction> {
+    #[allow(clippy::enum_glob_use)]
+    use notify::{event::EventKind::*, event::ModifyKind, event::RenameMode};
+    let mut iter = ev.paths.into_iter();
+    match &ev.kind {
+        Create(_) => vec![EventAction::Create(iter.next().unwrap())],
+        Remove(_) => vec![EventAction::Remove(iter.next().unwrap())],
+        Modify(ModifyKind::Name(RenameMode::From)) => {
+            vec![EventAction::MoveFrom(iter.next().unwrap())]
+        }
+        Modify(ModifyKind::Name(RenameMode::To)) => vec![EventAction::MoveTo(iter.next().unwrap())],
+        Modify(ModifyKind::Name(RenameMode::Both)) => {
+            let path = iter.next().unwrap();
+            vec![
+                EventAction::MoveFrom(path.clone()),
+                EventAction::MoveTo(path),
+            ]
+        }
+        Modify(_) => iter.map(EventAction::Modify).collect(),
+        Access(_) | Any | Other => vec![],
+    }
+}
 /// Watch the given directory.
 ///
 /// If a Kvarn extension resides in the beginning of the header,
@@ -510,12 +539,10 @@ pub fn watch<P: AsRef<Path>>(
     ignored_extensions: &[&str],
     mut continue_behaviour: ContinueBehaviour,
 ) {
-    use notify::{
-        watcher,
-        DebouncedEvent::{Create, Rename, Write},
-        RecursiveMode, Watcher,
-    };
+    use notify::{recommended_watcher, RecursiveMode, Watcher};
     use std::sync::mpsc::channel;
+    #[allow(clippy::enum_glob_use)]
+    use EventAction::*;
 
     let path = path.as_ref();
 
@@ -524,7 +551,7 @@ pub fn watch<P: AsRef<Path>>(
 
     // Create a watcher object, delivering debounced events.
     // The notification back-end is selected based on the platform.
-    let mut watcher = if let Ok(w) = watcher(tx, Duration::from_millis(100)) {
+    let mut watcher = if let Ok(w) = recommended_watcher(tx) {
         w
     } else {
         error!("Failed to create a watcher.");
@@ -543,30 +570,32 @@ pub fn watch<P: AsRef<Path>>(
     }
 
     loop {
-        if let Ok(event) = rx.recv() {
-            match event {
-                Write(path) | Create(path) | Rename(_, path) => {
-                    if path.extension().and_then(OsStr::to_str) == Some("md") {
-                        // This can fail, it'll print an error.
-                        let _ = process_document(
-                            &path,
-                            header_pre_meta,
-                            header_post_meta,
-                            footer,
-                            ignored_extensions,
-                            continue_behaviour,
-                        );
-                        let local_path = if let Ok(wd) = std::env::current_dir() {
-                            path.strip_prefix(wd).unwrap_or(&path)
-                        } else {
-                            &path
-                        };
-                        if let Some(path) = local_path.to_str() {
-                            info!("Converted {} to HTML.", path);
+        if let Ok(Ok(event)) = rx.recv() {
+            for event in resolve_event(event) {
+                match event {
+                    Modify(path) | Create(path) | MoveTo(path) => {
+                        if path.extension().and_then(OsStr::to_str) == Some("md") {
+                            // This can fail, it'll print an error.
+                            let _ = process_document(
+                                &path,
+                                header_pre_meta,
+                                header_post_meta,
+                                footer,
+                                ignored_extensions,
+                                continue_behaviour,
+                            );
+                            let local_path = if let Ok(wd) = std::env::current_dir() {
+                                path.strip_prefix(wd).unwrap_or(&path)
+                            } else {
+                                &path
+                            };
+                            if let Some(path) = local_path.to_str() {
+                                info!("Converted {} to HTML.", path);
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         } else {
             error!("Got an error watching the specified directory.");
