@@ -558,7 +558,7 @@ impl<'a> SendKind<'a> {
     pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
         match self {
             Self::Send(p) => p.ensure_version_and_length(response, len),
-            Self::Push(p) => p.ensure_version(response),
+            Self::Push(p) => p.ensure_version_and_length(response, len),
         }
     }
     /// Sends the `response` to this pipe.
@@ -610,6 +610,11 @@ impl<'a> SendKind<'a> {
 
         match self {
             SendKind::Send(response_pipe) => {
+                // Process post extensions
+                host.extensions
+                    .resolve_post(request, identity_body, response_pipe, address, host)
+                    .await;
+
                 // Send response
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -623,37 +628,24 @@ impl<'a> SendKind<'a> {
                     future.call(&mut body_pipe, host).await;
                 }
 
-                // Process post extensions
-                host.extensions
-                    .resolve_post(request, identity_body, response_pipe, address, host)
-                    .await;
-
                 // Close the pipe.
                 ret_log_app_error!(body_pipe.close().await);
             }
             SendKind::Push(push_pipe) => {
-                let send_body =
-                    utils::method_has_response_body(request.method()) || !body.is_empty();
-
                 // Send response
-                let mut body_pipe = ret_log_app_error!(
-                    push_pipe.send_response(response, !send_body && future.is_none())
+                let mut body_pipe = ret_log_app_error!(push_pipe.send_response(response, false));
+                warn!(
+                    "Sent response {}",
+                    String::from_utf8_lossy(body.get(..100).unwrap_or(&body))
                 );
-                if send_body {
-                    // Send body
-                    ret_log_app_error!(
-                        body_pipe
-                            .send_with_maybe_close(body, future.is_none())
-                            .await
-                    );
-                }
+                // Send body
+                ret_log_app_error!(body_pipe.send_with_maybe_close(body, false).await);
+                warn!("Sent body, close: {}", future.is_none());
                 if let Some(mut future) = future {
                     future.call(&mut body_pipe, host).await;
                 }
-
-                if !send_body {
-                    ret_log_app_error!(body_pipe.close().await);
-                }
+                ret_log_app_error!(body_pipe.close().await);
+                warn!("Closed ",);
             }
         }
         Ok(())

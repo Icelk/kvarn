@@ -321,10 +321,10 @@ impl Plugins {
                     }
                 };
 
-                let sender = shutdown.wait_for_pre_shutdown().await;
+                // let sender = shutdown.wait_for_pre_shutdown().await;
 
                 PluginResponse::ok("successfully reloaded Kvarn")
-                    .post_send(move || sender.send(()).unwrap())
+                    // .post_send(move || sender.send(()).unwrap())
             }),
         );
         self

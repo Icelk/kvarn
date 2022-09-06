@@ -138,10 +138,10 @@ fn push<'a>(
             .and_then(|user_agent| user_agent.to_str().ok())
             .map_or(false, |user_agent| user_agent.contains("Firefox/"))
         {
-            return;
+            // return;
         }
 
-        const HTML_START: &str = "<!doctype html>";
+        const HTML_START: &str = "<!DOCTYPE html>";
 
         match str::from_utf8(&bytes) {
             // If it is HTML
@@ -182,6 +182,8 @@ fn push<'a>(
                 urls.sort_unstable();
                 urls.dedup();
 
+                let mut pp = Vec::new();
+
                 for url in urls {
                     let mut uri = request.uri().clone().into_parts();
                     if let Some(uri) =
@@ -195,7 +197,7 @@ fn push<'a>(
                         let mut push_request = Request::builder().uri(uri);
                         macro_rules! copy_header {
                             ($builder: expr, $headers: expr, $name: expr) => {
-                                if let Some(header) = $headers.get($name) {
+                                for header in $headers.get_all($name) {
                                     $builder = $builder.header($name, header);
                                 }
                             };
@@ -203,6 +205,11 @@ fn push<'a>(
                         let headers = request.headers();
 
                         copy_header!(push_request, headers, "accept-encoding");
+                        copy_header!(push_request, headers, "accept-language");
+                        copy_header!(push_request, headers, "user-agent");
+                        copy_header!(push_request, headers, "host");
+                        copy_header!(push_request, headers, "origin");
+                        copy_header!(push_request, headers, "cookie");
 
                         let push_request = push_request.body(()).expect(
                             "failed to construct a request only from another valid request.",
@@ -210,7 +217,7 @@ fn push<'a>(
 
                         let empty_request = utils::empty_clone_request(&push_request);
 
-                        let mut response_pipe = match response_pipe.push_request(empty_request) {
+                        let mut push_pipe = match response_pipe.push_request(empty_request) {
                             Ok(pipe) => pipe,
                             Err(_) => return,
                         };
@@ -218,14 +225,21 @@ fn push<'a>(
                         let mut push_request = push_request
                             .map(|_| kvarn::application::Body::Bytes(Bytes::new().into()));
 
-                        let response = kvarn::handle_cache(&mut push_request, addr, host).await;
+                        pp.push((push_request, push_pipe));
+                    }
+                }
 
-                        if let Err(err) = kvarn::SendKind::Push(&mut response_pipe)
-                            .send(response, request, host, addr)
-                            .await
-                        {
-                            error!("Error occurred when pushing request. {:?}", err);
-                        }
+                for (mut push_request, mut push_pipe) in pp {
+                    let response = kvarn::handle_cache(&mut push_request, addr, host).await;
+
+                    if response.future.is_some() {
+                        continue;
+                    }
+                    if let Err(err) = kvarn::SendKind::Push(&mut push_pipe)
+                        .send(response, request, host, addr)
+                        .await
+                    {
+                        error!("Error occurred when pushing request. {:?}", err);
                     }
                 }
 

@@ -610,10 +610,13 @@ mod response {
         /// Ensures the version of `response` depending on inner version if [`PushedResponsePipe`].
         #[inline]
         #[allow(unused_variables)]
-        pub fn ensure_version<T>(&self, response: &mut Response<T>) {
+        pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
             match self {
                 #[cfg(feature = "http2")]
-                Self::Http2(_) => *response.version_mut() = Version::HTTP_2,
+                Self::Http2(_) => {
+                    *response.version_mut() = Version::HTTP_2;
+                    utils::set_content_length(response.headers_mut(), len);
+                }
                 #[cfg(not(any(feature = "http2")))]
                 _ => unreachable!(),
             }
