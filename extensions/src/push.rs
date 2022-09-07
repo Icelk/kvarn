@@ -141,7 +141,7 @@ fn push<'a>(
             return;
         }
 
-        const HTML_START: &str = "<!doctype html>";
+        const HTML_START: &str = "<!DOCTYPE html>";
 
         match str::from_utf8(&bytes) {
             // If it is HTML
@@ -195,7 +195,7 @@ fn push<'a>(
                         let mut push_request = Request::builder().uri(uri);
                         macro_rules! copy_header {
                             ($builder: expr, $headers: expr, $name: expr) => {
-                                if let Some(header) = $headers.get($name) {
+                                for header in $headers.get_all($name) {
                                     $builder = $builder.header($name, header);
                                 }
                             };
@@ -203,6 +203,11 @@ fn push<'a>(
                         let headers = request.headers();
 
                         copy_header!(push_request, headers, "accept-encoding");
+                        copy_header!(push_request, headers, "accept-language");
+                        copy_header!(push_request, headers, "user-agent");
+                        copy_header!(push_request, headers, "host");
+                        copy_header!(push_request, headers, "origin");
+                        copy_header!(push_request, headers, "cookies");
 
                         let push_request = push_request.body(()).expect(
                             "failed to construct a request only from another valid request.",
