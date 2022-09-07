@@ -285,8 +285,12 @@ impl Plugins {
         self.add_plugin(
             "reload",
             plugin!(|args, _, shutdown, plugins| {
-                if let Err(r) = check_no_arguments(&args) {
-                    return r;
+                let mut arg_iter = args.iter();
+                let wait = arg_iter.next() == Some("wait") && arg_iter.next().is_none();
+                if !wait {
+                    if let Err(r) = check_no_arguments(&args) {
+                        return r;
+                    }
                 }
                 if !plugins.contains_plugin("shutdown") {
                     return PluginResponse::error(
@@ -321,10 +325,17 @@ impl Plugins {
                     }
                 };
 
-                let sender = shutdown.wait_for_pre_shutdown().await;
+                let sender = if wait {
+                    Some(shutdown.wait_for_pre_shutdown().await)
+                } else {
+                    None
+                };
 
-                PluginResponse::ok("successfully reloaded Kvarn")
-                    .post_send(move || sender.send(()).unwrap())
+                PluginResponse::ok("successfully reloaded Kvarn").post_send(move || {
+                    if let Some(s) = sender {
+                        s.send(()).unwrap();
+                    }
+                })
             }),
         );
         self

@@ -585,7 +585,7 @@ impl<'a> DoubleEndedIterator for QueryPairIter<'a> {
 
 /// Parses a query to a map between keys and their values, as specified in the query.
 ///
-/// `query` should not contains the `?`, but start the byte after.
+/// `query` should not contain the `?`, but start the byte after.
 ///
 /// Both the keys and values can be empty.
 ///
