@@ -15,6 +15,6 @@ categories = ["web-programming", "development-tools::testing"]
 kvarn = { path = "../", features = ["full"], version = "0.5.0" }
 reqwest = "0.11"
 rand = "0.8"
-rcgen = "0.9"
+rcgen = "0.10"
 tokio = { version = "1.20", features = ["macros"] }
 rustls = "0.20"
