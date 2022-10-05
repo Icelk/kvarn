@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use clap::{Arg, ValueHint};
+use clap::{Arg, ValueHint, ArgAction};
 use log::error;
 
 const ABOUT: &str = "\nCommunicate with Kvarn instances.\n\
@@ -36,12 +36,14 @@ async fn main() {
         .arg(
             Arg::new("silent")
                 .short('s')
+                .num_args(0)
                 .long("quiet")
                 .help("Silence output"),
         )
         .arg(
             Arg::new("accept-not-found")
                 .short('i')
+                .action(ArgAction::SetTrue)
                 .long("accept-not-found")
                 .help("Consider 'not found' error to be a success."),
         )
@@ -49,6 +51,7 @@ async fn main() {
             Arg::new("wait")
                 .short('w')
                 .long("wait")
+                .action(ArgAction::SetTrue)
                 .help(
                     "Waits for Kvarn to turn off. This doesn't get affected by reloads. \
                     If no Kvarn instance is running, \
@@ -58,7 +61,7 @@ async fn main() {
         )
         .arg(
             Arg::new("explicit_command")
-                .takes_value(true)
+                .num_args(1)
                 .value_hint(ValueHint::Other)
                 .value_name("COMMAND")
                 .short('c')
@@ -69,22 +72,21 @@ async fn main() {
         )
         .arg(
             Arg::new("command")
-                .takes_value(true)
+                .num_args(1)
                 .value_hint(ValueHint::Other)
                 .value_name("COMMAND"),
         )
         .arg(
             Arg::new("args")
                 .value_name("ARGUMENTS")
-                .takes_value(true)
-                .multiple_values(true)
+                .num_args(..)
                 .value_hint(ValueHint::Other),
         );
 
     command = clap_autocomplete::add_subcommand(command);
 
     let command_error = command.error(
-        clap::ErrorKind::MissingRequiredArgument,
+        clap::error::ErrorKind::MissingRequiredArgument,
         "COMMAND is required unless --wait or complete is used",
     );
 
@@ -111,12 +113,7 @@ async fn main() {
                     .disable_help_flag(true)
                     .disable_version_flag(true)
                     .about("Ping Kvarn with a message. It will send back the same message.")
-                    .arg(
-                        Arg::new("args")
-                            .takes_value(true)
-                            .multiple_values(true)
-                            .value_name("CONTENT"),
-                    ),
+                    .arg(Arg::new("args").num_args(0..).value_name("CONTENT")),
             )
             .subcommand(
                 clap::Command::new("reload")
@@ -160,7 +157,7 @@ async fn main() {
                                     .required(true)
                                     .help("The host of the cache to remove the file from.")
                                     .value_hint(ValueHint::Other)
-                                    .takes_value(true)
+                                    .num_args(1)
                                     .value_name("HOST"),
                             )
                             .arg(
@@ -171,7 +168,7 @@ async fn main() {
                                       (e.g. '../icelk.dev/public/index.html').",
                                     )
                                     .value_hint(ValueHint::FilePath)
-                                    .takes_value(true)
+                                    .num_args(1)
                                     .value_name("FILE"),
                             ),
                     )
@@ -185,7 +182,7 @@ async fn main() {
                                     .required(true)
                                     .help("The host of the cache to remove the response from.")
                                     .value_hint(ValueHint::Other)
-                                    .takes_value(true)
+                                    .num_args(1)
                                     .value_name("HOST"),
                             )
                             .arg(
@@ -193,7 +190,7 @@ async fn main() {
                                     .required(true)
                                     .help("The response to remove (e.g. '/index.html').")
                                     .value_hint(ValueHint::Other)
-                                    .takes_value(true)
+                                    .num_args(1)
                                     .value_name("RESPONSE"),
                             ),
                     ),
@@ -213,11 +210,11 @@ async fn main() {
     let mut path = socket_path();
     path.push(
         matches
-            .value_of("path")
+            .get_one::<String>("path")
             .expect("we provided a default path value"),
     );
 
-    if matches.is_present("wait") {
+    if matches.get_flag("wait") {
         let mut found = false;
         loop {
             match request(b"wait", &path, false).await {
@@ -235,14 +232,15 @@ async fn main() {
     };
 
     let message = matches
-        .values_of("args")
+        .get_many::<String>("args")
+        .and_then(|args| if args.len() == 0 { None } else { Some(args) })
         .map(|args| {
             args.fold(
                 {
                     let mut s = String::new();
                     kvarn_utils::encode_quoted_str(
                         matches
-                            .value_of("command")
+                            .get_one::<String>("command")
                             .expect("the command is required"),
                         &mut s,
                     );
@@ -257,16 +255,16 @@ async fn main() {
         })
         .unwrap_or_else(|| {
             matches
-                .value_of("command")
-                .or_else(|| matches.value_of("explicit_command"))
+                .get_one::<String>("command")
+                .or_else(|| matches.get_one::<String>("explicit_command"))
                 .unwrap_or_else(|| command_error.exit())
                 .to_owned()
         });
 
-    let accept_not_found = matches.is_present("accept-not-found");
+    let accept_not_found = matches.get_flag("accept-not-found");
 
     match request(message.as_bytes(), &path, !accept_not_found).await {
-        Ok(args) if !matches.is_present("silent") => println!("{args}"),
+        Ok(args) if !matches.get_flag("silent") => println!("{args}"),
         Ok(_) => {}
         Err(3) if accept_not_found => {}
         Err(status) => std::process::exit(status),

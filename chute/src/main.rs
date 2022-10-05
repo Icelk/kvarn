@@ -1,4 +1,4 @@
-use clap::{Arg, ArgGroup, Command};
+use clap::{Arg, ArgAction, ArgGroup, Command};
 use kvarn_utils::prelude::*;
 use std::env;
 
@@ -21,30 +21,37 @@ fn main() {
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
         .about(clap::crate_description!())
-        .long_about("Use the `CHUTE_LOG` environment variable to adjust the verbosity. `CHUTE_LOG=off chute` disables logging, disregarding errors.")
+        .long_about(
+            "Use the `CHUTE_LOG` environment variable to adjust the verbosity. \
+            `CHUTE_LOG=off chute` disables logging, \
+            disregarding errors.",
+        )
         .arg(
             Arg::new("PATHS")
                 .help("Paths to process/watch")
                 .required(true)
                 .default_value(".")
                 .value_hint(clap::ValueHint::AnyPath)
-                .multiple_values(true),
+                .num_args(1..),
         )
         .arg(
             Arg::new("continue")
                 .help("Continue with the defaults on prompts.")
                 .short('c')
+                .action(ArgAction::SetTrue)
                 .long("continue"),
         )
         .arg(
             Arg::new("yes")
                 .help("Continue with `yes` on all prompts.")
-                .short('y'),
+                .short('y')
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("no")
                 .help("Continue with `no` on all prompts.")
-                .short('n'),
+                .short('n')
+                .action(ArgAction::SetTrue),
         )
         .group(
             ArgGroup::new("continue_behaviour")
@@ -75,18 +82,18 @@ fn main() {
         }
     }
 
-    let paths = matches.values_of("PATHS").unwrap_or_else(|| {
+    let paths = matches.get_many::<String>("PATHS").unwrap_or_else(|| {
         lib::exit_with_message(
             "Please enter a path to a file to convert or directory to watch as the first argument.",
         )
     });
 
     let continue_behaviour = {
-        if matches.is_present("continue") {
+        if matches.get_flag("continue") {
             ContinueBehaviour::Default
-        } else if matches.is_present("yes") {
+        } else if matches.get_flag("yes") {
             ContinueBehaviour::Yes
-        } else if matches.is_present("no") {
+        } else if matches.get_flag("no") {
             ContinueBehaviour::No
         } else {
             ContinueBehaviour::Ask
