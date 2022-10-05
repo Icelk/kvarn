@@ -665,7 +665,7 @@ impl CriticalRequestComponents {
     ///
     /// Will return a [`SanitizeError::RangeNotSatisfiable`] if the start of the range is greater
     /// than the length of the body.
-    pub async fn apply_to_response(
+    pub fn apply_to_response(
         &self,
         response: &mut Response<Bytes>,
     ) -> Result<(), SanitizeError> {
