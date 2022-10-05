@@ -197,6 +197,7 @@ impl HttpConnection {
     /// Returns [`Error::VersionNotSupported`] when a unsupported version is passed.
     ///
     /// Also passes errors from [`h2::server::handshake`].
+    #[allow(clippy::unused_async)] // cfg
     pub async fn new(stream: Encryption, version: Version) -> Result<Self, Error> {
         #[allow(clippy::match_same_arms)] // When http2 isn't enabled
         match version {
