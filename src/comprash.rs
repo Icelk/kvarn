@@ -522,7 +522,7 @@ impl CompressedResponse {
             if self.gzip.is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
-                unsafe { (&mut *{ utils::ref_to_mut(&self.gzip) }).replace(buffer) };
+                unsafe { (*{ utils::ref_to_mut(&self.gzip) }).replace(buffer) };
             }
         }
         self.gzip.as_ref().unwrap()
@@ -552,7 +552,7 @@ impl CompressedResponse {
             if self.br.is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
-                unsafe { (&mut *{ utils::ref_to_mut(&self.br) }).replace(buffer) };
+                unsafe { (*{ utils::ref_to_mut(&self.br) }).replace(buffer) };
             }
         }
         self.br.as_ref().unwrap()
