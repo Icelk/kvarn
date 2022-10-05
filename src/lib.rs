@@ -583,7 +583,7 @@ impl<'a> SendKind<'a> {
         } = response;
 
         if let Ok(data) = &data {
-            match data.apply_to_response(&mut response).await {
+            match data.apply_to_response(&mut response) {
                 Err(SanitizeError::RangeNotSatisfiable) => {
                     response = default_error(
                         StatusCode::RANGE_NOT_SATISFIABLE,
