@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use clap::{Arg, ValueHint, ArgAction};
+use clap::{Arg, ArgAction, ValueHint};
 use log::error;
 
 const ABOUT: &str = "\nCommunicate with Kvarn instances.\n\
