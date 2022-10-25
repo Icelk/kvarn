@@ -734,10 +734,11 @@ pub enum SanitizeError {
 pub fn sanitize_request<T>(
     request: &Request<T>,
 ) -> Result<CriticalRequestComponents, SanitizeError> {
-    let path_ok = if request.uri().path().contains("./") || !request.uri().path().starts_with('/') {
+    let uri_decoded_path = percent_decode(request.uri().path());
+    let path_ok = if uri_decoded_path.contains("./") || !uri_decoded_path.starts_with('/') {
         false
     } else {
-        parse::uri(request.uri().path()).map_or(false, Path::is_relative)
+        parse::uri(&uri_decoded_path).map_or(false, Path::is_relative)
     };
     if !path_ok {
         return Err(SanitizeError::UnsafePath);
