@@ -10,6 +10,7 @@
 //! - a threading prelude
 
 pub use kvarn_async::prelude::*;
+#[allow(unreachable_pub)] // incorrect lint?
 pub use kvarn_utils::prelude::*;
 
 // Modules

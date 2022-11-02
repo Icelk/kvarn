@@ -255,7 +255,7 @@ fn _process<P: AsRef<Path>>(
     {
         exit_with_message("Aborted conversion.");
     }
-    let (mut file, metadata) = filesystem::open_file_with_metadata(&path)?;
+    let (mut file, metadata) = filesystem::open_file_with_metadata(path)?;
     let new_path = {
         let mut path = path.to_owned();
         let ext = path.extension().and_then(OsStr::to_str);
@@ -271,7 +271,7 @@ fn _process<P: AsRef<Path>>(
         info!("Creating file {}", path.display());
         path
     };
-    let mut write_file = filesystem::create_file(&new_path, continue_behaviour);
+    let mut write_file = filesystem::create_file(new_path, continue_behaviour);
 
     // We'll run out of memory before we hit the usize limit.
     #[allow(clippy::cast_possible_truncation)]

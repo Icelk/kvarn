@@ -203,6 +203,7 @@ fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
                             name = Some(key);
                         }
                     }
+                    #[allow(clippy::bool_to_int_with_if)] // it's more clear, since it's not a flag
                     let ignore_after_name = if file.get(position + newline_size) == Some(&LF) {
                         newline_size
                     } else if file.get(position + 1) == Some(&SPACE) {

@@ -235,7 +235,7 @@ impl Manager {
 
         #[cfg(unix)]
         if let Some(path) = &self.handover_socket_path {
-            std::fs::remove_file(&path).ok();
+            std::fs::remove_file(path).ok();
         }
 
         if self.connections.load(Ordering::Acquire) == 0 {

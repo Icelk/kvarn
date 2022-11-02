@@ -127,7 +127,7 @@ pub async fn mount_php_with_working_directory(
                     .decode_utf8()
                     .expect("percent decoding was successful earlier in Kvarn");
                 let p = utils::make_path(
-                    &file_working_directory,
+                    file_working_directory,
                     "",
                     // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
                     // We also are OK with all Uris, since we did a check on the

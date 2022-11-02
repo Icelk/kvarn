@@ -207,8 +207,8 @@ impl Debug for Plugins {
                 self.plugins,
                 &self
                     .plugins
-                    .iter()
-                    .map(|(key, _)| (key, "[ opaque plugin ]".as_clean()))
+                    .keys()
+                    .map(|key| (key, "[ opaque plugin ]".as_clean()))
                     .collect::<HashMap<_, _>>()
             )
         );
@@ -472,7 +472,7 @@ impl Plugins {
     /// Get an iterator of all the plugins attached to this instance.
     /// All of the returned names are commands which can be called from `kvarnctl`.
     pub fn iter(&self) -> impl Iterator<Item = &str> + Send + Sync + '_ {
-        self.plugins.iter().map(|(key, _)| key.as_str())
+        self.plugins.keys().map(String::as_str)
     }
 }
 impl Default for Plugins {
@@ -626,7 +626,7 @@ pub(crate) async fn listen(
                             PluginResponseKind::Ok { data } => (data, "ok"),
                         };
                         let mut data = data.unwrap_or_default();
-                        let len = prepend.len() + if data.is_empty() { 0 } else { 1 };
+                        let len = prepend.len() + usize::from(!data.is_empty());
                         (0..len).for_each(|_| data.insert(0, b' '));
                         data[..prepend.len()].copy_from_slice(prepend.as_bytes());
 

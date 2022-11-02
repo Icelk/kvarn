@@ -2,8 +2,8 @@ use clap::{Arg, ArgAction, ArgGroup, Command};
 use kvarn_utils::prelude::*;
 use std::env;
 
-use crate::lib::ContinueBehaviour;
-pub mod lib;
+use kvarn_chute::ContinueBehaviour;
+use kvarn_chute as lib;
 
 const HEADER_PRE_META: &[u8] = b"!> tmpl standard.html markdown.html\n$[head]";
 const HEADER_POST_META: &[u8] =
@@ -124,7 +124,7 @@ fn main() {
             }
             false => {
                 if lib::process_document(
-                    &path,
+                    path,
                     HEADER_PRE_META,
                     HEADER_POST_META,
                     FOOTER,
