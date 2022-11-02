@@ -23,9 +23,8 @@ async fn basic() {
     };
 
     let when_path = Arc::clone(&path);
-    let when = Box::new(move |request: &FatRequest, _host: &Host| {
-        get_port(request, &when_path).is_some()
-    });
+    let when =
+        Box::new(move |request: &FatRequest, _host: &Host| get_port(request, &when_path).is_some());
 
     let con_path = Arc::clone(&path);
     let connection: kvarn_extensions::reverse_proxy::GetConnectionFn =

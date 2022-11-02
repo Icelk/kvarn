@@ -2,8 +2,8 @@ use clap::{Arg, ArgAction, ArgGroup, Command};
 use kvarn_utils::prelude::*;
 use std::env;
 
-use kvarn_chute::ContinueBehaviour;
 use kvarn_chute as lib;
+use kvarn_chute::ContinueBehaviour;
 
 const HEADER_PRE_META: &[u8] = b"!> tmpl standard.html markdown.html\n$[head]";
 const HEADER_POST_META: &[u8] =
