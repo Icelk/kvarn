@@ -19,12 +19,9 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checking out sources
-              uses: actions/checkout@v1
-            - name: Installing Rust toolchain
-              uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
-            - uses: Swatinem/rust-cache@v1
+              uses: actions/checkout@v3
+            - run: rustup toolchain install stable
+            - uses: Swatinem/rust-cache@v2
             - name: Checking formatting
               run: cargo fmt -- --check
             - name: Checking lints
@@ -35,13 +32,9 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checking out sources
-              uses: actions/checkout@v1
-            - name: Installing Rust toolchain
-              uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
-                  profile: minimal
-            - uses: Swatinem/rust-cache@v1
+              uses: actions/checkout@v3
+            - run: rustup toolchain install stable --minimal
+            - uses: Swatinem/rust-cache@v2
             - name: Compiling
               run: cargo rustc --profile distribution
             - name: Upload bin artefact

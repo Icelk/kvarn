@@ -24,61 +24,33 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checking out sources
-              uses: actions/checkout@v1
-            - name: Installing Rust toolchain
-              uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
-                  override: true
-            - uses: Swatinem/rust-cache@v1
-            - name: Checking formatting
-              uses: actions-rs/cargo@v1
-              with:
-                  command: fmt
-                  args: -- --check
-            - name: Checking lints
-              uses: actions-rs/cargo@v1
-              with:
-                  command: clippy
-                  args: --workspace --exclude kvarn-extensions --all-targets -- -D warnings
+              uses: actions/checkout@v3
+            - run: rustup toolchain install stable
+            - uses: Swatinem/rust-cache@v2
+            - name: Check formatting
+              run: cargo fmt --check
+            - name: Checking lints with default features
+              run: cargo clippy --workspace --exclude kvarn-extensions --all-targets -- -D warnings
             - name: Checking lints with all features
-              uses: actions-rs/cargo@v1
-              with:
-                  command: clippy
-                  args: --workspace --exclude kvarn-extensions --all-targets --all-features -- -D warnings
+              run: cargo clippy --workspace --exclude kvarn-extensions --all-targets --all-features -- -D warnings
             - name: Checking lints with no features
-              uses: actions-rs/cargo@v1
-              with:
-                  command: clippy
-                  args: --workspace --exclude kvarn-extensions --no-default-features -- -D warnings
+              run: cargo clippy --workspace --exclude kvarn-extensions --no-default-features -- -D warnings
             - name: Checking doc references
               uses: Icelk/rustdoc-link-check@v1
               with:
                   private: true
-            - name: Testing project
-              uses: actions-rs/cargo@v1
-              with:
-                  command: test
-                  args: --workspace --exclude kvarn-extensions
+            - run: cargo test --workspace --exclude kvarn-extensions
 
     build:
         needs: [check]
         runs-on: ubuntu-latest
         steps:
             - name: Checking out sources
-              uses: actions/checkout@v1
+              uses: actions/checkout@v3
             - name: Installing Rust toolchain
-              uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
-                  override: true
-                  profile: minimal
-            - uses: Swatinem/rust-cache@v1
-            - name: Compiling
-              uses: actions-rs/cargo@v1
-              with:
-                  command: rustc
-                  args: --release -- --crate-type rlib
+            - run: rustup toolchain install stable --minimal
+            - uses: Swatinem/rust-cache@v2
+            - run: cargo rustc --release -- --crate-type rlib
             - name: Upload rlib artefact
               uses: actions/upload-artifact@v2
               with:
