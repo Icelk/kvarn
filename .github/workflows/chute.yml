@@ -38,7 +38,7 @@ jobs:
             - name: Compiling
               run: cargo rustc --profile distribution
             - name: Upload bin artefact
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: chute
                   path: target/distribution/chute

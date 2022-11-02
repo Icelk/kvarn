@@ -52,7 +52,7 @@ jobs:
             - uses: Swatinem/rust-cache@v2
             - run: cargo rustc --release -- --crate-type rlib
             - name: Upload rlib artefact
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: libkvarn.rlib
                   path: target/release/libkvarn.rlib

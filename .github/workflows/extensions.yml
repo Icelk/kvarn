@@ -55,7 +55,7 @@ jobs:
             - name: Compiling
               run: cargo rustc --release -- --crate-type rlib
             - name: Upload rlib artefact
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: libextensions.rlib
                   path: target/release/libkvarn_extensions.rlib
