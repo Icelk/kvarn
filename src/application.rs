@@ -228,6 +228,7 @@ impl HttpConnection {
     /// # Errors
     ///
     /// Returns any errors emitted from [`h2::server::Connection::accept()`].
+    #[inline]
     pub async fn accept(
         &mut self,
         default_host: Option<&[u8]>,
@@ -265,8 +266,8 @@ impl HttpConnection {
 
 mod request {
     use super::{
-        async_bits::read, io, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption,
-        Error, Mutex, Pin, Poll, ReadBuf, Request,
+        io, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption, Error, Mutex, Pin,
+        Poll, ReadBuf, Request,
     };
 
     #[inline]
@@ -282,13 +283,203 @@ mod request {
         };
         let lock = stream.lock().await;
 
-        let (head, bytes) = read::request(
+        #[cfg(feature = "async-networking")]
+        let (head, bytes) = kvarn_async::read::request(
             lock,
             max_len,
             default_host,
             scheme,
             std::time::Duration::from_secs(5),
         )
+        .await?;
+
+        #[cfg(not(feature = "async-networking"))]
+        let (head, bytes) = async {
+            use bytes::BytesMut;
+            use kvarn_utils::{chars, parse::Error, parse::RequestParseStage, prelude::*};
+            use std::io::Read;
+
+            #[inline]
+            fn contains_two_newlines(bytes: &[u8]) -> bool {
+                let mut in_row = 0_u8;
+                for byte in bytes.iter().copied() {
+                    match byte {
+                        chars::LF if in_row == 0 => in_row += 1,
+                        chars::LF => return true,
+                        chars::CR => {}
+                        _ => in_row = 0,
+                    }
+                }
+                false
+            }
+
+            let mut stream = lock;
+            let buffer = {
+                let mut buffer = BytesMut::with_capacity(512);
+                let mut read = 0;
+                let read = &mut read;
+
+                loop {
+                    if {
+                        let buffer: &mut BytesMut = &mut buffer;
+                        let read: &mut usize = read;
+                        assert!(buffer.len() == *read);
+                        if buffer.len() == max_len {
+                            return Err(Error::HeaderTooLong);
+                        }
+
+                        if buffer.capacity() < buffer.len() + 512 {
+                            if buffer.len() + 512 > max_len {
+                                buffer.reserve((buffer.len() + 512) - max_len);
+                            } else {
+                                buffer.reserve(512);
+                            }
+                        }
+
+                        unsafe { buffer.set_len(buffer.capacity()) };
+                        let Encryption::Tcp(tcp) = &mut *stream;
+                        let read_now = tcp.read(&mut buffer[*read..]).ok().ok_or(Error::Done)?;
+                        *read += read_now;
+                        unsafe { buffer.set_len(*read) };
+
+                        read_now
+                    } == 0
+                    {
+                        break;
+                    };
+                    if !(utils::valid_method(&buffer) || utils::valid_version(&buffer)) {
+                        return Err(Error::Syntax);
+                    }
+
+                    if contains_two_newlines(&buffer) {
+                        break;
+                    }
+                }
+                buffer.freeze()
+            };
+
+            let mut parse_stage = RequestParseStage::Method;
+            // Method is max 7 bytes long
+            let mut method = [0; 7];
+            let mut method_len = 0;
+            let mut path_start = 0;
+            let mut path_end = 0;
+            // Version is at most 8 bytes long
+            let mut version = [0; 8];
+            let mut version_index = 0;
+            let mut parsed = Request::builder();
+            let mut lf_in_row = 0_u8;
+            let mut header_end = 0;
+
+            for (pos, byte) in buffer.iter().copied().enumerate() {
+                header_end += 1;
+                if byte == chars::CR {
+                    continue;
+                }
+                if byte == chars::LF {
+                    lf_in_row += 1;
+                    if lf_in_row == 2 {
+                        break;
+                    }
+                } else {
+                    lf_in_row = 0;
+                }
+                match parse_stage {
+                    RequestParseStage::Method => {
+                        if byte == chars::SPACE || method_len == method.len() {
+                            if Method::from_bytes(&buffer[..method_len]).is_err() {
+                                return Err(Error::InvalidMethod);
+                            }
+                            parse_stage.next();
+                            continue;
+                        }
+                        if method_len == method.len() {
+                            return Err(Error::InvalidMethod);
+                        }
+                        method[method_len] = byte;
+                        method_len += 1;
+                    }
+                    RequestParseStage::Path => {
+                        if path_start == 0 {
+                            path_start = pos;
+                        }
+                        if byte == chars::SPACE {
+                            path_end = pos;
+                            parse_stage.next();
+                            continue;
+                        }
+                    }
+                    RequestParseStage::Version => {
+                        if byte == chars::LF || version_index == version.len() {
+                            if parse::version(&version[..version_index]).is_none() {
+                                return Err(Error::InvalidVersion);
+                            }
+                            parse_stage.next();
+                            continue;
+                        }
+                        if version_index == version.len() {
+                            return Err(Error::InvalidVersion);
+                        }
+                        version[version_index] = byte;
+                        version_index += 1;
+                    }
+                    RequestParseStage::HeaderName(..) | RequestParseStage::HeaderValue(..) => {
+                        match parsed.headers_mut() {
+                            Some(h) => {
+                                let (headers, end) =
+                                    parse::headers(&buffer.slice(header_end - 1..))?;
+                                *h = headers;
+                                header_end += end;
+                            }
+                            None => return Err(Error::Syntax),
+                        }
+                        break;
+                    }
+                };
+            }
+            if path_end
+                .checked_sub(path_start)
+                .map_or(true, |len| len == 0)
+            {
+                return Err(Error::NoPath);
+            }
+
+            let host = if let Some(host) = parsed
+                .headers_ref()
+                .and_then(|headers| headers.get(header::HOST).map(HeaderValue::as_bytes))
+                .or(default_host)
+            {
+                host
+            } else {
+                return Err(Error::NoHost);
+            };
+
+            let uri = {
+                let mut uri = BytesMut::with_capacity(
+                    scheme.len() + 3 + host.len() + (path_end - path_start),
+                );
+
+                uri.extend(scheme.as_bytes());
+                uri.extend(b"://");
+                uri.extend(host);
+                uri.extend(&buffer[path_start..path_end]);
+                uri.freeze()
+            };
+
+            match parsed
+                .method(
+                    Method::from_bytes(&method[..method_len])
+                        .ok()
+                        .ok_or(Error::InvalidMethod)?,
+                )
+                .uri(Uri::from_maybe_shared(uri).ok().ok_or(Error::InvalidPath)?)
+                .version(parse::version(&version[..version_index]).ok_or(Error::InvalidVersion)?)
+                .body(())
+            {
+                Err(err) => Err(Error::Http(err)),
+                Ok(request) => Ok((request, buffer.slice(header_end - 1..))),
+            }
+        }
         .await?;
         let body = Body::Http1(response::Http1Body::new(
             stream,

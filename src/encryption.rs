@@ -11,6 +11,12 @@ use rustls::{ServerConfig, ServerConnection};
 #[cfg(feature = "https")]
 use tokio_tls::{MidHandshake, TlsState, TlsStream};
 
+#[cfg(all(feature = "https", not(feature = "async-networking")))]
+compile_error!(
+    "Please enable the feature async-networking to use HTTPS. \
+    Not using async-netowrking is only recommended for local embedded devices."
+);
+
 /// An encrypted stream.
 ///
 /// For now only supports [`TcpStream`]s, which will
@@ -55,6 +61,7 @@ impl Encryption {
     }
     /// Creates a new unencrypted stream from a [`TcpStream`].
     #[cfg(not(feature = "https"))]
+    #[inline]
     pub fn new_tcp(stream: TcpStream) -> Self {
         Self::Tcp(stream)
     }
@@ -121,6 +128,7 @@ impl Encryption {
     }
 }
 impl AsyncRead for Encryption {
+    #[cfg(feature = "async-networking")]
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -132,7 +140,35 @@ impl AsyncRead for Encryption {
             Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_read(cx, buf) },
         }
     }
+    #[cfg(not(feature = "async-networking"))]
+    #[inline]
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Tcp(s) => {
+                let len_before = buf.filled().len();
+                let init_before = buf.initialized().len();
+
+                unsafe { buf.assume_init(buf.capacity()) };
+                match s.read(&mut buf.initialized_mut()[len_before..]) {
+                    Ok(read) => {
+                        buf.set_filled(len_before + read);
+                        unsafe { buf.assume_init(init_before + read) };
+                        Poll::Ready(Ok(()))
+                    }
+                    Err(err) => {
+                        unsafe { buf.assume_init(init_before) };
+                        Poll::Ready(Err(err))
+                    }
+                }
+            }
+        }
+    }
 }
+#[cfg(feature = "async-networking")]
 impl AsyncWrite for Encryption {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -168,6 +204,41 @@ impl AsyncWrite for Encryption {
             Self::Tcp(s) => unsafe { Pin::new_unchecked(s).poll_write_vectored(cx, bufs) },
             #[cfg(feature = "https")]
             Self::TcpTls(tls) => unsafe { Pin::new_unchecked(tls).poll_write_vectored(cx, bufs) },
+        }
+    }
+}
+#[cfg(not(feature = "async-networking"))]
+impl AsyncWrite for Encryption {
+    #[inline]
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Poll::Ready(s.write_all(buf).map(|()| buf.len())),
+        }
+    }
+    #[inline]
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Poll::Ready(s.flush()),
+        }
+    }
+    #[inline]
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Poll::Ready(s.shutdown(net::Shutdown::Write)),
+        }
+    }
+    #[inline]
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<Result<usize, io::Error>> {
+        match self.get_mut() {
+            Self::Tcp(s) => Poll::Ready(s.write_vectored(bufs)),
         }
     }
 }

@@ -48,12 +48,18 @@
 #![doc(html_favicon_url = "https://kvarn.org/favicon.svg")]
 #![doc(html_logo_url = "https://kvarn.org/logo.svg")]
 #![doc(html_root_url = "https://doc.kvarn.org/")]
+// not using tokio::net::TcpSocket is sometimes weird
+#![cfg_attr(
+    not(feature = "async-networking"),
+    allow(clippy::must_use_candidate, clippy::unused_async)
+)]
 
 // Module declaration
 pub mod application;
 pub mod comprash;
 pub mod cors;
 pub mod csp;
+#[cfg(feature = "handover")]
 pub mod ctl;
 pub mod encryption;
 pub mod error;
@@ -102,9 +108,12 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 #[must_use = "must start a server if creating a config"]
 pub struct RunConfig {
     ports: Vec<PortDescriptor>,
+    #[cfg(feature = "handover")]
     ctl: bool,
+    #[cfg(feature = "handover")]
     ctl_path: Option<PathBuf>,
 
+    #[cfg(feature = "handover")]
     plugins: ctl::Plugins,
 }
 impl RunConfig {
@@ -112,9 +121,12 @@ impl RunConfig {
     pub fn new() -> Self {
         RunConfig {
             ports: vec![],
+            #[cfg(feature = "handover")]
             ctl: true,
+            #[cfg(feature = "handover")]
             ctl_path: None,
 
+            #[cfg(feature = "handover")]
             plugins: ctl::Plugins::default(),
         }
     }
@@ -129,6 +141,7 @@ impl RunConfig {
     /// for the instance of Kvarn.
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
+    #[cfg(feature = "handover")]
     pub fn disable_ctl(mut self) -> Self {
         self.ctl = false;
         self
@@ -141,6 +154,7 @@ impl RunConfig {
     ///
     /// This can enable multiple Kvarn servers to run on the same machine.
     /// If each application (as in an use for Kvarn) has it's own path, multiple can coexist.
+    #[cfg(feature = "handover")]
     pub fn set_ctl_path(mut self, path: impl AsRef<Path>) -> Self {
         self.ctl_path = Some(path.as_ref().to_path_buf());
         self
@@ -150,6 +164,7 @@ impl RunConfig {
     /// Adding multiple with the same name overrides the old one.
     ///
     /// See [`ctl::Plugins`] for the default [`ctl::Plugin`]s that are added.
+    #[cfg(feature = "handover")]
     pub fn add_plugin(mut self, name: impl AsRef<str>, plugin: ctl::Plugin) -> Self {
         self.plugins.add_plugin(name, plugin);
         self
@@ -191,8 +206,11 @@ impl RunConfig {
     pub async fn execute(self) -> Arc<shutdown::Manager> {
         let RunConfig {
             ports,
+            #[cfg(feature = "handover")]
             ctl,
+            #[cfg(feature = "handover")]
             ctl_path,
+            #[cfg(feature = "handover")]
             plugins,
         } = self;
         info!("Starting server on {} ports.", ports.len());
@@ -200,9 +218,11 @@ impl RunConfig {
         let len = ports.len();
         let mut shutdown_manager = shutdown::Manager::new(len);
 
+        #[cfg(all(feature = "async-networking", feature = "handover"))]
         let ports_clone = Arc::new(ports.clone());
 
         let mut listeners = Vec::with_capacity(len * 2);
+        #[cfg(feature = "async-networking")]
         for descriptor in ports {
             fn create_listener(
                 create_socket: impl Fn() -> TcpSocket,
@@ -251,9 +271,38 @@ impl RunConfig {
                 listeners.push((listener, descriptor));
             }
         }
+        #[cfg(not(feature = "async-networking"))]
+        for descriptor in ports {
+            // we later need this in an Arc
+            let descriptor = Arc::new(descriptor);
+
+            if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
+                let listener = TcpListener::bind(SocketAddr::new(
+                    IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
+                    descriptor.port,
+                ))
+                .expect("Faield to bind to Ipv4");
+                listeners.push((
+                    shutdown_manager.add_listener(listener),
+                    Arc::clone(&descriptor),
+                ));
+            }
+            if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
+                let listener = TcpListener::bind(SocketAddr::new(
+                    IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
+                    descriptor.port,
+                ))
+                .expect("Faield to bind to Ipv6");
+                listeners.push((
+                    shutdown_manager.add_listener(listener),
+                    Arc::clone(&descriptor),
+                ));
+            }
+        }
 
         let shutdown_manager = shutdown_manager.build();
 
+        #[cfg(feature = "handover")]
         if ctl {
             // make sure we shut down before listening
             #[cfg(any(
@@ -278,8 +327,9 @@ impl RunConfig {
                     .expect("Failed to accept message!");
             };
 
-            tokio::spawn(future);
+            spawn(future).await;
         }
+        #[cfg(feature = "handover")]
         if ctl {
             #[cfg(all(
                 feature = "graceful-shutdown",
@@ -337,6 +387,21 @@ macro_rules! ret_log_app_error {
     };
 }
 
+#[cfg(feature = "async-netowrking")]
+pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
+    tokio::spawn(task);
+}
+#[cfg(not(feature = "async-netowrking"))]
+pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
+    // tokio::spawn(task);
+    task.await;
+    // let ctx = tokio::runtime::Handle::current();
+    // tokio::task::spawn_blocking(move || {
+    // let _ctx = ctx.enter();
+    // ctx.block_on(task);
+    // });
+}
+
 async fn accept(
     mut listener: AcceptManager,
     descriptor: Arc<PortDescriptor>,
@@ -367,23 +432,31 @@ async fn accept(
 
                     #[cfg(feature = "graceful-shutdown")]
                     let shutdown_manager = Arc::clone(shutdown_manager);
-                    tokio::spawn(async move {
+                    spawn(async move {
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.add_connection();
                         let _result = handle_connection(socket, addr, descriptor, || {
-                            #[cfg(feature = "graceful-shutdown")]
+                            #[cfg(feature = "async-networking")]
                             {
-                                !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
+                                #[cfg(feature = "graceful-shutdown")]
+                                {
+                                    !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
+                                }
+                                #[cfg(not(feature = "graceful-shutdown"))]
+                                {
+                                    true
+                                }
                             }
-                            #[cfg(not(feature = "graceful-shutdown"))]
+                            #[cfg(not(feature = "async-networking"))]
                             {
-                                true
+                                false
                             }
                         })
                         .await;
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.remove_connection();
-                    });
+                    })
+                    .await;
                     continue;
                 }
                 Err(err) => {
@@ -436,17 +509,18 @@ pub async fn handle_connection(
     #[cfg(not(feature = "https"))]
     let encrypted = encryption::Encryption::new_tcp(stream);
 
-    let version =
-        match encrypted.alpn_protocol() {
-            Some(b"h2") => Version::HTTP_2,
-            None | Some(b"http/1.1") => Version::HTTP_11,
-            Some(b"http/1.0") => Version::HTTP_10,
-            Some(b"http/0.9") => Version::HTTP_09,
-            _ => return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "HTTP version not supported. Something is probably wrong with your alpn config.",
-            )),
-        };
+    info!("Encrypted.");
+
+    let version = match encrypted.alpn_protocol() {
+        Some(b"h2") => Version::HTTP_2,
+        None | Some(b"http/1.1") => Version::HTTP_11,
+        Some(b"http/1.0") => Version::HTTP_10,
+        Some(b"http/0.9") => Version::HTTP_09,
+        Some(proto) => {
+            warn!("HTTP version not supported. Something is probably wrong with your alpn config. Client requested {}", String::from_utf8_lossy(proto));
+            return Ok(());
+        }
+    };
     let hostname = encrypted.sni_hostname().map(str::to_string);
     debug!("New connection requesting hostname '{:?}'", hostname);
 
@@ -498,7 +572,6 @@ pub async fn handle_connection(
         }
         debug!("Accepting new connection from {} on {}", address, host.name);
 
-        // fn to handle getting from cache, generating response and sending it
         debug_assert!(descriptor.data.get_host(&host.name).is_some());
         // SAFETY: We know this host is part of the Collection, since we got the Host from the
         // Collection.
@@ -526,7 +599,7 @@ pub async fn handle_connection(
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => future.await,
             _ => {
-                tokio::spawn(future);
+                spawn(future).await;
             }
         }
 
@@ -1129,6 +1202,7 @@ pub async fn handle_request(
     }
 
     if response.is_none() {
+        // path is none if disable_fs is on
         if let Some(path) = path {
             match *request.method() {
                 Method::GET | Method::HEAD => {

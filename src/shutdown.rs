@@ -4,6 +4,7 @@
 //! The `Manager` is returned from [`RunConfig::execute`] and can be awaited
 //! to pause execution till the server is shut down.
 //! It is also used to trigger a shutdown.
+#[cfg_attr(not(feature = "async-networking"), allow(unused_imports))]
 use crate::prelude::{threading::*, *};
 #[cfg(feature = "graceful-shutdown")]
 use atomic::{AtomicBool, AtomicIsize};
@@ -355,23 +356,31 @@ impl AcceptManager {
     /// and decrease it when the connection dies.
     #[allow(clippy::let_and_return)] // cfg
     pub async fn accept(&mut self, _manager: &Manager) -> AcceptAction {
-        let action = AcceptFuture {
+        #[cfg(feature = "async-networking")]
+        {
+            let action = AcceptFuture {
+                #[cfg(feature = "graceful-shutdown")]
+                manager: _manager,
+                #[cfg(feature = "graceful-shutdown")]
+                index: self.index,
+                listener: &mut self.listener,
+            }
+            .await;
             #[cfg(feature = "graceful-shutdown")]
-            manager: _manager,
-            #[cfg(feature = "graceful-shutdown")]
-            index: self.index,
-            listener: &mut self.listener,
+            _manager.remove_waker(self.index);
+            action
         }
-        .await;
-        #[cfg(feature = "graceful-shutdown")]
-        _manager.remove_waker(self.index);
-        action
+        #[cfg(not(feature = "async-networking"))]
+        {
+            AcceptAction::Accept(self.listener.accept())
+        }
     }
     /// Returns a reference to the inner listener.
     pub fn get_inner(&self) -> &TcpListener {
         &self.listener
     }
 }
+#[cfg(feature = "async-networking")]
 struct AcceptFuture<'a> {
     #[cfg(feature = "graceful-shutdown")]
     manager: &'a Manager,
@@ -379,6 +388,7 @@ struct AcceptFuture<'a> {
     index: WakerIndex,
     listener: &'a mut TcpListener,
 }
+#[cfg(feature = "async-networking")]
 impl<'a> Future for AcceptFuture<'a> {
     type Output = AcceptAction;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

@@ -34,6 +34,8 @@ jobs:
             - name: Checking lints with all features
               run: cargo clippy --workspace --exclude kvarn-extensions --all-targets --all-features -- -D warnings
             - name: Checking lints with no features
+              run: cargo clippy --workspace --exclude kvarn-extensions --no-default-features -F base -- -D warnings
+            - name: Checking lints with embedded features
               run: cargo clippy --workspace --exclude kvarn-extensions --no-default-features -- -D warnings
             - name: Checking doc references
               uses: Icelk/rustdoc-link-check@v1

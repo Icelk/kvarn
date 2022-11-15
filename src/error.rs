@@ -42,9 +42,13 @@ pub async fn default(
                 Some("html"),
             );
 
-            match read_file_cached(&path, host.file_cache.as_ref()).await {
-                Some(file) => file,
-                None => utils::hardcoded_error_body(code, message),
+            if host.options.disable_fs {
+                utils::hardcoded_error_body(code, message)
+            } else {
+                match read_file_cached(&path, host.file_cache.as_ref()).await {
+                    Some(file) => file,
+                    None => utils::hardcoded_error_body(code, message),
+                }
             }
         }
         None => utils::hardcoded_error_body(code, message),

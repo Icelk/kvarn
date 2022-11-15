@@ -217,6 +217,7 @@ pub mod read {
     }
 
     /// The buffer must not be read if this returns an error.
+    #[inline]
     pub(crate) async fn read_more(
         buffer: &mut BytesMut,
         mut reader: impl AsyncRead + Unpin,
@@ -250,12 +251,13 @@ pub mod read {
         Ok(read_now)
     }
 
+    #[inline]
     pub(crate) async fn read_headers(
         mut reader: impl AsyncRead + Unpin,
         max_len: usize,
         timeout: std::time::Duration,
     ) -> Result<Bytes, Error> {
-        let mut buffer = BytesMut::with_capacity(1024);
+        let mut buffer = BytesMut::with_capacity(512);
         let mut read = 0;
         let read = &mut read;
 

@@ -52,6 +52,9 @@ pub mod fs {
 /// The purpose of this module is to expose Tokio network types used in Kvarn.
 pub mod networking {
     pub use super::async_bits::*;
+    #[cfg(not(feature = "async-networking"))]
+    pub use std::net::{TcpListener, TcpStream};
+    #[cfg(feature = "async-networking")]
     pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
 }
 
