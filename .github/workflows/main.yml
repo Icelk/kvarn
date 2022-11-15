@@ -38,7 +38,7 @@ jobs:
             - name: Checking lints with embedded features
               run: cargo clippy --workspace --exclude kvarn-extensions --no-default-features -- -D warnings
             - name: Checking doc references
-              uses: Icelk/rustdoc-link-check@v1
+              uses: Icelk/rustdoc-link-check@v2
               with:
                   private: true
             - run: cargo test --workspace --exclude kvarn-extensions
