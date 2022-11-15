@@ -387,19 +387,15 @@ macro_rules! ret_log_app_error {
     };
 }
 
-#[cfg(feature = "async-netowrking")]
+#[cfg(feature = "async-networking")]
+#[allow(clippy::unused_async)] // consistency with other `spawn` function
+                               // this anyway (hopefully) is optimized away
 pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
     tokio::spawn(task);
 }
-#[cfg(not(feature = "async-netowrking"))]
+#[cfg(not(feature = "async-networking"))]
 pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
-    // tokio::spawn(task);
     task.await;
-    // let ctx = tokio::runtime::Handle::current();
-    // tokio::task::spawn_blocking(move || {
-    // let _ctx = ctx.enter();
-    // ctx.block_on(task);
-    // });
 }
 
 async fn accept(
