@@ -75,7 +75,7 @@ default = ["full"]
 full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname", "nonce", "websocket", "base"]
 
 # Enable basic features (for all devices but embedded)
-base = ["async-networking"]
+base = ["async-networking", "handover"]
 
 # Compressing
 all-compression = ["br", "gzip"]
