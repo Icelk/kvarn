@@ -509,8 +509,6 @@ pub async fn handle_connection(
     #[cfg(not(feature = "https"))]
     let encrypted = encryption::Encryption::new_tcp(stream);
 
-    info!("Encrypted.");
-
     let version = match encrypted.alpn_protocol() {
         Some(b"h2") => Version::HTTP_2,
         None | Some(b"http/1.1") => Version::HTTP_11,
@@ -529,7 +527,7 @@ pub async fn handle_connection(
         .await
         .map_err::<io::Error, _>(application::Error::into)?;
 
-    info!("Accepting requests from {}", address);
+    debug!("Accepting requests from {}", address);
 
     while let Ok((mut request, mut response_pipe)) = http
         .accept(
