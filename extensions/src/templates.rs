@@ -205,10 +205,8 @@ fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
                     }
                     let ignore_after_name = if file.get(position + newline_size) == Some(&LF) {
                         newline_size
-                    } else if file.get(position + 1) == Some(&SPACE) {
-                        1
                     } else {
-                        0
+                        usize::from(file.get(position + 1) == Some(&SPACE))
                     };
                     start_byte = Some(position + 1 + ignore_after_name);
                     // Set stage to accept new text
