@@ -15,7 +15,7 @@ categories = ["command-line-utilities"]
 [dependencies]
 clap = { version = "4", features = ["cargo"] }
 clap_autocomplete = "0.4"
-env_logger = { version = "0.10", default-features = false, features = ["termcolor", "atty", "humantime"] }
+env_logger = { version = "0.10", default-features = false, features = ["auto-color", "humantime"] }
 kvarn_signal = { path = "../signal", version = "0.1" }
 kvarn_utils = { path = "../utils", version = "0.5" }
 log = "0.4"

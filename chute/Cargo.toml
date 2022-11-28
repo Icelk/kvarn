@@ -29,7 +29,7 @@ kvarn_utils = "0.5"
 # Bin deps
 clap = { version = "4", optional = true, features = ["cargo"] }
 clap_autocomplete = { version = "0.4", optional = true }
-env_logger = { version = "0.10", optional = true, default-features = false, features = ["termcolor", "atty", "humantime"] }
+env_logger = { version = "0.10", optional = true, default-features = false, features = ["auto-color", "humantime"] }
 
 [features]
 default = ["date", "bin", "completion"]
