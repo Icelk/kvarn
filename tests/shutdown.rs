@@ -16,7 +16,7 @@ async fn basic() {
         .run()
         .await;
 
-    internals::timeout(Duration::from_millis(200), async move {
+    internals::timeout(Duration::from_millis(1000), async move {
         let shutdown = server.get_shutdown_manager();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
