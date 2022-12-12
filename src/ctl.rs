@@ -609,7 +609,7 @@ pub(crate) async fn listen(
                     let args = iter.collect();
                     let arguments = Arguments { name, args };
 
-                    if let Some(plugin) = plugins.plugins.get(&arguments.name) {
+                    if let Some(plugin) = plugins.plugins.get(arguments.name()) {
                         let response = (plugin)(arguments, &ports, &shutdown, &plugins).await;
                         let (data, prepend) = match response.kind {
                             PluginResponseKind::Error { data } => {

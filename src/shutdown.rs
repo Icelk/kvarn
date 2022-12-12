@@ -151,7 +151,7 @@ impl Manager {
             // - 1 at the end because fetch returns the old value.
             let connections = self.connections.fetch_sub(1, Ordering::AcqRel) - 1;
             if connections < 0 {
-                info!(
+                warn!(
                     "Connection count is less than 0. \
                     This might be an issue if you didn't explicitly \
                     call `ShutdownManager::remove_connection` in your code."
@@ -239,7 +239,7 @@ impl Manager {
             std::fs::remove_file(path).ok();
         }
 
-        if self.connections.load(Ordering::Acquire) == 0 {
+        if self.connections.load(Ordering::Acquire) <= 0 {
             self._shutdown();
         }
         debug!(

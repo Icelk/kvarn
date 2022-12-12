@@ -8,7 +8,7 @@
 #[cfg(unix)]
 pub mod unix {
     use futures_util::FutureExt;
-    use log::{error, warn};
+    use log::{debug, error, warn};
     use std::future::Future;
     use std::io;
     use std::ops::Deref;
@@ -57,18 +57,22 @@ pub mod unix {
                 _ => Response::Error,
             },
             Ok(mut connection) => {
+                debug!("Connected to {path:?}");
                 if let Err(err) = connection.write_all(data).await {
                     error!("Failed to send message! {:?}", err);
                     Response::Error
                 } else {
+                    debug!("Wrote to {path:?}");
                     // Flushes the data.
                     connection.shutdown().await.unwrap();
 
                     let mut buf = Vec::new();
+                    debug!("Try to read from {path:?}");
                     if let Err(err) = connection.read_to_end(&mut buf).await {
                         error!("Failed to receive message. {:?}", err);
                         Response::Error
                     } else {
+                        debug!("Read from {path:?}");
                         Response::Data(buf)
                     }
                 }
@@ -102,24 +106,32 @@ pub mod unix {
         match UnixListener::bind(path) {
             Err(_err) => {}
             Ok(listener) => {
+                debug!("Bound");
                 tokio::spawn(async move {
+                    debug!("In tokio task");
                     let handler = Arc::new(handler);
                     // use a sender to poll both the listen loop and the receiver, which receives
                     // when the listen loop wants to break.
                     let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
 
                     let listen_loop = Box::pin(async move {
-                        while let Ok((mut connection, _addr)) = listener.accept().await {
+                        while let Ok((mut connection, addr)) = listener.accept().await {
                             let handler = Arc::clone(&handler);
                             let sender = sender.clone();
+                            debug!("accepted connection from {addr:?}");
 
                             // spawn here so the listening isn't blocked.
                             tokio::spawn(async move {
+                                debug!("In tokio task, handling message");
                                 let mut data = Vec::new();
                                 if let Err(err) = connection.read_to_end(&mut data).await {
                                     warn!("Failed on reading request: {err:?}");
                                     return;
                                 }
+                                debug!(
+                                    "Read {} from remote at {addr:?}",
+                                    String::from_utf8_lossy(&data)
+                                );
                                 let handler = Arc::clone(&handler);
 
                                 let HandlerResponse {
@@ -128,6 +140,7 @@ pub mod unix {
                                     post_send,
                                 } = handler(data).await;
 
+                                debug!("Write response");
                                 if let Err(err) = connection.write_all(&data).await {
                                     warn!("Failed to write response: {err:?}");
                                     return;
@@ -135,11 +148,15 @@ pub mod unix {
                                 if let Err(err) = connection.shutdown().await {
                                     warn!("Failed to flush content. {:?}", err);
                                 }
+                                debug!("Wrote response");
                                 if let Some(post_send) = post_send {
                                     (post_send)();
                                 }
+                                debug!("Handled post send");
                                 if close {
+                                    debug!("Closing");
                                     sender.send(()).await.unwrap();
+                                    debug!("Closed");
                                 }
                             });
                         }
