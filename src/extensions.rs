@@ -564,7 +564,8 @@ impl Extensions {
                 let mut s = BytesMut::with_capacity(24);
                 unsafe { s.set_len(24) };
 
-                let wrote = base64::encode_config_slice(data, base64::STANDARD, &mut s);
+                let wrote =
+                    base64::encode_engine_slice(data, &mut s, &base64::engine::DEFAULT_ENGINE);
                 // if didn't write whole, add padding of `=`.
                 s[wrote..].fill(b'=');
 

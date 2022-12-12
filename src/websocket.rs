@@ -89,7 +89,7 @@ pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture)
     // I have dug into the code and verified that the call to base64::encode_config_slice will fill
     // all 28 bytes.
     unsafe { bytes.set_len(28) };
-    base64::encode_config_slice(hash, base64::STANDARD, &mut bytes);
+    base64::encode_engine_slice(hash, &mut bytes, &base64::engine::DEFAULT_ENGINE);
     let response = Response::builder()
         .header(
             "sec-websocket-accept",
