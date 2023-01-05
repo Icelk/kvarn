@@ -43,3 +43,16 @@ Another challenge is isolating requests while using one VM.
 -   [ ] cfg
 -   [ ] PHP bindings
 -   [ ] PHP crate
+
+# v0.8.0 io_uring
+
+Use Linux's new `io_uring` interface for handling networking and IO on Linux.
+This should improve performance and power efficiency.
+
+## To do
+
+-   [ ] Wait for [`tokio-uring`](https://docs.rs/tokio-uring) to add multithreading support
+-   [ ] Or support an entirely different runtime (e.g. [`monoio`](https://github.com/bytedance/monoio)
+        (it shouldn't be an issue that it's developed by ByteDance? Are be being tracked?))
+    -   [ ] Investigate compatibility issues with ecosystem. Actual implementation should be fine
+            (the `net` feature in `tokio` is already optional)
