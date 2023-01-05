@@ -534,7 +534,7 @@ pub(crate) async fn listen(
     plugins: Plugins,
     ports: Arc<Vec<PortDescriptor>>,
     shutdown: Arc<shutdown::Manager>,
-    path: Option<impl AsRef<Path>>,
+    path: Option<impl AsRef<Path> + Send + 'static>,
 ) {
     #[cfg(unix)]
     {
@@ -645,7 +645,7 @@ pub(crate) async fn listen(
                     }
                 }) as RetSyncFut<'_, kvarn_signal::unix::HandlerResponse>
             },
-            &path,
+            path,
         )
         .await;
 

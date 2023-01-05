@@ -7,8 +7,8 @@
 
 #[cfg(unix)]
 pub mod unix {
-    use futures_util::FutureExt;
-    use log::{debug, error, warn};
+    use log::{debug, error, info, warn};
+    use notify::Watcher;
     use std::future::Future;
     use std::io;
     use std::ops::Deref;
@@ -93,82 +93,141 @@ pub mod unix {
     /// Returns `true` if we removed an existing socket, `false` otherwise.
     /// The removed socket might be live or a leftover from a previous call to this (or any other
     /// UNIX socket creation).
+    #[allow(clippy::too_many_lines)]
     pub async fn start_at(
         handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse> + Send + Sync>>
             + Send
             + Sync
             + 'static,
-        path: impl AsRef<Path>,
+        path: impl AsRef<Path> + Send + 'static,
     ) -> bool {
-        let path = path.as_ref();
-        let overridden = tokio::fs::remove_file(path).await.is_ok();
+        let overridden = tokio::fs::remove_file(path.as_ref()).await.is_ok();
+        tokio::spawn(async move {
+            let path = path.as_ref();
+            let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+            let sender = Arc::new(sender);
+            let handler = Arc::new(handler);
 
-        match UnixListener::bind(path) {
-            Err(_err) => {}
-            Ok(listener) => {
-                debug!("Bound");
-                tokio::spawn(async move {
-                    debug!("In tokio task");
-                    let handler = Arc::new(handler);
-                    // use a sender to poll both the listen loop and the receiver, which receives
-                    // when the listen loop wants to break.
-                    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
-
-                    let listen_loop = Box::pin(async move {
-                        while let Ok((mut connection, addr)) = listener.accept().await {
-                            let handler = Arc::clone(&handler);
-                            let sender = sender.clone();
-                            debug!("accepted connection from {addr:?}");
-
-                            // spawn here so the listening isn't blocked.
-                            tokio::spawn(async move {
-                                debug!("In tokio task, handling message");
-                                let mut data = Vec::new();
-                                if let Err(err) = connection.read_to_end(&mut data).await {
-                                    warn!("Failed on reading request: {err:?}");
-                                    return;
-                                }
-                                debug!(
-                                    "Read {} from remote at {addr:?}",
-                                    String::from_utf8_lossy(&data)
-                                );
-                                let handler = Arc::clone(&handler);
-
-                                let HandlerResponse {
-                                    data,
-                                    close,
-                                    post_send,
-                                } = handler(data).await;
-
-                                debug!("Write response");
-                                if let Err(err) = connection.write_all(&data).await {
-                                    warn!("Failed to write response: {err:?}");
-                                    return;
-                                }
-                                if let Err(err) = connection.shutdown().await {
-                                    warn!("Failed to flush content. {:?}", err);
-                                }
-                                debug!("Wrote response");
-                                if let Some(post_send) = post_send {
-                                    (post_send)();
-                                }
-                                debug!("Handled post send");
-                                if close {
-                                    debug!("Closing");
-                                    sender.send(()).await.unwrap();
-                                    debug!("Closed");
-                                }
-                            });
+            let reload_sender = Arc::clone(&sender);
+            let watcher_path = path.to_path_buf();
+            let mut watcher =
+                notify::recommended_watcher(move |ev: Result<notify::Event, notify::Error>| {
+                    if let Ok(ev) = ev {
+                        // for some reason, a metadata event is triggered when the actual file is
+                        // deleted. A Delete event is triggered when all file descriptors are
+                        // dropped (when we stop listening to the socket)
+                        if let notify::EventKind::Modify(notify::event::ModifyKind::Metadata(_)) =
+                            ev.kind
+                        {
+                            let meta = std::fs::metadata(&watcher_path);
+                            if meta.is_err() {
+                                drop(reload_sender.send(false));
+                            }
                         }
-                    });
-                    let mut break_recv = Box::pin(receiver.recv().fuse());
-                    futures_util::select! {
-                        _ = listen_loop.fuse() => (),
-                        _ = break_recv => (),
-                    };
-                });
+                    }
+                })
+                .ok();
+            if watcher.is_none() {
+                warn!("Failed to watch socket for deletion");
             }
-        }
+
+            // loop to not recurse function & recurse Arc<handler>
+            'outer: loop {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                match UnixListener::bind(path) {
+                    Err(err) => error!("Failed to bind signal socket: {err:?}"),
+                    Ok(listener) => {
+                        if let Some(watcher) = &mut watcher {
+                            if watcher
+                                .watch(path, notify::RecursiveMode::NonRecursive)
+                                .is_err()
+                            {
+                                warn!("Failed to watch socket for deletion");
+                            }
+                        }
+
+                        debug!("Bound");
+                        debug!("In tokio task");
+                        // use a sender to poll both the listen loop and the receiver, which receives
+                        // when the listen loop wants to break.
+
+                        let sender = Arc::clone(&sender);
+                        let handler = Arc::clone(&handler);
+                        loop {
+                            info!("accept");
+                            let r = tokio::select! {
+                                r = listener.accept() => r,
+                                Some(close) = receiver.recv() => if close
+                                    {break 'outer}
+                                    else
+                                    {
+                                        // just being explicit
+                                        // this causes a Delete event at `path`
+                                        drop(listener);
+                                        warn!("Re-listening because socket file got deleted");
+                                        continue 'outer;
+                                    },
+                                else => {
+                                    error!("Stopping because close stream was closed!");
+                                    break 'outer;
+                                },
+                            };
+                            match r {
+                                Ok((mut connection, addr)) => {
+                                    let handler = Arc::clone(&handler);
+                                    let sender = sender.clone();
+                                    debug!("accepted connection from {addr:?}");
+
+                                    // spawn here so the listening isn't blocked.
+                                    tokio::spawn(async move {
+                                        debug!("In tokio task, handling message");
+                                        let mut data = Vec::new();
+                                        if let Err(err) = connection.read_to_end(&mut data).await {
+                                            warn!("Failed on reading request: {err:?}");
+                                            return;
+                                        }
+                                        debug!(
+                                            "Read {} from remote at {addr:?}",
+                                            String::from_utf8_lossy(&data)
+                                        );
+                                        let handler = Arc::clone(&handler);
+
+                                        let HandlerResponse {
+                                            data,
+                                            close,
+                                            post_send,
+                                        } = handler(data).await;
+
+                                        debug!("Write response");
+                                        if let Err(err) = connection.write_all(&data).await {
+                                            warn!("Failed to write response: {err:?}");
+                                            return;
+                                        }
+                                        if let Err(err) = connection.shutdown().await {
+                                            warn!("Failed to flush content. {:?}", err);
+                                        }
+                                        debug!("Wrote response");
+                                        if let Some(post_send) = post_send {
+                                            (post_send)();
+                                        }
+                                        debug!("Handled post send");
+                                        if close {
+                                            info!("Closing");
+                                            sender.send(true).unwrap();
+                                            debug!("Closed");
+                                        }
+                                    });
+                                }
+                                Err(err) => {
+                                    warn!("Signal listener got an error: {err:?}");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
         overridden
     }
 }
