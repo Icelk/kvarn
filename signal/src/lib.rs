@@ -116,6 +116,7 @@ pub mod unix {
                         // for some reason, a metadata event is triggered when the actual file is
                         // deleted. A Delete event is triggered when all file descriptors are
                         // dropped (when we stop listening to the socket)
+                        std::thread::sleep(std::time::Duration::from_millis(100));
                         if let notify::EventKind::Modify(notify::event::ModifyKind::Metadata(_)) =
                             ev.kind
                         {
@@ -198,6 +199,12 @@ pub mod unix {
                                             post_send,
                                         } = handler(data).await;
 
+                                        if close {
+                                            info!("Closing");
+                                            sender.send(true).unwrap();
+                                            debug!("Closed");
+                                        }
+
                                         debug!("Write response");
                                         if let Err(err) = connection.write_all(&data).await {
                                             warn!("Failed to write response: {err:?}");
@@ -211,11 +218,6 @@ pub mod unix {
                                             (post_send)();
                                         }
                                         debug!("Handled post send");
-                                        if close {
-                                            info!("Closing");
-                                            sender.send(true).unwrap();
-                                            debug!("Closed");
-                                        }
                                     });
                                 }
                                 Err(err) => {
