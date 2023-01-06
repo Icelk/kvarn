@@ -14,7 +14,7 @@ pub fn templates<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()
 
 pub async fn handle_template(
     arguments: &utils::PresentArguments,
-    file: &mut utils::BytesCow,
+    body: &mut utils::BytesCow,
     host: &Host,
 ) {
     let mut file_contents = Vec::with_capacity(arguments.iter().count());
@@ -29,6 +29,7 @@ pub async fn handle_template(
     let templates = collect_templates(file_contents.iter().map(|b| &b[..]));
 
     // Remove first line if it contains "tmpl-ignore", for formatting quirks.
+    let mut file = body.as_ref();
     {
         let limit = 48;
         let first_line_end = file
@@ -41,20 +42,21 @@ pub async fn handle_template(
             if let Some(first_line_end) = first_line_end {
                 if let Ok(first_line) = str::from_utf8(&file[..=first_line_end]) {
                     if first_line.contains("tmpl-ignore") {
-                        file.replace(0..first_line_end + 1, b"");
+                        file = &file[first_line_end + 1..];
                     }
                 }
             }
         }
     }
 
+    let mut response = BytesMut::with_capacity(file.len() * 3 / 2);
+
     let mut stage = Stage::Text;
     let mut placeholder_start = 0;
     let mut escaped = 0;
+    let mut start_byte = Some(0);
 
-    let mut position = 0;
-    while let Some(byte) = file.get(position).copied() {
-        // for (position, byte) in file.iter().copied().enumerate() {
+    for (position, byte) in file.iter().copied().enumerate() {
         let is_escape = byte == ESCAPE;
 
         match stage {
@@ -69,20 +71,23 @@ pub async fn handle_template(
                     let b = previous.last().copied();
                     match (a, b) {
                         (Some(b'\\'), Some(b'\\')) => {
-                            file.replace(position - 1..position, b"");
+                            response
+                                .extend_from_slice(&file[start_byte.take().unwrap()..position - 1]);
                             placeholder_start = position;
                             stage = Stage::Placeholder;
                         }
                         (_, Some(b'\\')) => {
-                            file.replace(position - 1..position, b"");
+                            response
+                                .extend_from_slice(&file[start_byte.take().unwrap()..position - 1]);
+                            start_byte = Some(position);
                         }
                         _ => {
+                            response.extend_from_slice(&file[start_byte.take().unwrap()..position]);
                             placeholder_start = position;
                             stage = Stage::Placeholder;
                         }
                     }
                 }
-                position += 1;
             }
             Stage::Placeholder if escaped != 1 => {
                 // If placeholder closed
@@ -93,32 +98,16 @@ pub async fn handle_template(
                         if let Ok(key) = str::from_utf8(&file[placeholder_start + 2..position]) {
                             // If it is a valid template?
                             if let Some(template) = templates.get(key) {
-                                file.replace(placeholder_start..position + 1, template);
-                                let replaced = position + 1 - placeholder_start;
-                                if template.len() + 1 < replaced {
-                                    position -= replaced - (template.len() + 1)
-                                } else {
-                                    position += (template.len() + 1) - replaced;
-                                }
-                            } else {
-                                file.replace(placeholder_start..position + 1, b"");
-                                position = placeholder_start;
+                                response.extend_from_slice(template);
                             }
-                        } else {
-                            file.replace(placeholder_start..position + 1, b"");
-                            position = placeholder_start;
                         }
-                    } else {
-                        file.replace(placeholder_start..position + 1, b"");
-                        position = placeholder_start;
                     }
+                    start_byte = Some(position + 1);
                     // Set stage to accept new text
                     stage = Stage::Text;
-                } else {
-                    position += 1;
                 }
             }
-            Stage::Placeholder => position += 1,
+            Stage::Placeholder => {}
         }
 
         // Do we escape?
@@ -131,6 +120,12 @@ pub async fn handle_template(
             escaped = 0;
         }
     }
+
+    if let Some(start_byte) = start_byte {
+        response.extend_from_slice(&file[start_byte..]);
+    }
+
+    *body = utils::BytesCow::Mut(response)
 }
 fn collect_templates<'a, I: Iterator<Item = &'a [u8]>>(files: I) -> HashMap<&'a str, &'a [u8]> {
     let mut templates = HashMap::with_capacity(32);
