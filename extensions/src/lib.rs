@@ -42,6 +42,9 @@ pub use templates::templates as templates_ext;
 #[cfg(feature = "connection")]
 pub mod connection;
 
+#[path = "view-counter.rs"]
+pub mod view_counter;
+
 /// Creates a new `Extensions` and adds all enabled `kvarn_extensions`.
 ///
 /// See [`mount_all()`] for more information.
