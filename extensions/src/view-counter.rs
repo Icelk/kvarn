@@ -15,7 +15,19 @@ async fn parse(s: &str) -> Option<ViewCount> {
     for l in s.lines().skip(1) {
         // rsplit so the commas in article don't skrew with us
         let (article, count) = l.rsplit_once(',')?;
-        let article = article.replace("\\,", ",").replace("\\\\", "\\");
+        let article = if article.contains("\\,")
+            || article.contains("\\\\")
+            || article.contains("\\\n")
+            || article.contains("\\\r")
+        {
+            article
+                .replace("\\,", ",")
+                .replace("\\\\", "\\")
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+        } else {
+            article.to_owned()
+        };
         let count = count.parse().ok()?;
         articles.insert(article, (false, count));
     }
@@ -89,9 +101,15 @@ pub async fn mount(
                         if *changed {
                             *changed = false;
                             let count = *count;
-                            let line = if article.contains(',') || article.contains('\\') {
+                            let line = if article.contains(',')
+                                || article.contains('\\')
+                                || article.contains('\n')
+                                || article.contains('\r')
+                            {
                                 let article = article.replace('\\', "\\\\");
                                 let article = article.replace(',', "\\,");
+                                let article = article.replace('\n', "\\n");
+                                let article = article.replace('\r', "\\r");
 
                                 format!("{article},{count},{date}\n")
                             } else {
@@ -115,9 +133,15 @@ pub async fn mount(
                     };
                     file.write_all(b"article path,view count\n").await.unwrap();
                     for (article, (_, count)) in lock.iter() {
-                        let line = if article.contains(',') || article.contains('\\') {
+                        let line = if article.contains(',')
+                            || article.contains('\\')
+                            || article.contains('\n')
+                            || article.contains('\r')
+                        {
                             let article = article.replace('\\', "\\\\");
                             let article = article.replace(',', "\\,");
+                            let article = article.replace('\n', "\\n");
+                            let article = article.replace('\r', "\\r");
 
                             format!("{article},{count}\n")
                         } else {
