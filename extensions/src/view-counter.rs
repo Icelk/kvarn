@@ -209,7 +209,25 @@ pub async fn mount(
     extensions.add_present_internal(
         "view-counter",
         present!(args, move |c: ViewCount| {
-            // args.
+            let needle = b"${view-count}";
+            let mut pos = 0;
+            let mut view_count = None;
+            while let Some(idx) = memchr::memmem::find(&args.response.body()[pos..], needle) {
+                let idx = pos + idx;
+                pos = idx;
+                let view_count = match &view_count {
+                    Some(v) => v,
+                    None => {
+                        let lock = c.articles.lock().await;
+                        let article = args.request.uri().path();
+                        let n = lock.get(article).map_or(1, |v| v.1);
+                        view_count.insert(n.to_string())
+                    }
+                };
+                args.response
+                    .body_mut()
+                    .replace(idx..idx + needle.len(), view_count.as_bytes());
+            }
         }),
     );
     view_count
