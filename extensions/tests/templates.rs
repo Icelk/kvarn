@@ -87,7 +87,9 @@ async fn escaping() {
     let file = "\
 !> tmpl 2.txt\n\
 \\$[2]
-$[\n2\n]";
+$[
+2
+]";
     let mut ext = kvarn_extensions::new();
     ext.add_prepare_single(
         "/index.html",

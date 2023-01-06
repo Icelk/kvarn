@@ -125,10 +125,10 @@ pub trait PresentCall: Send + Sync {
     /// > The use of a separate struct for all the references is a product of the previous design,
     /// > before the macros and [`utils::SuperUnsafePointer`]s. Then, you had to do the `unsafe` dereferencing
     /// > yourself. Only having to dereference one struct was easier.
-    fn call<'a>(&'a self, present_data: &'a mut PresentData) -> RetFut<'a, ()>;
+    fn call<'a>(&'a self, present_data: &'a mut PresentData<'a>) -> RetFut<'a, ()>;
 }
-impl<F: for<'a> Fn(&'a mut PresentData) -> RetFut<'a, ()> + Send + Sync> PresentCall for F {
-    fn call<'a>(&'a self, present_data: &'a mut PresentData) -> RetFut<'a, ()> {
+impl<F: for<'a> Fn(&'a mut PresentData<'a>) -> RetFut<'a, ()> + Send + Sync> PresentCall for F {
+    fn call<'a>(&'a self, present_data: &'a mut PresentData<'a>) -> RetFut<'a, ()> {
         self(present_data)
     }
 }
@@ -554,7 +554,6 @@ impl Extensions {
     /// See [kvarn.org](https://kvarn.org/nonce.) for more details.
     #[cfg(feature = "nonce")]
     pub fn with_nonce(&mut self) -> &mut Self {
-        use bytes::BufMut;
         use rand::Rng;
 
         self.add_present_internal(
@@ -569,13 +568,15 @@ impl Extensions {
                 // if didn't write whole, add padding of `=`.
                 s[wrote..].fill(b'=');
 
-                let body = ext.response().body();
-                let mut new_body = BytesMut::with_capacity(body.len() + 24 * 4);
+                let body = ext.response.body_mut();
+                // let mut new_body = BytesMut::with_capacity(body.len() + 24 * 4);
+                let mut replacement = Vec::with_capacity(28);
                 let mut last_start = 0;
 
-                let iter = memchr::memmem::find_iter(body, b"nonce=");
-
-                for occurrence in iter {
+                while let Some(occurrence) =
+                    memchr::memmem::find(&body[last_start + 1..], b"nonce=")
+                {
+                    let occurrence = occurrence + last_start + 1;
                     // +6 as that's the length of b"nonce="
                     let rest = &body[occurrence + 6..];
                     let first = rest.first();
@@ -586,45 +587,43 @@ impl Extensions {
                     };
                     // we shortened the list by 1
                     let end = end.map(|v| v + 1 + 6);
-                    new_body.extend_from_slice(&body[last_start..occurrence + 6]);
                     if let Some(end) = end {
                         let double = *first.unwrap() == b'"';
                         last_start = occurrence + end;
 
                         if double {
-                            new_body.put_u8(b'"');
+                            replacement.push(b'"');
                         } else {
-                            new_body.put_u8(b'\'');
+                            replacement.push(b'\'');
                         }
-                        new_body.extend_from_slice(&s);
+                        replacement.extend_from_slice(&s);
 
                         if double {
-                            new_body.put_u8(b'"');
+                            replacement.push(b'"');
                         } else {
-                            new_body.put_u8(b'\'');
+                            replacement.push(b'\'');
                         }
                     } else {
-                        new_body.extend_from_slice(b"\"\"");
+                        replacement.extend_from_slice(b"\"\"");
                         last_start = occurrence + 6 + 2;
                     }
+                    body.replace(occurrence + 6..last_start, &replacement);
+                    replacement.clear();
                 }
 
-                new_body.extend_from_slice(&body[last_start.min(body.len())..]);
-
-                *ext.response_mut().body_mut() = new_body.freeze();
-                ext.response_mut().headers_mut().insert(
+                ext.response.headers_mut().insert(
                     "csp-nonce",
                     HeaderValue::from_maybe_shared(s.freeze())
                         .expect("base64 is valid for a header value"),
                 );
 
-                if *ext.server_cache_preference() != comprash::ServerCachePreference::None {
+                if *ext.server_cache_preference != comprash::ServerCachePreference::None {
                     error!(
                         "Enabled nonce on page with server caching enabled! \
                         This is critical for XSS resilience.\n\
                         nonces don't work with server caching."
                     );
-                    *ext.server_cache_preference() = comprash::ServerCachePreference::None;
+                    *ext.server_cache_preference = comprash::ServerCachePreference::None;
                 }
             }),
         );
@@ -787,8 +786,17 @@ impl Extensions {
         let body = &mut body;
         let path = utils::parse::uri(request.uri().path());
 
-        if let Some(extensions) = PresentExtensions::new(Bytes::clone(response.body())) {
+        let extensions = PresentExtensions::new(Bytes::clone(response.body()));
+
+        if let Some(extensions) = &extensions {
             *response.body_mut() = response.body_mut().split_off(extensions.data_start());
+        }
+
+        let (response_head, response_body) = utils::split_response(core::mem::take(response));
+        let response_body = utils::BytesCow::Ref(response_body);
+        let mut cow_response = response_head.map(|()| response_body);
+
+        if let Some(extensions) = extensions {
             for extension_name_args in extensions {
                 if let Some(extension) = self.present_internal.get(extension_name_args.name()) {
                     let mut data = PresentData {
@@ -796,10 +804,10 @@ impl Extensions {
                         request,
                         body,
                         host,
-                        path: path.map(|p| p as *const _),
+                        path,
                         server_cache_preference,
                         client_cache_preference,
-                        response,
+                        response: &mut cow_response,
                         args: extension_name_args,
                     };
                     extension.call(&mut data).await;
@@ -816,14 +824,16 @@ impl Extensions {
                 request,
                 body,
                 host,
-                path: path.map(|p| p as *const _),
+                path,
                 server_cache_preference,
                 client_cache_preference,
-                response,
+                response: &mut cow_response,
                 args: PresentArguments::empty(),
             };
             extension.call(&mut data).await;
         }
+
+        *response = cow_response.map(utils::BytesCow::freeze);
     }
     pub(crate) async fn resolve_package(
         &self,
@@ -888,66 +898,22 @@ impl Debug for Extensions {
 /// Add data pretending to present state in creating the response.
 ///
 /// See [module level documentation](crate::extensions).
-#[allow(missing_debug_implementations)]
-pub struct PresentData {
-    // Regarding request
-    address: SocketAddr,
-    request: *const FatRequest,
-    body: *mut LazyRequestBody,
-    host: *const Host,
-    path: Option<*const Path>,
-    // Regarding response
-    server_cache_preference: *mut comprash::ServerCachePreference,
-    client_cache_preference: *mut comprash::ClientCachePreference,
-    response: *mut Response<Bytes>,
-    // Regarding extension
-    args: PresentArguments,
-}
 #[allow(missing_docs)]
-impl PresentData {
-    #[inline]
-    pub fn address(&self) -> SocketAddr {
-        self.address
-    }
-    #[inline]
-    pub fn request(&self) -> &FatRequest {
-        unsafe { &*self.request }
-    }
-    #[inline]
-    pub fn body(&mut self) -> &mut LazyRequestBody {
-        unsafe { &mut *self.body }
-    }
-    #[inline]
-    pub fn host(&self) -> &Host {
-        unsafe { &*self.host }
-    }
-    #[inline]
-    pub fn path(&self) -> Option<&Path> {
-        unsafe { self.path.map(|p| &*p) }
-    }
-    #[inline]
-    pub fn server_cache_preference(&mut self) -> &mut comprash::ServerCachePreference {
-        unsafe { &mut *self.server_cache_preference }
-    }
-    #[inline]
-    pub fn client_cache_preference(&mut self) -> &mut comprash::ClientCachePreference {
-        unsafe { &mut *self.client_cache_preference }
-    }
-    #[inline]
-    pub fn response_mut(&mut self) -> &mut Response<Bytes> {
-        unsafe { &mut *self.response }
-    }
-    #[inline]
-    pub fn response(&self) -> &Response<Bytes> {
-        unsafe { &*self.response }
-    }
-    #[inline]
-    pub fn args(&self) -> &PresentArguments {
-        &self.args
-    }
+#[derive(Debug)]
+pub struct PresentData<'a> {
+    // Regarding request
+    pub address: SocketAddr,
+    pub request: &'a FatRequest,
+    pub body: &'a mut LazyRequestBody,
+    pub host: &'a Host,
+    pub path: Option<&'a Path>,
+    // Regarding response
+    pub server_cache_preference: &'a mut comprash::ServerCachePreference,
+    pub client_cache_preference: &'a mut comprash::ClientCachePreference,
+    pub response: &'a mut Response<utils::BytesCow>,
+    // Regarding extension
+    pub args: PresentArguments,
 }
-unsafe impl Send for PresentData {}
-unsafe impl Sync for PresentData {}
 
 /// A [`Request`] [`Body`] which is lazily read.
 #[derive(Debug)]
@@ -1225,7 +1191,7 @@ mod macros {
     /// ```
     /// # use kvarn::prelude::*;
     /// let extension = present!(data, {
-    ///     println!("Calling uri {}", data.request().uri());
+    ///     println!("Calling uri {}", data.request.uri());
     /// });
     /// ```
     #[macro_export]

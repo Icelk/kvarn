@@ -113,8 +113,8 @@ pub mod parse {
 }
 
 /// Makes the client download the file.
-pub fn download(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
-    let headers = data.response_mut().headers_mut();
+pub fn download<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
+    let headers = data.response.headers_mut();
     headers.insert(
         "content-type",
         HeaderValue::from_static("application/octet-stream"),
@@ -122,7 +122,7 @@ pub fn download(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
     ready(())
 }
 
-pub fn cache(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
+pub fn cache<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
     fn parse<'a, I: Iterator<Item = &'a str>>(
         iter: I,
     ) -> (
@@ -153,63 +153,64 @@ pub fn cache(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
         }
         (c, s)
     }
-    let preference = parse(data.args().iter());
+    let preference = parse(data.args.iter());
     if let Some(c) = preference.0 {
-        *data.client_cache_preference() = c;
+        *data.client_cache_preference = c;
     }
     if let Some(s) = preference.1 {
-        *data.server_cache_preference() = s;
+        *data.server_cache_preference = s;
     }
     ready(())
 }
 
-pub fn hide(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
+pub fn hide<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
     box_fut!({
         #[allow(unused_mut)] // cfg
-        let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
+        let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host), None).await;
         let arguments = utils::extensions::PresentExtensions::new(error.body().clone());
         if let Some(arguments) = &arguments {
             #[allow(unused_variables)] // cfg
             for argument in arguments.iter() {
                 #[cfg(feature = "templates")]
                 if argument.name() == "tmpl" {
-                    let body = templates::handle_template(
-                        &argument,
-                        &error.body()[arguments.data_start()..],
-                        data.host(),
-                    )
-                    .await;
-                    *error.body_mut() = body;
+                    let mut error = error.map(|b| {
+                        let mut c = utils::BytesCow::from(b);
+                        c.replace(0..arguments.data_start(), b"");
+                        c
+                    });
+                    templates::handle_template(&argument, error.body_mut(), data.host).await;
+                    *data.response = error;
+                    return;
                 }
             }
         }
 
-        *data.response_mut() = error;
+        *data.response = error.map(Into::into);
     })
 }
 
-pub fn ip_allow(data: &mut extensions::PresentData) -> RetFut<'_, ()> {
+pub fn ip_allow<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
     box_fut!({
         let mut matched = false;
         // Loop over denied ip in args
-        for denied in data.args().iter() {
+        for denied in data.args.iter() {
             // If parsed
             if let Ok(ip) = denied.parse::<IpAddr>() {
                 // check it against the requests IP.
-                if data.address().ip() == ip {
+                if data.address.ip() == ip {
                     matched = true;
                     // Then break out of loop
                     break;
                 }
             }
         }
-        *data.server_cache_preference() = comprash::ServerCachePreference::None;
-        *data.client_cache_preference() = comprash::ClientCachePreference::Changing;
+        *data.server_cache_preference = comprash::ServerCachePreference::None;
+        *data.client_cache_preference = comprash::ClientCachePreference::Changing;
 
         if !matched {
             // If it does not match, set the response to 404
-            let error = default_error(StatusCode::NOT_FOUND, Some(data.host()), None).await;
-            *data.response_mut() = error;
+            let error = default_error(StatusCode::NOT_FOUND, Some(data.host), None).await;
+            *data.response = error.map(Into::into);
         }
     })
 }

@@ -21,8 +21,8 @@ async fn parse(s: &str) -> Option<ViewCount> {
             || article.contains("\\\r")
         {
             article
-                .replace("\\,", ",")
                 .replace("\\\\", "\\")
+                .replace("\\,", ",")
                 .replace("\\n", "\n")
                 .replace("\\r", "\r")
         } else {
@@ -203,7 +203,7 @@ pub async fn mount(
                 count.1 += 1;
             }
         ),
-        Id::new(-32, "HTTP/2 push"),
+        Id::new(-1024, "View counter"),
     );
     view_count
 }

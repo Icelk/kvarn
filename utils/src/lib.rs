@@ -187,6 +187,99 @@ pub mod chars {
     pub const R_SQ_BRACKET: u8 = b']';
 }
 
+/// [`Bytes`] but potentially [`BytesMut`], which enables e.g. changing the data without
+/// allocations when chaining `Present` extensions.
+#[derive(Debug)]
+pub enum BytesCow {
+    /// We just have a reference. This will be reallocated if you make any changes.
+    Ref(Bytes),
+    /// We have mutable ownership - giving us maximal control.
+    Mut(BytesMut),
+}
+impl BytesCow {
+    /// Make this immutable.
+    pub fn freeze(self) -> Bytes {
+        match self {
+            BytesCow::Ref(b) => b,
+            BytesCow::Mut(b) => b.freeze(),
+        }
+    }
+    /// Make this mutable.
+    pub fn into_mut(mut self) -> BytesMut {
+        core::mem::take(self.ref_mut())
+    }
+    /// Get a mutable reference to the bytes.
+    /// Copies if `self` is [`BytesCow::Ref`].
+    pub fn ref_mut(&mut self) -> &mut BytesMut {
+        match self {
+            BytesCow::Ref(b) => {
+                *self = Self::Mut(BytesMut::from(b.as_ref()));
+                self.ref_mut()
+            }
+            BytesCow::Mut(b) => b,
+        }
+    }
+    fn take_mut(&mut self) -> BytesMut {
+        core::mem::take(self.ref_mut())
+    }
+    /// Replace the data in `remove` with `replacement`.
+    /// This function is similar to `splice` methods in other languages.
+    #[inline]
+    pub fn replace(&mut self, mut remove: std::ops::Range<usize>, replacement: &[u8]) {
+        #[cold]
+        #[inline(never)]
+        fn warn_remove_range() {
+            warn!("Trying to remove a range where the end is before the start");
+        }
+        if remove.start > remove.end {
+            warn_remove_range();
+            remove.start = remove.end;
+        }
+        let mut bytes = self.take_mut();
+        let len_change = replacement
+            .len()
+            .saturating_sub(remove.end.saturating_sub(remove.start));
+        bytes.reserve(len_change);
+        let len_before = bytes.len();
+        let new_len = (bytes.len() + replacement.len() + remove.start)
+            .checked_sub(remove.end)
+            .expect("removed more than what was available");
+        unsafe {
+            bytes.set_len(bytes.len() + len_change);
+        };
+        bytes.copy_within(remove.end..len_before, remove.start + replacement.len());
+        bytes[remove.start..(remove.start + replacement.len())].copy_from_slice(replacement);
+        unsafe {
+            bytes.set_len(new_len);
+        };
+        *self = Self::Mut(bytes);
+    }
+}
+impl AsRef<[u8]> for BytesCow {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            BytesCow::Ref(b) => b,
+            BytesCow::Mut(b) => b,
+        }
+    }
+}
+impl std::ops::Deref for BytesCow {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+impl From<Bytes> for BytesCow {
+    fn from(b: Bytes) -> Self {
+        Self::Ref(b)
+    }
+}
+impl From<BytesMut> for BytesCow {
+    fn from(b: BytesMut) -> Self {
+        Self::Mut(b)
+    }
+}
+
 /// Convenience macro to create a [`Bytes`] from multiple `&[u8]` sources.
 ///
 /// Allocates only once; capacity is calculated before any allocation.
@@ -209,8 +302,7 @@ macro_rules! build_bytes {
         let mut b = $crate::prelude::BytesMut::with_capacity($($bytes.len() +)* 0);
 
         $(b.extend($bytes.iter());)*
-
-        b.freeze()
+        b
     }};
 }
 

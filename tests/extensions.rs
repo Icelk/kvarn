@@ -199,7 +199,7 @@ fn get_extensions() -> Extensions {
     extensions.add_present_internal(
         "simple-head",
         present!(present_data, {
-            let content = present_data.response().body();
+            let content = present_data.response.body();
 
             let start = "\
 <!DOCTYPE html>
@@ -214,7 +214,7 @@ fn get_extensions() -> Extensions {
 </body>
 </html>";
             let title = present_data
-                .args()
+                .args
                 .iter()
                 .fold(String::new(), |mut acc, arg| {
                     acc.push_str(arg);
@@ -229,7 +229,7 @@ fn get_extensions() -> Extensions {
                 content,
                 end.as_bytes()
             );
-            *present_data.response_mut().body_mut() = bytes;
+            *present_data.response.body_mut() = utils::BytesCow::Mut(bytes);
         }),
     );
     extensions.add_package(
