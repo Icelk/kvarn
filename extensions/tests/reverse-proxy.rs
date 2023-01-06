@@ -87,7 +87,7 @@ async fn basic() {
                         format!("{:?}", req.headers().get("proxy")).as_bytes(),
                         b"`."
                     );
-                    let response = Response::new(bytes);
+                    let response = Response::new(bytes.freeze());
                     FatResponse::no_cache(response)
                 }),
             )
