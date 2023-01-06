@@ -49,13 +49,18 @@ pub async fn mount(
     let total_path = format!("{path}-totals.csv");
     let changes_path = format!("{path}-history.csv");
 
-    let view_count = parse(&total_path).await.unwrap_or_else(|| {
-        warn!("Overriding view count total at '{total_path}'");
-        ViewCount {
-            articles: Arc::new(Mutex::new(HashMap::new())),
-            ips: Arc::new(RwLock::new(HashMap::new())),
+    let view_count = match parse(&total_path).await {
+        Some(x) => x,
+        None => {
+            if tokio::fs::metadata(&total_path).await.is_ok() {
+                warn!("Overriding view count total at '{total_path}'");
+            }
+            ViewCount {
+                articles: Arc::new(Mutex::new(HashMap::new())),
+                ips: Arc::new(RwLock::new(HashMap::new())),
+            }
         }
-    });
+    };
 
     {
         let c = view_count.clone();
