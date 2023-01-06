@@ -403,15 +403,20 @@ async fn accept(
     descriptor: Arc<PortDescriptor>,
     shutdown_manager: &Arc<shutdown::Manager>,
 ) -> Result<(), io::Error> {
-    trace!(
-        "Started listening on {:?}",
-        listener.get_inner().local_addr()
+    info!(
+        "Started listening on {:?} at time {:?}",
+        listener.get_inner().local_addr(),
+        std::time::SystemTime::now(),
     );
 
     loop {
         match listener.accept(shutdown_manager).await {
             AcceptAction::Shutdown => {
-                debug!("Closing listener.");
+                info!(
+                    "Closing listener on {:?} at time {:?}",
+                    listener.get_inner().local_addr(),
+                    std::time::SystemTime::now(),
+                );
                 return Ok(());
             }
             AcceptAction::Accept(result) => match result {

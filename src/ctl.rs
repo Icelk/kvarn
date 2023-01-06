@@ -568,7 +568,7 @@ pub(crate) async fn listen(
                 kvarn_signal::unix::Response::Data(data) => {
                     error!(
                         "Got unexpected reply from previous Kvarn instance: {:?}. \
-                    Will not be listening for kvarnctl messages.",
+                        Will not be listening for kvarnctl messages.",
                         str::from_utf8(data).unwrap_or("[binary]")
                     );
                     return;

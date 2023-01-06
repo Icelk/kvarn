@@ -41,12 +41,17 @@ async fn handover() {
 
     let url = server.url("/");
     let cert = server.cert().map(Clone::clone);
+    let failed = Arc::new(threading::atomic::AtomicBool::new(false));
 
     let running = Arc::new(threading::atomic::AtomicBool::new(true));
     let running_send = Arc::clone(&running);
     // spam with requests
+    let f = failed.clone();
     tokio::spawn(async move {
         loop {
+            if !running_send.load(threading::Ordering::Acquire) {
+                break;
+            }
             let mut client = reqwest::Client::builder();
             if let Some(cert) = &cert {
                 let cert = reqwest::Certificate::from_der(&cert.0).unwrap();
@@ -54,8 +59,31 @@ async fn handover() {
             };
             let client = client.build().unwrap();
             let request = client.request(reqwest::Method::GET, url.clone());
+            let failed = f.clone();
             tokio::spawn(async move {
-                request.send().await.unwrap().text().await.unwrap();
+                let response = match request.send().await {
+                    Err(err) => {
+                        let error_text = format!("{err:?}");
+                        if error_text.contains("ConnectionReset") {
+                            // there is an edge-case whenere some clients are rejected (in reality
+                            // only when not running --release)
+                            // which occurs when a new connection has been accepted by the kernel,
+                            // but the task has not yet been notified. Instead, it is notified by a
+                            // shutdown. Dropping the listener, the connection gets reset.
+                            return;
+                        }
+                        failed.store(true, threading::Ordering::SeqCst);
+                        println!("{:?}", std::time::SystemTime::now());
+                        Err::<(), _>(err).unwrap();
+                        unreachable!()
+                    }
+                    Ok(r) => r,
+                };
+                if let Err(err) = response.text().await {
+                    failed.store(true, threading::Ordering::SeqCst);
+                    println!("{:?}", std::time::SystemTime::now());
+                    Err::<(), _>(err).unwrap();
+                }
             });
             // Stop when not running!
             if !running_send.load(threading::Ordering::Relaxed) {
@@ -81,6 +109,10 @@ async fn handover() {
     drop(server);
     // Wait for the shutdown messages to be passed
     tokio::time::sleep(Duration::from_millis(10)).await;
+
+    if failed.load(threading::Ordering::SeqCst) {
+        panic!("Requests were rejected!");
+    }
 
     assert!(!Path::new(socket_path).exists());
 }

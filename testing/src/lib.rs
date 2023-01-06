@@ -225,7 +225,7 @@ impl ServerBuilder {
 
         let path = path.as_deref().unwrap_or_else(|| Path::new("tests"));
 
-        let (host, certified_key) = if https {
+        let (mut host, certified_key) = if https {
             let (cert, pk) = cert.unwrap_or_else(|| {
                 let self_signed_cert =
                     rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
@@ -251,6 +251,7 @@ impl ServerBuilder {
             (Host::unsecure("localhost", path, extensions, options), None)
         };
 
+        host.limiter.disable();
         let data = HostCollection::builder().insert(host).build();
 
         loop {

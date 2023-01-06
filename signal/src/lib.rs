@@ -134,7 +134,6 @@ pub mod unix {
 
             // loop to not recurse function & recurse Arc<handler>
             'outer: loop {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 match UnixListener::bind(path) {
                     Err(err) => error!("Failed to bind signal socket: {err:?}"),
                     Ok(listener) => {
@@ -166,6 +165,12 @@ pub mod unix {
                                         // this causes a Delete event at `path`
                                         drop(listener);
                                         warn!("Re-listening because socket file got deleted");
+                                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                        while let Ok(close) = receiver.try_recv() {
+                                            if close {
+                                                break 'outer;
+                                            }
+                                        }
                                         continue 'outer;
                                     },
                                 else => {
