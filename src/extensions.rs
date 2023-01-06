@@ -1045,6 +1045,10 @@ mod macros {
     ///
     /// This is used in the various other macros which expand to extensions; **use them instead**!
     ///
+    /// # Stability
+    ///
+    /// This macro isn't considered stable and may change at any time.
+    ///
     /// # Examples
     ///
     /// This is similar to the `prepare!` macro.
@@ -1054,10 +1058,10 @@ mod macros {
     /// extension!(
     ///     kvarn::extensions::PrepareCall,
     ///     FatResponse,
-    ///     | request: &'a mut FatRequest: arg1,
-    ///     host: &'a Host: arg2,
-    ///     path: Option<&'a Path>: arg3,
-    ///     addr: SocketAddr: arg4 |, , {
+    ///     | request: &'a mut FatRequest: &mut FatRequest: arg1,
+    ///     host: &'a Host: &Host: arg2,
+    ///     path: Option<&'a Path>: Option<&Path>: arg3,
+    ///     addr: SocketAddr: SocketAddr: arg4 |, , {
     ///         println!("Hello world, from extension macro!");
     ///         FatResponse::no_cache(Response::new(Bytes::from_static(b"Hi!")))
     ///     }
@@ -1070,7 +1074,7 @@ mod macros {
         // specified (see `response_pipe_fut` below), the impl and provided variables are mutable.
         //
         // `name` for the params is used to locally bind the params, as the `param` can be `_`.
-        ($trait: ty, $ret: ty, $(($meta:tt) ,)? | $($param:tt:$param_type:ty:$name:ident ),* |, $(($($(($mut:tt))? $move:ident:$ty:ty),+))?, $code:block) => {{
+        ($trait: ty, $ret: ty, $(($meta:tt) ,)? | $($param:tt: $param_type:ty: $param_type_no_lifetimes:ty :$name:ident ),* |, $(($($(($mut:tt))? $move:ident:$ty:ty),+))?, $code:block) => {{
             // we go through all this hassle of having a closure to capture dynamic environment.
             struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> {
                 ext_function_private: F,
@@ -1089,7 +1093,7 @@ mod macros {
                 }
             }
             Box::new(Ext {
-                ext_function_private: move |$($param,)* $($($move,)+)?| {
+                ext_function_private: move |$($param: $param_type_no_lifetimes,)* $($($move,)+)?| {
                     Box::pin(async move {
                         $code
                     })
@@ -1119,9 +1123,9 @@ mod macros {
             $crate::extension!(
                 $crate::extensions::PrimeCall,
                 Option<$crate::prelude::Uri>,
-                |$request: &'a $crate::FatRequest:a1,
-                $host: &'a $crate::prelude::Host:a2,
-                $addr: $crate::prelude::SocketAddr:a3|,
+                |$request: &'a $crate::FatRequest: &$crate::FatRequest: a1,
+                $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a2,
+                $addr: $crate::prelude::SocketAddr: $crate::prelude::SocketAddr: a3|,
                 $(($($move:$ty),+))?,
                 $code
             ) as $crate::extensions::Prime
@@ -1172,10 +1176,10 @@ mod macros {
         // pat to also match `_`
         ($request:pat, $host:pat, $path:pat, $addr:pat, $(move |$($move:ident:$ty:ty),+|)? $code:block) => {
             $crate::extension!($crate::extensions::PrepareCall, $crate::FatResponse, |
-                $request: &'a mut $crate::FatRequest: a1,
-                $host: &'a $crate::prelude::Host: a2,
-                $path: Option<&'a $crate::prelude::Path>: a3,
-                $addr: $crate::prelude::SocketAddr: a4 |,
+                $request: &'a mut $crate::FatRequest: &mut $crate::FatRequest: a1,
+                $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a2,
+                $path: Option<&'a $crate::prelude::Path>: Option<&$crate::prelude::Path>: a3,
+                $addr: $crate::prelude::SocketAddr: $crate::prelude::SocketAddr: a4 |,
                 $(($($move:$ty),+))?,
                 $code
             ) as $crate::extensions::Prepare
@@ -1200,7 +1204,7 @@ mod macros {
             $crate::extension!(
                 $crate::extensions::PresentCall,
                 (),
-                |$data: &'a mut $crate::extensions::PresentData: a1|,
+                |$data: &'a mut $crate::extensions::PresentData<'a>: &mut $crate::extensions::PresentData: a1|,
                 $(($($move:$ty),+))?,
                 $code
             ) as $crate::extensions::Present
@@ -1226,9 +1230,9 @@ mod macros {
             $crate::extension!(
                 $crate::extensions::PackageCall,
                 (),
-                |$response: &'a mut $crate::prelude::Response<()>: a1,
-                $request: &'a $crate::FatRequest: a2,
-                $host: &'a $crate::prelude::Host: a3 |,
+                |$response: &'a mut $crate::prelude::Response<()>: &mut $crate::prelude::Response<()>: a1,
+                $request: &'a $crate::FatRequest: &$crate::FatRequest: a2,
+                $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a3 |,
                 $(($($move:$ty),+))?,
                 $code
             ) as $crate::extensions::Package
@@ -1256,11 +1260,11 @@ mod macros {
             $crate::extension!(
                 $crate::extensions::PostCall,
                 (),
-                |$request: &'a $crate::FatRequest: a1,
-                $host: &'a $crate::prelude::Host: a2,
-                $response_pipe: &'a mut $crate::application::ResponsePipe: a3,
-                $bytes: $crate::prelude::Bytes: a4,
-                $addr: $crate::prelude::SocketAddr: a5|,
+                |$request: &'a $crate::FatRequest: &$crate::FatRequest: a1,
+                $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a2,
+                $response_pipe: &'a mut $crate::application::ResponsePipe: &mut $crate::application::ResponsePipe: a3,
+                $bytes: $crate::prelude::Bytes: $crate::prelude::Bytes: a4,
+                $addr: $crate::prelude::SocketAddr: $crate::prelude::SocketAddr: a5|,
                 $(($($move:$ty),+))?,
                 $code
             ) as $crate::extensions::Post

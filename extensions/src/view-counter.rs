@@ -205,6 +205,13 @@ pub async fn mount(
         ),
         Id::new(-1024, "View counter"),
     );
+    let c = view_count.clone();
+    extensions.add_present_internal(
+        "view-counter",
+        present!(args, move |c: ViewCount| {
+            // args.
+        }),
+    );
     view_count
 }
 pub fn starts_with_predicate(
