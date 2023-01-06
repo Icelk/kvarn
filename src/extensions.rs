@@ -1093,7 +1093,7 @@ mod macros {
                 }
             }
             Box::new(Ext {
-                ext_function_private: move |$($param: $param_type_no_lifetimes,)* $($($move,)+)?| {
+                ext_function_private: move |$($param: $param_type_no_lifetimes,)* $($($move: & $($mut)? $ty,)+)?| {
                     Box::pin(async move {
                         $code
                     })
@@ -1286,7 +1286,13 @@ mod macros {
     #[macro_export]
     macro_rules! response_pipe_fut {
         ($response:pat, $host:pat, $(move |$($move:ident:$ty:ty),+|)? $code:block) => {
-            $crate::extension!($crate::extensions::ResponsePipeFutureCall, (), (mut), |$response: &'a mut $crate::application::ResponseBodyPipe: a1, $host: &'a $crate::prelude::Host: a2|, $(($((mut) $move:$ty),+))?, $code)
+            $crate::extension!(
+                $crate::extensions::ResponsePipeFutureCall,
+                (),
+                (mut),
+                |$response: &'a mut $crate::application::ResponseBodyPipe: &mut $crate::application::ResponseBodyPipe: a1,
+                $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a2|,
+                $(($((mut) $move:$ty),+))?, $code)
         };
     }
 }
