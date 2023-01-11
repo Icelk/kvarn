@@ -41,6 +41,12 @@ static SEC_MAGIC_STRING: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /// );
 /// ```
 pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture) -> FatResponse {
+    use base64::Engine;
+    const DEFAULT_ENGINE: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::GeneralPurposeConfig::new().with_encode_padding(false),
+    );
+
     if req.headers().get("connection").map_or(true, |conn| {
         conn.to_str().map_or(true, |s| {
             !s.split(',')
@@ -89,7 +95,7 @@ pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture)
     // I have dug into the code and verified that the call to base64::encode_config_slice will fill
     // all 28 bytes.
     unsafe { bytes.set_len(28) };
-    base64::encode_engine_slice(hash, &mut bytes, &base64::engine::DEFAULT_ENGINE);
+    DEFAULT_ENGINE.encode_slice(hash, &mut bytes).expect("base64 encoding failed");
     let response = Response::builder()
         .header(
             "sec-websocket-accept",

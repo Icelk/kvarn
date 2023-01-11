@@ -554,7 +554,13 @@ impl Extensions {
     /// See [kvarn.org](https://kvarn.org/nonce.) for more details.
     #[cfg(feature = "nonce")]
     pub fn with_nonce(&mut self) -> &mut Self {
+        use base64::Engine;
         use rand::Rng;
+
+        const DEFAULT_ENGINE: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(
+            &base64::alphabet::STANDARD,
+            base64::engine::GeneralPurposeConfig::new().with_encode_padding(true),
+        );
 
         self.add_present_internal(
             "nonce",
@@ -563,10 +569,11 @@ impl Extensions {
                 let mut s = BytesMut::with_capacity(24);
                 unsafe { s.set_len(24) };
 
-                let wrote =
-                    base64::encode_engine_slice(data, &mut s, &base64::engine::DEFAULT_ENGINE);
-                // if didn't write whole, add padding of `=`.
-                s[wrote..].fill(b'=');
+                let wrote = DEFAULT_ENGINE
+                    .encode_slice(data, &mut s)
+                    .expect("base64 failed to encode");
+                // the padding should do this
+                assert_eq!(wrote, 24);
 
                 let body = ext.response.body_mut();
                 // let mut new_body = BytesMut::with_capacity(body.len() + 24 * 4);
