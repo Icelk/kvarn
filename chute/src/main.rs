@@ -12,7 +12,9 @@ const FOOTER: &[u8] = b"</md></main>\n$[footer]\n";
 const IGNORED_EXTENSIONS: &[&str] = &["hide"];
 
 fn main() {
-    env_logger::init_from_env("CHUTE_LOG");
+    env_logger::Builder::from_env("CHUTE_LOG")
+        .filter(None, log::LevelFilter::Warn)
+        .init();
 
     info!("Starting Kvarn Markdown to HTML converter.");
 
@@ -24,7 +26,10 @@ fn main() {
         .long_about(
             "Use the `CHUTE_LOG` environment variable to adjust the verbosity. \
             `CHUTE_LOG=off chute` disables logging, \
-            disregarding errors.",
+            disregarding errors.\n\
+            You can write ${date} in your documents to get the date of write. \
+            You can specify how the date will be formatted by ${date <format>}, \
+            following https://time-rs.github.io/book/api/format-description.html.",
         )
         .arg(
             Arg::new("PATHS")

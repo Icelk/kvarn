@@ -30,12 +30,13 @@ kvarn_utils = "0.5"
 clap = { version = "4", optional = true, features = ["cargo"] }
 clap_autocomplete = { version = "0.4", optional = true }
 env_logger = { version = "0.10", optional = true, default-features = false, features = ["auto-color", "humantime"] }
+log = { version = "0.4.17", optional = true }
 
 [features]
 default = ["date", "bin", "completion"]
 date = ["time", "time-tz"]
 
-bin = ["env_logger", "clap"]
+bin = ["env_logger", "log", "clap"]
 completion = ["clap_autocomplete"]
 
 [package.metadata.docs.rs]

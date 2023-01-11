@@ -422,19 +422,25 @@ fn _process<P: AsRef<Path>>(
     #[cfg(feature = "date")]
     tags.insert(
         "date".to_owned(),
-        Box::new(|_inner, mut ext| {
+        Box::new(|inner, mut ext| {
             use fmt::Write;
             use time_tz::OffsetDateTimeExt;
 
             let now = time::OffsetDateTime::now_utc();
             let offset = time_tz::system::get_timezone();
             let date = offset.map_or(now, |offset| now.to_timezone(offset));
-            write!(
-                ext,
-                "{}",
+            let s = if inner.trim().is_empty() {
                 date.format(FORMAT).expect("failed to format datetime")
-            )
-            .expect("failed to push to string");
+            } else if let Ok(f) = time::format_description::parse(inner.trim()) {
+                date.format(&f).expect("failed to format datetime")
+            } else {
+                error!(
+                    "Failed to parse time description ({inner:?}). \
+                    See https://time-rs.github.io/book/api/format-description.html"
+                );
+                date.format(FORMAT).expect("failed to format datetime")
+            };
+            write!(ext, "{}", s).expect("failed to push to string");
         }),
     );
 
@@ -687,26 +693,20 @@ pub fn replace_tags<'a>(text: &'a str, tags: &Tags<'a>) -> String {
 
     for (index, char) in text.char_indices() {
         let text = unsafe { text.get_unchecked(index..) };
-        if text.starts_with("${") {
+        if let Some(after_opening) = text.strip_prefix("${") {
             if !escaped_tag {
-                for (name, func) in tags {
-                    let tag_len = name.len() + 2 + 1;
-                    if !in_tag
-                        && text
-                            .get(..tag_len)
-                            .map_or(false, |text| text.ends_with('}'))
-                    {
+                if let Some((name, func)) = after_opening
+                    .split(|c| c == ' ' || c == '}')
+                    .next()
+                    .and_then(|name| tags.get_key_value(name))
+                {
+                    let tag_len = text.find('}').unwrap_or(name.len() + 2);
+                    if !in_tag {
                         // For unwrap, see above.
-                        let inner = text.get(2..tag_len - 1).unwrap();
-                        // ~~We are guaranteed to have at least one; if there are no spaces, we still get one~~
-                        // If the string is 0 in length, we return the first word as a empty string.
-                        let first_word = inner.split(' ').next().unwrap_or("");
-                        if first_word == name {
-                            let extendible = Extendible { inner: &mut string };
-                            func(inner, extendible);
-                            in_tag = true;
-                            break;
-                        }
+                        let inner = text.get(2 + name.len() + 1..tag_len).unwrap_or("");
+                        let extendible = Extendible { inner: &mut string };
+                        func(inner, extendible);
+                        in_tag = true;
                     }
                 }
             }
@@ -715,6 +715,9 @@ pub fn replace_tags<'a>(text: &'a str, tags: &Tags<'a>) -> String {
             }
         }
         if in_tag {
+            if char == '\\' && text.starts_with("\\{") {
+                warn!("Just know you cannot escape closing brackets for tags");
+            }
             if char == '}' {
                 in_tag = false;
             }
