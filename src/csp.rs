@@ -5,6 +5,7 @@
 
 use crate::extensions::RuleSet;
 use crate::prelude::*;
+use std::collections::BTreeMap;
 
 macro_rules! csp_rules {
     (
@@ -19,6 +20,7 @@ macro_rules! csp_rules {
         #[must_use]
         pub struct Rule {
             $($directive: ValueSet,)+
+            undefined: BTreeMap<String, ValueSet>,
         }
         impl Rule {
             /// Creates a new, **empty** CSP rule.
@@ -31,6 +33,7 @@ macro_rules! csp_rules {
             pub fn empty() -> Self {
                 Self {
                     $($directive: ValueSet::empty(),)+
+                    undefined: BTreeMap::new(),
                 }
             }
             $(
@@ -52,6 +55,16 @@ macro_rules! csp_rules {
                     self
                 }
             )+
+            /// Adds a CSP directive with a name not currently tracked by Kvarn. This exists to be
+            /// able to add new CSP directives before Kvarn adds options for them.
+            ///
+            /// # Panics
+            ///
+            /// May panic if [`CspValue::Uri`] contians invalid bytes.
+            pub fn string(mut self, csp_directive_name: impl Into<String>, values: ValueSet) -> Self {
+                self.undefined.insert(csp_directive_name.into(), values);
+                self
+            }
 
             /// Returns [`None`] if all the directives are empty.
             /// Else, returns a list of all directives and their values.
@@ -105,6 +118,25 @@ macro_rules! csp_rules {
                             }
                         )+
                     )+
+                }
+
+                {
+                    for (directive, sources) in &self.undefined {
+                        let me_len = if sources.list.is_empty() {
+                            0
+                        } else {
+                            directive.len() + 2
+                        };
+                        len += sources
+                            .list
+                            .iter()
+                            .map(|value| value.as_str().len() + 1)
+                            .sum::<usize>() + me_len;
+
+                        if !sources.list.is_empty() {
+                            empty = false;
+                        }
+                    }
                 }
 
                 if nonce.is_some() {
@@ -167,6 +199,25 @@ macro_rules! csp_rules {
                         }
                     )+
                 }
+                {
+                    for (directive, sources) in &self.undefined {
+                        if !sources.list.is_empty() {
+                            // pushing this to the HeaderValue is OK, since it originates from a
+                            // header value.
+                            // this usually only happens once, write to the rule in the CSP
+                            // report-to and report-url are aliases, so two are ran here.
+                            if !bytes.is_empty() {
+                                bytes.put_slice(b"; ");
+                            }
+                            bytes.put(directive.as_bytes());
+                            bytes.put_u8(chars::SPACE);
+                            for source in &sources.list {
+                                bytes.put(source.as_str().as_bytes());
+                                bytes.put_u8(chars::SPACE);
+                            }
+                        }
+                    }
+                }
 
                 // SAFETY: This is safe because of the contract on adding of `CspValue`s always
                 // containing valid bytes.
@@ -181,6 +232,7 @@ macro_rules! csp_rules {
             fn default() -> Self {
                 CspRule {
                     $($directive: $default,)+
+                    undefined: BTreeMap::new(),
                 }
             }
         }
@@ -378,8 +430,8 @@ impl ValueSet {
     }
     /// Adds `uri` to `self`.
     #[inline]
-    pub fn uri(self, uri: impl AsRef<str>) -> Self {
-        self.push(Value::Uri(uri.as_ref().to_string()))
+    pub fn uri(self, uri: impl Into<String>) -> Self {
+        self.push(Value::Uri(uri.into()))
     }
     /// Adds `scheme` to `self`.
     /// `scheme` has to end in `:`.
@@ -388,10 +440,10 @@ impl ValueSet {
     ///
     /// Panics if `scheme` doesn't end with `:`.
     #[inline]
-    pub fn scheme(self, scheme: impl AsRef<str>) -> Self {
-        let s = scheme.as_ref();
+    pub fn scheme(self, scheme: impl Into<String>) -> Self {
+        let s = scheme.into();
         assert!(s.ends_with(':'), "scheme has to end with ':'.");
-        self.push(Value::Scheme(s.to_owned()))
+        self.push(Value::Scheme(s))
     }
     /// Pushes another `value` to the set of values of `self`.
     #[inline]
