@@ -42,7 +42,7 @@ pub fn mount_php(
                 let path = rewriteen_path
                     .map(Cow::Owned)
                     .or_else(|| path.map(Cow::Borrowed));
-                php(req, host, path, addr, *connection).await
+                php(req, host, path, addr, connection.clone()).await
             }
         ),
         extensions::Id::new(-8, "PHP").no_override(),

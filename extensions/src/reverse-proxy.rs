@@ -298,7 +298,7 @@ pub type GetConnectionFn = Arc<dyn (Fn(&FatRequest, &Bytes) -> Option<Connection
 
 /// Creates a new [`GetConnectionFn`] which always returns `kind`
 pub fn static_connection(kind: Connection) -> GetConnectionFn {
-    Arc::new(move |_, _| Some(kind))
+    Arc::new(move |_, _| Some(kind.clone()))
 }
 
 #[must_use = "mount the reverse proxy manager"]

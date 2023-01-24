@@ -107,7 +107,7 @@ pub async fn from_prepare<T>(
 
     // Fetch fastcgi server response.
     match connect(
-        connection,
+        connection.clone(),
         request.method().as_str(),
         file_name,
         file_path,

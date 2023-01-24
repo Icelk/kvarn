@@ -961,7 +961,7 @@ unsafe impl Sync for LazyRequestBody {}
 /// A set of rules applicable to certain paths.
 /// See the note at [`Self::empty`] on how paths are matched.
 #[must_use]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RuleSet<R> {
     rules: Vec<(String, R)>,
 }

@@ -10,14 +10,14 @@ macro_rules! socket_addr_with_port {
     };
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Connection {
     Tcp(SocketAddr),
     /// Keep in mind, this currently has a `60s` timeout.
     /// Please use [`Self::UnixSocket`]s instead if you are on Unix.
     Udp(SocketAddr),
     #[cfg(unix)]
-    UnixSocket(&'static Path),
+    UnixSocket(String),
 }
 impl Connection {
     pub async fn establish(self) -> io::Result<EstablishedConnection> {

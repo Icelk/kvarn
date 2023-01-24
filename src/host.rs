@@ -208,14 +208,31 @@ impl Host {
             .expect("certificate invalid, failed to get host name")
             .1
             .tbs_certificate;
-        let name = tbs.subject().to_string();
+        let mut names = tbs.subject().iter_common_name();
+        let name = names
+            .next()
+            .expect("no common names were found")
+            .as_str()
+            .expect("the common name contains invalid bytes")
+            .to_owned();
         let mut alt_names = Vec::new();
+        for name in names.filter_map(|name| name.as_str().ok()) {
+            alt_names.push(name.to_string());
+        }
         let alt_name = tbs
             .subject_alternative_name()
             .expect("alternative name extension of certificate invalid");
         if let Some(alt_name) = alt_name {
-            for name in &alt_name.value.general_names {
-                alt_names.push(name.to_string());
+            for name in alt_name
+                .value
+                .general_names
+                .iter()
+                .filter_map(|name| match name {
+                    x509_parser::prelude::GeneralName::DNSName(name) => Some(name),
+                    _ => None,
+                })
+            {
+                alt_names.push((*name).into());
             }
         }
         let mut me = Self::new(name, cert, pk, path, extensions, options);
@@ -430,6 +447,28 @@ impl Debug for Host {
         );
 
         s.finish()
+    }
+}
+impl Host {
+    /// Clones this [`Host`] without carrying with any extensions or caches.
+    /// You'll have to add all extensions (and related settings, such as CSP, CORS, HSTS)
+    /// manually.
+    ///
+    /// Use sparingly.
+    pub fn clone_without_extensions(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            alternative_names: self.alternative_names.clone(),
+            certificate: self.certificate.clone(),
+            path: self.path.clone(),
+            extensions: Extensions::empty(),
+            file_cache: Some(RwLock::new(Cache::default())),
+            response_cache: Some(RwLock::new(Cache::default())),
+            limiter: self.limiter.clone(),
+            vary: Vary::default(),
+            options: self.options.clone(),
+            compression_options: self.compression_options.clone(),
+        }
     }
 }
 /// Options for [`Host`].
