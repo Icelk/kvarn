@@ -237,7 +237,6 @@ impl Host {
         }
         let mut me = Self::new(name, cert, pk, path, extensions, options);
         me.alternative_names = alt_names;
-        println!("Host: {}, alt: {:?}", me.name, me.alternative_names);
         me
     }
     /// Creates a new [`Host`] without a certificate.
