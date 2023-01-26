@@ -261,7 +261,7 @@ mod tests {
         let mut extensions = new();
         extensions.add_post(Box::new(always), Id::new(-32, "HTTP/2 push"));
 
-        let debug = format!("{:?}", extensions);
+        let debug = format!("{extensions:?}");
         assert_eq!(debug.match_indices("push").count(), 1);
         mount(&mut extensions, SmartPush::default());
         assert_eq!(debug.match_indices("push").count(), 1);

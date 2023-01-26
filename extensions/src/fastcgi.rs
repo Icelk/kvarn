@@ -127,12 +127,10 @@ pub async fn from_prepare<T>(
         Ok(vec) => Ok(vec),
         Err(err) => match err {
             FastcgiError::FailedToConnect(err) => Err(Cow::Owned(format!(
-                "Failed to connect to FastCGI server on {:?}. IO Err: {}",
-                connection, err
+                "Failed to connect to FastCGI server on {connection:?}. IO Err: {err}",
             ))),
             FastcgiError::FailedToDoRequest(err) => Err(Cow::Owned(format!(
-                "Failed to request from FastCGI server! Err: {}",
-                err
+                "Failed to request from FastCGI server! Err: {err}",
             ))),
             FastcgiError::NoStdout => Err(Cow::Borrowed("No stdout in response from FastCGI!")),
         },
