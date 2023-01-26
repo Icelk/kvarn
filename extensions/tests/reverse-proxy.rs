@@ -102,7 +102,7 @@ async fn basic() {
         .unwrap();
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     let text = response.text().await.unwrap();
-    assert!(text.contains("127.0.0.1"), "Text: {:?}", text);
+    assert!(text.contains("127.0.0.1"), "Text: {text:?}");
 }
 
 #[tokio::test]
@@ -144,7 +144,7 @@ async fn base() {
         .unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
-    assert_eq!(response.text().await.unwrap(), format!("Some({:?})", ua));
+    assert_eq!(response.text().await.unwrap(), format!("Some({ua:?})"));
 }
 
 #[tokio::test]
