@@ -458,6 +458,7 @@ impl Host {
         Self {
             name: self.name.clone(),
             alternative_names: self.alternative_names.clone(),
+            #[cfg(feature = "https")]
             certificate: self.certificate.clone(),
             path: self.path.clone(),
             extensions: Extensions::empty(),
