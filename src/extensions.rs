@@ -1231,7 +1231,7 @@ mod macros {
     ///
     /// ```
     /// # use kvarn::prelude::*;
-    /// let extension = package!(response, _, _, {
+    /// let extension = package!(response, _, _, _, {
     ///     response.headers_mut().insert("x-author", HeaderValue::from_static("Icelk"));
     ///     println!("Response headers {:#?}", response.headers());
     /// });
