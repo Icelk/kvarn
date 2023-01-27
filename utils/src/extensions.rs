@@ -53,11 +53,7 @@ impl PresentExtensions {
     ///
     /// `data` should start with [`PRESENT_INTERNAL_PREFIX`], as all present extension files should.
     pub fn new(data: Bytes) -> Option<Self> {
-        let mut extensions_args =
-            Vec::with_capacity(
-                data.iter()
-                    .fold(1, |acc, byte| if *byte == SPACE { acc + 1 } else { acc }),
-            );
+        let mut extensions_args = Vec::new();
 
         if !data.starts_with(PRESENT_INTERNAL_PREFIX)
             || data[PRESENT_INTERNAL_PREFIX.len()..].starts_with(PRESENT_INTERNAL_AND)
