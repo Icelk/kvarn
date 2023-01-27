@@ -331,6 +331,7 @@ impl Host {
                 response: &'a mut Response<()>,
                 request: &'a FatRequest,
                 _: &'a Host,
+                _: SocketAddr,
             ) -> RetFut<'a, ()> {
                 if request.uri().scheme_str() == Some("https") {
                     response

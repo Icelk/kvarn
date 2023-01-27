@@ -229,7 +229,7 @@ pub fn ip_allow<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()>
 pub type ForceCacheRules = Vec<(String, comprash::ClientCachePreference)>;
 pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
     extensions.add_package(
-        package!(response, req, _, move |rules: ForceCacheRules| {
+        package!(response, req, _, _, move |rules: ForceCacheRules| {
             let extension = req.uri().path().split('.').last();
             let path = req.uri().path();
             if let Some(extension) = extension {

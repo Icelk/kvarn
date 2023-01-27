@@ -388,18 +388,22 @@ impl Extensions {
 
         // Low priority so it runs last.
         self.add_package(
-            package!(response, request, _, move |package_cors_settings: Arc<
-                Cors,
-            >| {
-                if let Some(origin) = request.headers().get("origin") {
-                    let allowed = package_cors_settings.check_cors_request(request).is_some();
-                    if allowed {
-                        response
-                            .headers_mut()
-                            .insert("access-control-allow-origin", origin.clone());
+            package!(
+                response,
+                request,
+                _,
+                _,
+                move |package_cors_settings: Arc<Cors>| {
+                    if let Some(origin) = request.headers().get("origin") {
+                        let allowed = package_cors_settings.check_cors_request(request).is_some();
+                        if allowed {
+                            response
+                                .headers_mut()
+                                .insert("access-control-allow-origin", origin.clone());
+                        }
                     }
                 }
-            }),
+            ),
             Id::new(
                 -1024,
                 "Adds access-control-allow-origin depending on if CORS request is allowed",

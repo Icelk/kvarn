@@ -152,10 +152,13 @@ pub trait PackageCall: Send + Sync {
         response: &'a mut Response<()>,
         request: &'a FatRequest,
         host: &'a Host,
+        addr: SocketAddr,
     ) -> RetFut<'a, ()>;
 }
 impl<
-        F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host) -> RetFut<'a, ()> + Send + Sync,
+        F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, ()>
+            + Send
+            + Sync,
     > PackageCall for F
 {
     fn call<'a>(
@@ -163,8 +166,9 @@ impl<
         response: &'a mut Response<()>,
         request: &'a FatRequest,
         host: &'a Host,
+        addr: SocketAddr,
     ) -> RetFut<'a, ()> {
-        self(response, request, host)
+        self(response, request, host, addr)
     }
 }
 /// A post extension.
@@ -485,7 +489,7 @@ impl Extensions {
     /// This is added when calling [`Extensions::new`].
     pub fn with_no_referrer(&mut self) -> &mut Self {
         self.add_package(
-            package!(response, _, _, {
+            package!(response, _, _, _, {
                 response
                     .headers_mut()
                     .entry("referrer-policy")
@@ -847,9 +851,10 @@ impl Extensions {
         response: &mut Response<()>,
         request: &FatRequest,
         host: &Host,
+        addr: SocketAddr,
     ) {
         for (_, extension) in &self.package {
-            extension.call(response, request, host).await;
+            extension.call(response, request, host, addr).await;
         }
     }
     pub(crate) async fn resolve_post(
@@ -1233,13 +1238,14 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! package {
-        ($response:pat, $request:pat, $host:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
+        ($response:pat, $request:pat, $host:pat, $addr:pat, $(move |$($move:ident:$ty:ty ),+|)? $code:block) => {
             $crate::extension!(
                 $crate::extensions::PackageCall,
                 (),
                 |$response: &'a mut $crate::prelude::Response<()>: &mut $crate::prelude::Response<()>: a1,
                 $request: &'a $crate::FatRequest: &$crate::FatRequest: a2,
-                $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a3 |,
+                $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a3,
+                $addr: $crate::prelude::SocketAddr: $crate::prelude::SocketAddr: a4 |,
                 $(($($move:$ty),+))?,
                 $code
             ) as $crate::extensions::Package

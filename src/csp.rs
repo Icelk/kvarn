@@ -490,7 +490,7 @@ impl Extensions {
     /// [CSP](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy).
     pub fn with_csp(&mut self, csp: Arc<Csp>) -> &mut Self {
         self.add_package(
-            package!(response, request, _host, move |csp: Arc<Csp>| {
+            package!(response, request, _host, _, move |csp: Arc<Csp>| {
                 if let Some(rule) = csp.get(request.uri().path()) {
                     let nonce = response.headers().get("csp-nonce");
                     let some_nonce = nonce.is_some();

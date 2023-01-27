@@ -233,7 +233,7 @@ fn get_extensions() -> Extensions {
         }),
     );
     extensions.add_package(
-        package!(response, _request, _host, {
+        package!(response, _, _, _, {
             response
                 .headers_mut()
                 .insert("fun-header", HeaderValue::from_static("why not?"));
