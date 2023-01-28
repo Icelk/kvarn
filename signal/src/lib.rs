@@ -154,7 +154,6 @@ pub mod unix {
                         let sender = Arc::clone(&sender);
                         let handler = Arc::clone(&handler);
                         loop {
-                            info!("accept");
                             let r = tokio::select! {
                                 r = listener.accept() => r,
                                 Some(close) = receiver.recv() => if close
