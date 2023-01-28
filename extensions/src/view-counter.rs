@@ -203,7 +203,7 @@ pub async fn mount(
                 count.1 += 1;
             }
         ),
-        Id::new(-1024, "View counter"),
+        Id::new(-1024, "View counter").no_override(),
     );
     let c = view_count.clone();
     extensions.add_present_internal(
