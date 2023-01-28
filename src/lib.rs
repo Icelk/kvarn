@@ -403,10 +403,11 @@ async fn accept(
     descriptor: Arc<PortDescriptor>,
     shutdown_manager: &Arc<shutdown::Manager>,
 ) -> Result<(), io::Error> {
+    let local_addr = listener.get_inner().local_addr().unwrap();
     info!(
-        "Started listening on {:?} at time {:?}",
-        listener.get_inner().local_addr(),
-        std::time::SystemTime::now(),
+        "Started listening on port {} using {}",
+        local_addr.port(),
+        if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
     );
 
     loop {
