@@ -548,7 +548,7 @@ pub async fn handle_connection(
         {
             host
         } else {
-            info!(
+            debug!(
                 "Failed to get host: {}",
                 utils::parse::Error::NoHost.as_str()
             );
@@ -879,13 +879,13 @@ mod handle_cache_helpers {
                     } else {
                         comprash::UriKey::Path(path_query.into_path())
                     };
-                    info!("Caching uri {:?}!", &key);
+                    debug!("Caching uri {:?}!", &key);
                     lock.cache(key, response);
                     return None;
                 }
             }
         } else {
-            info!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
+            debug!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
         }
         Some(response)
     }

@@ -129,10 +129,10 @@ impl EstablishedConnection {
         timeout: Duration,
     ) -> Result<Response<Bytes>, GatewayError> {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
-        info!("Sending request");
+        debug!("Sending request");
         write::request(request, body, &mut buffered).await?;
 
-        info!("Sent reverse-proxy request. Reading response.");
+        debug!("Sent reverse-proxy request. Reading response.");
 
         let response = match tokio::time::timeout(
             timeout,
@@ -200,7 +200,7 @@ impl EstablishedConnection {
 
                         if chunked {
                             utils::remove_all_headers(head.headers_mut(), "transfer-encoding");
-                            info!("Decoding chunked transfer-encoding.");
+                            debug!("Decoding chunked transfer-encoding.");
                         }
                         buffer.freeze()
                     };
@@ -522,7 +522,7 @@ impl Manager {
                     };
 
                     if wait {
-                        info!("Keeping the pipe open!");
+                        debug!("Keeping the pipe open!");
                         let future = response_pipe_fut!(
                             response_pipe,
                             _,

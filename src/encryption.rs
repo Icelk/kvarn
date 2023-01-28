@@ -51,9 +51,9 @@ impl Encryption {
                     state: TlsState::Stream,
                 };
                 let acceptor = MidHandshake::Handshaking(stream);
-                info!("Trying to handshake");
+                debug!("Trying to handshake");
                 let connect = acceptor.await.map_err(|(err, _)| err)?;
-                info!("Successful handshake");
+                debug!("Successful handshake");
 
                 Ok(Self::TcpTls(Box::new(connect)))
             }

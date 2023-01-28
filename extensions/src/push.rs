@@ -177,7 +177,7 @@ fn push<'a>(
                     }
                 }
 
-                info!("Pushing urls {:?}", urls);
+                debug!("Pushing urls {:?}", urls);
 
                 urls.sort_unstable();
                 urls.dedup();
@@ -234,7 +234,7 @@ fn push<'a>(
                     }
                 }
 
-                info!("Push done.");
+                debug!("Push done.");
             }
             // Else, do nothing
             _ => {}
