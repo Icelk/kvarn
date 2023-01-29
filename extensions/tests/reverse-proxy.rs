@@ -63,12 +63,9 @@ async fn basic() {
                 }
             }
         });
-    let manager = kvarn_extensions::ReverseProxy::new(
-        when,
-        connection,
-        modify,
-        std::time::Duration::from_secs(5),
-    );
+    let manager =
+        kvarn_extensions::ReverseProxy::new(when, connection, std::time::Duration::from_secs(5))
+            .add_modify_fn(modify);
     let mut proxy_extensions = Extensions::new();
     manager.mount(&mut proxy_extensions);
 
