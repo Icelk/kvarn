@@ -509,9 +509,15 @@ macro_rules! plugin {
 }
 
 /// Default message path.
+#[allow(unused_assignments)]
 pub(crate) fn socket_path() -> PathBuf {
     let mut p = Path::new("/run").to_path_buf();
-    #[cfg(unix)]
+    #[cfg(all(unix, target_os = "macos"))]
+    {
+        p = std::env::var_os("HOME")
+            .map_or_else(|| Path::new("/Library/Caches").to_path_buf(), Into::into);
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let user: u32 = unsafe { libc::getuid() };
         if user != 0 {

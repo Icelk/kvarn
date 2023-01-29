@@ -136,7 +136,7 @@ pub mod unix {
             'outer: loop {
                 match UnixListener::bind(path) {
                     Err(err) => {
-                        error!("Failed to bind signal socket: {err:?}");
+                        error!("Failed to bind signal socket: {err}");
                         return;
                     }
                     Ok(listener) => {
