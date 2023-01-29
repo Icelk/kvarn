@@ -315,13 +315,12 @@ impl Manager {
     pub fn new(
         when: extensions::If,
         connection: GetConnectionFn,
-        modify: ModifyRequestFn,
         timeout: Duration,
     ) -> Self {
         Self {
             when,
             connection,
-            modify: vec![modify],
+            modify: vec![],
             timeout,
             rewrite_url: true,
             priority: -128,
@@ -395,7 +394,7 @@ impl Manager {
             }
         });
 
-        Self::new(when, connection, modify, timeout)
+        Self::new(when, connection, timeout).add_modify_fn(modify)
     }
     /// Attach this reverse proxy to `extensions`.
     pub fn mount(self, extensions: &mut Extensions) {
