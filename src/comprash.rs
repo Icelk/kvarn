@@ -691,7 +691,7 @@ impl ClientCachePreference {
         Some(match self {
             Self::Ignore => return None,
             Self::None => HeaderValue::from_static("no-store"),
-            Self::Changing => HeaderValue::from_static("max-age=2"),
+            Self::Changing => HeaderValue::from_static("max-age=120"),
             Self::Full => HeaderValue::from_static("public, max-age=604800, immutable"),
             Self::MaxAge(duration) => {
                 let bytes = build_bytes!(
