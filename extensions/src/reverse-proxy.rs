@@ -312,11 +312,7 @@ pub struct Manager {
 }
 impl Manager {
     /// Consider using [`static_connection`] if your connection type is not dependent of the request.
-    pub fn new(
-        when: extensions::If,
-        connection: GetConnectionFn,
-        timeout: Duration,
-    ) -> Self {
+    pub fn new(when: extensions::If, connection: GetConnectionFn, timeout: Duration) -> Self {
         Self {
             when,
             connection,
