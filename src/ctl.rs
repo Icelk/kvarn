@@ -534,25 +534,11 @@ pub(crate) async fn listen(
     plugins: Plugins,
     ports: Arc<Vec<PortDescriptor>>,
     shutdown: Arc<shutdown::Manager>,
-    path: Option<impl AsRef<Path> + Send + 'static>,
+    path: impl Into<PathBuf>,
 ) {
     #[cfg(unix)]
     {
-        let path = path.map_or_else(socket_path, |p| p.as_ref().to_path_buf());
-
-        #[cfg(feature = "graceful-shutdown")]
-        {
-            assert_eq!(
-                shutdown.handover_socket_path, None,
-                "Cannot call `initiate_handover` twice!"
-            );
-
-            // This is OK, we only write once, and atomics aren't needed as
-            // accessing isn't important to be timely after value change.
-            unsafe {
-                *utils::ref_to_mut(&shutdown.handover_socket_path) = Some(path.clone());
-            }
-        }
+        let path = path.into();
 
         let supports_shutdown = plugins.plugins.contains_key("shutdown");
 

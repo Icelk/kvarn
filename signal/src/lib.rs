@@ -135,7 +135,10 @@ pub mod unix {
             // loop to not recurse function & recurse Arc<handler>
             'outer: loop {
                 match UnixListener::bind(path) {
-                    Err(err) => error!("Failed to bind signal socket: {err:?}"),
+                    Err(err) => {
+                        error!("Failed to bind signal socket: {err:?}");
+                        return;
+                    }
                     Ok(listener) => {
                         if let Some(watcher) = &mut watcher {
                             if watcher

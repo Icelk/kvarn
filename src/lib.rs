@@ -300,6 +300,13 @@ impl RunConfig {
             }
         }
 
+        let handover_path = ctl_path.unwrap_or_else(ctl::socket_path);
+
+        #[cfg(feature = "graceful-shutdown")]
+        {
+            shutdown_manager.handover_socket_path = Some(handover_path.clone());
+        }
+
         let shutdown_manager = shutdown_manager.build();
 
         #[cfg(feature = "handover")]
@@ -314,7 +321,7 @@ impl RunConfig {
                 plugins,
                 ports_clone,
                 Arc::clone(&shutdown_manager),
-                ctl_path,
+                handover_path,
             )
             .await;
         }
@@ -340,7 +347,7 @@ impl RunConfig {
                 plugins,
                 ports_clone,
                 Arc::clone(&shutdown_manager),
-                ctl_path,
+                handover_path,
             )
             .await;
         }
