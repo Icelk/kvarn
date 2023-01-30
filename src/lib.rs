@@ -300,7 +300,7 @@ impl RunConfig {
             }
         }
 
-#[cfg(feature = "handover")]
+        #[cfg(feature = "handover")]
         let handover_path = ctl_path.unwrap_or_else(ctl::socket_path);
 
         #[cfg(feature = "graceful-shutdown")]

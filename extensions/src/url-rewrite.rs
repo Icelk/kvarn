@@ -1,6 +1,6 @@
 use kvarn::prelude::*;
 
-use url_crawl::{LinkIter, IterItem};
+use url_crawl::{IterItem, LinkIter};
 
 /// Appends `prefix` to all absolute URL occurrences, to point the new page to the public endpoint.
 pub fn absolute(body: &[u8], mut prefix: &str) -> BytesMut {
