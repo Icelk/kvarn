@@ -20,6 +20,10 @@ Kvarn is batteries-included (optional defaults) with support for reverse proxyin
 in-memory caching (proper cache invalidation), server communication through [`kvarnctl`](https://github.com/Icelk/kvarn/tree/main/ctl/),
 and easy website creation through Markdown and [Chute](https://github.com/Icelk/kvarn/tree/main/chute/).
 
+If you're looking for an **executable** to run your webserver with, see [Mölla](https://github.com/Icelk/moella).
+Using Mölla, you can configure your host(s), add a search engine, authentication, and other parts of the
+[Kvarn ecosystem](https://kvarn.org/ecosystem/). More info is available on [the website](https://kvarn.org/moella/).
+
 See the [roadmap](roadmap.md) or visit [our website](https://kvarn.org/) for more info.
 
 # Current state
@@ -27,13 +31,17 @@ See the [roadmap](roadmap.md) or visit [our website](https://kvarn.org/) for mor
 A stable API is available and the crate is on [crates.io](https://crates.io/crates/kvarn).
 You can view the latest documentation [online](https://doc.kvarn.org).
 
-[At least for now](https://kvarn.org/config.) you'll have to configure Kvarn through code
-(e.g. add extensions from [`kvarn_extensions`](extensions/README.md) and configuring hosts).
+When using Mölla, you get access to all of Kvarn's extensions and most of it's features.
+If you need to develop custom extension (like [those on icelk.dev](https://github.com/Icelk/icelk.dev/blob/main/server/src/main.rs#L44-L573))
+you need to compile Kvarn yourself. Luckily,
+[Mölla makes it easy to add custom extensions](https://github.com/Icelk/icelk.dev/blob/659df7f19b2ac22efbe4d20f0978c9f58964c76b/server/src/main.rs#L13-L21).
 
-To use the latest and greatest
-(with regular breaking changes, follow the progress at the
-[reference implementation](https://github.com/Icelk/kvarn-reference) for solutions)
-you can add Kvarn using this Git repo.
+To use the latest and greatest you can add Kvarn as a git dependency:
+
+```ini
+[dependencies]
+kvarn = { git = "https://github.com/Icelk/kvarn" }
+```
 
 ## Dependencies
 
@@ -50,16 +58,15 @@ See [kvarn.org](https://kvarn.org/cargo-features.) for more details.
 Take a look at the [sample.service](https://github.com/Icelk/kvarn/blob/main/sample.service)
 for how to configure systemd to use [kvarnctl](https://kvarn.org/ctl/) to manage Kvarn.
 
-You can now use `systemctl --user reload kvarn` or similar to reload the server if you've recompiled.
-This ensures ([exceptions](https://kvarn.org/shutdown-handover.#handover)) **NO downtime**. Not even a few milliseconds.
+You can now use `systemctl --user reload kvarn` or similar to reload the server
+if you've changed the config or recompiled (if that's your thing).
+This ensures ([on Unix](https://kvarn.org/shutdown-handover.#handover)) **NO downtime**. Not even a millisecond.
 
-# Downloads
+# Installation
 
-If you want to download the `.rlib` files, they are published in [actions](https://github.com/Icelk/kvarn/actions) after each good commit.
-Click the topmost run for
-[Kvarn](https://github.com/Icelk/kvarn/actions/workflows/main.yml) or
-[Kvarn extensions](https://github.com/Icelk/kvarn/actions/workflows/extensions.yml)
-and download the appropriate artefact.
+[Mölla](https://github.com/Icelk/moella#installation) is the recommended way to get started with Kvarn.
+You can download it and other Kvarn tools (`kvarnctl` & `chute`)
+for Linux and macOS at [the Releases page](https://github.com/Icelk/moella/releases).
 
 For Kvarn chute downloads for Linux, go [here](https://github.com/Icelk/kvarn/actions/workflows/chute.yml)
 and download the artefact from the topmost job.
@@ -81,8 +88,9 @@ See the [changelog](https://github.com/Icelk/kvarn/blob/main/CHANGELOG.md).
 
 # Contributing
 
-This library, and all other sub-projects, are distributed under the Apache License 2.0.
+This library, and all other sub-projects in this repository,
+are distributed under the Apache License 2.0.
 So must all contributions also be.
 
-Images and logos are under my copyright unless explicitly stated otherwise.
-You are free to use them if reasonable credit is given. I reserve the right to order you to remove any use at will.
+All rights are reserved for images and logos unless explicitly stated otherwise.
+You are free to use them if reasonable credit is given. I reserve the right to order you to remove any usage at will.
