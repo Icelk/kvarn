@@ -134,7 +134,7 @@ fn main() {
     let time = std::time::Instant::now();
     println!(
         "Found URLs: {:#?}. Took {} μs.",
-        url_crawl::get_urls(HTML),
+        url_crawl::get_urls(HTML).collect::<Vec<_>>(),
         time.elapsed().as_micros()
     );
 }

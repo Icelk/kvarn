@@ -1,6 +1,6 @@
 [package]
 name = "url-crawl"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
 rust-version = "1.56"
@@ -12,7 +12,8 @@ license = "Apache-2.0"
 categories = ["web-programming", "parsing"]
 
 [dependencies]
-scraper = { version = "0.14", default-features = false }
+log = "0.4"
+memchr = "2"
 
 [[example]]
 name = "icelk"

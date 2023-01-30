@@ -150,20 +150,17 @@ fn push<'a>(
                     .get(..HTML_START.len())
                     .map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) =>
             {
-                let mut urls = url_crawl::get_urls(string);
-                // let host = unsafe { host.get_inner() };
+                let mut urls: Vec<_> = url_crawl::get_urls(string).map(String::from).collect();
 
+                // remove images
                 urls.retain(|url| {
-                    let uri: Option<Uri> = url.parse().ok();
-                    if let Some(uri) = uri {
-                        if uri.scheme().is_none() {
-                            return true;
-                        }
-                        uri.host().map_or(true, |uri_host| uri_host == host.name)
-                    } else {
-                        false
-                    }
+                    !url.contains(".jpg")
+                        && !url.contains(".avif")
+                        && !url.contains("png")
+                        && !url.contains(".webp")
+                        && !url.contains(".gif")
                 });
+
                 for url in &mut urls {
                     if !url.starts_with('/') && !url.contains(':') {
                         let path = request.uri().path();
