@@ -42,19 +42,3 @@ jobs:
               with:
                   private: true
             - run: cargo test --workspace --exclude kvarn-extensions
-
-    build:
-        needs: [check]
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checking out sources
-              uses: actions/checkout@v3
-            - name: Installing Rust toolchain
-              run: rustup toolchain install stable --profile minimal
-            - uses: Swatinem/rust-cache@v2
-            - run: cargo rustc --release -- --crate-type rlib
-            - name: Upload rlib artefact
-              uses: actions/upload-artifact@v3
-              with:
-                  name: libkvarn.rlib
-                  path: target/release/libkvarn.rlib
