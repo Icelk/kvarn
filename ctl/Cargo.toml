@@ -19,7 +19,7 @@ env_logger = { version = "0.10", default-features = false, features = ["auto-col
 kvarn_signal = { path = "../signal", version = "0.1" }
 kvarn_utils = { path = "../utils", version = "0.5" }
 log = "0.4"
-tokio = { version = "1.20", features = ["rt", "io-util", "macros", "time"] }
+tokio = { version = "1, >=1.23.1", features = ["rt", "io-util", "macros", "time"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", default-features = false }

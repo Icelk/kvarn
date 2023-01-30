@@ -12,7 +12,7 @@ license = "Apache-2.0"
 categories = ["web-programming", "parsing"]
 
 [dependencies]
-select = "0.6"
+scraper = { version = "0.14", default-features = false }
 
 [[example]]
 name = "icelk"
