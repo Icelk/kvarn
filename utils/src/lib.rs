@@ -457,35 +457,50 @@ pub fn make_path(
 /// function `default_error` found in Kvarn.
 #[must_use]
 pub fn hardcoded_error_body(code: http::StatusCode, message: Option<&[u8]>) -> Bytes {
-    // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
-    let mut body = BytesMut::with_capacity(200 + message.map_or(0, <[u8]>::len));
+    use bytes::BufMut;
+
+    let print_home = !matches!(
+        code,
+        StatusCode::CONFLICT | StatusCode::METHOD_NOT_ALLOWED | StatusCode::TOO_MANY_REQUESTS
+    );
+
     // Get code and reason!
     let reason = code.canonical_reason();
+    let len = 220 - if print_home { 0 } else { 58 }
+        + message.map_or(0, <[u8]>::len)
+        + (reason.map_or(0, str::len) + code.as_str().len()) * 2;
+    // a 404 page is 168 bytes. Accounting for long code.canonical_reason() and future message.
+    let mut body = BytesMut::with_capacity(len);
 
-    body.extend(b"<!DOCTYPE html><html><head><title>");
+    body.extend(
+        b"<!DOCTYPE html><html><head><meta name='color-scheme' content='dark light'><title>",
+    );
     // Code and reason
-    body.extend(code.as_str().as_bytes());
-    body.extend(b" ");
+    body.extend_from_slice(code.as_str().as_bytes());
+    body.put_u8(b' ');
     if let Some(reason) = reason {
-        body.extend(reason.as_bytes());
+        body.extend_from_slice(reason.as_bytes());
     }
 
-    body.extend(b"</title></head><body><center><h1>".iter());
+    body.extend_from_slice(b"</title></head><body><center><h1>");
     // Code and reason
-    body.extend(code.as_str().as_bytes());
-    body.extend(b" ");
+    body.extend_from_slice(code.as_str().as_bytes());
+    body.put_u8(b' ');
     if let Some(reason) = reason {
-        body.extend(reason.as_bytes());
+        body.extend_from_slice(reason.as_bytes());
     }
-    body.extend(b"</h1><hr>An unexpected error occurred. <a href='/'>Return home</a>?".iter());
+    body.extend_from_slice(b"</h1><hr>");
+    if print_home {
+        body.extend_from_slice(b"An unexpected error occurred. <a href='/'>Return home</a>?");
+    }
 
     if let Some(message) = message {
-        body.extend(b"<p>");
-        body.extend(message);
-        body.extend(b"</p>");
+        body.extend_from_slice(b"<p>");
+        body.extend_from_slice(message);
+        body.extend_from_slice(b"</p>");
     }
 
-    body.extend(b"</center></body></html>".iter());
+    body.extend_from_slice(b"</center></body></html>");
 
     body.freeze()
 }
