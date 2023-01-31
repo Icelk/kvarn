@@ -120,13 +120,13 @@ pub async fn mount(
                             } else {
                                 format!("{article},{count},{date}\n")
                             };
-                            info!("Add to history: {:?}", line.trim_end());
+                            debug!("Add to history: {:?}", line.trim_end());
                             file.write_all(line.as_bytes()).await.unwrap();
                         }
                     }
                     file.flush().await.unwrap();
                     drop(file);
-                    info!("Updating total");
+                    debug!("Updating total");
                     let mut file = match tokio::fs::File::create(&total_path).await {
                         Err(err) => {
                             error!(

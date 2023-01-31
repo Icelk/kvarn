@@ -48,7 +48,7 @@ impl Error {
     /// Gets a string representation of [`Error`].
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        match self{
+        match self {
             Self::Http(_) => "http library parsing error",
             Self::NoPath => "no path was supplied in the request",
             Self::Done => "stream is exhausted",
@@ -57,7 +57,10 @@ impl Error {
             Self::InvalidMethod => "method is invalid",
             Self::InvalidVersion => "version is invalid",
             Self::InvalidStatusCode => "status code in invalid",
-            Self::Syntax => "invalid syntax of data. The input might unexpectedly be encrypted (HTTPS) or compressed (HTTP/2)",
+            Self::Syntax => {
+                "invalid syntax of data. The input might unexpectedly \
+                be encrypted (HTTPS) or compressed (HTTP/2)"
+            }
             Self::IllegalName => "header name invalid",
             Self::IllegalValue => "header value invalid",
             Self::NoHost => "the host could not be resolved",

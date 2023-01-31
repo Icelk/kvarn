@@ -422,9 +422,9 @@ async fn accept(
         match listener.accept(shutdown_manager).await {
             AcceptAction::Shutdown => {
                 info!(
-                    "Closing listener on {:?} at time {:?}",
-                    listener.get_inner().local_addr(),
-                    std::time::SystemTime::now(),
+                    "Closing listener on port {} with {}",
+                    local_addr.port(),
+                    if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
                 );
                 return Ok(());
             }
@@ -529,8 +529,8 @@ pub async fn handle_connection(
             return Ok(());
         }
     };
-    let hostname = encrypted.sni_hostname().map(str::to_string);
-    debug!("New connection requesting hostname '{:?}'", hostname);
+    let sni = encrypted.sni_hostname().map(str::to_string);
+    debug!("New connection requesting hostname '{sni:?}'");
 
     // LAYER 3
     let mut http = application::HttpConnection::new(encrypted, version)
