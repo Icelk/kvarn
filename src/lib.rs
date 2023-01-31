@@ -550,16 +550,29 @@ pub async fn handle_connection(
     {
         debug!("We got a new request on connection.");
         trace!("Got request {:#?}", request);
-        let host = if let Some(host) = descriptor
-            .data
-            .get_from_request(&request, hostname.as_deref())
-        {
+        let host = if let Some(host) = descriptor.data.get_from_request(&request, sni.as_deref()) {
             host
         } else {
             debug!(
                 "Failed to get host: {}",
                 utils::parse::Error::NoHost.as_str()
             );
+
+            let (mut response, body) = utils::split_response(
+                default_error(
+                    StatusCode::CONFLICT,
+                    None,
+                    Some(b"The host you're looking for wasn't found."),
+                )
+                .await,
+            );
+            response_pipe.ensure_version_and_length(&mut response, body.len());
+
+            let mut body_pipe =
+                ret_log_app_error!(response_pipe.send_response(response, false).await);
+
+            ret_log_app_error!(body_pipe.send_with_maybe_close(body, true).await);
+
             return Ok(());
         };
 
