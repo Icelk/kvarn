@@ -44,7 +44,7 @@ pub async fn connect(
         .set_remote_port(&remote_port)
         .set_server_addr("0.0.0.0")
         .set_server_port("")
-        .set_server_name(kvarn::SERVER)
+        .set_server_name("Kvarn/0.5.0")
         .set_content_type(content_type)
         .set_content_length(&len);
 

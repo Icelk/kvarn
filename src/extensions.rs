@@ -403,13 +403,16 @@ impl Extensions {
     ///   feature).
     /// - The default [`Csp`] which only allows requests from `self` and allows unsafe inline
     ///   styles. **This should to a large extent mitigate XSS.**
+    /// - The `server` header is set to `Kvarn/<version>`. See [`Self::with_server_header`] for
+    ///   more info and customization.
     pub fn new() -> Self {
         let mut new = Self::empty();
 
         new.with_uri_redirect()
             .with_no_referrer()
             .with_disallow_cors()
-            .with_csp(Csp::default().arc());
+            .with_csp(Csp::default().arc())
+            .with_server_header("Kvarn/0.5.0", false, true);
 
         #[cfg(feature = "nonce")]
         {
@@ -479,7 +482,7 @@ impl Extensions {
 
                 Some(uri)
             }),
-            Id::new(-100, "Expanding . and / to reduce URI size"),
+            Id::new(-100, "Expand . and /"),
         );
         self
     }
@@ -638,6 +641,76 @@ impl Extensions {
                 }
             }),
         );
+        self
+    }
+    /// Set the `server` header to `server_name`.
+    /// This is called by default when creating a new [`Extensions`] (except when calling
+    /// [`Extensions::empty`]).
+    ///
+    /// If `add_platform` is true, append the platform the server is running
+    /// on to the end of the server header.
+    ///
+    /// If `override_server_header` is true, remove any previous mentions of the server software.
+    /// Set to false if you want reverse proxies to pass through the information (and therefore
+    /// return two `server` headers to the user agent (maybe for debugging)).
+    /// In most cases, it should be set to true.
+    pub fn with_server_header(
+        &mut self,
+        server_name: impl AsRef<str>,
+        add_platform: bool,
+        override_server_header: bool,
+    ) -> &mut Self {
+        #[cfg(target_os = "windows")]
+        const PLATFORM: &str = " (Windows)";
+        #[cfg(target_os = "macos")]
+        const PLATFORM: &str = " (macOS)";
+        #[cfg(target_os = "linux")]
+        const PLATFORM: &str = " (Linux)";
+        #[cfg(target_os = "freebsd")]
+        const PLATFORM: &str = " (FreeBSD)";
+        #[cfg(target_os = "netbsd")]
+        const PLATFORM: &str = " (NetBSD)";
+        #[cfg(target_os = "openbsd")]
+        const PLATFORM: &str = " (OpenBSD)";
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+        )))]
+        const PLATFORM: &str = "";
+
+        let server_name = server_name.as_ref();
+        let bytes = build_bytes!(
+            server_name.as_bytes(),
+            if add_platform {
+                PLATFORM.as_bytes()
+            } else {
+                &[]
+            }
+        );
+        let header_value = HeaderValue::from_maybe_shared(bytes.freeze())
+            .expect("`server` header contains invalid bytes");
+
+        self.add_package(
+            package!(
+                resp,
+                _,
+                _,
+                _,
+                move |header_value: HeaderValue, override_server_header: bool| {
+                    if *override_server_header {
+                        resp.headers_mut().insert("server", header_value.clone());
+                    } else {
+                        resp.headers_mut().append("server", header_value.clone());
+                    }
+                }
+            ),
+            Id::new(-1327, "add `server` header"),
+        );
+
         self
     }
 

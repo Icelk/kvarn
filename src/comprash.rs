@@ -277,7 +277,6 @@ impl CompressedResponse {
     ) -> Self {
         let headers = identity.headers_mut();
         Self::set_client_cache(headers, client_cache, disable_client_cache);
-        Self::add_server_header(headers);
         Self::check_content_type(&mut identity, extension);
         Self {
             identity,
@@ -398,11 +397,6 @@ impl CompressedResponse {
             Bytes::clone(bytes),
             HeaderValue::from_static(compression),
         ))
-    }
-
-    #[inline]
-    fn add_server_header(headers: &mut HeaderMap) {
-        headers.insert("server", HeaderValue::from_static(SERVER));
     }
 
     #[inline]

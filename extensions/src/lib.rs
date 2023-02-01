@@ -248,7 +248,7 @@ pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
                 }
             }
         }),
-        extensions::Id::new(16, "Adding cache-control header (force-cache)"),
+        extensions::Id::new(16, "force_cache: Adding cache-control header").no_override(),
     );
 }
 
