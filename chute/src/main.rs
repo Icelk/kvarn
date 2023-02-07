@@ -12,9 +12,8 @@ const FOOTER: &[u8] = b"</md></main>\n$[footer]\n";
 const IGNORED_EXTENSIONS: &[&str] = &["hide"];
 
 fn main() {
-    env_logger::Builder::from_env("CHUTE_LOG")
-        .filter(None, log::LevelFilter::Warn)
-        .init();
+    let env = env_logger::Env::new().filter_or("CHUTE_LOG", "error");
+    env_logger::Builder::from_env(env).init();
 
     info!("Starting Kvarn Markdown to HTML converter.");
 
