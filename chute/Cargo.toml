@@ -31,6 +31,7 @@ clap = { version = "4", optional = true, features = ["cargo"] }
 clap_autocomplete = { version = "0.4", optional = true }
 env_logger = { version = "0.10", optional = true, default-features = false, features = ["auto-color", "humantime"] }
 log = { version = "0.4.17", optional = true }
+notify-debouncer-mini = { version = "0.2.1", default-features = false }
 
 [features]
 default = ["date", "bin", "completion"]
