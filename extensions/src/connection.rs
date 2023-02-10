@@ -1,6 +1,8 @@
 use kvarn::prelude::*;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use tokio::net::{TcpStream, UdpSocket, UnixStream};
+#[cfg(unix)]
+use tokio::net::UnixStream;
+use tokio::net::{TcpStream, UdpSocket};
 
 macro_rules! socket_addr_with_port {
     ($($port:literal $(,)+)*) => {
@@ -35,6 +37,7 @@ impl Connection {
                 socket.connect(addr).await?;
                 Ok(EstablishedConnection::Udp(socket))
             }
+            #[cfg(unix)]
             Self::UnixSocket(path) => UnixStream::connect(path)
                 .await
                 .map(EstablishedConnection::UnixSocket),
@@ -58,6 +61,7 @@ impl AsyncWrite for EstablishedConnection {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_write(cx, buf),
             Self::Udp(s) => Pin::new(s).poll_send(cx, buf),
+            #[cfg(unix)]
             Self::UnixSocket(s) => Pin::new(s).poll_write(cx, buf),
         }
     }
@@ -65,6 +69,7 @@ impl AsyncWrite for EstablishedConnection {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_flush(cx),
             Self::Udp(_) => Poll::Ready(Ok(())),
+            #[cfg(unix)]
             Self::UnixSocket(s) => Pin::new(s).poll_flush(cx),
         }
     }
@@ -72,6 +77,7 @@ impl AsyncWrite for EstablishedConnection {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_shutdown(cx),
             Self::Udp(_) => Poll::Ready(Ok(())),
+            #[cfg(unix)]
             Self::UnixSocket(s) => Pin::new(s).poll_shutdown(cx),
         }
     }
@@ -85,6 +91,7 @@ impl AsyncRead for EstablishedConnection {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_read(cx, buf),
             Self::Udp(s) => Pin::new(s).poll_recv(cx, buf),
+            #[cfg(unix)]
             Self::UnixSocket(s) => Pin::new(s).poll_read(cx, buf),
         }
     }

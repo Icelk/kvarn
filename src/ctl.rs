@@ -536,6 +536,7 @@ pub(crate) fn socket_path() -> PathBuf {
 /// This sends a `shutdown` message, waits for a reply, and then starts listening.
 ///
 /// This doesn't resolve until the last instance was shut down.
+#[cfg_attr(windows, allow(unused_variables))]
 pub(crate) async fn listen(
     plugins: Plugins,
     ports: Arc<Vec<PortDescriptor>>,
