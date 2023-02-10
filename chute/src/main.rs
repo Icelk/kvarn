@@ -33,8 +33,6 @@ fn main() {
         .arg(
             Arg::new("PATHS")
                 .help("Paths to process/watch")
-                .required(true)
-                .default_value(".")
                 .value_hint(clap::ValueHint::AnyPath)
                 .num_args(1..),
         )
@@ -72,13 +70,13 @@ fn main() {
     #[cfg(feature = "completion")]
     let command_copy = command.clone();
 
-    let matches = command.get_matches();
+    let matches = command.get_matches_mut();
 
     #[cfg(feature = "completion")]
     {
         if let Some(result) = clap_autocomplete::test_subcommand(&matches, command_copy) {
             if let Err(err) = result {
-                eprintln!("Insufficient permissions: {err}");
+                eprintln!("{err}");
                 std::process::exit(1);
             } else {
                 std::process::exit(0);
@@ -87,9 +85,8 @@ fn main() {
     }
 
     let paths = matches.get_many::<String>("PATHS").unwrap_or_else(|| {
-        lib::exit_with_message(
-            "Please enter a path to a file to convert or directory to watch as the first argument.",
-        )
+        command.print_long_help().unwrap();
+        std::process::exit(1);
     });
 
     let continue_behaviour = {
