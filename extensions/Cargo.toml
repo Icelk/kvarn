@@ -27,6 +27,7 @@ rustls = { version = "0.20.8", optional = true, default-features = false }
 ron = { version = "0.8.0", optional = true }
 rcgen = { version = "0.10.0", optional = true }
 rustls-pemfile = { version = "1.0.2", optional = true }
+rand = { version = "0.8.5", optional = true }
 
 [features]
 default = ["php", "templates", "push"]
@@ -36,7 +37,7 @@ templates = []
 push = ["url-crawl"]
 reverse-proxy = ["connection", "url-crawl"]
 # Automatic HTTPS certificates
-certificate = ["small-acme", "x509-parser", "rustls", "rustls-pemfile", "ron", "rcgen", "kvarn/https", "kvarn/async-networking"]
+certificate = ["small-acme", "x509-parser", "rustls", "rustls-pemfile", "ron", "rcgen", "kvarn/https", "kvarn/async-networking", "rand"]
 
 [dev-dependencies]
 tokio = { version = "1, >=1.23.1", features = ["net", "io-util", "macros"] }

@@ -15,12 +15,12 @@ pub async fn mount<'a, F: Future + Send + 'a>(
     host: &Host,
     extensions: &mut Extensions,
     new_cert_immedately: bool,
-    contact: impl AsRef<str>,
+    contact: impl IntoIterator<Item = String>,
     account_path: impl AsRef<Path>,
     cert_path: impl AsRef<Path>,
     pk_path: impl AsRef<Path>,
 ) {
-    let contact = contact.as_ref().to_owned();
+    let contact: Vec<_> = contact.into_iter().collect();
     let domain = host.name.clone();
     let alt_names = host.alternative_names.clone();
     let account_path = account_path.as_ref().to_owned();
@@ -96,23 +96,55 @@ pub async fn mount<'a, F: Future + Send + 'a>(
         loop {
             let left = (exp - chrono::OffsetDateTime::now_utc()).max(chrono::time::Duration::ZERO);
             tokio::time::sleep(left.try_into().expect("we made sure it's positive")).await;
+            let duration =
+                Duration::from_secs_f32(rand::Rng::gen_range(&mut rand::thread_rng(), 0.0..10.0));
+            // so if multiple are dispatched simultaneously, the first one gets the chance to get
+            // and write the account
+            tokio::time::sleep(duration).await;
 
             let tokens = tokens.clone();
-            let acc = account.take();
+            let mut acc = account.take();
+            if acc.is_none() {
+                acc = tokio::fs::read_to_string(&account_path)
+                    .await
+                    .ok()
+                    .map(AcmeAccount);
+            }
             let contact = contact.clone();
             let moved_domain = domain.clone();
             let alt_names = alt_names.clone();
+
+            let new_account = tokio::task::spawn_blocking(move || {
+                let contact: Vec<_> = contact.iter().map(String::as_str).collect();
+                match get_account(&contact, acc.as_ref()) {
+                    Ok(acc) => Some(acc),
+                    Err(err) => {
+                        error!("Failed to get ACME account from Let's Encrypt: {err}");
+                        None
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            let Some(new_account) = new_account else {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                continue;
+            };
+
+            let new_account_serialized =
+                AcmeAccount(ron::to_string(&new_account.credentials()).unwrap());
+            if let Err(err) =
+                tokio::fs::write(&account_path, new_account_serialized.0.as_bytes()).await
+            {
+                warn!("Failed to write ACME account credentials to {account_path:?}: {err}");
+            }
+            account = Some(new_account_serialized);
+
             let d = tokio::task::spawn_blocking(move || {
-                match get_cert(
-                    &contact,
-                    &moved_domain,
-                    alt_names,
-                    acc.as_ref(),
-                    |token, data| {
-                        let mut tokens = tokens.write().unwrap();
-                        tokens.insert(token.to_owned(), data.to_owned());
-                    },
-                ) {
+                match get_cert(&new_account, &moved_domain, alt_names, |token, data| {
+                    let mut tokens = tokens.write().unwrap();
+                    tokens.insert(token.to_owned(), data.to_owned());
+                }) {
                     Ok(d) => Some(d),
                     Err(err) => {
                         error!("Failed to renew / acquire TLS certificate: {err}");
@@ -123,14 +155,10 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             .await
             .unwrap();
 
-            let Some((new_key, new_account, expiration, (certs_pem, pk_pem))) = d else {
+            let Some((new_key, expiration, (certs_pem, pk_pem))) = d else {
                 tokio::time::sleep(Duration::from_secs(60)).await;
                 continue;
             };
-            if let Err(err) = tokio::fs::write(&account_path, new_account.0.as_bytes()).await {
-                warn!("Failed to write ACME account credentials to {account_path:?}: {err}");
-            }
-            account = Some(new_account);
             set_host_cert(new_key).await;
             // update cert every 60 days (Let's encrypt gives us 90 days)
             exp = expiration - chrono::time::Duration::days(30);
@@ -148,24 +176,10 @@ pub async fn mount<'a, F: Future + Send + 'a>(
 
 pub struct AcmeAccount(pub String);
 
-/// Blocking!
-/// `set_token`: (token, data)
-/// In return: `(String, String)`: (certs_pem, pk_pem)
-pub fn get_cert(
-    contact: &str,
-    domain: impl Into<String>,
-    alt_names: Vec<String>,
+pub fn get_account(
+    contact: &[&str],
     account: Option<&AcmeAccount>,
-    set_token: impl Fn(&str, &str),
-) -> Result<
-    (
-        rustls::sign::CertifiedKey,
-        AcmeAccount,
-        chrono::OffsetDateTime,
-        (String, String),
-    ),
-    small_acme::Error,
-> {
+) -> Result<Account, small_acme::Error> {
     let credentials: Option<AccountCredentials> = account.and_then(|a| {
         ron::from_str(&a.0)
             .map_err(|err| {
@@ -175,17 +189,33 @@ pub fn get_cert(
             .ok()
     });
     let account = credentials.and_then(|c| Account::from_credentials(c).ok());
-    let account = account.map(Ok).unwrap_or_else(|| {
+    account.map(Ok).unwrap_or_else(|| {
         Account::create(
             &NewAccount {
-                contact: &[contact],
+                contact,
                 terms_of_service_agreed: true,
                 only_return_existing: false,
             },
             LetsEncrypt::Production.url(),
         )
-    })?;
-
+    })
+}
+/// Blocking!
+/// `set_token`: (token, data)
+/// In return: `(String, String)`: (certs_pem, pk_pem)
+pub fn get_cert(
+    account: &Account,
+    domain: impl Into<String>,
+    alt_names: Vec<String>,
+    set_token: impl Fn(&str, &str),
+) -> Result<
+    (
+        rustls::sign::CertifiedKey,
+        chrono::OffsetDateTime,
+        (String, String),
+    ),
+    small_acme::Error,
+> {
     // Create the ACME order based on the given domain names.
     // Note that this only needs an `&Account`, so the library will let you
     // process multiple orders in parallel for a single account.
@@ -291,7 +321,6 @@ pub fn get_cert(
             rustls::sign::any_supported_type(&rustls::PrivateKey(key.serialize_private_key_der()))
                 .map_err(|_| "FATAL: private key is invalid!")?,
         ),
-        AcmeAccount(ron::to_string(&account.credentials()).unwrap()),
         expires,
         (cert_chain_pem, key.serialize_private_key_pem()),
     ))
