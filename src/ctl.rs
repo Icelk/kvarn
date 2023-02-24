@@ -579,7 +579,8 @@ pub(crate) async fn listen(
         }
 
         let plugins = Arc::new(plugins);
-        let overriden = kvarn_signal::unix::start_at(
+        let sd = shutdown.clone();
+        let (overriden, close_ctl) = kvarn_signal::unix::start_at(
             move |data| {
                 let plugins = Arc::clone(&plugins);
                 let shutdown = Arc::clone(&shutdown);
@@ -641,6 +642,13 @@ pub(crate) async fn listen(
             path,
         )
         .await;
+
+        spawn(async move {
+            let sender = sd.wait_for_pre_shutdown().await;
+            info!("Send close to ctl socket, because we started shutting down.");
+            drop(close_ctl.send(true));
+            sender.send(()).unwrap();
+        }).await;
 
         if overriden {
             if supports_shutdown {

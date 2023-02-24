@@ -93,6 +93,8 @@ pub mod unix {
     /// Returns `true` if we removed an existing socket, `false` otherwise.
     /// The removed socket might be live or a leftover from a previous call to this (or any other
     /// UNIX socket creation).
+    ///
+    /// The sender can be used to signal we need to close (if `true` is sent)
     #[allow(clippy::too_many_lines)]
     pub async fn start_at(
         handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse> + Send + Sync>>
@@ -100,11 +102,12 @@ pub mod unix {
             + Sync
             + 'static,
         path: impl AsRef<Path> + Send + 'static,
-    ) -> bool {
+    ) -> (bool, tokio::sync::mpsc::UnboundedSender<bool>) {
         let overridden = tokio::fs::remove_file(path.as_ref()).await.is_ok();
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let returned_sender = sender.clone();
         tokio::spawn(async move {
             let path = path.as_ref();
-            let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
             let sender = Arc::new(sender);
             let handler = Arc::new(handler);
 
@@ -167,7 +170,7 @@ pub mod unix {
                                         // this causes a Delete event at `path`
                                         drop(listener);
                                         warn!("Re-listening because socket file got deleted");
-                                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                                         while let Ok(close) = receiver.try_recv() {
                                             if close {
                                                 break 'outer;
@@ -237,6 +240,6 @@ pub mod unix {
                 }
             }
         });
-        overridden
+        (overridden, returned_sender)
     }
 }
