@@ -47,7 +47,7 @@ pub struct Host {
     pub alternative_names: Vec<String>,
     /// The certificate of this host, if any.
     #[cfg(feature = "https")]
-    pub certificate: Option<Arc<sign::CertifiedKey>>,
+    pub certificate: std::sync::RwLock<Option<Arc<sign::CertifiedKey>>>,
     /// Base path of all data for this host.
     ///
     /// If you enabled the `fs` feature (enabled by default),
@@ -178,7 +178,7 @@ impl Host {
         Self {
             name: name.as_ref().to_owned(),
             alternative_names: Vec::new(),
-            certificate: Some(Arc::new(cert)),
+            certificate: std::sync::RwLock::new(Some(Arc::new(cert))),
             path: path.as_ref().to_path_buf(),
             extensions,
             file_cache: Some(RwLock::new(Cache::default())),
@@ -253,7 +253,7 @@ impl Host {
             name: host_name.as_ref().to_owned(),
             alternative_names: Vec::new(),
             #[cfg(feature = "https")]
-            certificate: None,
+            certificate: std::sync::RwLock::new(None),
             path: path.as_ref().to_path_buf(),
             extensions,
             file_cache: Some(RwLock::new(Cache::default())),
@@ -397,7 +397,7 @@ impl Host {
     #[cfg(feature = "https")]
     #[inline]
     pub fn is_secure(&self) -> bool {
-        self.certificate.is_some()
+        self.certificate.read().unwrap().is_some()
     }
     /// Whether or not this this host is secured with a certificate.
     ///
@@ -412,7 +412,6 @@ impl Host {
     ///
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "br")]
-    #[inline]
     pub fn set_brotli_level(&mut self, level: u32) -> &mut Self {
         self.compression_options.brotli_level = level;
         self
@@ -421,10 +420,20 @@ impl Host {
     ///
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "gzip")]
-    #[inline]
     pub fn set_gzip_level(&mut self, level: u32) -> &mut Self {
         self.compression_options.gzip_level = level;
         self
+    }
+
+    /// Can be done while the server is running, since this only takes a reference to self
+    ///
+    /// Sets the certificate if it was [`None`] before. It's however unclear what consequences that
+    /// will have while it's running (if you only had unsecure hosts when starting Kvarn, it you
+    /// might not have bound `443`?).
+    #[cfg(feature = "https")]
+    pub fn live_set_certificate(&self, key: sign::CertifiedKey) {
+        let mut guard = self.certificate.write().unwrap();
+        *guard = Some(Arc::new(key));
     }
 }
 impl Debug for Host {
@@ -460,7 +469,7 @@ impl Host {
             name: self.name.clone(),
             alternative_names: self.alternative_names.clone(),
             #[cfg(feature = "https")]
-            certificate: self.certificate.clone(),
+            certificate: std::sync::RwLock::new(self.certificate.read().unwrap().clone()),
             path: self.path.clone(),
             extensions: Extensions::empty(),
             file_cache: Some(RwLock::new(Cache::default())),
@@ -959,8 +968,7 @@ impl ResolvesServerCert for Collection {
         // Will however return false if certificate is not present
         // in found host or default host.
         self.get_option_or_default(client_hello.server_name())
-            .and_then(|host| host.certificate.as_ref())
-            .cloned()
+            .and_then(|host| host.certificate.read().unwrap().as_ref().map(Arc::clone))
     }
 }
 
