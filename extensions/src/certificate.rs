@@ -34,7 +34,8 @@ pub async fn mount<'a, F: Future + Send + 'a>(
         cert.as_ref()
             .and_then(|cert| {
                 get_expiration(&cert.end_entity_cert().unwrap().0)
-                    .map(|time| time - chrono::time::Duration::days(70))
+                    // update cert every 60 days (Let's encrypt gives us 90 days)
+                    .map(|time| time - chrono::time::Duration::days(30))
             })
             .unwrap_or_else(chrono::OffsetDateTime::now_utc)
     };
@@ -131,8 +132,8 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             }
             account = Some(new_account);
             set_host_cert(new_key).await;
-            // update cert when there's two weeks left
-            exp = expiration - chrono::time::Duration::days(14);
+            // update cert every 60 days (Let's encrypt gives us 90 days)
+            exp = expiration - chrono::time::Duration::days(30);
             info!("Sleep until {exp} before renewing cert (which expires at {expiration}) on {domain}");
 
             if let Err(err) = tokio::fs::write(&cert_path, certs_pem).await {
