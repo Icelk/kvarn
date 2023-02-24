@@ -20,7 +20,7 @@ async_chunked_transfer = "1.4"
 percent-encoding = { version = "2", optional = true }
 memchr = "2"
 url-crawl = { path = "../url-crawl", optional = true }
-small-acme = { version = "0.1.0", path = "../../small-acme", optional = true }
+small-acme = { version = "0.1.0", optional = true }
 x509-parser = { version = "0.14.0", optional = true }
 rustls = { version = "0.20.8", optional = true, default-features = false }
 # serialize credentials
