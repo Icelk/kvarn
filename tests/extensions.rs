@@ -135,7 +135,7 @@ async fn body() {
     server
         .get("/api-3")
         .header("content-type", "text/plain; encoding=utf-8")
-        .body("This is the full body.")
+        .body("")
         .send()
         .await
         .unwrap();

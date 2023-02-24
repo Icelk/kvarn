@@ -281,7 +281,7 @@ impl RunConfig {
                     IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
                     descriptor.port,
                 ))
-                .expect("Faield to bind to Ipv4");
+                .expect("Failed to bind to IPv4");
                 listeners.push((
                     shutdown_manager.add_listener(listener),
                     Arc::clone(&descriptor),
@@ -292,7 +292,7 @@ impl RunConfig {
                     IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
                     descriptor.port,
                 ))
-                .expect("Faield to bind to Ipv6");
+                .expect("Failed to bind to IPv6");
                 listeners.push((
                     shutdown_manager.add_listener(listener),
                     Arc::clone(&descriptor),
