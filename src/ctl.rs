@@ -648,7 +648,8 @@ pub(crate) async fn listen(
             info!("Send close to ctl socket, because we started shutting down.");
             drop(close_ctl.send(true));
             sender.send(()).unwrap();
-        }).await;
+        })
+        .await;
 
         if overriden {
             if supports_shutdown {
