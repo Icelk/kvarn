@@ -42,6 +42,9 @@ pub use templates::templates as templates_ext;
 #[cfg(feature = "connection")]
 pub mod connection;
 
+#[cfg(feature = "certificate")]
+pub mod certificate;
+
 #[path = "view-counter.rs"]
 pub mod view_counter;
 
