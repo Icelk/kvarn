@@ -170,7 +170,7 @@ pub mod unix {
                                         // this causes a Delete event at `path`
                                         drop(listener);
                                         warn!("Re-listening because socket file got deleted");
-                                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                                         while let Ok(close) = receiver.try_recv() {
                                             if close {
                                                 break 'outer;
@@ -211,7 +211,7 @@ pub mod unix {
 
                                         if close {
                                             info!("Closing");
-                                            sender.send(true).unwrap();
+                                            drop(sender.send(true));
                                             debug!("Closed");
                                         }
 

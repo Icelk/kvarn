@@ -644,10 +644,9 @@ pub(crate) async fn listen(
         .await;
 
         spawn(async move {
-            let sender = sd.wait_for_pre_shutdown().await;
+            drop(sd.get_initate_shutdown_watcher().changed().await);
             info!("Send close to ctl socket, because we started shutting down.");
             drop(close_ctl.send(true));
-            sender.send(()).unwrap();
         })
         .await;
 

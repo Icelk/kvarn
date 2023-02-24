@@ -76,7 +76,9 @@ pub struct Manager {
     wakers: WakerList,
 
     #[cfg(feature = "graceful-shutdown")]
-    channel: (Arc<WatchSender<()>>, WatchReceiver<()>),
+    inititate_channel: (WatchSender<()>, WatchReceiver<()>),
+    #[cfg(feature = "graceful-shutdown")]
+    finished_channel: (Arc<WatchSender<()>>, WatchReceiver<()>),
     #[cfg(feature = "graceful-shutdown")]
     pre_shutdown_channel: (
         Arc<WatchSender<tokio::sync::mpsc::UnboundedSender<()>>>,
@@ -102,7 +104,8 @@ impl Manager {
 
                 wakers: WakerList::new(_capacity),
 
-                channel: (Arc::new(channel.0), channel.1),
+                inititate_channel: watch_channel(()),
+                finished_channel: (Arc::new(channel.0), channel.1),
                 pre_shutdown_channel: (Arc::new(pre_shutdown_channel.0), pre_shutdown_channel.1),
                 pre_shutdown_count: Arc::new(atomic::AtomicUsize::new(0)),
 
@@ -128,6 +131,10 @@ impl Manager {
             },
             listener,
         }
+    }
+    /// Gets a watcher for when the shutdown is initiated
+    pub fn get_initate_shutdown_watcher(&self) -> WatchReceiver<()> {
+        self.inititate_channel.1.clone()
     }
     /// Adds to the count of connections.
     /// When this connection is closed, you must call [`Manager::remove_connection`]
@@ -233,6 +240,10 @@ impl Manager {
             self.handover_socket_path
         );
         self.shutdown.store(true, Ordering::Release);
+        self.inititate_channel
+            .0
+            .send(())
+            .expect("we own one receiver");
 
         #[cfg(unix)]
         if let Some(path) = &self.handover_socket_path {
@@ -253,10 +264,11 @@ impl Manager {
     }
     #[cfg(feature = "graceful-shutdown")]
     fn _shutdown(&self) {
+        info!("No connections left. Shutting down.");
         if self.shutting_down.swap(true, Ordering::AcqRel) {
             return;
         }
-        let channel = self.channel.0.clone();
+        let channel = self.finished_channel.0.clone();
         let pre_channel = self.pre_shutdown_channel.0.clone();
         let count = Arc::clone(&self.pre_shutdown_count);
         tokio::spawn(async move {
@@ -286,7 +298,7 @@ impl Manager {
     pub async fn wait(&self) {
         #[cfg(feature = "graceful-shutdown")]
         {
-            let mut receiver = WatchReceiver::clone(&self.channel.1);
+            let mut receiver = WatchReceiver::clone(&self.finished_channel.1);
             drop(receiver.changed().await);
             info!("Received shutdown signal");
         }
@@ -316,7 +328,7 @@ impl Manager {
             self.pre_shutdown_count.fetch_add(1, Ordering::SeqCst);
             async move {
                 drop(receiver.changed().await);
-                info!("Received pre shutdown signal");
+                info!("Client received pre shutdown signal");
                 let borrow = receiver.borrow();
                 (*borrow).clone()
             }
