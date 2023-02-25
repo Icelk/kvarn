@@ -596,7 +596,9 @@ pub(crate) async fn listen(
         }
 
         let plugins = Arc::new(plugins);
+        #[cfg(feature = "graceful-shutdown")]
         let sd = shutdown.clone();
+        #[allow(unused_variables)]
         let (overriden, close_ctl) = kvarn_signal::unix::start_at(
             move |data| {
                 let plugins = Arc::clone(&plugins);
@@ -660,6 +662,7 @@ pub(crate) async fn listen(
         )
         .await;
 
+        #[cfg(feature = "graceful-shutdown")]
         spawn(async move {
             drop(sd.get_initate_shutdown_watcher().changed().await);
             info!("Send close to ctl socket, because we started shutting down.");

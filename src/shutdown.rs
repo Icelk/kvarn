@@ -133,6 +133,7 @@ impl Manager {
         }
     }
     /// Gets a watcher for when the shutdown is initiated
+    #[cfg(feature = "graceful-shutdown")]
     pub fn get_initate_shutdown_watcher(&self) -> WatchReceiver<()> {
         self.inititate_channel.1.clone()
     }
