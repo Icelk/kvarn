@@ -93,6 +93,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
     );
 
     tokio::spawn(async move {
+        let mut account_failures = 0;
         loop {
             let left = (exp - chrono::OffsetDateTime::now_utc()).max(chrono::time::Duration::ZERO);
             tokio::time::sleep(left.try_into().expect("we made sure it's positive")).await;
@@ -145,20 +146,41 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                     let mut tokens = tokens.write().unwrap();
                     tokens.insert(token.to_owned(), data.to_owned());
                 }) {
-                    Ok(d) => Some(d),
+                    Ok(d) => Ok(d),
                     Err(err) => {
                         error!("Failed to renew / acquire TLS certificate: {err}");
-                        None
+                        Err(err)
                     }
                 }
             })
             .await
             .unwrap();
 
-            let Some((new_key, expiration, (certs_pem, pk_pem))) = d else {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-                continue;
+            let (new_key, expiration, certs_pem, pk_pem) = match d {
+                Ok((new_key, expiration, (certs_pem, pk_pem))) => {
+                    (new_key, expiration, certs_pem, pk_pem)
+                }
+                Err(err) => {
+                    if account_failures < 3 {
+                        if let small_acme::Error::Http(err) = err {
+                            if let small_acme::ureq::Error::Status(400, _) = *err {
+                                // retry with new account
+                                account = None;
+                                if tokio::fs::remove_file(&account_path).await.is_err() {
+                                    error!("Failed to retry Let's Encrypt with new account");
+                                    tokio::time::sleep(Duration::from_secs(60)).await;
+                                }
+                                account_failures += 1;
+                                continue;
+                            }
+                        }
+                    }
+                    // retry in 5 minutes
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    continue;
+                }
             };
+            account_failures = 0;
             set_host_cert(new_key).await;
             // update cert every 60 days (Let's encrypt gives us 90 days)
             exp = expiration - chrono::time::Duration::days(30);
