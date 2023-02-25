@@ -509,9 +509,12 @@ impl Extensions {
     /// For more info about how it works, see the source of this function.
     #[cfg(feature = "https")]
     pub fn with_http_to_https_redirect(&mut self) -> &mut Self {
-        const SPECIAL_PATH: &str = "/./to_https";
-        self.add_prepare_single(
-            SPECIAL_PATH,
+        self.add_prepare_fn(
+            Box::new(|request, host| {
+                request.uri().scheme_str() == Some("http") && request.uri().port().is_none() && {
+                    host.certificate.read().unwrap().is_some()
+                }
+            }),
             prepare!(request, _, _, _, {
                 // "/./ path" is special; it will not be accepted from outside; any path containing './' gets rejected.
                 // Therefore, we can unwrap on values, making the assumption I implemented them correctly below.
@@ -536,16 +539,6 @@ impl Extensions {
                 FatResponse::cache(response.body(Bytes::new()).unwrap())
                     .with_server_cache(comprash::ServerCachePreference::None)
                     .with_compress(comprash::CompressPreference::None)
-            }),
-        );
-        self.add_prime(
-            prime!(request, _, _, {
-                if request.uri().scheme_str() == Some("http") && request.uri().port().is_none() {
-                    // redirect
-                    Some(Uri::from_static(SPECIAL_PATH))
-                } else {
-                    None
-                }
             }),
             extensions::Id::new(86881, "Redirecting to HTTPS"),
         );
