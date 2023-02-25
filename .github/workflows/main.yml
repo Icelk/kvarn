@@ -29,14 +29,16 @@ jobs:
             - uses: Swatinem/rust-cache@v2
             - name: Check formatting
               run: cargo fmt --check
-            - name: Checking lints with default features
+            - name: Checking lints with default features in workspace
               run: cargo clippy --workspace --exclude kvarn-extensions --all-targets -- -D warnings
+            - name: Checking lints with default features
+              run: cargo clippy --all-targets -- -D warnings
             - name: Checking lints with all features
-              run: cargo clippy --workspace --exclude kvarn-extensions --all-targets --all-features -- -D warnings
+              run: cargo clippy --all-targets --all-features -- -D warnings
             - name: Checking lints with no features
-              run: cargo clippy --workspace --exclude kvarn-extensions --no-default-features -F base -- -D warnings
+              run: cargo clippy --no-default-features -F base -- -D warnings
             - name: Checking lints with embedded features
-              run: cargo clippy --workspace --exclude kvarn-extensions --no-default-features -- -D warnings
+              run: cargo clippy --no-default-features -- -D warnings
             - name: Checking doc references
               uses: Icelk/rustdoc-link-check@v2
               with:
