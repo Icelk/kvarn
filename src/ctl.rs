@@ -244,20 +244,40 @@ impl Plugins {
         self.add_plugin(
             "shutdown",
             plugin!(|args, _, shutdown, _| {
-                if let Err(r) = check_no_arguments(&args) {
-                    return r;
+                let mut iter = args.iter();
+                let arg = iter.next();
+                let no_wait;
+                match arg {
+                    Some("no-wait") => no_wait = true,
+                    None => no_wait = false,
+                    Some(arg) => {
+                        return PluginResponse::error(format!("unexpected argument: {arg:?}"))
+                    }
+                }
+                if iter.next().is_some() {
+                    return PluginResponse::error("unexpected argument");
                 }
                 // we register (with the call to `wait_for_pre_shutdown`),
                 // then shut down, then wait.
                 // If we shut down before registering, we could hang forever
-                let sender = shutdown.wait_for_pre_shutdown();
+                let sender = if no_wait {
+                    None
+                } else {
+                    Some(shutdown.wait_for_pre_shutdown())
+                };
                 shutdown.shutdown();
-                let sender = sender.await;
+                let sender = if let Some(sender) = sender {
+                    Some(sender.await)
+                } else {
+                    None
+                };
 
                 PluginResponse::ok("'Successfully completed a graceful shutdown.'")
                     .close()
                     .post_send(move || {
-                        sender.send(()).expect("failed to shut down");
+                        if let Some(sender) = sender {
+                            sender.send(()).expect("failed to shut down");
+                        }
                     })
             }),
         );
@@ -567,12 +587,14 @@ pub(crate) async fn listen(
         let supports_shutdown = plugins.plugins.contains_key("shutdown");
 
         if supports_shutdown {
-            match kvarn_signal::unix::send_to(b"shutdown", &path)
+            match kvarn_signal::unix::send_to(b"shutdown no-wait", &path)
                 .await
                 .as_deref()
             {
                 // continue normally
-                kvarn_signal::unix::Response::Data(data) if data.starts_with(b"ok") => {}
+                kvarn_signal::unix::Response::Data(data) if data.starts_with(b"ok") => {
+                    info!("Old instance is shutting down");
+                }
                 kvarn_signal::unix::Response::NotFound => {}
 
                 kvarn_signal::unix::Response::Data(data) => {
