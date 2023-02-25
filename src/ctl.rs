@@ -361,23 +361,38 @@ impl Plugins {
                 let mut args = args.iter();
                 let msg = match args.next() {
                     Some("all") => {
+                        let host = args.next();
                         for hosts in ports.iter().map(PortDescriptor::hosts) {
-                            hosts.clear_response_caches().await;
-                            hosts.clear_file_caches().await;
+                            hosts.clear_response_caches(host).await;
+                            hosts.clear_file_caches(host).await;
                         }
-                        "cleared all caches".to_owned()
+                        if let Some(host) = host {
+                            format!("cleared the caches on {host}")
+                        } else {
+                            "cleared all caches".to_owned()
+                        }
                     }
                     Some("files") => {
+                        let host = args.next();
                         for hosts in ports.iter().map(PortDescriptor::hosts) {
-                            hosts.clear_file_caches().await;
+                            hosts.clear_file_caches(host).await;
                         }
-                        "cleared all file caches".to_owned()
+                        if let Some(host) = host {
+                            format!("cleared the file cache on {host}")
+                        } else {
+                            "cleared all file caches".to_owned()
+                        }
                     }
                     Some("responses") => {
+                        let host = args.next();
                         for hosts in ports.iter().map(PortDescriptor::hosts) {
-                            hosts.clear_response_caches().await;
+                            hosts.clear_response_caches(host).await;
                         }
-                        "cleared all response caches".to_owned()
+                        if let Some(host) = host {
+                            format!("cleared the response cache on {host}")
+                        } else {
+                            "cleared all response caches".to_owned()
+                        }
                     }
                     Some("file") => {
                         let host = if let Some(a) = args.next() {
@@ -403,11 +418,13 @@ impl Plugins {
                         }
 
                         if !found {
+                            // \\' so it isn't removed by the shell parsing
                             return PluginResponse::error(
-                                "didn't find the target host. Use 'default' for the default host",
+                                "didn't find the target host. \
+                                Use \\'default\\' for the default host",
                             );
                         } else if !cleared {
-                            return PluginResponse::error("target file isn't in the cache");
+                            return PluginResponse::error("target file isn\\'t in the cache");
                         }
                         format!("cleared {path:?} from {host:?}")
                     }

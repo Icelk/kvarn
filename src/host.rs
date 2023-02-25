@@ -857,8 +857,11 @@ impl Collection {
 
     /// Clears all response caches.
     #[inline]
-    pub async fn clear_response_caches(&self) {
+    pub async fn clear_response_caches(&self, host_filter: Option<&str>) {
         for host in self.by_name.values().filter_map(HostValue::as_host) {
+            if host_filter.map_or(false, |h| h != host.name) {
+                continue;
+            }
             if let Some(cache) = &host.response_cache {
                 cache.write().await.clear();
             }
@@ -912,8 +915,11 @@ impl Collection {
     }
     /// Clears all file caches.
     #[inline]
-    pub async fn clear_file_caches(&self) {
+    pub async fn clear_file_caches(&self, host_filter: Option<&str>) {
         for host in self.by_name.values().filter_map(HostValue::as_host) {
+            if host_filter.map_or(false, |h| h != host.name) {
+                continue;
+            }
             if let Some(cache) = &host.file_cache {
                 cache.write().await.clear();
             }
