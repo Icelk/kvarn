@@ -83,14 +83,19 @@ async fn main() {
                 .value_hint(ValueHint::Other),
         );
 
-    command = clap_autocomplete::add_subcommand(command);
+    #[cfg(feature = "complete")]
+    {
+        command = clap_autocomplete::add_subcommand(command);
+    }
 
     let command_error = command.error(
         clap::error::ErrorKind::MissingRequiredArgument,
         "COMMAND is required unless --wait or complete is used",
     );
 
+    #[cfg(feature = "complete")]
     let mut shell_completion_command = command.clone();
+    #[cfg(feature = "complete")]
     {
         shell_completion_command = shell_completion_command
             .subcommand(
@@ -198,6 +203,7 @@ async fn main() {
     }
     let matches = command.get_matches();
 
+    #[cfg(feature = "complete")]
     if let Some(result) = clap_autocomplete::test_subcommand(&matches, shell_completion_command) {
         if let Err(err) = result {
             eprintln!("Insufficient permissions: {err}");
