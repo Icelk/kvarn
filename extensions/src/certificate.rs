@@ -8,6 +8,8 @@ use small_acme::{
 };
 use x509_parser::prelude::FromDer;
 
+static NOT_PUBLIC_ERROR: &str = "we aren't public-facing";
+
 /// `save_cert_pk`: Fn(certs, private_key)
 #[allow(clippy::too_many_arguments)]
 pub async fn mount<'a, F: Future + Send + 'a>(
@@ -142,16 +144,10 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             account = Some(new_account_serialized);
 
             let d = tokio::task::spawn_blocking(move || {
-                match get_cert(&new_account, &moved_domain, alt_names, |token, data| {
+                get_cert(&new_account, &moved_domain, alt_names, |token, data| {
                     let mut tokens = tokens.write().unwrap();
                     tokens.insert(token.to_owned(), data.to_owned());
-                }) {
-                    Ok(d) => Ok(d),
-                    Err(err) => {
-                        error!("Failed to renew / acquire TLS certificate: {err}");
-                        Err(err)
-                    }
-                }
+                })
             })
             .await
             .unwrap();
@@ -160,10 +156,30 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 Ok((new_key, expiration, (certs_pem, pk_pem))) => {
                     (new_key, expiration, certs_pem, pk_pem)
                 }
+                Err(small_acme::Error::Str(s)) if s == NOT_PUBLIC_ERROR => {
+                    debug!("We're not public facing: don't renew certs");
+                    let Ok((og_key, cert, pk)) = generate_self_signed_cert(&domain) else { return };
+                    let key = rustls::sign::CertifiedKey::new(
+                        vec![cert],
+                        rustls::sign::any_supported_type(&pk).expect("this was just generated"),
+                    );
+                    info!(
+                        "Using self-signed for {domain}. \
+                        Consider creating your own self-signed certificate \
+                        for persistent browser warnings."
+                    );
+                    (
+                        key,
+                        chrono::OffsetDateTime::now_utc()
+                            + chrono::time::Duration::days(365 * 2000),
+                        og_key.serialize_pem().unwrap(),
+                        og_key.serialize_private_key_pem(),
+                    )
+                }
                 Err(err) => {
                     if account_failures < 3 {
-                        if let small_acme::Error::Http(err) = err {
-                            if let small_acme::ureq::Error::Status(400, _) = *err {
+                        if let small_acme::Error::Http(err) = &err {
+                            if let small_acme::ureq::Error::Status(400, _) = &**err {
                                 // retry with new account
                                 account = None;
                                 if tokio::fs::remove_file(&account_path).await.is_err() {
@@ -175,6 +191,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                             }
                         }
                     }
+                    error!("Failed to renew / acquire TLS certificate: {err}");
                     // retry in 5 minutes
                     tokio::time::sleep(Duration::from_secs(300)).await;
                     continue;
@@ -184,13 +201,19 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             set_host_cert(new_key).await;
             // update cert every 60 days (Let's encrypt gives us 90 days)
             exp = expiration - chrono::time::Duration::days(30);
-            info!("Sleep until {exp} before renewing cert (which expires at {expiration}) on {domain}");
-
-            if let Err(err) = tokio::fs::write(&cert_path, certs_pem).await {
-                error!("Failed to write new TLS certificate (chain): {err}");
+            if exp - chrono::OffsetDateTime::now_utc() < chrono::time::Duration::days(365 * 100) {
+                info!("Sleep until {exp} before renewing cert (which expires at {expiration}) on {domain}");
             }
-            if let Err(err) = tokio::fs::write(&pk_path, pk_pem).await {
-                error!("Failed to write new TLS private key: {err}");
+
+            if !certs_pem.is_empty() {
+                if let Err(err) = tokio::fs::write(&cert_path, certs_pem).await {
+                    error!("Failed to write new TLS certificate (chain): {err}");
+                }
+            }
+            if !pk_pem.is_empty() {
+                if let Err(err) = tokio::fs::write(&pk_path, pk_pem).await {
+                    error!("Failed to write new TLS private key: {err}");
+                }
             }
         }
     });
@@ -238,19 +261,17 @@ pub fn get_cert(
     ),
     small_acme::Error,
 > {
-    // Create the ACME order based on the given domain names.
-    // Note that this only needs an `&Account`, so the library will let you
-    // process multiple orders in parallel for a single account.
+    let domain = domain.into();
+    info!("Get cert for {domain}");
 
-    let identifiers: Vec<_> = std::iter::once(Identifier::Dns(domain.into()))
+    let identifiers: Vec<_> = std::iter::once(Identifier::Dns(domain.clone()))
         .chain(alt_names.iter().cloned().map(Identifier::Dns))
         .collect();
     let (mut order, state) = account.new_order(&NewOrder {
         identifiers: &identifiers,
     })?;
 
-    info!("order state: {:#?}", state);
-    // assert!(matches!(state.status, OrderStatus::Pending));
+    debug!("order state: {:#?}", state);
 
     // Pick the desired challenge type and prepare the response.
 
@@ -276,13 +297,20 @@ pub fn get_cert(
             order.key_authorization(challenge).as_str(),
         );
 
-        challenges.push((identifier, &challenge.url));
+        challenges.push((identifier, challenge));
     }
 
     // Let the server know we're ready to accept the challenges.
 
-    for (_, url) in &challenges {
-        order.set_challenge_ready(url)?;
+    for (_, challenge) in &challenges {
+        let response = small_acme::ureq::get(&format!(
+            "http://{domain}/.well-known/acme-challenge/{}",
+            challenge.token
+        ))
+        .call()
+        .map_err(|_| NOT_PUBLIC_ERROR)?;
+        drop(response);
+        order.set_challenge_ready(&challenge.url)?;
     }
 
     // Exponentially back off until the order becomes ready or invalid.
@@ -293,14 +321,14 @@ pub fn get_cert(
         std::thread::sleep(delay);
         let state = order.state()?;
         if let OrderStatus::Ready | OrderStatus::Invalid = state.status {
-            info!("order state: {:#?}", state);
+            debug!("order state: {:#?}", state);
             break state;
         }
 
         delay *= 2;
         tries += 1;
         match tries < 5 {
-            true => info!("order is not ready, waiting {delay:?} {state:?} {tries}"),
+            true => debug!("order is not ready, waiting {delay:?} {state:?} {tries}"),
             false => {
                 error!("order is not ready {state:?} {tries}");
                 return Err(small_acme::Error::Str("order is not ready"));
@@ -346,6 +374,15 @@ pub fn get_cert(
         expires,
         (cert_chain_pem, key.serialize_private_key_pem()),
     ))
+}
+fn generate_self_signed_cert(
+    name: impl Into<String>,
+) -> Result<(rcgen::Certificate, rustls::Certificate, rustls::PrivateKey), Box<dyn std::error::Error>>
+{
+    let key = rcgen::generate_simple_self_signed(vec![name.into()])?;
+    let pk = rustls::PrivateKey(key.serialize_private_key_der());
+    let cert = rustls::Certificate(key.serialize_der()?);
+    Ok((key, cert, pk))
 }
 
 fn get_expiration(cert: &[u8]) -> Option<chrono::OffsetDateTime> {
