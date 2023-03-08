@@ -137,6 +137,11 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             let new_account_serialized =
                 AcmeAccount(ron::to_string(&new_account.credentials()).unwrap());
             if let Err(err) =
+                tokio::fs::create_dir_all(&account_path.parent().unwrap_or(Path::new("/"))).await
+            {
+                warn!("Failed to write ACME account credentials to {account_path:?}: {err}");
+            }
+            if let Err(err) =
                 tokio::fs::write(&account_path, new_account_serialized.0.as_bytes()).await
             {
                 warn!("Failed to write ACME account credentials to {account_path:?}: {err}");
@@ -206,11 +211,21 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             }
 
             if !certs_pem.is_empty() {
+                if let Err(err) =
+                    tokio::fs::create_dir_all(&cert_path.parent().unwrap_or(Path::new("/"))).await
+                {
+                    error!("Failed to write new TLS certificate (chain): {err}");
+                }
                 if let Err(err) = tokio::fs::write(&cert_path, certs_pem).await {
                     error!("Failed to write new TLS certificate (chain): {err}");
                 }
             }
             if !pk_pem.is_empty() {
+                if let Err(err) =
+                    tokio::fs::create_dir_all(&pk_path.parent().unwrap_or(Path::new("/"))).await
+                {
+                    error!("Failed to write new TLS private key: {err}");
+                }
                 if let Err(err) = tokio::fs::write(&pk_path, pk_pem).await {
                     error!("Failed to write new TLS private key: {err}");
                 }
