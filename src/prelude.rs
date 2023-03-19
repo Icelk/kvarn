@@ -71,7 +71,7 @@ pub mod internals {
         Body, HttpConnection, PushedResponsePipe, ResponseBodyPipe, ResponsePipe,
     };
     pub use async_bits::*;
-    pub use comprash::{Cache, CacheOut, FileCache, PathQuery, ResponseCache};
+    pub use comprash::{CacheOut, FileCache, MokaCache, PathQuery, ResponseCache};
     pub use encryption::Encryption;
     pub use error::default as default_error;
     pub use extensions::{ready, RetFut, RetSyncFut};

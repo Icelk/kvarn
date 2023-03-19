@@ -7,19 +7,17 @@
 //! The main type in this module is [`CompressedResponse`], a dynamically compressed
 //! response receiving correct headers and [`extensions`].
 use crate::prelude::{chrono::*, *};
-use std::{
-    borrow::Borrow,
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
+use std::{borrow::Borrow, hash::Hash};
 
 /// The HTTP date time format in the [`time`] format.
 pub static HTTP_DATE: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short case_sensitive:true], [day padding:zero] [month repr:short case_sensitive:true] [year padding:zero repr:full base:calendar sign:automatic] [hour repr:24 padding:zero]:[minute padding:zero]:[second padding:zero] GMT");
 
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
-pub type FileCache = RwLock<Cache<PathBuf, Bytes>>;
+// pub type FileCache = RwLock<Cache<PathBuf, Bytes>>;
+pub type FileCache = MokaCache<PathBuf, Bytes>;
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a response cache.
-pub type ResponseCache = RwLock<Cache<UriKey, VariedResponse>>;
+// pub type ResponseCache = RwLock<Cache<UriKey, VariedResponse>>;
+pub type ResponseCache = MokaCache<UriKey, LifetimeCache<Arc<VariedResponse>>>;
 
 /// A path an optional query used in [`UriKey`]
 ///
@@ -767,6 +765,90 @@ impl<V> CacheOut<V> {
     }
 }
 
+/// Cache using [`moka`].
+#[derive(Debug)]
+pub struct MokaCache<K: Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'static> {
+    size_limit: usize,
+    /// The inner cache, with direct access allowed.
+    /// Please check the size of your item before inserting.
+    pub cache: moka::future::Cache<K, V>,
+}
+impl<K: Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'static> Default
+    for MokaCache<K, V>
+{
+    fn default() -> Self {
+        Self {
+            size_limit: 4 * 1024 * 1024,
+            cache: moka::future::Cache::new(1024),
+        }
+    }
+}
+impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<VariedResponse>>> {
+    pub(crate) async fn get_cache_item<Q: Hash + Eq>(
+        &self,
+        key: &Q,
+    ) -> CacheOut<LifetimeCache<Arc<VariedResponse>>>
+    where
+        K: Borrow<Q>,
+    {
+        match self.cache.get(key) {
+            Some(value_and_lifetime)
+                if value_and_lifetime.1 .1.map_or(true, |lifetime| {
+                    OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
+                }) =>
+            {
+                CacheOut::Present(value_and_lifetime)
+            }
+            Some(_) => {
+                self.cache.invalidate(key).await;
+                CacheOut::None
+            }
+            None => CacheOut::None,
+        }
+    }
+    pub(crate) async fn insert(
+        &self,
+        len: usize,
+        lifetime: Option<Duration>,
+        key: K,
+        response: VariedResponse,
+    ) -> CacheOut<VariedResponse> {
+        if len >= self.size_limit {
+            return CacheOut::NotInserted(response);
+        }
+
+        self.cache
+            .insert(
+                key,
+                (Arc::new(response), (OffsetDateTime::now_utc(), lifetime)),
+            )
+            .await;
+        CacheOut::None
+    }
+    pub(crate) async fn insert_cache_item(
+        &self,
+        key: K,
+        response: VariedResponse,
+    ) -> CacheOut<VariedResponse> {
+        let lifetime =
+            parse::CacheControl::from_headers(response.first().0.get_identity().headers())
+                .ok()
+                .as_ref()
+                .and_then(parse::CacheControl::as_freshness)
+                .map(|s| u64::from(s).std_seconds());
+
+        debug!("Inserted item to cache with lifetime {:?}", lifetime);
+
+        self.insert(
+            response.first().0.get_identity().body().len(),
+            lifetime,
+            key,
+            response,
+        )
+        .await
+    }
+}
+
 /// The item used in the cache.
 /// `T` represents the cached data.
 ///
@@ -777,250 +859,7 @@ impl<V> CacheOut<V> {
 ///
 /// Keep in mind that `Duration` is the std variant, while `Duration` is the time crate's
 /// variant, which supports negative durations.
-pub type CacheItem<T> = (T, (OffsetDateTime, Option<Duration>));
-
-/// A general cache with size and item count limits.
-///
-/// When size limit is reached, a pseudo-random element is removed and
-/// the new one inserted. See [`Cache::discard_one`].
-///
-/// The insert method, `Cache::cache`, has type-specific implementations.
-/// This enables clever inserting of data, independently from this struct.
-/// Therefore, the [`Cache::insert`] function should *only* be used in
-/// those implementations of this struct.
-#[derive(Debug)]
-#[must_use]
-pub struct Cache<K, V, H = DefaultHasher> {
-    map: HashMap<K, CacheItem<V>>,
-    max_items: usize,
-    size_limit: usize,
-    inserts: usize,
-    hasher: H,
-}
-impl<K, V> Cache<K, V, DefaultHasher> {
-    /// Creates a new [`Cache`]. See [`Cache`] and [`CacheOut`]
-    /// for more info about what the parameters do.
-    #[inline]
-    pub fn new(max_items: usize, size_limit: usize) -> Self {
-        Self {
-            map: HashMap::new(),
-            max_items,
-            size_limit,
-            inserts: 0,
-            hasher: DefaultHasher::new(),
-        }
-    }
-    /// Creates a new [`Cache`] with `size_limit` and default `max_items`.
-    #[inline]
-    pub fn with_size_limit(size_limit: usize) -> Self {
-        Self::new(1024, size_limit)
-    }
-    /// Clears the cache.
-    #[inline]
-    pub fn clear(&mut self) {
-        self.map.clear();
-    }
-}
-impl<K, V> Default for Cache<K, V> {
-    fn default() -> Self {
-        Self::new(1024, 4 * 1024 * 1024) // 4MiB
-    }
-}
-impl<K: Eq + Hash, V, H> Cache<K, V, H> {
-    /// Get value at `key` from the cache.
-    ///
-    /// See [`HashMap::get`] for more info.
-    #[inline]
-    pub fn get<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> CacheOut<&V>
-    where
-        K: Borrow<Q>,
-    {
-        self.get_with_lifetime(key).map(|v| &v.0)
-    }
-    /// Gets the [`CacheItem`] at `key` from the cache.
-    /// Consider using [`Self::get`] for most operations.
-    ///
-    /// This includes all lifetime information about the item in the cache.
-    /// See [`CacheItem`] for more info about this.
-    pub fn get_with_lifetime<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> CacheOut<&CacheItem<V>>
-    where
-        K: Borrow<Q>,
-    {
-        // `TODO`: maybe set tokio timers to remove items instead?
-        match self.map.get(key) {
-            Some(value_and_lifetime)
-                if value_and_lifetime.1 .1.map_or(true, |lifetime| {
-                    OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
-                }) =>
-            {
-                CacheOut::Present(value_and_lifetime)
-            }
-            Some(_) | None => CacheOut::None,
-        }
-    }
-    /// Get a mutable reference to the value at `key` from the cache.
-    ///
-    /// See [`HashMap::get`] for more info.
-    #[inline]
-    pub fn get_mut<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<&V>
-    where
-        K: Borrow<Q>,
-    {
-        self.get_mut_with_lifetime(key).map(|v| &v.0)
-    }
-    /// Gets a mutable reference to the [`CacheItem`] at `key` from the cache.
-    /// Consider using [`Self::get`] for most operations.
-    ///
-    /// This includes all lifetime information about the item in the cache.
-    /// See [`CacheItem`] for more info about this.
-    pub fn get_mut_with_lifetime<Q: ?Sized + Hash + Eq>(
-        &mut self,
-        key: &Q,
-    ) -> CacheOut<&mut CacheItem<V>>
-    where
-        K: Borrow<Q>,
-    {
-        // // Here for borrowing issues after `self.map.get_mut`.
-        // // See the SAFETY note bellow.
-        // let ptr: *const _ = self;
-        // maybe set tokio timers to remove items instead?
-        match self.map.get_mut(key) {
-            Some(value_and_lifetime)
-                if value_and_lifetime.1 .1.map_or(true, |lifetime| {
-                    OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
-                }) =>
-            {
-                CacheOut::Present(value_and_lifetime)
-            }
-            Some(_) => {
-                // // SAFETY: No other have a reference to self; the other branches are just that,
-                // // other branches, and their references are returned, so this code isn't ran.
-                // #[allow(clippy::cast_ref_to_mut)]
-                // unsafe { &mut *(ptr as *mut Cache<K, V>) }.remove(key);
-                CacheOut::None
-            }
-            None => CacheOut::None,
-        }
-    }
-    /// Returns `true` if the cache contains `key`.
-    ///
-    /// See [`HashMap::contains_key`] for more info.
-    #[inline]
-    pub fn contains<Q: ?Sized + Hash + Eq>(&self, key: &Q) -> bool
-    where
-        K: Borrow<Q>,
-    {
-        self.map.contains_key(key)
-    }
-    /// Removes a key-value pair from the cache, returning the value, if present.
-    ///
-    /// See [`HashMap::remove`] and [`CacheOut::Present`].
-    #[inline]
-    pub fn remove<Q: ?Sized + Hash + Eq>(&mut self, key: &Q) -> CacheOut<V>
-    where
-        K: Borrow<Q>,
-    {
-        match self.map.remove(key) {
-            Some((item, _expiry)) => CacheOut::Present(item),
-            None => CacheOut::None,
-        }
-    }
-    /// Inserts a `value` at `key` into this cache.
-    /// `value_length` should be the size, in bytes, of `value`.
-    ///
-    /// See bottom of [`Cache`] for more info about when to use this.
-    pub fn insert(
-        &mut self,
-        value_length: usize,
-        key: K,
-        value: V,
-        lifetime: Option<Duration>,
-    ) -> CacheOut<V>
-    where
-        H: Hasher,
-    {
-        if value_length >= self.size_limit {
-            return CacheOut::NotInserted(value);
-        }
-        self.inserts += 1;
-        if self.map.len() >= self.max_items {
-            self.discard_one();
-        }
-        match self
-            .map
-            .insert(key, (value, (OffsetDateTime::now_utc(), lifetime)))
-        {
-            Some((v, _expiry)) => CacheOut::Present(v),
-            None => CacheOut::None,
-        }
-    }
-}
-impl<K, V, H: Hasher> Cache<K, V, H> {
-    /// Writes to the internal hasher to increase quality of output.
-    ///
-    /// Should be used by implementors of the `cache` method to add
-    /// to the internal hasher with their data.
-    ///
-    /// The hasher is used when selecting a item to remove from the cache.
-    pub fn feed_hasher(&mut self, data: &[u8]) {
-        self.hasher.write(data);
-    }
-}
-impl<K: Eq + Hash, V, H: Hasher> Cache<K, V, H> {
-    /// Discards one key-value pair pseudo-randomly.
-    pub fn discard_one(&mut self) {
-        let pseudo_random = {
-            self.feed_hasher(&self.inserts.to_le_bytes());
-            self.hasher.finish()
-        };
-
-        // I don't care about normalized distribution
-        // also, it's safe to cast, modulo logic...
-        #[allow(clippy::cast_possible_truncation)]
-        let position = (pseudo_random % self.map.len() as u64) as usize;
-
-        let mut current_position = 0;
-        self.map.retain(|_, _| {
-            let result = current_position != position;
-            current_position += 1;
-            result
-        });
-    }
-}
-impl<K: Eq + Hash, H: Hasher> Cache<K, VariedResponse, H> {
-    /// Caches a [`CompressedResponse`] and returns the previous response, if any.
-    pub fn cache(&mut self, key: K, response: VariedResponse) -> CacheOut<VariedResponse> {
-        let lifetime =
-            parse::CacheControl::from_headers(response.first().0.get_identity().headers())
-                .ok()
-                .as_ref()
-                .and_then(parse::CacheControl::as_freshness)
-                .map(|s| u64::from(s).std_seconds());
-
-        let identity = response.first().0.get_identity().body();
-        let identity_fragment = &identity[identity.len().saturating_sub(512)..];
-        self.feed_hasher(identity_fragment);
-
-        debug!("Inserted item to cache with lifetime {:?}", lifetime);
-
-        self.insert(
-            response.first().0.get_identity().body().len(),
-            key,
-            response,
-            lifetime,
-        )
-    }
-}
-impl<K: Eq + Hash> Cache<K, Bytes> {
-    /// Caches a [`Bytes`] and returns the previous bytes, if any.
-    pub fn cache(&mut self, key: K, contents: Bytes) -> CacheOut<Bytes> {
-        let fragment = &contents[contents.len().saturating_sub(512)..];
-        self.feed_hasher(fragment);
-
-        // Bytes are not cleared from cache.
-        self.insert(contents.len(), key, contents, None)
-    }
-}
+pub type LifetimeCache<T> = (T, (OffsetDateTime, Option<Duration>));
 
 #[cfg(test)]
 mod tests {

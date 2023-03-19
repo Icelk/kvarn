@@ -181,8 +181,8 @@ impl Host {
             certificate: std::sync::RwLock::new(Some(Arc::new(cert))),
             path: path.as_ref().to_path_buf(),
             extensions,
-            file_cache: Some(RwLock::new(Cache::default())),
-            response_cache: Some(RwLock::new(Cache::default())),
+            file_cache: Some(MokaCache::default()),
+            response_cache: Some(MokaCache::default()),
             options,
             limiter: LimitManager::default(),
             vary: Vary::default(),
@@ -256,8 +256,8 @@ impl Host {
             certificate: std::sync::RwLock::new(None),
             path: path.as_ref().to_path_buf(),
             extensions,
-            file_cache: Some(RwLock::new(Cache::default())),
-            response_cache: Some(RwLock::new(Cache::default())),
+            file_cache: Some(MokaCache::default()),
+            response_cache: Some(MokaCache::default()),
             options,
             limiter: LimitManager::default(),
             vary: Vary::default(),
@@ -472,8 +472,8 @@ impl Host {
             certificate: std::sync::RwLock::new(self.certificate.read().unwrap().clone()),
             path: self.path.clone(),
             extensions: Extensions::empty(),
-            file_cache: Some(RwLock::new(Cache::default())),
-            response_cache: Some(RwLock::new(Cache::default())),
+            file_cache: Some(MokaCache::default()),
+            response_cache: Some(MokaCache::default()),
             limiter: self.limiter.clone(),
             vary: Vary::default(),
             options: self.options.clone(),
@@ -863,7 +863,7 @@ impl Collection {
                 continue;
             }
             if let Some(cache) = &host.response_cache {
-                cache.write().await.clear();
+                cache.cache.invalidate_all();
             }
         }
     }
@@ -889,25 +889,24 @@ impl Collection {
                 .and_then(|h| h.response_cache.as_ref())
             {
                 found = true;
-                let mut lock = cache.write().await;
-                if key
-                    .call_all(|key| lock.remove(key).into_option())
-                    .1
-                    .is_some()
-                {
-                    cleared = true;
+
+                cleared ^= cache.cache.contains_key(&key);
+                cache.cache.invalidate(&key).await;
+                if let UriKey::PathQuery(path_query) = key {
+                    let key = UriKey::Path(path_query.into_path());
+                    cleared |= cache.cache.contains_key(&key);
+                    cache.cache.invalidate(&key).await;
                 }
             }
         } else if let Some(host) = self.get_host(host) {
             found = true;
             if let Some(cache) = &host.response_cache {
-                let mut lock = cache.write().await;
-                if key
-                    .call_all(|key| lock.remove(key).into_option())
-                    .1
-                    .is_some()
-                {
-                    cleared = true;
+                cleared ^= cache.cache.contains_key(&key);
+                cache.cache.invalidate(&key).await;
+                if let UriKey::PathQuery(path_query) = key {
+                    let key = UriKey::Path(path_query.into_path());
+                    cleared |= cache.cache.contains_key(&key);
+                    cache.cache.invalidate(&key).await;
                 }
             }
         }
@@ -921,7 +920,7 @@ impl Collection {
                 continue;
             }
             if let Some(cache) = &host.file_cache {
-                cache.write().await.clear();
+                cache.cache.invalidate_all();
             }
         }
     }
@@ -949,18 +948,14 @@ impl Collection {
                 .and_then(|h| h.file_cache.as_ref())
             {
                 found = true;
-                let mut lock = cache.write().await;
-                if lock.remove(path).into_option().is_some() {
-                    cleared = true;
-                }
+                cleared |= cache.cache.contains_key(path);
+                cache.cache.invalidate(path).await;
             }
         } else if let Some(host) = self.get_host(host) {
             found = true;
             if let Some(cache) = &host.file_cache {
-                let mut lock = cache.write().await;
-                if lock.remove(path).into_option().is_some() {
-                    cleared = true;
-                }
+                cleared |= cache.cache.contains_key(path);
+                cache.cache.invalidate(path).await;
             }
         }
         (found, cleared)

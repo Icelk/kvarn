@@ -894,14 +894,13 @@ mod handle_cache_helpers {
                 );
 
                 if server_cache.cache(cache_action, method) {
-                    let mut lock = response_cache.write().await;
                     let key = if server_cache.query_matters() {
                         comprash::UriKey::PathQuery(path_query)
                     } else {
                         comprash::UriKey::Path(path_query.into_path())
                     };
                     debug!("Caching uri {:?}!", &key);
-                    lock.cache(key, response);
+                    response_cache.insert_cache_item(key, response).await;
                     return None;
                 }
             }
@@ -925,25 +924,20 @@ mod handle_cache_helpers {
         let (compressed_response, _, server_cache, future, path_query) =
             get_response(request, host, sanitize_data, address, overide_uri).await;
 
-        let mut lock = if let Some(response_cache) = &host.response_cache {
-            Some(response_cache.write().await)
-        } else {
-            None
-        };
         // Try to get back varied response. If not there, recreate it, as the
         // match-arm below does.
-        let cached = if let Some(lock) = &mut lock {
+        let cached = if let Some(cache) = &host.response_cache {
             {
                 // inline `UriKey::call_all` because of annoying Rust semantics
                 // regarding calling impl Fns. We also had to deal with this in
                 // `kvarn::extensions`.
-                match lock.get_mut_with_lifetime(&uri_key).into_option() {
+                match cache.get_cache_item(&uri_key).await.into_option() {
                     Some(t) => (uri_key, Some(t)),
                     None => match uri_key {
                         UriKey::Path(_) => (uri_key, None),
                         UriKey::PathQuery(path_query) => {
                             let uri_key = UriKey::Path(path_query.into_path());
-                            let result = lock.get_mut_with_lifetime(&uri_key).into_option();
+                            let result = cache.get_cache_item(&uri_key).await.into_option();
                             (uri_key, result)
                         }
                     },
@@ -953,7 +947,27 @@ mod handle_cache_helpers {
             (uri_key, None)
         };
         let arc = match cached {
-            (_, Some((resp, _))) => Arc::clone(resp.push_response(compressed_response, params)),
+            (key, Some((resp, lifetime))) => {
+                let mut resp = (*resp).clone();
+                let a = Arc::clone(resp.push_response(compressed_response, params));
+                if let Some(cache) = &host.response_cache {
+                    cache
+                        .insert(
+                            0,
+                            lifetime.1.map(|dur| {
+                                dur.saturating_sub(
+                                    (OffsetDateTime::now_utc() - lifetime.0)
+                                        .max(time::Duration::ZERO)
+                                        .unsigned_abs(),
+                                )
+                            }),
+                            key,
+                            resp,
+                        )
+                        .await;
+                }
+                a
+            }
             (_, None) => {
                 let vary_rules = host.vary.rules_from_request(request);
 
@@ -997,14 +1011,18 @@ pub async fn handle_cache(
     let uri_key =
         comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
 
-    let mut lock = if let Some(response_cache) = &host.response_cache {
-        Some(response_cache.read().await)
-    } else {
-        None
-    };
-
-    let cached = if let Some(lock) = &mut lock {
-        uri_key.call_all(|key| lock.get_with_lifetime(key).into_option())
+    let cached = if let Some(cache) = &host.response_cache {
+        match cache.get_cache_item(&uri_key).await.into_option() {
+            Some(t) => (uri_key, Some(t)),
+            None => match uri_key {
+                UriKey::Path(_) => (uri_key, None),
+                UriKey::PathQuery(path_query) => {
+                    let uri_key = UriKey::Path(path_query.into_path());
+                    let result = cache.get_cache_item(&uri_key).await.into_option();
+                    (uri_key, result)
+                }
+            },
+        }
     } else {
         (uri_key, None)
     };
@@ -1015,8 +1033,6 @@ pub async fn handle_cache(
                 && matches!(request.method(), &Method::GET | &Method::HEAD) =>
         {
             debug!("Found in cache!");
-
-            let creation = *creation;
 
             // Handle `if-modified-since` header.
             let if_modified_since: Option<OffsetDateTime> =
@@ -1045,7 +1061,6 @@ pub async fn handle_cache(
             // if the option is enabled, as defined in the if in the `if_modified_since`
             // definition.
             let mut response_data = if client_request_is_fresh {
-                drop(lock);
                 let mut response = Response::new(Bytes::new());
                 *response.status_mut() = StatusCode::NOT_MODIFIED;
                 (response, Bytes::new(), None)
@@ -1054,13 +1069,11 @@ pub async fn handle_cache(
                 let (resp_vary, future) = match resp.get_by_request(request) {
                     Ok(arc) => {
                         let arc = Arc::clone(arc);
-                        drop(lock);
                         (arc, None)
                     }
                     // the varied response didn't have any version which matches the request.
                     Err(params) => {
                         // Drop lock during response creation
-                        drop(lock);
                         // in a sepparate function as this is a cold path and to reduce the length
                         // of this fn
                         handle_cache_helpers::handle_vary_missing(
@@ -1116,8 +1129,6 @@ pub async fn handle_cache(
             response_data
         }
         _ => {
-            drop(lock);
-
             let sanitize_data = &sanitize_data;
             let overide_uri = overide_uri.as_ref();
             let (compressed_response, _, server_cache, future, path_query) =

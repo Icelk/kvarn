@@ -265,7 +265,7 @@ pub(crate) struct CacheParams {
     headers: HeaderCollection,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A collection of multiple responses depending on the headers the client sent,
 /// according to the `vary` header.
 ///
