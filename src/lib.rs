@@ -594,16 +594,11 @@ pub async fn handle_connection(
         debug!("Accepting new connection from {} on {}", address, host.name);
 
         debug_assert!(descriptor.data.get_host(&host.name).is_some());
-        // SAFETY: We know this host is part of the Collection, since we got the Host from the
-        // Collection.
-        // We also assure it's not dropped by cloning the arc below.
-        let hostname = unsafe { utils::SuperUnsafePointer::new(&host.name) };
+        let hostname = host.name.clone();
         let moved_host_collection = Arc::clone(&descriptor.data);
         let future = async move {
-            // SAFETY: See above.
-            let hostname = unsafe { hostname.get() };
             // UNWRAP: This host must be part of the Collection, as we got it from there.
-            let host = moved_host_collection.get_host(hostname).unwrap();
+            let host = moved_host_collection.get_host(&hostname).unwrap();
             let response = handle_cache(&mut request, address, host).await;
 
             if let Err(err) = SendKind::Send(&mut response_pipe)
