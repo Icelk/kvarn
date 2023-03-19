@@ -4,7 +4,7 @@
 //! It also exports all the items in [`crate`].
 
 pub use bytes::{self, Bytes, BytesMut};
-pub use compact_str::{CompactString, ToCompactString};
+pub use compact_str::{self, format_compact, CompactString, ToCompactString};
 pub use http::{
     header, header::HeaderName, uri, HeaderMap, HeaderValue, Method, Request, Response, StatusCode,
     Uri, Version,
