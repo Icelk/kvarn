@@ -668,7 +668,11 @@ impl CriticalRequestComponents {
     ///
     /// Will return a [`SanitizeError::RangeNotSatisfiable`] if the start of the range is greater
     /// than the length of the body.
-    pub fn apply_to_response(&self, response: &mut Response<Bytes>) -> Result<(), SanitizeError> {
+    pub fn apply_to_response(
+        &self,
+        response: &mut Response<Bytes>,
+        overriden_len: Option<usize>,
+    ) -> Result<(), SanitizeError> {
         if let Some((range_start, mut range_end)) = self.get_range() {
             // Clamp to length
             if range_end >= response.body().len() {
@@ -695,7 +699,7 @@ impl CriticalRequestComponents {
             if response.status() == StatusCode::OK {
                 *response.status_mut() = StatusCode::PARTIAL_CONTENT;
             }
-        } else if !response.body().is_empty() {
+        } else if !response.body().is_empty() || overriden_len.map_or(false, |len| len > 0) {
             response
                 .headers_mut()
                 .insert("accept-ranges", HeaderValue::from_static("bytes"));

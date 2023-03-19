@@ -1097,6 +1097,59 @@ impl<R> RuleSet<R> {
     }
 }
 
+/// Prepare extension to stream body instead of reading it fully, caching, then responding.
+///
+/// Does not support present extensions, nor post extensions.
+/// Id::new(-21445, "Stream file").no_override(),
+pub fn stream_body() -> Box<dyn PrepareCall> {
+    prepare!(req, host, path, _addr, {
+        debug!("Streaming body for {:?}", req.uri().path());
+        if let Some(path) = path {
+            let file = tokio::fs::File::open(path).await;
+            let meta = if let Ok(file) = &file {
+                file.metadata().await.ok()
+            } else {
+                None
+            };
+            if let (Ok(file), Some(meta)) = (file, meta) {
+                let mut response = Response::new(Bytes::new());
+                response
+                    .headers_mut()
+                    .insert("vary", HeaderValue::from_static("range"));
+
+                // Mime
+                if !response.headers().contains_key("content-type") {
+                    let mime = mime::APPLICATION_OCTET_STREAM;
+                    let mime_type = mime_guess::from_ext(
+                        path.extension()
+                            .and_then(std::ffi::OsStr::to_str)
+                            .unwrap_or(""),
+                    )
+                    .first_or(mime);
+                    // Mime will only contains valid bytes.
+                    let content_type = HeaderValue::from_maybe_shared::<Bytes>(
+                        mime_type.to_string().into_bytes().into(),
+                    )
+                    .unwrap();
+                    response.headers_mut().insert("content-type", content_type);
+                }
+
+                FatResponse::new(response, comprash::ServerCachePreference::None)
+                    .with_future_and_len(
+                        response_pipe_fut!(response, _host, move |file: tokio::fs::File| {
+                            let _ = tokio::io::copy(file, response).await;
+                        }),
+                        meta.len() as usize,
+                    )
+            } else {
+                default_error_response(StatusCode::NOT_FOUND, host, None).await
+            }
+        } else {
+            default_error_response(StatusCode::NOT_FOUND, host, None).await
+        }
+    })
+}
+
 mod macros {
     /// Create a pinned future, compatible with [`crate::RetFut`].
     ///

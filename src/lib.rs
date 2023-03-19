@@ -661,7 +661,6 @@ impl<'a> SendKind<'a> {
     ///
     /// returns any errors with sending the data.
     #[inline]
-    #[allow(clippy::too_many_arguments)]
     pub async fn send(
         &mut self,
         response: CacheReply,
@@ -676,8 +675,9 @@ impl<'a> SendKind<'a> {
             future,
         } = response;
 
+        let overriden_len = future.as_ref().and_then(|(_, len)| len.as_ref().copied());
         if let Ok(data) = &data {
-            match data.apply_to_response(&mut response) {
+            match data.apply_to_response(&mut response, overriden_len) {
                 Err(SanitizeError::RangeNotSatisfiable) => {
                     response = default_error(
                         StatusCode::RANGE_NOT_SATISFIABLE,
@@ -693,7 +693,7 @@ impl<'a> SendKind<'a> {
             }
         }
 
-        let len = response.body().len();
+        let len = overriden_len.unwrap_or(response.body().len());
         self.ensure_version_and_length(&mut response, len);
 
         let (mut response, body) = utils::split_response(response);
@@ -713,7 +713,7 @@ impl<'a> SendKind<'a> {
                     ret_log_app_error!(body_pipe.send_with_maybe_close(body, false).await);
                 }
 
-                if let Some(mut future) = future {
+                if let Some((mut future, _)) = future {
                     future.call(&mut body_pipe, host).await;
                 }
 
@@ -741,7 +741,7 @@ impl<'a> SendKind<'a> {
                             .await
                     );
                 }
-                if let Some(mut future) = future {
+                if let Some((mut future, _)) = future {
                     future.call(&mut body_pipe, host).await;
                 }
 
@@ -770,7 +770,7 @@ pub struct CacheReply {
     /// Must be awaited.
     ///
     /// Can be used for WebSocket connections.
-    pub future: Option<ResponsePipeFuture>,
+    pub future: Option<(ResponsePipeFuture, Option<usize>)>,
     // also update Debug implementation when adding fields
 }
 impl Debug for CacheReply {
@@ -782,7 +782,7 @@ impl Debug for CacheReply {
             (self.response),
             (self.identity_body),
             (self.sanitize_data),
-            (self.future, &"[internal future]".as_clean())
+            (self.future, &"[internal future]".as_clean()),
         );
 
         s.finish()
@@ -805,7 +805,7 @@ mod handle_cache_helpers {
         comprash::CompressedResponse,
         comprash::ClientCachePreference,
         comprash::ServerCachePreference,
-        Option<ResponsePipeFuture>,
+        Option<(ResponsePipeFuture, Option<usize>)>,
         comprash::PathQuery,
     ) {
         let path_query = comprash::PathQuery::from(request.uri());
@@ -920,7 +920,7 @@ mod handle_cache_helpers {
         params: vary::CacheParams,
     ) -> (
         Arc<(comprash::CompressedResponse, vary::HeaderCollection)>,
-        Option<extensions::ResponsePipeFuture>,
+        Option<(extensions::ResponsePipeFuture, Option<usize>)>,
     ) {
         let (compressed_response, _, server_cache, future, path_query) =
             get_response(request, host, sanitize_data, address, overide_uri).await;
@@ -1078,16 +1078,21 @@ pub async fn handle_cache(
                 let (resp, vary) = &*resp_vary;
                 // Here, the lock is always (irrelevant of which arm the code runs) dropped, which
                 // enables us to do computationally heavy things, such as compression.
-                let mut response = match resp.clone_preferred(request, &host.compression_options) {
-                    Err(message) => {
-                        error::default(
-                            StatusCode::NOT_ACCEPTABLE,
-                            Some(host),
-                            Some(message.as_bytes()),
-                        )
-                        .await
+                let mut response = if future.as_ref().map_or(false, |(_, len)| len.is_some()) {
+                    let body = resp.get_identity().body().clone();
+                    utils::empty_clone_response(resp.get_identity()).map(|()| body)
+                } else {
+                    match resp.clone_preferred(request, &host.compression_options) {
+                        Err(message) => {
+                            error::default(
+                                StatusCode::NOT_ACCEPTABLE,
+                                Some(host),
+                                Some(message.as_bytes()),
+                            )
+                            .await
+                        }
+                        Ok(response) => response,
                     }
-                    Ok(response) => response,
                 };
 
                 vary::apply_header(&mut response, vary);
@@ -1134,7 +1139,10 @@ pub async fn handle_cache(
 
             let compressed_response = &varied_response.first().0;
 
-            let mut response =
+            let mut response = if future.as_ref().map_or(false, |(_, len)| len.is_some()) {
+                let body = compressed_response.get_identity().body().clone();
+                utils::empty_clone_response(compressed_response.get_identity()).map(|()| body)
+            } else {
                 match compressed_response.clone_preferred(request, &host.compression_options) {
                     Err(message) => {
                         error::default(
@@ -1145,7 +1153,8 @@ pub async fn handle_cache(
                         .await
                     }
                     Ok(response) => response,
-                };
+                }
+            };
 
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
@@ -1256,7 +1265,7 @@ pub async fn handle_request(
     maybe_with!(response, client_cache, with_client_cache);
     maybe_with!(response, server_cache, with_server_cache);
     maybe_with!(response, compress, with_compress);
-    maybe_with!(response, future, with_future);
+    maybe_with!(response, future, with_future_and_maybe_len);
 
     response
 }
@@ -1437,7 +1446,7 @@ pub struct FatResponse {
     server: comprash::ServerCachePreference,
     compress: comprash::CompressPreference,
 
-    future: Option<ResponsePipeFuture>,
+    future: Option<(ResponsePipeFuture, Option<usize>)>,
     // also update Debug implementation when adding fields
 }
 impl FatResponse {
@@ -1501,6 +1510,24 @@ impl FatResponse {
     }
     /// Set the inner `future`.
     pub fn with_future(mut self, future: ResponsePipeFuture) -> Self {
+        self.future = Some((future, None));
+        self
+    }
+    /// Set the inner `future` and
+    /// overrides the length of the body. Only has an effect on HTTP/1.1 connections. Should be used
+    /// with caution.
+    ///
+    /// This is used in the streaming body extension.
+    pub fn with_future_and_len(mut self, future: ResponsePipeFuture, new_len: usize) -> Self {
+        self.future = Some((future, Some(new_len)));
+        self
+    }
+
+    /// See [`Self::with_future_and_len`].
+    pub fn with_future_and_maybe_len(
+        mut self,
+        future: (ResponsePipeFuture, Option<usize>),
+    ) -> Self {
         self.future = Some(future);
         self
     }
@@ -1532,7 +1559,7 @@ impl FatResponse {
         comprash::ClientCachePreference,
         comprash::ServerCachePreference,
         comprash::CompressPreference,
-        Option<ResponsePipeFuture>,
+        Option<(ResponsePipeFuture, Option<usize>)>,
     ) {
         (
             self.response,
