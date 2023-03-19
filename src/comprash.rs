@@ -13,10 +13,8 @@ use std::{borrow::Borrow, hash::Hash};
 pub static HTTP_DATE: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short case_sensitive:true], [day padding:zero] [month repr:short case_sensitive:true] [year padding:zero repr:full base:calendar sign:automatic] [hour repr:24 padding:zero]:[minute padding:zero]:[second padding:zero] GMT");
 
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
-// pub type FileCache = RwLock<Cache<PathBuf, Bytes>>;
 pub type FileCache = MokaCache<PathBuf, Bytes>;
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a response cache.
-// pub type ResponseCache = RwLock<Cache<UriKey, VariedResponse>>;
 pub type ResponseCache = MokaCache<UriKey, LifetimeCache<Arc<VariedResponse>>>;
 
 /// A path an optional query used in [`UriKey`]

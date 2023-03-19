@@ -1,17 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use dashmap::{DashMap, DashSet};
 
 use crate::*;
 
 #[derive(Clone)]
 pub struct ViewCount {
-    articles: Arc<Mutex<HashMap<String, (bool, u64)>>>,
-    ips: Arc<RwLock<HashMap<String, HashSet<IpAddr>>>>,
+    articles: Arc<DashMap<String, (bool, u64)>>,
+    ips: Arc<DashMap<String, DashSet<IpAddr>>>,
 }
 
 async fn parse(s: &str) -> Option<ViewCount> {
     let s = tokio::fs::read_to_string(s).await.ok()?;
 
-    let mut articles = HashMap::new();
+    let articles = DashMap::new();
     for l in s.lines().skip(1) {
         // rsplit so the commas in article don't skrew with us
         let (article, count) = l.rsplit_once(',')?;
@@ -32,8 +32,8 @@ async fn parse(s: &str) -> Option<ViewCount> {
         articles.insert(article, (false, count));
     }
     Some(ViewCount {
-        articles: Arc::new(Mutex::new(articles)),
-        ips: Arc::new(RwLock::new(HashMap::new())),
+        articles: Arc::new(articles),
+        ips: Arc::new(DashMap::new()),
     })
 }
 
@@ -56,8 +56,8 @@ pub async fn mount(
                 warn!("Overriding view count total at '{total_path}'");
             }
             ViewCount {
-                articles: Arc::new(Mutex::new(HashMap::new())),
-                ips: Arc::new(RwLock::new(HashMap::new())),
+                articles: Arc::new(DashMap::new()),
+                ips: Arc::new(DashMap::new()),
             }
         }
     };
@@ -68,10 +68,9 @@ pub async fn mount(
             loop {
                 tokio::time::sleep(commit_interval).await;
 
-                let mut lock = c.articles.lock().await;
                 let mut any_changed = false;
-                for (_, (changed, _)) in lock.iter() {
-                    if *changed {
+                for v in c.articles.iter() {
+                    if v.0 {
                         any_changed = true;
                     }
                 }
@@ -102,7 +101,9 @@ pub async fn mount(
                     let date = now
                         .format(&chrono::time::format_description::well_known::Rfc3339)
                         .unwrap();
-                    for (article, (changed, count)) in lock.iter_mut() {
+                    for mut v in c.articles.iter_mut() {
+                        let (article, (changed, count)) = v.pair_mut();
+
                         if *changed {
                             *changed = false;
                             let count = *count;
@@ -137,7 +138,9 @@ pub async fn mount(
                         Ok(f) => f,
                     };
                     file.write_all(b"article path,view count\n").await.unwrap();
-                    for (article, (_, count)) in lock.iter() {
+                    for v in c.articles.iter() {
+                        let count = v.1;
+                        let article = v.key();
                         let line = if article.contains(',')
                             || article.contains('\\')
                             || article.contains('\n')
@@ -165,7 +168,7 @@ pub async fn mount(
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(accept_same_ip_interval).await;
-                c.ips.write().await.clear();
+                c.ips.clear();
             }
         });
     }
@@ -183,20 +186,23 @@ pub async fn mount(
                 let c: &ViewCount = c;
                 if !predicate(request)
                     || c.ips
-                        .read()
-                        .await
                         .get(request.uri().path())
                         .map_or(false, |ips| ips.contains(&addr.ip()))
                 {
                     return;
                 }
-                let mut ips_articles = c.ips.write().await;
-                let ips = ips_articles
-                    .entry(request.uri().path().to_string())
-                    .or_default();
+                let mut ips = None;
+                while ips.is_none() {
+                    ips = c.ips.get(request.uri().path());
+                    if ips.is_none() {
+                        c.ips
+                            .insert(request.uri().path().to_owned(), DashSet::new());
+                    }
+                }
+                let ips = ips.unwrap();
                 ips.insert(addr.ip());
-                let mut l = c.articles.lock().await;
-                let mut count = l
+                let mut count = c
+                    .articles
                     .entry(request.uri().path().to_string())
                     .or_insert((false, 0));
                 count.0 = true;
@@ -218,9 +224,8 @@ pub async fn mount(
                 let view_count = match &view_count {
                     Some(v) => v,
                     None => {
-                        let lock = c.articles.lock().await;
                         let article = args.request.uri().path();
-                        let n = lock.get(article).map_or(1, |v| v.1);
+                        let n = c.articles.get(article).map_or(1, |v| v.1);
                         view_count.insert(n.to_string())
                     }
                 };

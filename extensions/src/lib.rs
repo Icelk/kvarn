@@ -45,6 +45,7 @@ pub mod connection;
 #[cfg(feature = "certificate")]
 pub mod certificate;
 
+#[cfg(feature = "view-counter")]
 #[path = "view-counter.rs"]
 pub mod view_counter;
 
