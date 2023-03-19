@@ -94,7 +94,7 @@ pub use read::{file as read_file, file_cached as read_file_cached};
 /// ```
 /// # use kvarn::prelude::*;
 /// # async {
-/// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// let host = Host::unsecure("localhost", "web", Extensions::default(), host::Options::default());
 /// let data = HostCollection::builder().insert(host).build();
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///
@@ -191,7 +191,7 @@ impl RunConfig {
     ///
     /// # async {
     /// // Create a host with hostname "localhost", serving files from directory "./web/public/", with the default extensions and the default options.
-    /// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+    /// let host = Host::unsecure("localhost", "web", Extensions::default(), host::Options::default());
     /// // Create a set of virtual hosts (`HostCollection`) with `host` as the default.
     /// let data = HostCollection::builder().insert(host).build();
     /// // Bind port 8080 with `data`.
@@ -368,7 +368,7 @@ impl Default for RunConfig {
 ///
 /// ```
 /// # use kvarn::prelude::*;
-/// # let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// # let host = Host::unsecure("localhost", "web", Extensions::default(), host::Options::default());
 /// # let data = HostCollection::builder().insert(host).build();
 /// # let port1 = PortDescriptor::new(8080, Arc::clone(&data));
 /// # let port2 = PortDescriptor::new(8081, data);
@@ -819,10 +819,7 @@ mod handle_cache_helpers {
                     {
                         Some(utils::make_path(
                             &host.path,
-                            host.options
-                                .public_data_dir
-                                .as_deref()
-                                .unwrap_or_else(|| Path::new("public")),
+                            host.options.public_data_dir.as_deref().unwrap_or("public"),
                             // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
                             // We also are OK with all Uris, since we did a check on the
                             // incoming and presume all internal extension changes are good.
@@ -1214,7 +1211,7 @@ pub async fn handle_request(
     overide_uri: Option<&Uri>,
     address: SocketAddr,
     host: &Host,
-    path: &Option<PathBuf>,
+    path: &Option<CompactString>,
 ) -> FatResponse {
     let mut response = None;
     let mut client_cache = None;
@@ -1563,6 +1560,7 @@ impl FatResponse {
     }
 
     /// Turn `self` into a tuple of all it's parts.
+    #[allow(clippy::type_complexity)] // that's the point
     pub fn into_parts(
         self,
     ) -> (

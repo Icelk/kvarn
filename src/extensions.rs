@@ -366,10 +366,10 @@ macro_rules! remove_sorted_list {
 #[must_use]
 pub struct Extensions {
     prime: Vec<(Id, Prime)>,
-    prepare_single: HashMap<String, Prepare>,
+    prepare_single: HashMap<CompactString, Prepare>,
     prepare_fn: Vec<(Id, If, Prepare)>,
-    present_internal: HashMap<String, Present>,
-    present_file: HashMap<String, Present>,
+    present_internal: HashMap<CompactString, Present>,
+    present_file: HashMap<CompactString, Present>,
     package: Vec<(Id, Package)>,
     post: Vec<(Id, Post)>,
     // also update Debug implementation when adding fields
@@ -722,7 +722,7 @@ impl Extensions {
     /// Adds a [`Prepare`] extension for a single URI.
     pub fn add_prepare_single(&mut self, path: impl AsRef<str>, extension: Prepare) {
         self.prepare_single
-            .insert(path.as_ref().to_owned(), extension);
+            .insert(path.as_ref().to_compact_string(), extension);
     }
     /// Removes the [`Prepare`] extension (if any) at `path`.
     pub fn remove_prepare_single(&mut self, path: impl AsRef<str>) {
@@ -730,7 +730,7 @@ impl Extensions {
     }
     /// Get a reference to the [`Prepare`] extensions bound to a path.
     #[must_use]
-    pub fn get_prepare_single(&self) -> &HashMap<String, Prepare> {
+    pub fn get_prepare_single(&self) -> &HashMap<CompactString, Prepare> {
         &self.prepare_single
     }
     /// Adds a [`Prepare`] extension run if `function` return `true`. Higher [`Id::priority()`] extensions are ran first.
@@ -748,7 +748,7 @@ impl Extensions {
     /// Adds a [`Present`] internal extension, called with files starting with `!> `.
     pub fn add_present_internal(&mut self, name: impl AsRef<str>, extension: Present) {
         self.present_internal
-            .insert(name.as_ref().to_owned(), extension);
+            .insert(name.as_ref().to_compact_string(), extension);
     }
     /// Removes the [`Present`] internal extension (if any) at `path`.
     pub fn remove_present_internal(&mut self, path: impl AsRef<str>) {
@@ -756,13 +756,13 @@ impl Extensions {
     }
     /// Get a reference to the [`Present`] internal extensions bound to a path.
     #[must_use]
-    pub fn get_present_internal(&self) -> &HashMap<String, Present> {
+    pub fn get_present_internal(&self) -> &HashMap<CompactString, Present> {
         &self.present_internal
     }
     /// Adds a [`Present`] file extension, called with file extensions matching `name`.
     pub fn add_present_file(&mut self, name: impl AsRef<str>, extension: Present) {
         self.present_file
-            .insert(name.as_ref().to_owned(), extension);
+            .insert(name.as_ref().to_compact_string(), extension);
     }
     /// Removes the [`Present`] file extension (if any) at `path`.
     pub fn remove_present_file(&mut self, path: impl AsRef<str>) {
@@ -770,7 +770,7 @@ impl Extensions {
     }
     /// Get a reference to the [`Present`] file extensions bound to a path.
     #[must_use]
-    pub fn get_present_file(&self) -> &HashMap<String, Present> {
+    pub fn get_present_file(&self) -> &HashMap<CompactString, Present> {
         &self.present_file
     }
     /// Adds a [`Package`] extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
@@ -823,7 +823,7 @@ impl Extensions {
         request: &mut FatRequest,
         overide_uri: Option<&Uri>,
         host: &Host,
-        path: &Option<PathBuf>,
+        path: &Option<CompactString>,
         address: SocketAddr,
     ) -> Option<FatResponse> {
         if let Some(extension) = self
@@ -832,7 +832,7 @@ impl Extensions {
         {
             Some(
                 extension
-                    .call(request, host, path.as_deref(), address)
+                    .call(request, host, path.as_deref().map(Path::new), address)
                     .await,
             )
         } else {
@@ -840,7 +840,7 @@ impl Extensions {
                 if function(request, host) {
                     return Some(
                         extension
-                            .call(request, host, path.as_deref(), address)
+                            .call(request, host, path.as_deref().map(Path::new), address)
                             .await,
                     );
                 }
@@ -881,7 +881,7 @@ impl Extensions {
                         request,
                         body,
                         host,
-                        path,
+                        path: path.map(Path::new),
                         server_cache_preference,
                         client_cache_preference,
                         response: &mut cow_response,
@@ -892,6 +892,7 @@ impl Extensions {
             }
         }
         if let Some(extension) = path
+            .map(Path::new)
             .and_then(Path::extension)
             .and_then(std::ffi::OsStr::to_str)
             .and_then(|s| self.present_file.get(s))
@@ -901,7 +902,7 @@ impl Extensions {
                 request,
                 body,
                 host,
-                path,
+                path: path.map(Path::new),
                 server_cache_preference,
                 client_cache_preference,
                 response: &mut cow_response,
@@ -1097,10 +1098,12 @@ impl<R> RuleSet<R> {
     }
 }
 
-/// Prepare extension to stream body instead of reading it fully, caching, then responding.
+/// Prepare extension to stream body instead of: reading it fully, caching, then responding.
+/// **Use with care!**
 ///
 /// Does not support present extensions, nor post extensions.
-/// Id::new(-21445, "Stream file").no_override(),
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
 pub fn stream_body() -> Box<dyn PrepareCall> {
     prepare!(req, host, path, _addr, {
         debug!("Streaming body for {:?}", req.uri().path());

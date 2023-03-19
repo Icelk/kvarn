@@ -644,14 +644,14 @@ pub fn query(query: &str) -> Query {
 /// Will return `None` if `path.is_empty()` or if the first byte isn't a `/`.
 #[inline]
 #[must_use]
-pub fn uri(path: &str) -> Option<&Path> {
+pub fn uri(path: &str) -> Option<&str> {
     if path.as_bytes().first().copied() != Some(chars::FORWARD_SLASH) {
         return None;
     }
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
     let stripped_path = unsafe { str::from_utf8_unchecked(&path.as_bytes()[1..]) };
 
-    Some(Path::new(stripped_path))
+    Some(stripped_path)
 }
 /// Critical components from request to apply to response.
 #[must_use]
@@ -745,7 +745,7 @@ pub fn sanitize_request<T>(
     let path_ok = if uri_decoded_path.contains("./") || !uri_decoded_path.starts_with('/') {
         false
     } else {
-        parse::uri(&uri_decoded_path).map_or(false, Path::is_relative)
+        parse::uri(&uri_decoded_path).map_or(false, |s| Path::new(s).is_relative())
     };
     if !path_ok {
         return Err(SanitizeError::UnsafePath);
@@ -1005,7 +1005,7 @@ Some data!";
         let u = request.uri();
         assert!(sanitize_request(&request).is_err());
 
-        assert_eq!(uri(u.path()).unwrap(), Path::new("/etc/passwd"));
+        assert_eq!(uri(u.path()).unwrap(), "/etc/passwd");
         assert_eq!(uri("index.html"), None);
     }
 

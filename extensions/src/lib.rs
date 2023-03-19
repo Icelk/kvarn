@@ -82,7 +82,7 @@ pub fn new() -> Extensions {
 /// let mut extensions = Extensions::new();
 /// kvarn_extensions::mount_all(&mut extensions);
 ///
-/// let host = Host::unsecure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// let host = Host::unsecure("localhost", "web", Extensions::default(), host::Options::default());
 /// let data = HostCollection::builder().insert(host).build();
 /// let port_descriptor = PortDescriptor::new(8080, data);
 ///

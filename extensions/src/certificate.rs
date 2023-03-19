@@ -149,7 +149,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             account = Some(new_account_serialized);
 
             let d = tokio::task::spawn_blocking(move || {
-                get_cert(&new_account, &moved_domain, alt_names, |token, data| {
+                get_cert(&new_account, moved_domain, alt_names, |token, data| {
                     let mut tokens = tokens.write().unwrap();
                     tokens.insert(token.to_owned(), data.to_owned());
                 })
@@ -163,7 +163,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 }
                 Err(small_acme::Error::Str(s)) if s == NOT_PUBLIC_ERROR => {
                     debug!("We're not public facing: don't renew certs");
-                    let Ok((og_key, cert, pk)) = generate_self_signed_cert(&domain) else { return };
+                    let Ok((og_key, cert, pk)) = generate_self_signed_cert(domain.clone()) else { return };
                     let key = rustls::sign::CertifiedKey::new(
                         vec![cert],
                         rustls::sign::any_supported_type(&pk).expect("this was just generated"),
@@ -266,7 +266,7 @@ pub fn get_account(
 pub fn get_cert(
     account: &Account,
     domain: impl Into<String>,
-    alt_names: Vec<String>,
+    alt_names: Vec<impl Into<String>>,
     set_token: impl Fn(&str, &str),
 ) -> Result<
     (
@@ -280,7 +280,7 @@ pub fn get_cert(
     info!("Get cert for {domain}");
 
     let identifiers: Vec<_> = std::iter::once(Identifier::Dns(domain.clone()))
-        .chain(alt_names.iter().cloned().map(Identifier::Dns))
+        .chain(alt_names.into_iter().map(|v| v.into()).map(Identifier::Dns))
         .collect();
     let (mut order, state) = account.new_order(&NewOrder {
         identifiers: &identifiers,

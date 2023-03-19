@@ -103,7 +103,7 @@ pub struct ServerBuilder {
     https: bool,
     extensions: Extensions,
     options: host::Options,
-    path: Option<PathBuf>,
+    path: Option<CompactString>,
     handover: Option<(PathBuf, Option<u16>)>,
     cert: Option<CertifiedKey>,
 }
@@ -144,8 +144,8 @@ impl ServerBuilder {
         self
     }
     /// Sets the [`Host::path`] of this server.
-    pub fn path(mut self, path: impl AsRef<Path>) -> Self {
-        self.path = Some(path.as_ref().to_path_buf());
+    pub fn path(mut self, path: impl AsRef<str>) -> Self {
+        self.path = Some(path.as_ref().to_compact_string());
         self
     }
 
@@ -223,7 +223,7 @@ impl ServerBuilder {
             cert,
         } = self;
 
-        let path = path.as_deref().unwrap_or_else(|| Path::new("tests"));
+        let path = path.as_deref().unwrap_or("tests");
 
         let (mut host, certified_key) = if https {
             let (cert, pk) = cert.unwrap_or_else(|| {

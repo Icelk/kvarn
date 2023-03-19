@@ -18,10 +18,12 @@ pub fn mount_php(
     extensions: &mut Extensions,
     connection: Connection,
     capture_fn: impl Fn(&FatRequest, &Host) -> bool + Send + Sync + 'static,
-    path_rewrite: Option<impl Fn(&Path, &FatRequest, &Host) -> PathBuf + Send + Sync + 'static>,
+    path_rewrite: Option<
+        impl Fn(&str, &FatRequest, &Host) -> CompactString + Send + Sync + 'static,
+    >,
 ) {
     type DynPathRewrite =
-        Option<Box<dyn Fn(&Path, &FatRequest, &Host) -> PathBuf + Send + Sync + 'static>>;
+        Option<Box<dyn Fn(&str, &FatRequest, &Host) -> CompactString + Send + Sync + 'static>>;
     let path_rewrite: DynPathRewrite = match path_rewrite {
         Some(x) => Some(Box::new(x)),
         None => None,
@@ -35,14 +37,14 @@ pub fn mount_php(
             addr,
             move |connection: Connection, path_rewrite: DynPathRewrite| {
                 let rewriteen_path = path
+                    .and_then(Path::to_str)
                     .into_iter()
                     .zip(path_rewrite.iter())
                     .map(|(path, path_rewrite)| path_rewrite(path, req, host))
                     .next();
                 let path = rewriteen_path
-                    .map(Cow::Owned)
-                    .or_else(|| path.map(Cow::Borrowed));
-                php(req, host, path, addr, connection.clone()).await
+                    .or_else(|| path.and_then(Path::to_str).map(|s| s.to_compact_string()));
+                php(req, host, path.as_deref(), addr, connection.clone()).await
             }
         ),
         extensions::Id::new(-8, "PHP").no_override(),
@@ -64,6 +66,7 @@ pub async fn mount_php_with_working_directory(
     working_directory: impl Into<PathBuf>,
 ) -> Result<(), io::Error> {
     let working_directory = tokio::fs::canonicalize(working_directory.into()).await?;
+    let working_directory = working_directory.to_string_lossy().to_compact_string();
     let capture = capture.into();
     let rewrite_capture = capture.clone();
     let file_capture = capture.clone();
@@ -76,7 +79,7 @@ pub async fn mount_php_with_working_directory(
         move |req, _host| {
             req.uri().path().starts_with(&capture) && req.uri().path().ends_with(".php")
         },
-        Some(move |_path: &Path, request: &FatRequest, _host: &Host| {
+        Some(move |_path: &str, request: &FatRequest, _host: &Host| {
             let path = format!(
                 "/{}",
                 request
@@ -111,7 +114,7 @@ pub async fn mount_php_with_working_directory(
             host,
             _path,
             _addr,
-            move |file_rewrite_capture: String, file_working_directory: PathBuf| {
+            move |file_rewrite_capture: String, file_working_directory: CompactString| {
                 if req.method() != Method::GET && req.method() != Method::HEAD {
                     return default_error_response(StatusCode::METHOD_NOT_ALLOWED, host, None)
                         .await;
@@ -150,7 +153,7 @@ pub async fn mount_php_with_working_directory(
 fn php<'a>(
     req: &'a mut FatRequest,
     host: &'a Host,
-    path: Option<Cow<'a, Path>>,
+    path: Option<&'a str>,
     address: SocketAddr,
     connection: Connection,
 ) -> RetFut<'a, FatResponse> {
@@ -176,14 +179,20 @@ fn php<'a>(
                     )
                 }
             };
-            let output = match fastcgi::from_prepare(req, &body, &path, address, connection).await {
-                Ok(vec) => vec,
-                Err(err) => {
-                    error!("FastCGI failed. {}", err);
-                    return default_error_response(StatusCode::INTERNAL_SERVER_ERROR, host, None)
+            let output =
+                match fastcgi::from_prepare(req, &body, Path::new(path), address, connection).await
+                {
+                    Ok(vec) => vec,
+                    Err(err) => {
+                        error!("FastCGI failed. {}", err);
+                        return default_error_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            host,
+                            None,
+                        )
                         .await;
-                }
-            };
+                    }
+                };
             let output = Bytes::copy_from_slice(&output);
             match async_bits::read::response_php(&output) {
                 Ok(response) => FatResponse::cache(response),

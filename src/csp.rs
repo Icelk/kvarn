@@ -20,7 +20,7 @@ macro_rules! csp_rules {
         #[must_use]
         pub struct Rule {
             $($directive: ValueSet,)+
-            undefined: BTreeMap<String, ValueSet>,
+            undefined: BTreeMap<CompactString, ValueSet>,
         }
         impl Rule {
             /// Creates a new, **empty** CSP rule.
@@ -62,7 +62,7 @@ macro_rules! csp_rules {
             ///
             /// May panic if [`CspValue::Uri`] contians invalid bytes.
             pub fn string(mut self, csp_directive_name: impl Into<String>, values: ValueSet) -> Self {
-                self.undefined.insert(csp_directive_name.into(), values);
+                self.undefined.insert(csp_directive_name.into().to_compact_string(), values);
                 self
             }
 
@@ -376,9 +376,9 @@ pub enum Value {
     /// Only allow loading of resources from a specific host, with optional scheme, port, and path.
     ///
     /// Also used for [`CspRule::report`]. Then, only a path should be supplied.
-    Uri(String),
+    Uri(CompactString),
     /// Only allow loading of resources over a specific scheme, should always end with `:`. e.g. `https:`, `http:`, `data:` etc.
-    Scheme(String),
+    Scheme(CompactString),
 }
 impl Value {
     /// Returns a string representing `self`.
@@ -431,7 +431,7 @@ impl ValueSet {
     /// Adds `uri` to `self`.
     #[inline]
     pub fn uri(self, uri: impl Into<String>) -> Self {
-        self.push(Value::Uri(uri.into()))
+        self.push(Value::Uri(uri.into().to_compact_string()))
     }
     /// Adds `scheme` to `self`.
     /// `scheme` has to end in `:`.
@@ -443,7 +443,7 @@ impl ValueSet {
     pub fn scheme(self, scheme: impl Into<String>) -> Self {
         let s = scheme.into();
         assert!(s.ends_with(':'), "scheme has to end with ':'.");
-        self.push(Value::Scheme(s))
+        self.push(Value::Scheme(s.to_compact_string()))
     }
     /// Pushes another `value` to the set of values of `self`.
     #[inline]

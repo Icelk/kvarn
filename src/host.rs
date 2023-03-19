@@ -41,10 +41,10 @@ use rustls::{
 pub struct Host {
     /// The name of the host, will be used in matching the requests [SNI hostname](rustls::server::ClientHello::server_name())
     /// and `host` header to get the requested host to handle the request.
-    pub name: String,
+    pub name: CompactString,
     /// The alternative names this host is recognized by.
     /// This should probably be empty unless your certificate also covers these names.
-    pub alternative_names: Vec<String>,
+    pub alternative_names: Vec<CompactString>,
     /// The certificate of this host, if any.
     #[cfg(feature = "https")]
     pub certificate: std::sync::RwLock<Option<Arc<sign::CertifiedKey>>>,
@@ -55,7 +55,7 @@ pub struct Host {
     /// (`public` by default; see [`Options::public_data_dir`]).
     ///
     /// Also, all extensions should use this to access data on disk.
-    pub path: PathBuf,
+    pub path: CompactString,
     /// The extensions of this host.
     pub extensions: Extensions,
     /// The file cache of this host.
@@ -99,9 +99,9 @@ impl Host {
     #[cfg(feature = "https")]
     pub fn try_read_fs(
         host_name: impl AsRef<str>,
-        cert_path: impl AsRef<Path>,
-        private_key_path: impl AsRef<Path>,
-        path: impl AsRef<Path>,
+        cert_path: impl AsRef<str>,
+        private_key_path: impl AsRef<str>,
+        path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Result<Self, (CertificateError, Self)> {
@@ -124,9 +124,9 @@ impl Host {
     /// Will return any error from [`get_certified_key()`].
     #[cfg(all(feature = "https", feature = "auto-hostname"))]
     pub fn read_fs_name_from_cert(
-        cert_path: impl AsRef<Path>,
-        private_key_path: impl AsRef<Path>,
-        path: impl AsRef<Path>,
+        cert_path: impl AsRef<str>,
+        private_key_path: impl AsRef<str>,
+        path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Result<Self, CertificateError> {
@@ -169,17 +169,17 @@ impl Host {
         name: impl AsRef<str>,
         cert: Vec<rustls::Certificate>,
         pk: Arc<dyn sign::SigningKey>,
-        path: impl AsRef<Path>,
+        path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
         let cert = sign::CertifiedKey::new(cert, pk);
 
         Self {
-            name: name.as_ref().to_owned(),
+            name: name.as_ref().to_compact_string(),
             alternative_names: Vec::new(),
             certificate: std::sync::RwLock::new(Some(Arc::new(cert))),
-            path: path.as_ref().to_path_buf(),
+            path: path.as_ref().to_compact_string(),
             extensions,
             file_cache: Some(MokaCache::default()),
             response_cache: Some(MokaCache::default()),
@@ -199,7 +199,7 @@ impl Host {
     pub fn new_name_from_cert(
         cert: Vec<rustls::Certificate>,
         pk: Arc<dyn sign::SigningKey>,
-        path: impl AsRef<Path>,
+        path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
@@ -217,7 +217,7 @@ impl Host {
             .to_owned();
         let mut alt_names = Vec::new();
         for name in names.filter_map(|name| name.as_str().ok()) {
-            alt_names.push(name.to_string());
+            alt_names.push(name.to_compact_string());
         }
         let alt_name = tbs
             .subject_alternative_name()
@@ -232,7 +232,7 @@ impl Host {
                     _ => None,
                 })
             {
-                alt_names.push((*name).into());
+                alt_names.push((*name).to_compact_string());
             }
         }
         let mut me = Self::new(name, cert, pk, path, extensions, options);
@@ -245,16 +245,16 @@ impl Host {
     /// Consider enabling the `https` feature and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
     pub fn unsecure(
         host_name: impl AsRef<str>,
-        path: impl AsRef<Path>,
+        path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
         Self {
-            name: host_name.as_ref().to_owned(),
+            name: host_name.as_ref().to_compact_string(),
             alternative_names: Vec::new(),
             #[cfg(feature = "https")]
             certificate: std::sync::RwLock::new(None),
-            path: path.as_ref().to_path_buf(),
+            path: path.as_ref().to_compact_string(),
             extensions,
             file_cache: Some(MokaCache::default()),
             response_cache: Some(MokaCache::default()),
@@ -274,10 +274,10 @@ impl Host {
     /// and [`Host::with_hsts`] to harden the system.
     #[cfg(feature = "https")]
     pub fn http_redirect_or_unsecure(
-        host_name: &'static str,
-        cert_path: impl AsRef<Path>,
-        private_key_path: impl AsRef<Path>,
-        path: impl AsRef<Path>,
+        host_name: impl AsRef<str>,
+        cert_path: impl AsRef<str>,
+        private_key_path: impl AsRef<str>,
+        path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
@@ -355,7 +355,8 @@ impl Host {
     ///
     /// See [the fiels](Self::alternative_names) for more details.
     pub fn add_alternative_name(&mut self, name: impl AsRef<str>) -> &mut Self {
-        self.alternative_names.push(name.as_ref().to_owned());
+        self.alternative_names
+            .push(name.as_ref().to_compact_string());
         self
     }
 
@@ -493,18 +494,18 @@ pub struct Options {
     /// E.g. `/posts/` -> `/posts/index.html`
     ///
     /// If no value is passed, `index.html` is assumed.
-    pub folder_default: Option<String>,
+    pub folder_default: Option<CompactString>,
     /// Will be the default for unspecified file extensions; `/foobar.` will resolve to `/foobar.<extension_default>`.
     /// E.g. `/index.` -> `/index.html`
     ///
     /// If no value is passed, `html` is assumed.
-    pub extension_default: Option<String>,
+    pub extension_default: Option<CompactString>,
     /// Default data directory for public files.
     /// Default is `public`.
-    pub public_data_dir: Option<PathBuf>,
+    pub public_data_dir: Option<CompactString>,
     /// Default directory for overriding HTTP error responses.
     /// Default is `errors`.
-    pub errors_dir: Option<PathBuf>,
+    pub errors_dir: Option<CompactString>,
 
     // # Cache
     /// Returns `cache-control` header to be `no-store` by default, if enabled.
@@ -561,14 +562,14 @@ impl Options {
     }
     /// Sets the directory (relative to the [`Host::path`]) to fetch data for the web in.
     /// Defaults to `public`.
-    pub fn set_public_data_dir(&mut self, path: impl AsRef<Path>) -> &mut Self {
-        self.public_data_dir = Some(path.as_ref().to_path_buf());
+    pub fn set_public_data_dir(&mut self, path: impl AsRef<str>) -> &mut Self {
+        self.public_data_dir = Some(path.as_ref().to_compact_string());
         self
     }
     /// Sets the directory (relative to the [`Host::path`]) to get HTTP error overrides from.
     /// Defaults to `errors`.
-    pub fn set_errors_dir(&mut self, path: impl AsRef<Path>) -> &mut Self {
-        self.errors_dir = Some(path.as_ref().to_path_buf());
+    pub fn set_errors_dir(&mut self, path: impl AsRef<str>) -> &mut Self {
+        self.errors_dir = Some(path.as_ref().to_compact_string());
         self
     }
 
@@ -587,18 +588,14 @@ impl Options {
     /// Gets the [`Self::public_data_dir`], as used by Kvarn.
     /// Uses the default specified there.
     #[must_use]
-    pub fn get_public_data_dir(&self) -> &Path {
-        self.public_data_dir
-            .as_deref()
-            .unwrap_or_else(|| Path::new("public"))
+    pub fn get_public_data_dir(&self) -> &str {
+        self.public_data_dir.as_deref().unwrap_or("public")
     }
     /// Gets the [`Self::errors_dir`], as used by Kvarn.
     /// Uses the default specified there.
     #[must_use]
-    pub fn get_errors_dir(&self) -> &Path {
-        self.public_data_dir
-            .as_deref()
-            .unwrap_or_else(|| Path::new("errors"))
+    pub fn get_errors_dir(&self) -> &str {
+        self.public_data_dir.as_deref().unwrap_or("errors")
     }
 }
 impl Default for Options {
@@ -691,7 +688,7 @@ impl CollectionBuilder {
 #[allow(clippy::large_enum_variant)] // we want direct access to the host.
 enum HostValue {
     Host(Host),
-    Ref(String),
+    Ref(CompactString),
 }
 impl HostValue {
     fn as_host(&self) -> Option<&Host> {
@@ -716,9 +713,9 @@ impl HostValue {
 #[derive(Debug)]
 #[must_use]
 pub struct Collection {
-    default: Option<String>,
-    by_name: HashMap<String, HostValue>,
-    first: Option<String>,
+    default: Option<CompactString>,
+    by_name: HashMap<CompactString, HostValue>,
+    first: Option<CompactString>,
     has_secure: bool,
     pre_host_limiter: LimitManager,
 }
@@ -737,7 +734,7 @@ impl Collection {
     /// Creates a `Host` without certification, using the directories `./public` and `./templates`.
     /// The host is the default. See [`host`] for more info.
     #[inline]
-    pub fn simple_non_secure(default_host_name: &'static str, extensions: Extensions) -> Self {
+    pub fn simple_non_secure(default_host_name: impl AsRef<str>, extensions: Extensions) -> Self {
         Self::builder()
             .default(Host::unsecure(
                 default_host_name,
@@ -857,6 +854,7 @@ impl Collection {
 
     /// Clears all response caches.
     #[inline]
+    #[allow(clippy::unused_async)] // API compat and future proofing
     pub async fn clear_response_caches(&self, host_filter: Option<&str>) {
         for host in self.by_name.values().filter_map(HostValue::as_host) {
             if host_filter.map_or(false, |h| h != host.name) {
@@ -914,6 +912,7 @@ impl Collection {
     }
     /// Clears all file caches.
     #[inline]
+    #[allow(clippy::unused_async)] // API compat and future proofing
     pub async fn clear_file_caches(&self, host_filter: Option<&str>) {
         for host in self.by_name.values().filter_map(HostValue::as_host) {
             if host_filter.map_or(false, |h| h != host.name) {
@@ -937,7 +936,7 @@ impl Collection {
     ///
     /// This iterates over all caches and [locks](RwLock::write) them, which takes a lot of time.
     /// Though, it's not blocking.
-    pub async fn clear_file(&self, host: &str, path: impl AsRef<Path>) -> (bool, bool) {
+    pub async fn clear_file(&self, host: &str, path: impl AsRef<str>) -> (bool, bool) {
         let path = path.as_ref();
         let mut found = false;
         let mut cleared = false;
@@ -1067,11 +1066,11 @@ pub type CertKeyPair = (Vec<rustls::Certificate>, Arc<dyn sign::SigningKey>);
 /// Will return any errors while reading the files, or any parsing errors.
 #[cfg(feature = "https")]
 pub fn get_certified_key(
-    cert_path: impl AsRef<Path>,
-    private_key_path: impl AsRef<Path>,
+    cert_path: impl AsRef<str>,
+    private_key_path: impl AsRef<str>,
 ) -> Result<CertKeyPair, CertificateError> {
-    let mut chain = io::BufReader::new(std::fs::File::open(&cert_path)?);
-    let mut private_key = io::BufReader::new(std::fs::File::open(&private_key_path)?);
+    let mut chain = io::BufReader::new(std::fs::File::open(cert_path.as_ref())?);
+    let mut private_key = io::BufReader::new(std::fs::File::open(private_key_path.as_ref())?);
 
     let mut private_keys = Vec::with_capacity(4);
     private_keys.extend(match rustls_pemfile::pkcs8_private_keys(&mut private_key) {

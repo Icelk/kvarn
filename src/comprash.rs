@@ -13,7 +13,7 @@ use std::{borrow::Borrow, hash::Hash};
 pub static HTTP_DATE: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short case_sensitive:true], [day padding:zero] [month repr:short case_sensitive:true] [year padding:zero repr:full base:calendar sign:automatic] [hour repr:24 padding:zero]:[minute padding:zero]:[second padding:zero] GMT");
 
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a file cache.
-pub type FileCache = MokaCache<PathBuf, Bytes>;
+pub type FileCache = MokaCache<CompactString, Bytes>;
 /// A [`Cache`] inside a [`Mutex`] with appropriate type parameters for a response cache.
 pub type ResponseCache = MokaCache<UriKey, LifetimeCache<Arc<VariedResponse>>>;
 
@@ -23,7 +23,7 @@ pub type ResponseCache = MokaCache<UriKey, LifetimeCache<Arc<VariedResponse>>>;
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 #[must_use]
 pub struct PathQuery {
-    string: String,
+    string: CompactString,
     query_start: usize,
 }
 impl PathQuery {
@@ -51,7 +51,7 @@ impl PathQuery {
     /// Discards any [`Self::query()`] and returns the [`Self::path()`] as a [`String`]
     #[inline]
     #[must_use]
-    pub fn into_path(mut self) -> String {
+    pub fn into_path(mut self) -> CompactString {
         self.truncate_query();
         self.string
     }
@@ -61,7 +61,7 @@ impl From<&Uri> for PathQuery {
     fn from(uri: &Uri) -> Self {
         match uri.query() {
             Some(query) => {
-                let mut string = String::with_capacity(uri.path().len() + query.len());
+                let mut string = CompactString::with_capacity(uri.path().len() + query.len());
                 string.push_str(uri.path());
                 string.push_str(query);
                 Self {
@@ -70,7 +70,7 @@ impl From<&Uri> for PathQuery {
                 }
             }
             None => Self {
-                string: uri.path().to_string(),
+                string: uri.path().to_compact_string(),
                 query_start: uri.path().len(),
             },
         }
@@ -87,7 +87,7 @@ pub enum UriKey {
     ///
     /// Searching the cache with this should be avoided.
     /// See [`Self::call_all`].
-    Path(String),
+    Path(CompactString),
     /// Uri with a path and optional query.
     ///
     /// See [`PathQuery`].
@@ -116,7 +116,7 @@ impl UriKey {
     /// // then, the query gets truncated and we get a key as UriKey::Path("/status").
     /// let (_key, found) = key.call_all(|key| {
     ///     match key {
-    ///         UriKey::Path(path) if path == "/status" => Some(true),
+    ///         UriKey::Path(path) if *path == "/status" => Some(true),
     ///         _ => None
     ///     }
     /// });

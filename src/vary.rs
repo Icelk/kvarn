@@ -145,7 +145,7 @@ impl Settings {
 ///     "en-GB"
 /// }
 ///
-/// let host = Host::non_secure("localhost", PathBuf::from("web"), Extensions::default(), host::Options::default());
+/// let host = Host::non_secure("localhost", "web", Extensions::default(), host::Options::default());
 ///
 /// host.vary.add_mut(
 ///     "/test_lang",

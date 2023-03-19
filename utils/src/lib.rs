@@ -429,23 +429,38 @@ impl Write for WriteableBytes {
 ///
 /// Format is `<base_path>/<dir>/<file>(.<extension>)`
 pub fn make_path(
-    base_path: impl AsRef<Path>,
-    dir: impl AsRef<Path>,
-    file: impl AsRef<Path>,
+    base_path: impl AsRef<str>,
+    dir: impl AsRef<str>,
+    file: impl AsRef<str>,
     extension: Option<&str>,
-) -> PathBuf {
-    let mut path = PathBuf::with_capacity(
-        base_path.as_ref().as_os_str().len()
-            + dir.as_ref().as_os_str().len()
+) -> CompactString {
+    let mut path = CompactString::with_capacity(
+        base_path.as_ref().len()
+            + dir.as_ref().len()
             + 2
-            + file.as_ref().as_os_str().len()
+            + file.as_ref().len()
             + extension.map_or(0, |e| e.len() + 1),
     );
-    path.push(base_path);
-    path.push(dir);
-    path.push(file);
+    path.push_str(base_path.as_ref());
+    path.push('/');
+    path.push_str(dir.as_ref());
+    path.push('/');
+    path.push_str(file.as_ref());
     if let Some(extension) = extension {
-        path.set_extension(extension);
+        let mut folder = false;
+        if let Some(pos) = path.rfind(move |c| {
+            if folder {
+                return false;
+            }
+            if c == '/' {
+                folder = true;
+            }
+            c == '.'
+        }) {
+            path.split_off(pos);
+        }
+        path.push('.');
+        path.push_str(extension);
     }
     path
 }
@@ -1078,12 +1093,12 @@ mod tests {
     #[test]
     fn path1() {
         let path = make_path("public", "errors", "404", Some("html"));
-        assert_eq!(path, Path::new("public/errors/404.html"));
+        assert_eq!(path, "public/errors/404.html");
     }
     #[test]
     fn path2() {
         let path = make_path("public", "errors/static", "404", None);
-        assert_eq!(path, Path::new("public/errors/static/404"));
+        assert_eq!(path, "public/errors/static/404");
     }
 
     fn get_headers() -> HeaderMap {
