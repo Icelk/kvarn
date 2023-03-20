@@ -688,6 +688,7 @@ impl<'a> SendKind<'a> {
             }
         }
 
+        #[allow(clippy::or_fun_call)] // it's then len, so just compiles down to a int lookup
         let len = overriden_len.unwrap_or(response.body().len());
         self.ensure_version_and_length(&mut response, len);
 

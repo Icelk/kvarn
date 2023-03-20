@@ -299,6 +299,7 @@ impl CompressedResponse {
     /// # Errors
     ///
     /// May return a &str to be used to inform the client what error occurred in content negotiation.
+    #[allow(clippy::unused_async)] // for when we have no compression
     pub async fn clone_preferred<T>(
         &self,
         request: &Request<T>,
