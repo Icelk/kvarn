@@ -766,7 +766,7 @@ impl Collection {
                     self.by_name
                         .get(r)
                         .and_then(HostValue::as_host)
-                        .expect("internal error when resolving host"),
+                        .expect("internal error when resolving host: Ref pointed to Ref"),
                 ),
             },
             None => None,

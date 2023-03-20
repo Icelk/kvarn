@@ -529,7 +529,7 @@ pub async fn handle_connection(
             return Ok(());
         }
     };
-    let sni = encrypted.sni_hostname().map(str::to_string);
+    let sni = encrypted.sni_hostname().map(|s| s.to_compact_string());
     debug!("New connection requesting hostname '{sni:?}'");
 
     // LAYER 3

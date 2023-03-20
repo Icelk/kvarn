@@ -1140,7 +1140,7 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                 FatResponse::new(response, comprash::ServerCachePreference::None)
                     .with_future_and_len(
                         response_pipe_fut!(response, _host, move |file: tokio::fs::File| {
-                            let _ = tokio::io::copy(file, response).await;
+                            let _err = tokio::io::copy(file, response).await;
                         }),
                         meta.len() as usize,
                     )
