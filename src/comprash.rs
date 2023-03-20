@@ -299,7 +299,7 @@ impl CompressedResponse {
     /// # Errors
     ///
     /// May return a &str to be used to inform the client what error occurred in content negotiation.
-    pub fn clone_preferred<T>(
+    pub async fn clone_preferred<T>(
         &self,
         request: &Request<T>,
         options: &CompressionOptions,
@@ -358,21 +358,21 @@ impl CompressedResponse {
                             let mut preferred = match options.preferred.as_str() {
                                 #[cfg(feature = "br")]
                                 "br" if contains_br => {
-                                    Some((self.get_br(options.brotli_level), "br"))
+                                    Some((self.get_br(options.brotli_level).await, "br"))
                                 }
                                 #[cfg(feature = "gzip")]
                                 "gzip" if contains_gzip => {
-                                    Some((self.get_gzip(options.gzip_level), "gzip"))
+                                    Some((self.get_gzip(options.gzip_level).await, "gzip"))
                                 }
                                 _ => None,
                             };
                             #[cfg(feature = "br")]
                             if preferred.is_none() && contains_br {
-                                preferred = Some((self.get_br(options.brotli_level), "br"));
+                                preferred = Some((self.get_br(options.brotli_level).await, "br"));
                             }
                             #[cfg(feature = "gzip")]
                             if preferred.is_none() && contains_gzip {
-                                preferred = Some((self.get_gzip(options.gzip_level), "gzip"));
+                                preferred = Some((self.get_gzip(options.gzip_level).await, "gzip"));
                             }
                             preferred.unwrap_or_else(|| (self.get_identity().body(), "identity"))
                         }
@@ -494,19 +494,23 @@ impl CompressedResponse {
     /// You should use [`Self::clone_preferred`] to get the preferred compression instead,
     /// as it is available with any set of features
     #[cfg(feature = "gzip")]
-    pub fn get_gzip(&self, level: u32) -> &Bytes {
+    pub async fn get_gzip(&self, level: u32) -> &Bytes {
         if self.gzip.is_none() {
-            let bytes = self.identity.body().as_ref();
+            let bytes = self.identity.body().clone();
+            let buffer = tokio::task::spawn_blocking(move || {
+                let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
 
-            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
+                // 1-9, 1 is fast, 9 is slow. 4 is equal to brotli's 3
+                let mut c =
+                    flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::new(level));
+                c.write_all(&bytes).expect("Failed to compress using gzip!");
+                c.finish().expect("Failed to compress using gzip!");
 
-            // 1-9, 1 is fast, 9 is slow. 4 is equal to brotli's 3
-            let mut c = flate2::write::GzEncoder::new(&mut buffer, flate2::Compression::new(level));
-            c.write_all(bytes).expect("Failed to compress using gzip!");
-            c.finish().expect("Failed to compress using gzip!");
-
-            let buffer = buffer.into_inner();
-            let buffer = buffer.freeze();
+                let buffer = buffer.into_inner();
+                buffer.freeze()
+            })
+            .await
+            .unwrap();
 
             // Last check to make sure we don't override any value.
             if self.gzip.is_none() {
@@ -522,22 +526,24 @@ impl CompressedResponse {
     /// You should use [`Self::clone_preferred`] to get the preferred compression instead,
     /// as it is available with any set of features
     #[cfg(feature = "br")]
-    pub fn get_br(&self, level: u32) -> &Bytes {
+    pub async fn get_br(&self, level: u32) -> &Bytes {
         if self.br.is_none() {
-            let bytes = self.identity.body().as_ref();
+            let bytes = self.identity.body().clone();
+            let buffer = tokio::task::spawn_blocking(move || {
+                let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
 
-            let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
+                // 1-10, 1 is fast, 10 is really slow
+                let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, level, 21);
+                c.write_all(&bytes)
+                    .expect("Failed to compress using Brotli!");
+                c.flush().expect("Failed to compress using Brotli!");
+                c.into_inner();
 
-            // 1-10, 1 is fast, 10 is really slow
-            let mut c = brotli::CompressorWriter::new(&mut buffer, 4096, level, 21);
-            c.write_all(bytes)
-                .expect("Failed to compress using Brotli!");
-            c.flush().expect("Failed to compress using Brotli!");
-            c.into_inner();
-
-            let buffer = buffer.into_inner();
-            let buffer = buffer.freeze();
-
+                let buffer = buffer.into_inner();
+                buffer.freeze()
+            })
+            .await
+            .unwrap();
             // Last check to make sure we don't override any value.
             if self.br.is_none() {
                 // maybe shooting myself in the foot...

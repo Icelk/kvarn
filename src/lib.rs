@@ -1091,7 +1091,10 @@ pub async fn handle_cache(
                     let body = resp.get_identity().body().clone();
                     utils::empty_clone_response(resp.get_identity()).map(|()| body)
                 } else {
-                    match resp.clone_preferred(request, &host.compression_options) {
+                    match resp
+                        .clone_preferred(request, &host.compression_options)
+                        .await
+                    {
                         Err(message) => {
                             error::default(
                                 StatusCode::NOT_ACCEPTABLE,
@@ -1150,7 +1153,10 @@ pub async fn handle_cache(
                 let body = compressed_response.get_identity().body().clone();
                 utils::empty_clone_response(compressed_response.get_identity()).map(|()| body)
             } else {
-                match compressed_response.clone_preferred(request, &host.compression_options) {
+                match compressed_response
+                    .clone_preferred(request, &host.compression_options)
+                    .await
+                {
                     Err(message) => {
                         error::default(
                             StatusCode::NOT_ACCEPTABLE,
