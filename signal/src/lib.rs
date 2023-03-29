@@ -15,8 +15,7 @@ pub mod unix {
     use std::path::Path;
     use std::pin::Pin;
     use std::sync::Arc;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{UnixListener, UnixStream};
+    use tokio_uring::net::{UnixListener, UnixStream};
 
     pub enum Response<T> {
         /// The socket wasn't found, or had no listener.
@@ -49,31 +48,40 @@ pub mod unix {
     }
 
     /// Sends `data` to a [`UnixListener`] at `path`.
-    pub async fn send_to(data: &[u8], path: impl AsRef<Path>) -> Response<Vec<u8>> {
+    pub async fn send_to(data: impl Into<Vec<u8>>, path: impl AsRef<Path>) -> Response<Vec<u8>> {
         let path = path.as_ref();
         match UnixStream::connect(path).await {
             Err(err) => match err.kind() {
                 io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => Response::NotFound,
                 _ => Response::Error,
             },
-            Ok(mut connection) => {
+            Ok(connection) => {
                 debug!("Connected to {path:?}");
-                if let Err(err) = connection.write_all(data).await {
+                let (r, mut buf): (_, Vec<u8>) = connection.write_all(data.into()).await;
+                if let Err(err) = r {
                     error!("Failed to send message! {:?}", err);
                     Response::Error
                 } else {
                     debug!("Wrote to {path:?}");
-                    // Flushes the data.
-                    connection.shutdown().await.unwrap();
 
-                    let mut buf = Vec::new();
+                    // max 2 kiB size
+                    buf.reserve(1024 * 2);
+                    #[allow(clippy::uninit_vec)] // we set beck the length after
+                    unsafe {
+                        buf.set_len(buf.capacity());
+                    }
                     debug!("Try to read from {path:?}");
-                    if let Err(err) = connection.read_to_end(&mut buf).await {
-                        error!("Failed to receive message. {:?}", err);
-                        Response::Error
-                    } else {
-                        debug!("Read from {path:?}");
-                        Response::Data(buf)
+                    let (r, mut buf) = connection.read(buf).await;
+                    match r {
+                        Err(err) => {
+                            error!("Failed to receive message. {:?}", err);
+                            Response::Error
+                        }
+                        Ok(len) => {
+                            unsafe { buf.set_len(len) };
+                            debug!("Read from {path:?}");
+                            Response::Data(buf)
+                        }
                     }
                 }
             }
@@ -97,16 +105,13 @@ pub mod unix {
     /// The sender can be used to signal we need to close (if `true` is sent)
     #[allow(clippy::too_many_lines)]
     pub async fn start_at(
-        handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse> + Send + Sync>>
-            + Send
-            + Sync
-            + 'static,
-        path: impl AsRef<Path> + Send + 'static,
+        handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse>>> + 'static,
+        path: impl AsRef<Path> + 'static,
     ) -> (bool, tokio::sync::mpsc::UnboundedSender<bool>) {
-        let overridden = tokio::fs::remove_file(path.as_ref()).await.is_ok();
+        let overridden = tokio_uring::fs::remove_file(path.as_ref()).await.is_ok();
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let returned_sender = sender.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             let path = path.as_ref();
             let sender = Arc::new(sender);
             let handler = Arc::new(handler);
@@ -184,21 +189,29 @@ pub mod unix {
                                 },
                             };
                             match r {
-                                Ok((mut connection, addr)) => {
+                                Ok(connection) => {
                                     let handler = Arc::clone(&handler);
                                     let sender = sender.clone();
-                                    debug!("accepted connection from {addr:?}");
+                                    debug!("accepted connection");
 
                                     // spawn here so the listening isn't blocked.
-                                    tokio::spawn(async move {
+                                    tokio::task::spawn_local(async move {
                                         debug!("In tokio task, handling message");
-                                        let mut data = Vec::new();
-                                        if let Err(err) = connection.read_to_end(&mut data).await {
-                                            warn!("Failed on reading request: {err:?}");
-                                            return;
+                                        let mut data = Vec::with_capacity(4 * 1024);
+                                        #[allow(clippy::uninit_vec)] // we set back the length after
+                                        unsafe {
+                                            data.set_len(data.capacity());
+                                        }
+                                        let (r, mut data) = connection.read(data).await;
+                                        match r {
+                                            Err(err) => {
+                                                warn!("Failed on reading request: {err:?}");
+                                                return;
+                                            }
+                                            Ok(len) => unsafe { data.set_len(len) },
                                         }
                                         debug!(
-                                            "Read {} from remote at {addr:?}",
+                                            "Read {} from remote",
                                             String::from_utf8_lossy(&data)
                                         );
                                         let handler = Arc::clone(&handler);
@@ -216,12 +229,9 @@ pub mod unix {
                                         }
 
                                         debug!("Write response");
-                                        if let Err(err) = connection.write_all(&data).await {
+                                        if let (Err(err), _) = connection.write_all(data).await {
                                             warn!("Failed to write response: {err:?}");
                                             return;
-                                        }
-                                        if let Err(err) = connection.shutdown().await {
-                                            warn!("Failed to flush content. {:?}", err);
                                         }
                                         debug!("Wrote response");
                                         if let Some(post_send) = post_send {

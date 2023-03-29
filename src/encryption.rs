@@ -4,6 +4,7 @@
 //! to enable seamless integration with the [`tokio`] runtime.
 //!
 //! Most of the code is a subset of [`tokio-rustls`](https://crates.io/crates/tokio-rustls)
+use crate::application::TcpStreamAsyncWrapper;
 use crate::prelude::{networking::*, *};
 #[cfg(feature = "https")]
 use rustls::{ServerConfig, ServerConnection};
@@ -25,10 +26,10 @@ compile_error!(
 pub enum Encryption {
     /// A TLS encrypted TCP stream.
     #[cfg(feature = "https")]
-    TcpTls(Box<TlsStream<TcpStream>>),
+    TcpTls(Box<TlsStream<TcpStreamAsyncWrapper>>),
     /// A unencrypted TCP stream for use with
     /// non-secure HTTP.
-    Tcp(TcpStream),
+    Tcp(TcpStreamAsyncWrapper),
 }
 impl Encryption {
     /// Creates a new [`Encryption`] from a `tcp` connection.
@@ -42,11 +43,11 @@ impl Encryption {
         certificate: Option<Arc<ServerConfig>>,
     ) -> Result<Self, Error> {
         match certificate {
-            None => Ok(Self::Tcp(stream)),
+            None => Ok(Self::Tcp(TcpStreamAsyncWrapper::new(stream))),
             Some(config) => {
                 let session = ServerConnection::new(config)?;
                 let stream = TlsStream {
-                    io: stream,
+                    io: TcpStreamAsyncWrapper::new(stream),
                     session,
                     state: TlsState::Stream,
                 };
@@ -75,6 +76,7 @@ impl Encryption {
     /// due to a [`rustls`] type in it's definition.
     #[cfg(feature = "https")]
     #[inline]
+    #[must_use]
     pub fn peer_certificates(&self) -> Option<&[rustls::Certificate]> {
         match self {
             Self::TcpTls(s) => s.session.peer_certificates(),
@@ -87,6 +89,7 @@ impl Encryption {
     /// Else, a value of `None` means no protocol was agreed
     /// (because no protocols were offered or accepted by the peer).
     #[inline]
+    #[must_use]
     pub fn alpn_protocol(&self) -> Option<&[u8]> {
         match self {
             #[cfg(feature = "https")]
@@ -107,6 +110,7 @@ impl Encryption {
     /// due to a [`rustls`] type in it's definition.
     #[cfg(feature = "https")]
     #[inline]
+    #[must_use]
     pub fn protocol_version(&self) -> Option<rustls::ProtocolVersion> {
         match self {
             Self::TcpTls(s) => s.session.protocol_version(),
@@ -486,6 +490,14 @@ mod tokio_tls {
                             }
                             Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
                         }
+                    }
+
+                    match Pin::new(&mut self.io).poll_flush(cx) {
+                        Poll::Pending => {
+                            write_would_block = true;
+                        }
+                        Poll::Ready(Ok(())) => {}
+                        Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
                     }
 
                     while !self.eof && self.session.wants_read() {

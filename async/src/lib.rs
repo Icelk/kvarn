@@ -239,6 +239,7 @@ pub mod read {
         }
 
         unsafe { buffer.set_len(buffer.capacity()) };
+        println!("read more!");
         let read_now = tokio::time::timeout(timeout, reader.read(&mut buffer[*read..]))
             .await
             .ok()
@@ -246,6 +247,7 @@ pub mod read {
             .ok()
             .ok_or(Error::Done)?;
         *read += read_now;
+        println!("read more: {read_now}");
         unsafe { buffer.set_len(*read) };
 
         Ok(read_now)
@@ -262,6 +264,7 @@ pub mod read {
         let read = &mut read;
 
         loop {
+            println!("Read more");
             if read_more(&mut buffer, &mut reader, read, max_len, timeout).await? == 0 {
                 break;
             };
@@ -269,7 +272,9 @@ pub mod read {
                 return Err(Error::Syntax);
             }
 
+            println!("if contains");
             if contains_two_newlines(&buffer) {
+                println!("does contain");
                 break;
             }
         }

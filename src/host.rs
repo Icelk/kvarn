@@ -960,6 +960,8 @@ impl Collection {
         (found, cleared)
     }
 }
+unsafe impl Send for Collection {}
+unsafe impl Sync for Collection {}
 #[cfg(feature = "https")]
 impl ResolvesServerCert for Collection {
     #[inline]

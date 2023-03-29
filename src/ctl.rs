@@ -587,7 +587,7 @@ pub(crate) async fn listen(
         let supports_shutdown = plugins.plugins.contains_key("shutdown");
 
         if supports_shutdown {
-            match kvarn_signal::unix::send_to(b"shutdown no-wait", &path)
+            match kvarn_signal::unix::send_to(b"shutdown no-wait".to_vec(), &path)
                 .await
                 .as_deref()
             {

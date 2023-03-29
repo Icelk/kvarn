@@ -16,11 +16,11 @@ use crate::prelude::{internals::*, *};
 ///
 /// Used as the return type for all extensions,
 /// so they can be stored.
-pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + Send + 'a)>>;
+pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + 'a)>>;
 /// Same as [`RetFut`] but also implementing [`Sync`].
 ///
 /// Mostly used for extensions used across yield bounds.
-pub type RetSyncFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'a>>;
+pub type RetSyncFut<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 /// A prime extension.
 ///
@@ -31,7 +31,7 @@ pub type RetSyncFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'a>>
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
 pub type Prime = Box<dyn PrimeCall>;
 /// Implement this to pass your extension to [`Extensions::add_prime`].
-pub trait PrimeCall: Send + Sync {
+pub trait PrimeCall {
     /// # Arguments
     ///
     /// - An immutable reference to the request.
@@ -71,7 +71,7 @@ impl<
 pub type Prepare = Box<dyn PrepareCall>;
 /// Implement this to pass your extension to [`Extensions::add_prepare_fn`] or
 /// [`Extensions::add_prepare_single`].
-pub trait PrepareCall: Send + Sync {
+pub trait PrepareCall {
     /// # Arguments
     ///
     /// - A mutable reference to the request.
@@ -117,7 +117,7 @@ impl<
 pub type Present = Box<dyn PresentCall>;
 /// Implement this to pass your extension to [`Extensions::add_present_file`] or
 /// [`Extensions::add_present_internal`].
-pub trait PresentCall: Send + Sync {
+pub trait PresentCall {
     /// # Arguments
     ///
     /// [`PresentData`] contains all the references to the data needed.
@@ -180,7 +180,7 @@ impl<
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
 pub type Post = Box<dyn PostCall>;
 /// Implement this to pass your extension to [`Extensions::add_post`].
-pub trait PostCall: Send + Sync {
+pub trait PostCall {
     /// # Arguments
     ///
     /// - An immutable reference to the request.
@@ -229,7 +229,7 @@ pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool + Sync + Send)>;
 /// Used with [`Prepare`] extensions in their returned [`FatResponse`].
 pub type ResponsePipeFuture = Box<dyn ResponsePipeFutureCall>;
 /// Implement this to pass your future to [`FatResponse::with_future`].
-pub trait ResponsePipeFutureCall: Send + Sync {
+pub trait ResponsePipeFutureCall {
     /// # Arguments
     ///
     /// - A mutable reference to the [`ResponseBodyPipe`].
@@ -1108,9 +1108,9 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
     prepare!(req, host, path, _addr, {
         debug!("Streaming body for {:?}", req.uri().path());
         if let Some(path) = path {
-            let file = tokio::fs::File::open(path).await;
-            let meta = if let Ok(file) = &file {
-                file.metadata().await.ok()
+            let file = tokio_uring::fs::File::open(path).await;
+            let meta = if file.is_ok() {
+                tokio_uring::fs::statx(path).await.ok()
             } else {
                 None
             };
@@ -1139,10 +1139,34 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
 
                 FatResponse::new(response, comprash::ServerCachePreference::None)
                     .with_future_and_len(
-                        response_pipe_fut!(response, _host, move |file: tokio::fs::File| {
-                            let _err = tokio::io::copy(file, response).await;
+                        response_pipe_fut!(response, _host, move |file: tokio_uring::fs::File| {
+                            let mut buf = Vec::with_capacity(1024 * 32);
+                            let mut pos = 0;
+                            unsafe { buf.set_len(buf.capacity()) };
+                            loop {
+                                let (r, b) = file.read_at(buf, pos).await;
+                                buf = b;
+                                match r {
+                                    Ok(read) => {
+                                        if read == 0 {
+                                            break;
+                                        }
+                                        pos += read as u64;
+                                        match response.write_all(&buf[..read]).await {
+                                            Ok(()) => {}
+                                            Err(_) => {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    Err(err) => {
+                                        warn!("Failed to stream body from file: {err}");
+                                        break;
+                                    }
+                                }
+                            }
                         }),
-                        meta.len() as usize,
+                        meta.stx_size as usize,
                     )
             } else {
                 default_error_response(StatusCode::NOT_FOUND, host, None).await

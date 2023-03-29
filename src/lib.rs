@@ -221,83 +221,108 @@ impl RunConfig {
         #[cfg(all(feature = "async-networking", feature = "handover"))]
         let ports_clone = Arc::new(ports.clone());
 
-        let mut listeners = Vec::with_capacity(len * 2);
-        #[cfg(feature = "async-networking")]
-        for descriptor in ports {
-            fn create_listener(
-                create_socket: impl Fn() -> TcpSocket,
-                address: SocketAddr,
-                shutdown_manager: &mut shutdown::Manager,
-            ) -> AcceptManager {
-                let socket = create_socket();
-                #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
-                {
-                    if socket.set_reuseaddr(true).is_err() || socket.set_reuseport(true).is_err() {
-                        error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.");
+        let instances = std::thread::available_parallelism()
+            .map(std::num::NonZeroUsize::get)
+            .unwrap_or(16);
+
+        let mut all_listeners: Vec<Vec<(AcceptManager, Arc<PortDescriptor>)>> =
+            Vec::with_capacity(instances);
+
+        let ports: Vec<_> = ports.into_iter().map(Arc::new).collect();
+
+        for _ in 0..instances {
+            let mut listeners = Vec::new();
+            #[cfg(feature = "async-networking")]
+            for descriptor in &ports {
+                fn create_listener(
+                    create_socket: impl Fn() -> tokio::net::TcpSocket,
+                    address: SocketAddr,
+                    shutdown_manager: &mut shutdown::Manager,
+                ) -> AcceptManager {
+                    let socket = create_socket();
+                    #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+                    {
+                        if socket.set_reuseaddr(true).is_err()
+                            || socket.set_reuseport(true).is_err()
+                        {
+                            error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.");
+                        }
                     }
+                    socket.bind(address).expect("Failed to bind address");
+
+                    let listener = socket
+                        .listen(1024)
+                        .expect("Failed to listen on bound address.");
+
+                    let listener =
+                        tokio_uring::net::TcpListener::from_std(listener.into_std().unwrap());
+
+                    shutdown_manager.add_listener(listener)
                 }
-                socket.bind(address).expect("Failed to bind address");
 
-                let listener = socket
-                    .listen(1024)
-                    .expect("Failed to listen on bound address.");
+                // we later need this in an Arc
+                let descriptor = Arc::clone(descriptor);
 
-                shutdown_manager.add_listener(listener)
+                if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
+                    let listener = create_listener(
+                        || {
+                            tokio::net::TcpSocket::new_v4()
+                                .expect("Failed to create a new IPv4 socket configuration")
+                        },
+                        SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), descriptor.port),
+                        &mut shutdown_manager,
+                    );
+                    listeners.push((listener, Arc::clone(&descriptor)));
+                }
+                if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
+                    let listener = create_listener(
+                        || {
+                            tokio::net::TcpSocket::new_v6()
+                                .expect("Failed to create a new IPv6 socket configuration")
+                        },
+                        SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), descriptor.port),
+                        &mut shutdown_manager,
+                    );
+                    listeners.push((listener, descriptor));
+                }
             }
-
-            // we later need this in an Arc
-            let descriptor = Arc::new(descriptor);
-
-            if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
-                let listener = create_listener(
-                    || {
-                        TcpSocket::new_v4()
-                            .expect("Failed to create a new IPv4 socket configuration")
-                    },
-                    SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), descriptor.port),
-                    &mut shutdown_manager,
-                );
-                listeners.push((listener, Arc::clone(&descriptor)));
-            }
-            if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
-                let listener = create_listener(
-                    || {
-                        TcpSocket::new_v6()
-                            .expect("Failed to create a new IPv6 socket configuration")
-                    },
-                    SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), descriptor.port),
-                    &mut shutdown_manager,
-                );
-                listeners.push((listener, descriptor));
-            }
+            all_listeners.push(listeners);
         }
         #[cfg(not(feature = "async-networking"))]
-        for descriptor in ports {
-            // we later need this in an Arc
-            let descriptor = Arc::new(descriptor);
+        for _ in 0..instances {
+            let mut listeners = Vec::new();
+            for descriptor in ports {
+                // we later need this in an Arc
+                let descriptor = Arc::new(descriptor);
 
-            if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
-                let listener = TcpListener::bind(SocketAddr::new(
-                    IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
-                    descriptor.port,
-                ))
-                .expect("Failed to bind to IPv4");
-                listeners.push((
-                    shutdown_manager.add_listener(listener),
-                    Arc::clone(&descriptor),
-                ));
+                if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
+                    let listener = || {
+                        TcpListener::bind(SocketAddr::new(
+                            IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
+                            descriptor.port,
+                        ))
+                        .expect("Failed to bind to IPv4")
+                    };
+                    listeners.push((
+                        Arc::new(|| shutdown_manager.add_listener(listener())),
+                        Arc::clone(&descriptor),
+                    ));
+                }
+                if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
+                    let listener = || {
+                        TcpListener::bind(SocketAddr::new(
+                            IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
+                            descriptor.port,
+                        ))
+                        .expect("Failed to bind to IPv6")
+                    };
+                    listeners.push((
+                        Arc::new(|| shutdown_manager.add_listener(listener())),
+                        Arc::clone(&descriptor),
+                    ));
+                }
             }
-            if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
-                let listener = TcpListener::bind(SocketAddr::new(
-                    IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
-                    descriptor.port,
-                ))
-                .expect("Failed to bind to IPv6");
-                listeners.push((
-                    shutdown_manager.add_listener(listener),
-                    Arc::clone(&descriptor),
-                ));
-            }
+            all_listeners.push(listeners);
         }
 
         #[cfg(feature = "handover")]
@@ -327,15 +352,18 @@ impl RunConfig {
             .await;
         }
 
-        for (listener, descriptor) in listeners {
-            let shutdown_manager = Arc::clone(&shutdown_manager);
-            let future = async move {
-                accept(listener, descriptor, &shutdown_manager)
-                    .await
-                    .expect("Failed to accept message!");
-            };
-
-            spawn(future).await;
+        for listeners in all_listeners {
+            for (listener, descriptor) in listeners {
+                let shutdown_manager = Arc::clone(&shutdown_manager);
+                std::thread::spawn(move || {
+                    tokio_uring::start(async move {
+                        accept(listener, descriptor, &shutdown_manager)
+                            .await
+                            .expect("failed to accept message");
+                        shutdown_manager.wait().await;
+                    });
+                });
+            }
         }
         #[cfg(feature = "handover")]
         if ctl {
@@ -398,8 +426,10 @@ macro_rules! ret_log_app_error {
 #[cfg(feature = "async-networking")]
 #[allow(clippy::unused_async)] // consistency with other `spawn` function
                                // this anyway (hopefully) is optimized away
-pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
-    tokio::spawn(task);
+                               // pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
+pub(crate) async fn spawn<T: 'static>(task: impl Future<Output = T> + 'static) {
+    // tokio::spawn(task);
+    tokio_uring::spawn(task);
 }
 #[cfg(not(feature = "async-networking"))]
 pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {

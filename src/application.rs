@@ -7,8 +7,192 @@
 //!
 //! When accepting on the [`HttpConnection`], you get a [`FatRequest`]; a [`http::Request`] with a [`Body`].
 //! The [`Body`] is a stream providing the body of the request if you need it, to avoid unnecessary allocations.
+use std::task::ready;
+
 use crate::prelude::{internals::*, *};
+use futures_util::FutureExt;
 pub use response::Http1Body;
+
+/// Wrapper for `tokio_uring`'s `TcpStream`, to implement [`AsyncRead`] and [`AsyncWrite`]
+/// by using buffers.
+#[allow(clippy::type_complexity)]
+pub struct TcpStreamAsyncWrapper {
+    read_fut: Option<Pin<Box<dyn Future<Output = tokio_uring::BufResult<usize, Vec<u8>>>>>>,
+    write_fut: Option<Pin<Box<dyn Future<Output = tokio_uring::BufResult<(), Vec<u8>>>>>>,
+    read_buf: Option<(Vec<u8>, usize)>,
+    write_buf: Option<Vec<u8>>,
+    stream: TcpStream,
+}
+impl TcpStreamAsyncWrapper {
+    pub(crate) fn new(stream: TcpStream) -> Self {
+        Self {
+            read_fut: None,
+            write_fut: None,
+            read_buf: Some((Vec::with_capacity(1024 * 64), 0)),
+            write_buf: Some(Vec::with_capacity(1024 * 64)),
+            stream,
+        }
+    }
+}
+impl Debug for TcpStreamAsyncWrapper {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct(utils::ident_str!(TcpStreamAsyncWrapper));
+
+        utils::fmt_fields!(
+            s,
+            (
+                self.read_fut,
+                &self
+                    .read_fut
+                    .as_ref()
+                    .map(|_| "[internal future]".as_clean())
+            ),
+            (
+                self.write_fut,
+                &self
+                    .write_fut
+                    .as_ref()
+                    .map(|_| "[internal future]".as_clean())
+            ),
+            (self.read_buf, &"[internal buffer]".as_clean()),
+            (self.write_fut, &"[internal buffer]".as_clean()),
+            (self.stream, &"[internal stream]".as_clean()),
+        );
+
+        s.finish()
+    }
+}
+impl AsyncRead for TcpStreamAsyncWrapper {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let Self {
+            read_fut,
+            read_buf,
+            stream,
+            ..
+        } = &mut *self;
+
+        // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
+        // gets dropped later: the future's lifetime requirement for stream is met.
+        let stream: &'static TcpStream = unsafe { &*(stream as *const TcpStream) };
+
+        loop {
+            if let Some(read) = read_buf {
+                let len = (read.0.len() - read.1).min(buf.remaining());
+                if len > 0 {
+                    buf.put_slice(&read.0[read.1..read.1 + len]);
+                    read.1 += len;
+
+                    // fill from buffer again
+                    return Poll::Ready(Result::Ok(()));
+                }
+            }
+            if let Some(fut) = read_fut {
+                let (r, mut buf) = ready!(fut.poll_unpin(cx));
+                match r {
+                    Err(err) => return Poll::Ready(Err(err)),
+                    Ok(read) => unsafe { buf.set_len(read) },
+                }
+                if buf.is_empty() {
+                    return Poll::Ready(Ok(()));
+                }
+                *read_buf = Some((buf, 0));
+                *read_fut = None;
+                continue;
+            }
+
+            // read
+            let mut buf = read_buf.take().unwrap().0;
+            unsafe { buf.set_len(buf.capacity()) };
+            let fut = stream.read(buf);
+            *read_fut = Some(Box::pin(fut));
+            // continue
+        }
+    }
+}
+impl AsyncWrite for TcpStreamAsyncWrapper {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        let Self {
+            write_fut,
+            write_buf,
+            stream,
+            ..
+        } = &mut *self;
+
+        // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
+        // gets dropped later: the future's lifetime requirement for stream is met.
+        let stream: &'static TcpStream = unsafe { &*(stream as *const TcpStream) };
+
+        loop {
+            if let Some(buf) = write_buf {
+                let available = buf.capacity() - buf.len();
+                if available == 0 {
+                    let fut = stream.write_all(write_buf.take().unwrap());
+                    let b = Box::pin(fut);
+                    *write_fut = Some(b);
+                    continue;
+                }
+                let append = available.min(bytes.len());
+                buf.extend_from_slice(&bytes[..append]);
+                return Poll::Ready(Ok(append));
+            }
+
+            let fut = write_fut.as_mut().unwrap();
+            let (r, mut buf) = ready!(fut.poll_unpin(cx));
+            unsafe { buf.set_len(0) };
+            *write_buf = Some(buf);
+            *write_fut = None;
+            if let Err(err) = r {
+                return Poll::Ready(Err(err));
+            }
+            // loop to write more
+        }
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(self.stream.shutdown(net::Shutdown::Both))
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        let Self {
+            write_fut,
+            write_buf,
+            stream,
+            ..
+        } = &mut *self;
+
+        // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
+        // gets dropped later: the future's lifetime requirement for stream is met.
+        let stream: &'static TcpStream = unsafe { &*(stream as *const TcpStream) };
+
+        loop {
+            if let Some(buf) = write_buf {
+                if buf.is_empty() {
+                    return Poll::Ready(Ok(()));
+                }
+                let fut = stream.write_all(write_buf.take().unwrap());
+                let b = Box::pin(fut);
+                *write_fut = Some(b);
+                continue;
+            }
+
+            let fut = write_fut.as_mut().unwrap();
+            let (r, mut buf) = ready!(fut.poll_unpin(cx));
+            unsafe { buf.set_len(0) };
+            *write_buf = Some(buf);
+            *write_fut = None;
+            if let Err(err) = r {
+                return Poll::Ready(Err(err));
+            }
+            // loop to write more
+        }
+    }
+}
 
 /// General error for application-level logic.
 ///
