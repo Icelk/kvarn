@@ -246,7 +246,7 @@ impl AsyncWrite for Encryption {
 ///
 /// Returns the [`io::Error`]s from IO during the handshake
 /// and when reading and writing to the underlying stream.
-/// If any [`rustls::TLSError`]s occur during reading and writing,
+/// If any [`rustls::Error`]s occur during reading and writing,
 /// those are returned.
 #[derive(Debug)]
 pub enum Error {
