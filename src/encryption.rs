@@ -119,10 +119,10 @@ impl Encryption {
     /// and if the client supports SNI hostnames.
     // change docs for HTTP/3 ↑
     #[inline]
-    pub fn sni_hostname(&self) -> Option<&str> {
+    pub fn server_name(&self) -> Option<&str> {
         match self {
             #[cfg(feature = "https")]
-            Self::TcpTls(s) => s.session.sni_hostname(),
+            Self::TcpTls(s) => s.session.server_name(),
             Self::Tcp(_) => None,
         }
     }
