@@ -16,11 +16,35 @@ use crate::prelude::{internals::*, *};
 ///
 /// Used as the return type for all extensions,
 /// so they can be stored.
+#[cfg(feature = "uring")]
+pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + 'a)>>;
+/// A return type for a `dyn` [`Future`].
+///
+/// Used as the return type for all extensions,
+/// so they can be stored.
+#[cfg(not(feature = "uring"))]
 pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + Send + 'a)>>;
 /// Same as [`RetFut`] but also implementing [`Sync`].
 ///
 /// Mostly used for extensions used across yield bounds.
+#[cfg(feature = "uring")]
+pub type RetSyncFut<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+/// Same as [`RetFut`] but also implementing [`Sync`].
+///
+/// Mostly used for extensions used across yield bounds.
+#[cfg(not(feature = "uring"))]
 pub type RetSyncFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'a>>;
+
+#[cfg(feature = "uring")]
+#[doc(hidden)]
+pub trait KvarnSendSync {}
+#[cfg(feature = "uring")]
+impl<T> KvarnSendSync for T {}
+#[cfg(not(feature = "uring"))]
+#[doc(hidden)]
+pub trait KvarnSendSync: Send + Sync {}
+#[cfg(not(feature = "uring"))]
+impl<T: Send + Sync> KvarnSendSync for T {}
 
 /// A prime extension.
 ///
@@ -31,7 +55,7 @@ pub type RetSyncFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + Sync + 'a>>
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
 pub type Prime = Box<dyn PrimeCall>;
 /// Implement this to pass your extension to [`Extensions::add_prime`].
-pub trait PrimeCall: Send + Sync {
+pub trait PrimeCall: KvarnSendSync {
     /// # Arguments
     ///
     /// - An immutable reference to the request.
@@ -71,7 +95,7 @@ impl<
 pub type Prepare = Box<dyn PrepareCall>;
 /// Implement this to pass your extension to [`Extensions::add_prepare_fn`] or
 /// [`Extensions::add_prepare_single`].
-pub trait PrepareCall: Send + Sync {
+pub trait PrepareCall: KvarnSendSync {
     /// # Arguments
     ///
     /// - A mutable reference to the request.
@@ -93,8 +117,7 @@ impl<
                 Option<&Path>,
                 SocketAddr,
             ) -> RetFut<'a, FatResponse>
-            + Send
-            + Sync,
+            + KvarnSendSync,
     > PrepareCall for F
 {
     fn call<'a>(
@@ -117,7 +140,7 @@ impl<
 pub type Present = Box<dyn PresentCall>;
 /// Implement this to pass your extension to [`Extensions::add_present_file`] or
 /// [`Extensions::add_present_internal`].
-pub trait PresentCall: Send + Sync {
+pub trait PresentCall: KvarnSendSync {
     /// # Arguments
     ///
     /// [`PresentData`] contains all the references to the data needed.
@@ -127,7 +150,7 @@ pub trait PresentCall: Send + Sync {
     /// > yourself. Only having to dereference one struct was easier.
     fn call<'a>(&'a self, present_data: &'a mut PresentData<'a>) -> RetFut<'a, ()>;
 }
-impl<F: for<'a> Fn(&'a mut PresentData<'a>) -> RetFut<'a, ()> + Send + Sync> PresentCall for F {
+impl<F: for<'a> Fn(&'a mut PresentData<'a>) -> RetFut<'a, ()> + KvarnSendSync> PresentCall for F {
     fn call<'a>(&'a self, present_data: &'a mut PresentData<'a>) -> RetFut<'a, ()> {
         self(present_data)
     }
@@ -141,7 +164,7 @@ impl<F: for<'a> Fn(&'a mut PresentData<'a>) -> RetFut<'a, ()> + Send + Sync> Pre
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
 pub type Package = Box<dyn PackageCall>;
 /// Implement this to pass your extension to [`Extensions::add_package`].
-pub trait PackageCall: Send + Sync {
+pub trait PackageCall: KvarnSendSync {
     /// # Arguments
     ///
     /// - A mutable reference to a [`Response`] without the body.
@@ -157,8 +180,7 @@ pub trait PackageCall: Send + Sync {
 }
 impl<
         F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, ()>
-            + Send
-            + Sync,
+            + KvarnSendSync,
     > PackageCall for F
 {
     fn call<'a>(
@@ -180,7 +202,7 @@ impl<
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
 pub type Post = Box<dyn PostCall>;
 /// Implement this to pass your extension to [`Extensions::add_post`].
-pub trait PostCall: Send + Sync {
+pub trait PostCall: KvarnSendSync {
     /// # Arguments
     ///
     /// - An immutable reference to the request.
@@ -205,8 +227,7 @@ impl<
                 Bytes,
                 SocketAddr,
             ) -> RetFut<'a, ()>
-            + Send
-            + Sync,
+            + KvarnSendSync,
     > PostCall for F
 {
     fn call<'a>(
@@ -223,13 +244,19 @@ impl<
 /// Dynamic function to check if a extension should be ran.
 ///
 /// Used with [`Prepare`] extensions
+#[cfg(feature = "uring")]
+pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool)>;
+/// Dynamic function to check if a extension should be ran.
+///
+/// Used with [`Prepare`] extensions
+#[cfg(not(feature = "uring"))]
 pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool + Sync + Send)>;
 /// A [`Future`] for writing to a [`ResponsePipe`] after the response is sent.
 ///
 /// Used with [`Prepare`] extensions in their returned [`FatResponse`].
 pub type ResponsePipeFuture = Box<dyn ResponsePipeFutureCall>;
 /// Implement this to pass your future to [`FatResponse::with_future`].
-pub trait ResponsePipeFutureCall: Send + Sync {
+pub trait ResponsePipeFutureCall: KvarnSendSync {
     /// # Arguments
     ///
     /// - A mutable reference to the [`ResponseBodyPipe`].
@@ -323,7 +350,15 @@ impl PartialOrd for Id {
 /// Returns a future accepted by all the [`extensions`]
 /// yielding immediately with `value`.
 #[inline]
+#[cfg(not(feature = "uring"))]
 pub fn ready<'a, T: 'a + Send>(value: T) -> RetFut<'a, T> {
+    Box::pin(core::future::ready(value))
+}
+/// Returns a future accepted by all the [`extensions`]
+/// yielding immediately with `value`.
+#[inline]
+#[cfg(feature = "uring")]
+pub fn ready<'a, T: 'a>(value: T) -> RetFut<'a, T> {
     Box::pin(core::future::ready(value))
 }
 
@@ -1108,9 +1143,16 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
     prepare!(req, host, path, _addr, {
         debug!("Streaming body for {:?}", req.uri().path());
         if let Some(path) = path {
-            let file = tokio::fs::File::open(path).await;
-            let meta = if let Ok(file) = &file {
-                file.metadata().await.ok()
+            let file = fs::File::open(path).await;
+            let meta = if let Ok(_file) = &file {
+                #[cfg(feature = "uring")]
+                {
+                    tokio_uring::fs::statx(path).await.ok()
+                }
+                #[cfg(not(feature = "uring"))]
+                {
+                    _file.metadata().await.ok()
+                }
             } else {
                 None
             };
@@ -1137,13 +1179,46 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                     response.headers_mut().insert("content-type", content_type);
                 }
 
+                #[cfg(feature = "uring")]
+                let len = meta.stx_size as usize;
+                #[cfg(not(feature = "uring"))]
+                let len = meta.len() as usize;
+
+                #[cfg(feature = "uring")]
+                let fut = response_pipe_fut!(response, _host, move |file: fs::File| {
+                    let mut buf = Vec::with_capacity(1024 * 32);
+                    let mut pos = 0;
+                    unsafe { buf.set_len(buf.capacity()) };
+                    loop {
+                        let (r, b) = file.read_at(buf, pos).await;
+                        buf = b;
+                        match r {
+                            Ok(read) => {
+                                if read == 0 {
+                                    break;
+                                }
+                                pos += read as u64;
+                                match response.write_all(&buf[..read]).await {
+                                    Ok(()) => {}
+                                    Err(_) => {
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                warn!("Failed to stream body from file: {err}");
+                                break;
+                            }
+                        }
+                    }
+                });
+                #[cfg(not(feature = "uring"))]
+                let fut = response_pipe_fut!(response, _host, move |file: fs::File| {
+                    let _err = tokio::io::copy(file, response).await;
+                });
+
                 FatResponse::new(response, comprash::ServerCachePreference::None)
-                    .with_future_and_len(
-                        response_pipe_fut!(response, _host, move |file: tokio::fs::File| {
-                            let _err = tokio::io::copy(file, response).await;
-                        }),
-                        meta.len() as usize,
-                    )
+                    .with_future_and_len(fut, len)
             } else {
                 default_error_response(StatusCode::NOT_FOUND, host, None).await
             }
@@ -1210,10 +1285,34 @@ mod macros {
         // `name` for the params is used to locally bind the params, as the `param` can be `_`.
         ($trait: ty, $ret: ty, $(($meta:tt) ,)? | $($param:tt: $param_type:ty: $param_type_no_lifetimes:ty :$name:ident ),* |, $(($($(($mut:tt))? $move:ident:$ty:ty),+))?, $code:block) => {{
             // we go through all this hassle of having a closure to capture dynamic environment.
+            #[cfg(feature = "uring")]
+            // not requirement of Send + Sync
+            struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret>> {
+                ext_function_private: F,
+                $($($move:$ty,)+)?
+            }
+            #[cfg(feature = "uring")]
+            // not requirement of Send + Sync
+            impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret>> $trait for Ext<F> {
+                fn call<'a>(
+                    &'a $($meta)? self,
+                    $($name: $param_type,)*
+                ) -> $crate::extensions::RetFut<'a, $ret> {
+                    let Self {
+                        ext_function_private,
+                        $($($move,)+)?
+                    } = self;
+                    (ext_function_private)($($name,)* $($($move,)+)?)
+                }
+            }
+
+            #[cfg(not(feature = "uring"))]
             struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> {
                 ext_function_private: F,
                 $($($move:$ty,)+)?
             }
+
+            #[cfg(not(feature = "uring"))]
             impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> $trait for Ext<F> {
                 fn call<'a>(
                     &'a $($meta)? self,

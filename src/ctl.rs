@@ -587,7 +587,7 @@ pub(crate) async fn listen(
         let supports_shutdown = plugins.plugins.contains_key("shutdown");
 
         if supports_shutdown {
-            match kvarn_signal::unix::send_to(b"shutdown no-wait", &path)
+            match kvarn_signal::unix::send_to(b"shutdown no-wait".to_vec(), &path)
                 .await
                 .as_deref()
             {
@@ -685,7 +685,7 @@ pub(crate) async fn listen(
         .await;
 
         #[cfg(feature = "graceful-shutdown")]
-        spawn(async move {
+        let _task = spawn(async move {
             drop(sd.get_initate_shutdown_watcher().changed().await);
             info!("Send close to ctl socket, because we started shutting down.");
             drop(close_ctl.send(true));

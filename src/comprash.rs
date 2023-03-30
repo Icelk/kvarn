@@ -498,7 +498,7 @@ impl CompressedResponse {
     pub async fn get_gzip(&self, level: u32) -> &Bytes {
         if self.gzip.is_none() {
             let bytes = self.identity.body().clone();
-            let buffer = tokio::task::spawn_blocking(move || {
+            let buffer = threading::spawn_blocking(move || {
                 let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
 
                 // 1-9, 1 is fast, 9 is slow. 4 is equal to brotli's 3
@@ -530,7 +530,7 @@ impl CompressedResponse {
     pub async fn get_br(&self, level: u32) -> &Bytes {
         if self.br.is_none() {
             let bytes = self.identity.body().clone();
-            let buffer = tokio::task::spawn_blocking(move || {
+            let buffer = threading::spawn_blocking(move || {
                 let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
 
                 // 1-10, 1 is fast, 10 is really slow

@@ -4,7 +4,7 @@
 //! The `Manager` is returned from [`RunConfig::execute`] and can be awaited
 //! to pause execution till the server is shut down.
 //! It is also used to trigger a shutdown.
-#[cfg_attr(not(feature = "async-networking"), allow(unused_imports))]
+#[cfg_attr(not(feature = "graceful-shutdown"), allow(unused_imports))]
 use crate::prelude::{threading::*, *};
 #[cfg(feature = "graceful-shutdown")]
 use atomic::{AtomicBool, AtomicIsize};
@@ -203,7 +203,7 @@ impl Manager {
     /// it does not matter which comes first. Also, only one thread should write to this
     /// with the same `index`; this is not a problem since only the Kvarn crate has access to this.
     /// This is also upheld by [`WakerIndex`].
-    #[cfg(feature = "graceful-shutdown")]
+    #[cfg(all(feature = "graceful-shutdown", feature = "async-networking"))]
     pub(crate) fn set_waker(&self, index: WakerIndex, waker: Waker) {
         let wakers = unsafe { &mut *self.wakers.get() };
         wakers[index.0] = Some(waker);
@@ -211,7 +211,7 @@ impl Manager {
     /// # Safety
     ///
     /// See [`Self::set_waker`].
-    #[cfg(feature = "graceful-shutdown")]
+    #[cfg(all(feature = "graceful-shutdown", feature = "async-networking"))]
     pub(crate) fn remove_waker(&self, index: WakerIndex) {
         let wakers = unsafe { &mut *self.wakers.get() };
         wakers[index.0] = None;
@@ -345,7 +345,6 @@ impl Manager {
 /// The result of [`AcceptManager::accept`].
 /// Can either be a new connection or a shutdown signal.
 /// The listener should be dropped right after the shutdown signal is received.
-#[derive(Debug)]
 #[must_use]
 pub enum AcceptAction {
     /// Shutdown signal; immediately drop this struct.
@@ -353,14 +352,42 @@ pub enum AcceptAction {
     /// Accept a new connection or handle a IO error.
     Accept(io::Result<(TcpStream, SocketAddr)>),
 }
+
+impl Debug for AcceptAction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Shutdown => write!(f, "Shutdown"),
+            Self::Accept(arg0) => f
+                .debug_tuple("Accept")
+                .field(&arg0.as_ref().map(|(_, addr)| addr))
+                .finish(),
+        }
+    }
+}
 /// A wrapper around [`TcpListener`] (and `UdpListener` when HTTP/3 comes around)
 /// which waits for a new connection **or** a shutdown signal.
-#[derive(Debug)]
 #[must_use]
 pub struct AcceptManager {
     #[cfg(feature = "graceful-shutdown")]
     index: WakerIndex,
     listener: TcpListener,
+}
+// SAFETY: TcpListener is just an FD, and can be sent across threads.
+unsafe impl Send for AcceptManager {}
+
+impl Debug for AcceptManager {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct(utils::ident_str!(AcceptManager));
+
+        utils::fmt_fields!(
+            s,
+            #[cfg(feature = "graceful-shutdown")]
+            (self.index),
+            (self.listener, &"[TcpListener]".as_clean()),
+        );
+
+        s.finish()
+    }
 }
 impl AcceptManager {
     /// Waits for a new connection or a shutdown signal.
@@ -378,6 +405,7 @@ impl AcceptManager {
                 index: self.index,
                 listener: &mut self.listener,
             }
+            .accept()
             .await;
             #[cfg(feature = "graceful-shutdown")]
             _manager.remove_waker(self.index);
@@ -389,6 +417,7 @@ impl AcceptManager {
         }
     }
     /// Returns a reference to the inner listener.
+    #[must_use]
     pub fn get_inner(&self) -> &TcpListener {
         &self.listener
     }
@@ -402,30 +431,50 @@ struct AcceptFuture<'a> {
     listener: &'a mut TcpListener,
 }
 #[cfg(feature = "async-networking")]
-impl<'a> Future for AcceptFuture<'a> {
-    type Output = AcceptAction;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let me = self.get_mut();
-
+impl<'a> AcceptFuture<'a> {
+    async fn accept(self) -> AcceptAction {
         #[cfg(feature = "graceful-shutdown")]
         {
             debug!(
                 "Shutting down? {}",
-                me.manager.shutdown.load(Ordering::Acquire)
+                self.manager.shutdown.load(Ordering::Acquire)
             );
-            if me.manager.shutdown.load(Ordering::Acquire) {
-                Poll::Ready(AcceptAction::Shutdown)
-            } else {
-                debug!("Set listener waker.");
-                me.manager.set_waker(me.index, Waker::clone(cx.waker()));
-                let poll = me.listener.poll_accept(cx);
+            let shutdown_fut = std::future::poll_fn(|cx| {
+                if self.manager.shutdown.load(Ordering::Acquire) {
+                    return Poll::Ready(());
+                }
+                self.manager.set_waker(self.index, Waker::clone(cx.waker()));
+                Poll::Pending
+            });
+            let listener_fut = self.listener.accept();
+            tokio::pin!(shutdown_fut);
+            #[cfg(feature = "uring")]
+            tokio::select! {
+                _ = shutdown_fut => AcceptAction::Shutdown,
+                r = listener_fut => AcceptAction::Accept(r.map(|(stream, addr)| (TcpStream::new(stream), addr))),
+            }
+            #[cfg(not(feature = "uring"))]
+            tokio::select! {
+                _ = shutdown_fut => AcceptAction::Shutdown,
+                r = listener_fut => AcceptAction::Accept(r),
 
-                poll.map(AcceptAction::Accept)
             }
         }
         #[cfg(not(feature = "graceful-shutdown"))]
         {
-            me.listener.poll_accept(cx).map(AcceptAction::Accept)
+            #[cfg(feature = "uring")]
+            {
+                AcceptAction::Accept(
+                    self.listener
+                        .accept()
+                        .await
+                        .map(|(stream, addr)| (TcpStream::new(stream), addr)),
+                )
+            }
+            #[cfg(not(feature = "uring"))]
+            {
+                AcceptAction::Accept(self.listener.accept().await)
+            }
         }
     }
 }

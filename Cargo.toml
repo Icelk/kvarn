@@ -42,7 +42,8 @@ mime_guess = "2"
 percent-encoding = "2"
 time = { version = "0.3.7", features = ["parsing", "formatting", "macros"] }
 # Range because of vulnerability https://rustsec.org/advisories/RUSTSEC-2023-0001.html
-tokio = { version = "1, >=1.23.1", features = ["rt", "io-util", "fs", "sync", "parking_lot", "time"] }
+tokio = { version = "1, >=1.23.1", features = ["rt", "io-util", "fs", "sync", "parking_lot", "time", "macros"] }
+tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring", features = ["bytes"], optional = true }
 moka = { version = "0.10.0", features = ["future"], default-features = false }
 
 # HTTPS
@@ -87,7 +88,7 @@ gzip = ["flate2"]
 
 # HTTP standards
 all-http = ["https", "http2"]
-https = ["rustls", "rustls-pemfile", "webpki"]
+https = ["rustls", "rustls-pemfile", "webpki", "async-networking"]
 http2 = ["h2", "https"]
 
 # Graceful shutdown; shutdown.rs
@@ -106,6 +107,8 @@ websocket = ["tokio-tungstenite", "sha-1", "base64", "futures-util"]
 
 # Use tokio's async networking instead of the blocking variant.
 async-networking = ["tokio/net"]
+
+uring = ["tokio-uring", "kvarn_signal/uring", "async-networking"]
 
 # also add to https://kvarn.org/cargo-features.
 

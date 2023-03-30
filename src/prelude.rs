@@ -44,7 +44,10 @@ pub use utils::{build_bytes, chars::*, parse, parse::SanitizeError, AsCleanDebug
 pub mod fs {
     pub use super::async_bits::*;
     pub use super::read::{file as read_file, file_cached as read_file_cached};
-    pub use tokio::fs::File;
+    #[cfg(not(feature = "uring"))]
+    pub use tokio::fs::{File, OpenOptions};
+    #[cfg(feature = "uring")]
+    pub use tokio_uring::fs::{File, OpenOptions};
 }
 
 /// **Prelude:** networking
@@ -54,8 +57,12 @@ pub mod networking {
     pub use super::async_bits::*;
     #[cfg(not(feature = "async-networking"))]
     pub use std::net::{TcpListener, TcpStream};
-    #[cfg(feature = "async-networking")]
+    #[cfg(all(feature = "async-networking", not(feature = "uring")))]
     pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
+    #[cfg(all(feature = "async-networking", feature = "uring"))]
+    pub use {
+        crate::application::TcpStreamAsyncWrapper as TcpStream, tokio_uring::net::TcpListener,
+    };
 }
 
 /// **Prelude:** internal

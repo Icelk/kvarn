@@ -17,9 +17,8 @@ pub async fn file_cached<P: AsRef<str>>(path: &P, cache: Option<&FileCache>) -> 
         }
     }
 
-    let file = File::open(path.as_ref()).await.ok()?;
-    let mut buffer = BytesMut::with_capacity(4096);
-    async_bits::read_to_end(&mut buffer, file).await.ok()?;
+    let buffer = read(path.as_ref()).await?;
+
     let buffer = buffer.freeze();
     if let Some(cache) = cache {
         cache
@@ -42,8 +41,34 @@ pub async fn file<P: AsRef<str>>(path: &P, cache: Option<&FileCache>) -> Option<
         }
     }
 
-    let file = File::open(path.as_ref()).await.ok()?;
-    let mut buffer = BytesMut::with_capacity(4096);
-    async_bits::read_to_end(&mut buffer, file).await.ok()?;
+    let buffer = read(path.as_ref()).await?;
+
     Some(buffer.freeze())
+}
+
+async fn read(path: &str) -> Option<BytesMut> {
+    #[cfg(feature = "uring")]
+    {
+        let file = File::open(path).await.ok()?;
+        let stat = tokio_uring::fs::statx(path).await.ok()?;
+        let len = stat.stx_size;
+
+        #[cfg(target_pointer_width = "32")] // we assume we won't compile to 16-bit targets!
+        if len > (u32::MAX / 2) as u64 {
+            warn!("Tried to read file larger than representable memory (2GB)");
+        }
+
+        #[allow(clippy::cast_possible_truncation)] // we just checked above
+        let buffer = BytesMut::with_capacity(len as _);
+        let (r, buffer) = file.read_at(buffer, 0).await;
+        r.ok()?;
+        Some(buffer)
+    }
+    #[cfg(not(feature = "uring"))]
+    {
+        let file = File::open(path).await.ok()?;
+        let mut buffer = BytesMut::with_capacity(4096);
+        async_bits::read_to_end(&mut buffer, file).await.ok()?;
+        Some(buffer)
+    }
 }

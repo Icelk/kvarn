@@ -16,6 +16,7 @@ futures-util = "0.3"
 kvarn = { path = "../", default-features = false, version = "0.5" }
 kvarn-fastcgi-client = { version = "0.1", optional = true }
 tokio = { version = "1, >=1.23.1", features = ["fs"] }
+tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring", features = ["bytes"], optional = true }
 async_chunked_transfer = "1.4"
 percent-encoding = { version = "2", optional = true }
 memchr = "2"
@@ -38,8 +39,9 @@ templates = []
 push = ["url-crawl"]
 reverse-proxy = ["connection", "url-crawl"]
 # Automatic HTTPS certificates
-certificate = ["small-acme", "x509-parser", "rustls", "rustls-pemfile", "ron", "rcgen", "kvarn/https", "kvarn/async-networking", "rand"]
+certificate = ["small-acme", "x509-parser", "rustls", "rustls-pemfile", "ron", "rcgen", "kvarn/https", "rand"]
 view-counter = ["dashmap"]
+uring = ["kvarn/uring", "tokio-uring"]
 
 [dev-dependencies]
 tokio = { version = "1, >=1.23.1", features = ["net", "io-util", "macros"] }

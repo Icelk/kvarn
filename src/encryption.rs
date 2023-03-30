@@ -22,6 +22,7 @@ compile_error!(
 /// For now only supports [`TcpStream`]s, which will
 /// change when Kvarn gets HTTP/3 support.
 #[derive(Debug)]
+#[must_use]
 pub enum Encryption {
     /// A TLS encrypted TCP stream.
     #[cfg(feature = "https")]
@@ -75,6 +76,7 @@ impl Encryption {
     /// due to a [`rustls`] type in it's definition.
     #[cfg(feature = "https")]
     #[inline]
+    #[must_use]
     pub fn peer_certificates(&self) -> Option<&[rustls::Certificate]> {
         match self {
             Self::TcpTls(s) => s.session.peer_certificates(),
@@ -87,6 +89,7 @@ impl Encryption {
     /// Else, a value of `None` means no protocol was agreed
     /// (because no protocols were offered or accepted by the peer).
     #[inline]
+    #[must_use]
     pub fn alpn_protocol(&self) -> Option<&[u8]> {
         match self {
             #[cfg(feature = "https")]
@@ -107,6 +110,7 @@ impl Encryption {
     /// due to a [`rustls`] type in it's definition.
     #[cfg(feature = "https")]
     #[inline]
+    #[must_use]
     pub fn protocol_version(&self) -> Option<rustls::ProtocolVersion> {
         match self {
             Self::TcpTls(s) => s.session.protocol_version(),
@@ -119,6 +123,7 @@ impl Encryption {
     /// and if the client supports SNI hostnames.
     // change docs for HTTP/3 ↑
     #[inline]
+    #[must_use]
     pub fn server_name(&self) -> Option<&str> {
         match self {
             #[cfg(feature = "https")]
@@ -486,6 +491,14 @@ mod tokio_tls {
                             }
                             Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
                         }
+                    }
+
+                    match Pin::new(&mut self.io).poll_flush(cx) {
+                        Poll::Pending => {
+                            write_would_block = true;
+                        }
+                        Poll::Ready(Ok(())) => {}
+                        Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
                     }
 
                     while !self.eof && self.session.wants_read() {
