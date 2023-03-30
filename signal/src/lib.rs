@@ -23,6 +23,19 @@ pub mod unix {
     #[cfg(feature = "uring")]
     use tokio_uring::net::{UnixListener, UnixStream};
 
+    #[cfg(feature = "uring")]
+    fn spawn<T: 'static>(f: impl Future<Output = T> + 'static) -> impl Future<Output = T> {
+        let handle = tokio_uring::spawn(f);
+        async move { handle.await.unwrap() }
+    }
+    #[cfg(not(feature = "uring"))]
+    fn spawn<T: 'static + Send>(
+        f: impl Future<Output = T> + 'static + Send,
+    ) -> impl Future<Output = T> {
+        let handle = tokio::spawn(f);
+        async move { handle.await.unwrap() }
+    }
+
     pub enum Response<T> {
         /// The socket wasn't found, or had no listener.
         NotFound,
@@ -64,10 +77,16 @@ pub mod unix {
             #[allow(unused_mut)]
             Ok(mut connection) => {
                 debug!("Connected to {path:?}");
+
                 #[cfg(feature = "uring")]
                 let (r, mut buf): (_, Vec<u8>) = connection.write_all(data.into()).await;
+
                 #[cfg(not(feature = "uring"))]
                 let r = connection.write_all(&data.into()).await;
+                #[cfg(not(feature = "uring"))]
+                // flush
+                let r = connection.shutdown().await.and(r);
+
                 if let Err(err) = r {
                     error!("Failed to send message! {:?}", err);
                     Response::Error
@@ -131,8 +150,13 @@ pub mod unix {
     /// The sender can be used to signal we need to close (if `true` is sent)
     #[allow(clippy::too_many_lines)]
     pub async fn start_at(
-        handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse>>> + 'static,
-        path: impl AsRef<Path> + 'static,
+        #[cfg(feature = "uring")] handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse>>>
+            + 'static,
+        #[cfg(not(feature = "uring"))] handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse> + Send + Sync>>
+            + Send
+            + Sync
+            + 'static,
+        path: impl AsRef<Path> + Send + Sync + 'static,
     ) -> (bool, tokio::sync::mpsc::UnboundedSender<bool>) {
         #[cfg(feature = "uring")]
         let overridden = tokio_uring::fs::remove_file(path.as_ref()).await.is_ok();
@@ -140,7 +164,7 @@ pub mod unix {
         let overridden = tokio::fs::remove_file(path.as_ref()).await.is_ok();
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let returned_sender = sender.clone();
-        tokio::task::spawn_local(async move {
+        let _task = spawn(async move {
             let path = path.as_ref();
             let sender = Arc::new(sender);
             let handler = Arc::new(handler);
@@ -227,7 +251,7 @@ pub mod unix {
                                     debug!("accepted connection");
 
                                     // spawn here so the listening isn't blocked.
-                                    tokio::task::spawn_local(async move {
+                                    let _task = spawn(async move {
                                         debug!("In tokio task, handling message");
                                         let mut data = Vec::with_capacity(4 * 1024);
                                         #[allow(clippy::uninit_vec)] // we set back the length after
