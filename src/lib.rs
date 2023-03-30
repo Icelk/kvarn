@@ -218,13 +218,20 @@ impl RunConfig {
         let len = ports.len();
         let mut shutdown_manager = shutdown::Manager::new(len);
 
-        #[cfg(all(feature = "async-networking", feature = "handover"))]
+        #[cfg(feature = "handover")]
         let ports_clone = Arc::new(ports.clone());
 
+        // the number of threads to accept connections from
+        // since uring is single-threaded, we spawn `instances` number of threads with
+        // single-threaded executors
+        #[cfg(feature = "uring")]
         let instances = std::thread::available_parallelism()
             .map(std::num::NonZeroUsize::get)
             .unwrap_or(16);
+        #[cfg(not(feature = "uring"))]
+        let instances = 1;
 
+        // artefact from ↑. When not uring, the outer vec is 1 in length
         let mut all_listeners: Vec<Vec<(AcceptManager, Arc<PortDescriptor>)>> =
             Vec::with_capacity(instances);
 
@@ -254,14 +261,13 @@ impl RunConfig {
                         .listen(1024)
                         .expect("Failed to listen on bound address.");
 
+                    // wrap listener
+                    #[cfg(feature = "uring")]
                     let listener =
                         tokio_uring::net::TcpListener::from_std(listener.into_std().unwrap());
 
                     shutdown_manager.add_listener(listener)
                 }
-
-                // we later need this in an Arc
-                let descriptor = Arc::clone(descriptor);
 
                 if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
                     let listener = create_listener(
@@ -272,7 +278,7 @@ impl RunConfig {
                         SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), descriptor.port),
                         &mut shutdown_manager,
                     );
-                    listeners.push((listener, Arc::clone(&descriptor)));
+                    listeners.push((listener, Arc::clone(descriptor)));
                 }
                 if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
                     let listener = create_listener(
@@ -283,42 +289,31 @@ impl RunConfig {
                         SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), descriptor.port),
                         &mut shutdown_manager,
                     );
-                    listeners.push((listener, descriptor));
+                    listeners.push((listener, Arc::clone(descriptor)));
                 }
             }
-            all_listeners.push(listeners);
-        }
-        #[cfg(not(feature = "async-networking"))]
-        for _ in 0..instances {
-            let mut listeners = Vec::new();
-            for descriptor in ports {
-                // we later need this in an Arc
-                let descriptor = Arc::new(descriptor);
-
+            #[cfg(not(feature = "async-networking"))]
+            for descriptor in &ports {
                 if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
-                    let listener = || {
-                        TcpListener::bind(SocketAddr::new(
-                            IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
-                            descriptor.port,
-                        ))
-                        .expect("Failed to bind to IPv4")
-                    };
+                    let listener = TcpListener::bind(SocketAddr::new(
+                        IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
+                        descriptor.port,
+                    ))
+                    .expect("Failed to bind to IPv4");
                     listeners.push((
-                        Arc::new(|| shutdown_manager.add_listener(listener())),
-                        Arc::clone(&descriptor),
+                        shutdown_manager.add_listener(listener),
+                        Arc::clone(descriptor),
                     ));
                 }
                 if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
-                    let listener = || {
-                        TcpListener::bind(SocketAddr::new(
-                            IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
-                            descriptor.port,
-                        ))
-                        .expect("Failed to bind to IPv6")
-                    };
+                    let listener = TcpListener::bind(SocketAddr::new(
+                        IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
+                        descriptor.port,
+                    ))
+                    .expect("Failed to bind to IPv6");
                     listeners.push((
-                        Arc::new(|| shutdown_manager.add_listener(listener())),
-                        Arc::clone(&descriptor),
+                        shutdown_manager.add_listener(listener),
+                        Arc::clone(descriptor),
                     ));
                 }
             }
@@ -352,6 +347,7 @@ impl RunConfig {
             .await;
         }
 
+        #[cfg(feature = "uring")]
         for listeners in all_listeners {
             for (listener, descriptor) in listeners {
                 let shutdown_manager = Arc::clone(&shutdown_manager);
@@ -363,6 +359,20 @@ impl RunConfig {
                         shutdown_manager.wait().await;
                     });
                 });
+            }
+        }
+        #[cfg(not(feature = "uring"))]
+        {
+            let listeners = all_listeners.into_iter().next().unwrap();
+            for (listener, descriptor) in listeners {
+                let shutdown_manager = Arc::clone(&shutdown_manager);
+                let future = async move {
+                    accept(listener, descriptor, &shutdown_manager)
+                        .await
+                        .expect("Failed to accept message!");
+                };
+
+                let _task = spawn(future).await;
             }
         }
         #[cfg(feature = "handover")]
@@ -423,17 +433,40 @@ macro_rules! ret_log_app_error {
     };
 }
 
-#[cfg(feature = "async-networking")]
-#[allow(clippy::unused_async)] // consistency with other `spawn` function
-                               // this anyway (hopefully) is optimized away
-                               // pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
-pub(crate) async fn spawn<T: 'static>(task: impl Future<Output = T> + 'static) {
-    // tokio::spawn(task);
-    tokio_uring::spawn(task);
+/// Spawn a task.
+///
+/// **Must be awaited once.** The second await waits for the value to resolve.
+///
+/// Use this instead of [`tokio::spawn`] in extensions, since Kvarn's futures can have different
+/// requirements based on the [chosen features](https://kvarn.org/cargo-features.html).
+#[cfg(feature = "uring")]
+#[allow(clippy::unused_async)]
+#[inline]
+pub async fn spawn<T: 'static>(task: impl Future<Output = T> + 'static) -> impl Future<Output = T> {
+    let handle = tokio_uring::spawn(task);
+    async move { handle.await.unwrap() }
 }
-#[cfg(not(feature = "async-networking"))]
-pub(crate) async fn spawn<T: Send + 'static>(task: impl Future<Output = T> + Send + 'static) {
-    task.await;
+/// Spawn a task.
+///
+/// **Must be awaited once.** The second await waits for the value to resolve.
+///
+/// Use this instead of [`tokio::spawn`] in extensions, since Kvarn's futures can have different
+/// requirements based on the [chosen features](https://kvarn.org/cargo-features.html).
+#[cfg(any(not(feature = "async-networking"), not(feature = "uring")))]
+#[allow(clippy::unused_async)]
+#[inline]
+pub async fn spawn<T: Send + 'static>(
+    task: impl Future<Output = T> + Send + 'static,
+) -> impl Future<Output = T> {
+    #[cfg(not(feature = "async-networking"))]
+    {
+        async move { task.await }
+    }
+    #[cfg(feature = "async-networking")]
+    {
+        let handle = tokio::spawn(task);
+        async move { handle.await.unwrap() }
+    }
 }
 
 async fn accept(
@@ -472,7 +505,7 @@ async fn accept(
 
                     #[cfg(feature = "graceful-shutdown")]
                     let shutdown_manager = Arc::clone(shutdown_manager);
-                    spawn(async move {
+                    let _task = spawn(async move {
                         #[cfg(feature = "graceful-shutdown")]
                         shutdown_manager.add_connection();
                         let _result = handle_connection(socket, addr, descriptor, || {
@@ -645,7 +678,7 @@ pub async fn handle_connection(
         match version {
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => future.await,
             _ => {
-                spawn(future).await;
+                let _task = spawn(future).await;
             }
         }
 

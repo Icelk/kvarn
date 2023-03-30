@@ -4,7 +4,6 @@
 //! to enable seamless integration with the [`tokio`] runtime.
 //!
 //! Most of the code is a subset of [`tokio-rustls`](https://crates.io/crates/tokio-rustls)
-use crate::application::TcpStreamAsyncWrapper;
 use crate::prelude::{networking::*, *};
 #[cfg(feature = "https")]
 use rustls::{ServerConfig, ServerConnection};
@@ -23,13 +22,14 @@ compile_error!(
 /// For now only supports [`TcpStream`]s, which will
 /// change when Kvarn gets HTTP/3 support.
 #[derive(Debug)]
+#[must_use]
 pub enum Encryption {
     /// A TLS encrypted TCP stream.
     #[cfg(feature = "https")]
-    TcpTls(Box<TlsStream<TcpStreamAsyncWrapper>>),
+    TcpTls(Box<TlsStream<TcpStream>>),
     /// A unencrypted TCP stream for use with
     /// non-secure HTTP.
-    Tcp(TcpStreamAsyncWrapper),
+    Tcp(TcpStream),
 }
 impl Encryption {
     /// Creates a new [`Encryption`] from a `tcp` connection.
@@ -43,11 +43,11 @@ impl Encryption {
         certificate: Option<Arc<ServerConfig>>,
     ) -> Result<Self, Error> {
         match certificate {
-            None => Ok(Self::Tcp(TcpStreamAsyncWrapper::new(stream))),
+            None => Ok(Self::Tcp(stream)),
             Some(config) => {
                 let session = ServerConnection::new(config)?;
                 let stream = TlsStream {
-                    io: TcpStreamAsyncWrapper::new(stream),
+                    io: stream,
                     session,
                     state: TlsState::Stream,
                 };

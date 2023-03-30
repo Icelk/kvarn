@@ -4,7 +4,7 @@
 //! The `Manager` is returned from [`RunConfig::execute`] and can be awaited
 //! to pause execution till the server is shut down.
 //! It is also used to trigger a shutdown.
-#[cfg_attr(not(feature = "async-networking"), allow(unused_imports))]
+#[cfg_attr(not(feature = "graceful-shutdown"), allow(unused_imports))]
 use crate::prelude::{threading::*, *};
 #[cfg(feature = "graceful-shutdown")]
 use atomic::{AtomicBool, AtomicIsize};
@@ -203,8 +203,7 @@ impl Manager {
     /// it does not matter which comes first. Also, only one thread should write to this
     /// with the same `index`; this is not a problem since only the Kvarn crate has access to this.
     /// This is also upheld by [`WakerIndex`].
-    #[cfg(feature = "graceful-shutdown")]
-    #[allow(dead_code)] // `TODO`: fix other TODO which uses this
+    #[cfg(all(feature = "graceful-shutdown", feature = "async-networking"))]
     pub(crate) fn set_waker(&self, index: WakerIndex, waker: Waker) {
         let wakers = unsafe { &mut *self.wakers.get() };
         wakers[index.0] = Some(waker);
@@ -212,7 +211,7 @@ impl Manager {
     /// # Safety
     ///
     /// See [`Self::set_waker`].
-    #[cfg(feature = "graceful-shutdown")]
+    #[cfg(all(feature = "graceful-shutdown", feature = "async-networking"))]
     pub(crate) fn remove_waker(&self, index: WakerIndex) {
         let wakers = unsafe { &mut *self.wakers.get() };
         wakers[index.0] = None;
@@ -403,7 +402,7 @@ impl AcceptManager {
                 #[cfg(feature = "graceful-shutdown")]
                 manager: _manager,
                 #[cfg(feature = "graceful-shutdown")]
-                _index: self.index,
+                index: self.index,
                 listener: &mut self.listener,
             }
             .accept()
@@ -428,60 +427,54 @@ struct AcceptFuture<'a> {
     #[cfg(feature = "graceful-shutdown")]
     manager: &'a Manager,
     #[cfg(feature = "graceful-shutdown")]
-    _index: WakerIndex,
+    index: WakerIndex,
     listener: &'a mut TcpListener,
 }
 #[cfg(feature = "async-networking")]
 impl<'a> AcceptFuture<'a> {
     async fn accept(self) -> AcceptAction {
-        // old:
-        // self.await
-
         #[cfg(feature = "graceful-shutdown")]
         {
             debug!(
                 "Shutting down? {}",
                 self.manager.shutdown.load(Ordering::Acquire)
             );
-            if self.manager.shutdown.load(Ordering::Acquire) {
-                AcceptAction::Shutdown
-            } else {
-                // `TODO`: load shutdown atomic to check if ready
-                // let shutdown_fut = std::future::poll_fn(|cx| self.manager.set_waker(self.index, cx.waker()));
-                AcceptAction::Accept(self.listener.accept().await)
+            let shutdown_fut = std::future::poll_fn(|cx| {
+                if self.manager.shutdown.load(Ordering::Acquire) {
+                    return Poll::Ready(());
+                }
+                self.manager.set_waker(self.index, Waker::clone(cx.waker()));
+                Poll::Pending
+            });
+            let listener_fut = self.listener.accept();
+            tokio::pin!(shutdown_fut);
+            #[cfg(feature = "uring")]
+            tokio::select! {
+                _ = shutdown_fut => AcceptAction::Shutdown,
+                r = listener_fut => AcceptAction::Accept(r.map(|(stream, addr)| (TcpStream::new(stream), addr))),
+            }
+            #[cfg(not(feature = "uring"))]
+            tokio::select! {
+                _ = shutdown_fut => AcceptAction::Shutdown,
+                r = listener_fut => AcceptAction::Accept(r),
+
             }
         }
         #[cfg(not(feature = "graceful-shutdown"))]
         {
-            AcceptAction::Accept(self.listener.accept().await)
+            #[cfg(feature = "uring")]
+            {
+                AcceptAction::Accept(
+                    self.listener
+                        .accept()
+                        .await
+                        .map(|(stream, addr)| (TcpStream::new(stream), addr)),
+                )
+            }
+            #[cfg(not(feature = "uring"))]
+            {
+                AcceptAction::Accept(self.listener.accept().await)
+            }
         }
     }
 }
-// #[cfg(feature = "async-networking")]
-// impl<'a> Future for AcceptFuture<'a> {
-//     type Output = AcceptAction;
-//     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-//         let me = self.get_mut();
-//
-//         #[cfg(feature = "graceful-shutdown")]
-//         {
-//             debug!(
-//                 "Shutting down? {}",
-//                 me.manager.shutdown.load(Ordering::Acquire)
-//             );
-//             if me.manager.shutdown.load(Ordering::Acquire) {
-//                 Poll::Ready(AcceptAction::Shutdown)
-//             } else {
-//                 debug!("Set listener waker.");
-//                 me.manager.set_waker(me.index, Waker::clone(cx.waker()));
-//                 let poll = me.listener.poll_accept(cx);
-//
-//                 poll.map(AcceptAction::Accept)
-//             }
-//         }
-//         #[cfg(not(feature = "graceful-shutdown"))]
-//         {
-//             me.listener.poll_accept(cx).map(AcceptAction::Accept)
-//         }
-//     }
-// }

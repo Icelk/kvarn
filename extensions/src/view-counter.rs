@@ -52,7 +52,12 @@ pub async fn mount(
     let view_count = match parse(&total_path).await {
         Some(x) => x,
         None => {
-            if tokio_uring::fs::statx(&total_path).await.is_ok() {
+            #[cfg(feature = "uring")]
+            let path_exists = tokio_uring::fs::statx(&total_path).await.is_ok();
+            #[cfg(not(feature = "uring"))]
+            let path_exists = tokio::fs::metadata(&total_path).await.is_ok();
+
+            if path_exists {
                 warn!("Overriding view count total at '{total_path}'");
             }
             ViewCount {
@@ -64,7 +69,7 @@ pub async fn mount(
 
     {
         let c = view_count.clone();
-        tokio::task::spawn_local(async move {
+        let _task = spawn(async move {
             loop {
                 tokio::time::sleep(commit_interval).await;
 
@@ -75,7 +80,8 @@ pub async fn mount(
                     }
                 }
                 if any_changed {
-                    let file = match tokio_uring::fs::OpenOptions::new()
+                    #[allow(unused_mut)] // uring doesn't mutate
+                    let mut file = match fs::OpenOptions::new()
                         .create(true)
                         .write(true)
                         .append(true)
@@ -90,12 +96,20 @@ pub async fn mount(
                         }
                         Ok(f) => f,
                     };
-                    let metadata = tokio_uring::fs::statx(&changes_path)
+                    #[cfg(feature = "uring")]
+                    let size = tokio_uring::fs::statx(&changes_path)
                         .await
-                        .expect("Failed to get stat for view counter changes file");
-                    if metadata.stx_size == 0 {
-                        let data = &b"article path,view count,Rfc3339 date\n"[..];
-                        file.write_all_at(data, 0).await.0.unwrap();
+                        .expect("Failed to get stat for view counter changes file").stx_size;
+                    #[cfg(not(feature = "uring"))]
+                    let size = tokio::fs::metadata(&changes_path)
+                        .await
+                        .expect("Failed to get stat for view counter changes file").len();
+
+
+                    let mut data = String::new();
+
+                    if size == 0 {
+                        data.push_str("article path,view count,Rfc3339 date\n");
                     }
                     let now = chrono::OffsetDateTime::now_utc()
                         .replace_nanosecond(0)
@@ -124,12 +138,19 @@ pub async fn mount(
                                 format!("{article},{count},{date}\n")
                             };
                             debug!("Add to history: {:?}", line.trim_end());
-                            file.write_all_at(line.into_bytes(), 0).await.0.unwrap();
+                            data.push_str(&line);
                         }
                     }
+
+                    #[cfg(feature = "uring")]
+                    file.write_all_at(data.into_bytes(), 0).await.0.unwrap();
+                    #[cfg(not(feature = "uring"))]
+                    file.write_all(data.as_bytes()).await.unwrap();
+
                     drop(file);
                     debug!("Updating total");
-                    let file = match tokio_uring::fs::File::create(&total_path).await {
+                    #[allow(unused_mut)] // uring doesn't mutate
+                    let mut file = match fs::File::create(&total_path).await {
                         Err(err) => {
                             error!(
                             "Failed to open file to log view count history ('{changes_path}'): {err:?}"
@@ -158,15 +179,18 @@ pub async fn mount(
                         };
                         data.append(&mut line.into_bytes());
                     }
+                    #[cfg(feature = "uring")]
                     file.write_all_at(data, 0).await.0.unwrap();
+                    #[cfg(not(feature = "uring"))]
+                    file.write_all(&data).await.unwrap();
                     drop(file);
                 }
             }
-        });
+        }).await;
     }
     {
         let c = view_count.clone();
-        tokio::spawn(async move {
+        threading::spawn(async move {
             loop {
                 tokio::time::sleep(accept_same_ip_interval).await;
                 c.ips.clear();

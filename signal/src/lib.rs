@@ -15,6 +15,12 @@ pub mod unix {
     use std::path::Path;
     use std::pin::Pin;
     use std::sync::Arc;
+    #[cfg(not(feature = "uring"))]
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{UnixListener, UnixStream},
+    };
+    #[cfg(feature = "uring")]
     use tokio_uring::net::{UnixListener, UnixStream};
 
     pub enum Response<T> {
@@ -55,30 +61,50 @@ pub mod unix {
                 io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => Response::NotFound,
                 _ => Response::Error,
             },
-            Ok(connection) => {
+            #[allow(unused_mut)]
+            Ok(mut connection) => {
                 debug!("Connected to {path:?}");
+                #[cfg(feature = "uring")]
                 let (r, mut buf): (_, Vec<u8>) = connection.write_all(data.into()).await;
+                #[cfg(not(feature = "uring"))]
+                let r = connection.write_all(&data.into()).await;
                 if let Err(err) = r {
                     error!("Failed to send message! {:?}", err);
                     Response::Error
                 } else {
                     debug!("Wrote to {path:?}");
 
-                    // max 2 kiB size
-                    buf.reserve(1024 * 2);
-                    #[allow(clippy::uninit_vec)] // we set beck the length after
-                    unsafe {
-                        buf.set_len(buf.capacity());
+                    #[cfg(feature = "uring")]
+                    {
+                        // max 2 kiB size
+                        buf.reserve(1024 * 2);
+                        #[allow(clippy::uninit_vec)] // we set beck the length after
+                        unsafe {
+                            buf.set_len(buf.capacity());
+                        }
                     }
+                    #[cfg(not(feature = "uring"))]
+                    let mut buf = vec![];
+
                     debug!("Try to read from {path:?}");
+
+                    #[cfg(not(feature = "uring"))]
+                    let r = connection.read_to_end(&mut buf).await;
+                    #[cfg(feature = "uring")]
                     let (r, mut buf) = connection.read(buf).await;
                     match r {
                         Err(err) => {
                             error!("Failed to receive message. {:?}", err);
                             Response::Error
                         }
+                        #[cfg(feature = "uring")]
                         Ok(len) => {
                             unsafe { buf.set_len(len) };
+                            debug!("Read from {path:?}");
+                            Response::Data(buf)
+                        }
+                        #[cfg(not(feature = "uring"))]
+                        Ok(_) => {
                             debug!("Read from {path:?}");
                             Response::Data(buf)
                         }
@@ -108,7 +134,10 @@ pub mod unix {
         handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse>>> + 'static,
         path: impl AsRef<Path> + 'static,
     ) -> (bool, tokio::sync::mpsc::UnboundedSender<bool>) {
+        #[cfg(feature = "uring")]
         let overridden = tokio_uring::fs::remove_file(path.as_ref()).await.is_ok();
+        #[cfg(not(feature = "uring"))]
+        let overridden = tokio::fs::remove_file(path.as_ref()).await.is_ok();
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
         let returned_sender = sender.clone();
         tokio::task::spawn_local(async move {
@@ -190,6 +219,9 @@ pub mod unix {
                             };
                             match r {
                                 Ok(connection) => {
+                                    #[cfg(not(feature = "uring"))]
+                                    let (mut connection, _addr) = connection;
+
                                     let handler = Arc::clone(&handler);
                                     let sender = sender.clone();
                                     debug!("accepted connection");
@@ -202,13 +234,20 @@ pub mod unix {
                                         unsafe {
                                             data.set_len(data.capacity());
                                         }
+
+                                        #[cfg(not(feature = "uring"))]
+                                        let r = connection.read_to_end(&mut data).await;
+                                        #[cfg(feature = "uring")]
                                         let (r, mut data) = connection.read(data).await;
                                         match r {
                                             Err(err) => {
                                                 warn!("Failed on reading request: {err:?}");
                                                 return;
                                             }
+                                            #[cfg(feature = "uring")]
                                             Ok(len) => unsafe { data.set_len(len) },
+                                            #[cfg(not(feature = "uring"))]
+                                            Ok(_) => {}
                                         }
                                         debug!(
                                             "Read {} from remote",
@@ -229,10 +268,18 @@ pub mod unix {
                                         }
 
                                         debug!("Write response");
+
+                                        #[cfg(feature = "uring")]
                                         if let (Err(err), _) = connection.write_all(data).await {
                                             warn!("Failed to write response: {err:?}");
                                             return;
                                         }
+                                        #[cfg(not(feature = "uring"))]
+                                        if let Err(err) = connection.write_all(&data).await {
+                                            warn!("Failed to write response: {err:?}");
+                                            return;
+                                        }
+
                                         debug!("Wrote response");
                                         if let Some(post_send) = post_send {
                                             (post_send)();
