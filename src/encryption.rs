@@ -123,6 +123,7 @@ impl Encryption {
     /// and if the client supports SNI hostnames.
     // change docs for HTTP/3 ↑
     #[inline]
+    #[must_use]
     pub fn server_name(&self) -> Option<&str> {
         match self {
             #[cfg(feature = "https")]

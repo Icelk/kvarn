@@ -348,12 +348,14 @@ impl RunConfig {
         }
 
         #[cfg(feature = "uring")]
-        for listeners in all_listeners {
+        info!("Starting {instances} threads with an executor and listener each.");
+        #[cfg(feature = "uring")]
+        for (n, listeners) in all_listeners.into_iter().enumerate() {
             for (listener, descriptor) in listeners {
                 let shutdown_manager = Arc::clone(&shutdown_manager);
                 std::thread::spawn(move || {
                     tokio_uring::start(async move {
-                        accept(listener, descriptor, &shutdown_manager)
+                        accept(listener, descriptor, &shutdown_manager, n == 0)
                             .await
                             .expect("failed to accept message");
                         shutdown_manager.wait().await;
@@ -367,7 +369,7 @@ impl RunConfig {
             for (listener, descriptor) in listeners {
                 let shutdown_manager = Arc::clone(&shutdown_manager);
                 let future = async move {
-                    accept(listener, descriptor, &shutdown_manager)
+                    accept(listener, descriptor, &shutdown_manager, true)
                         .await
                         .expect("Failed to accept message!");
                 };
@@ -473,22 +475,27 @@ async fn accept(
     mut listener: AcceptManager,
     descriptor: Arc<PortDescriptor>,
     shutdown_manager: &Arc<shutdown::Manager>,
+    first: bool,
 ) -> Result<(), io::Error> {
     let local_addr = listener.get_inner().local_addr().unwrap();
-    info!(
-        "Started listening on port {} using {}",
-        local_addr.port(),
-        if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
-    );
+    if first {
+        info!(
+            "Started listening on port {} using {}",
+            local_addr.port(),
+            if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
+        );
+    }
 
     loop {
         match listener.accept(shutdown_manager).await {
             AcceptAction::Shutdown => {
-                info!(
-                    "Closing listener on port {} with {}",
-                    local_addr.port(),
-                    if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
-                );
+                if first {
+                    info!(
+                        "Closing listener on port {} with {}",
+                        local_addr.port(),
+                        if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
+                    );
+                }
                 return Ok(());
             }
             AcceptAction::Accept(result) => match result {
