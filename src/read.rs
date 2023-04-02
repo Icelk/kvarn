@@ -10,7 +10,7 @@ use crate::prelude::{fs::*, *};
 ///
 /// Should only be used when a file is typically access several times or from several requests.
 #[inline]
-pub async fn file_cached<P: AsRef<str>>(path: &P, cache: Option<&FileCache>) -> Option<Bytes> {
+pub async fn file_cached<P: AsRef<str>>(path: P, cache: Option<&FileCache>) -> Option<Bytes> {
     if let Some(cache) = cache {
         if let Some(file) = cache.cache.get(path.as_ref()) {
             return Some(file);
@@ -34,7 +34,7 @@ pub async fn file_cached<P: AsRef<str>>(path: &P, cache: Option<&FileCache>) -> 
 ///
 /// Should be used when a file is typically only accessed once, and cached in the response cache, not files multiple requests often access.
 #[inline]
-pub async fn file<P: AsRef<str>>(path: &P, cache: Option<&FileCache>) -> Option<Bytes> {
+pub async fn file<P: AsRef<str>>(path: P, cache: Option<&FileCache>) -> Option<Bytes> {
     if let Some(cache) = cache {
         if let Some(cached) = cache.cache.get(path.as_ref()) {
             return Some(cached);
