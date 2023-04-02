@@ -65,11 +65,12 @@ pub enum Action {
 #[must_use]
 pub struct Manager {
     // Arc so we can easily clone this
-    connection_map_and_time: Arc<std::sync::Mutex<(HashMap<IpAddr, usize>, std::time::Instant)>>,
+    connection_map: Arc<dashmap::DashMap<IpAddr, usize>>,
     max_requests: usize,
     check_every: usize,
-    reset_seconds: u64,
+    reset_seconds: f64,
 
+    time: Arc<(atomic::AtomicU64, atomic::AtomicU32)>,
     iteration: Arc<atomic::AtomicUsize>,
 }
 impl LimitManager {
@@ -84,18 +85,34 @@ impl LimitManager {
     /// does nothing to the amount of accepted requests.
     /// Though, if you have large `reset_seconds`, it'll take longer
     /// for the limits to clear after the user has reached `max_requests`.
-    pub fn new(max_requests: usize, check_every: usize, reset_seconds: u64) -> Self {
-        Self {
-            connection_map_and_time: Arc::new(std::sync::Mutex::new((
-                HashMap::new(),
-                std::time::Instant::now(),
-            ))),
+    pub fn new(max_requests: usize, check_every: usize, reset_seconds: f64) -> Self {
+        let me = Self {
+            connection_map: Arc::new(dashmap::DashMap::new()),
             max_requests,
             check_every,
             reset_seconds,
 
+            time: Arc::new((atomic::AtomicU64::new(0), atomic::AtomicU32::new(0))),
             iteration: Arc::new(atomic::AtomicUsize::new(0)),
-        }
+        };
+        me.update_time();
+        me
+    }
+
+    fn update_time(&self) {
+        let dur = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("we're before 1970!?");
+        self.time.0.store(dur.as_secs(), atomic::Ordering::Relaxed);
+        self.time
+            .1
+            .store(dur.subsec_nanos(), atomic::Ordering::Relaxed);
+    }
+    fn get_time(&self) -> std::time::SystemTime {
+        let secs = self.time.0.load(atomic::Ordering::Relaxed);
+        let nanos = self.time.1.load(atomic::Ordering::Relaxed);
+
+        std::time::UNIX_EPOCH + Duration::new(secs, nanos)
     }
 
     /// Disables limiting of this manager.
@@ -120,7 +137,7 @@ impl LimitManager {
     /// Sets the interval to clear all limits.
     ///
     /// See [`Self::new`] for considerations when making this value large.
-    pub fn set_reset_seconds(&mut self, reset_seconds: u64) -> &mut Self {
+    pub fn set_reset_seconds(&mut self, reset_seconds: f64) -> &mut Self {
         self.reset_seconds = reset_seconds;
         self
     }
@@ -140,17 +157,22 @@ impl LimitManager {
             Action::Passed
         } else {
             self.iteration.store(0, atomic::Ordering::Release);
-            let now = Instant::now();
-            let mut lock = self.connection_map_and_time.lock().unwrap();
-            let (map, time) = &mut *lock;
-            if (now - *time).as_secs() >= self.reset_seconds {
-                *time = now;
-                map.clear();
-                drop(lock);
+            if self
+                .get_time()
+                .elapsed()
+                .unwrap_or(Duration::ZERO)
+                .as_secs_f64()
+                >= self.reset_seconds
+            {
+                self.update_time();
+                self.connection_map.clear();
                 Action::Passed
             } else {
-                let requests = *map.entry(addr).and_modify(|count| *count += 1).or_insert(1);
-                drop(lock);
+                let requests = *self
+                    .connection_map
+                    .entry(addr)
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
                 if requests <= self.max_requests {
                     Action::Passed
                     // if the client goes past 3x usage, just drop connection
@@ -167,6 +189,6 @@ impl LimitManager {
 impl Default for LimitManager {
     #[inline]
     fn default() -> Self {
-        Self::new(10, 10, 10)
+        Self::new(10, 10, 10.)
     }
 }
