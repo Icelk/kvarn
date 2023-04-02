@@ -432,7 +432,7 @@ impl Plugins {
                         let mut cleared = false;
                         let mut found = false;
                         for hosts in ports.iter().map(PortDescriptor::hosts) {
-                            let (f, c) = hosts.clear_file(host, path).await;
+                            let (f, c) = hosts.clear_file(host, path);
                             cleared = cleared || c;
                             found = found || f;
                         }
@@ -472,7 +472,7 @@ impl Plugins {
                         let mut cleared = false;
                         let mut found = false;
                         for hosts in ports.iter().map(PortDescriptor::hosts) {
-                            let (f, c) = hosts.clear_page(host, &uri).await;
+                            let (f, c) = hosts.clear_page(host, &uri);
                             cleared = cleared || c;
                             found = found || f;
                         }

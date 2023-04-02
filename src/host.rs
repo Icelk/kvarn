@@ -875,7 +875,7 @@ impl Collection {
     /// This will probably become a error enum in the future.
     ///
     /// It will never return (false, true).
-    pub async fn clear_page(&self, host: &str, uri: &Uri) -> (bool, bool) {
+    pub fn clear_page(&self, host: &str, uri: &Uri) -> (bool, bool) {
         let key = UriKey::path_and_query(uri);
 
         let mut found = false;
@@ -889,22 +889,22 @@ impl Collection {
                 found = true;
 
                 cleared ^= cache.cache.contains_key(&key);
-                cache.cache.invalidate(&key).await;
+                cache.cache.invalidate(&key);
                 if let UriKey::PathQuery(path_query) = key {
                     let key = UriKey::Path(path_query.into_path());
                     cleared |= cache.cache.contains_key(&key);
-                    cache.cache.invalidate(&key).await;
+                    cache.cache.invalidate(&key);
                 }
             }
         } else if let Some(host) = self.get_host(host) {
             found = true;
             if let Some(cache) = &host.response_cache {
                 cleared ^= cache.cache.contains_key(&key);
-                cache.cache.invalidate(&key).await;
+                cache.cache.invalidate(&key);
                 if let UriKey::PathQuery(path_query) = key {
                     let key = UriKey::Path(path_query.into_path());
                     cleared |= cache.cache.contains_key(&key);
-                    cache.cache.invalidate(&key).await;
+                    cache.cache.invalidate(&key);
                 }
             }
         }
@@ -936,7 +936,7 @@ impl Collection {
     ///
     /// This iterates over all caches and [locks](RwLock::write) them, which takes a lot of time.
     /// Though, it's not blocking.
-    pub async fn clear_file(&self, host: &str, path: impl AsRef<str>) -> (bool, bool) {
+    pub fn clear_file(&self, host: &str, path: impl AsRef<str>) -> (bool, bool) {
         let path = path.as_ref();
         let mut found = false;
         let mut cleared = false;
@@ -948,13 +948,13 @@ impl Collection {
             {
                 found = true;
                 cleared |= cache.cache.contains_key(path);
-                cache.cache.invalidate(path).await;
+                cache.cache.invalidate(path);
             }
         } else if let Some(host) = self.get_host(host) {
             found = true;
             if let Some(cache) = &host.file_cache {
                 cleared |= cache.cache.contains_key(path);
-                cache.cache.invalidate(path).await;
+                cache.cache.invalidate(path);
             }
         }
         (found, cleared)

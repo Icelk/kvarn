@@ -776,7 +776,7 @@ pub struct MokaCache<K: Hash + Eq + Send + Sync + 'static, V: Clone + Send + Syn
     size_limit: usize,
     /// The inner cache, with direct access allowed.
     /// Please check the size of your item before inserting.
-    pub cache: moka::future::Cache<K, V>,
+    pub cache: moka::sync::Cache<K, V>,
 }
 impl<K: Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'static> Default
     for MokaCache<K, V>
@@ -784,12 +784,12 @@ impl<K: Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'static> Def
     fn default() -> Self {
         Self {
             size_limit: 4 * 1024 * 1024,
-            cache: moka::future::Cache::new(1024),
+            cache: moka::sync::Cache::new(1024),
         }
     }
 }
 impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<VariedResponse>>> {
-    pub(crate) async fn get_cache_item<Q: Hash + Eq>(
+    pub(crate) fn get_cache_item<Q: Hash + Eq>(
         &self,
         key: &Q,
     ) -> CacheOut<LifetimeCache<Arc<VariedResponse>>>
@@ -805,13 +805,13 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
                 CacheOut::Present(value_and_lifetime)
             }
             Some(_) => {
-                self.cache.invalidate(key).await;
+                self.cache.invalidate(key);
                 CacheOut::None
             }
             None => CacheOut::None,
         }
     }
-    pub(crate) async fn insert(
+    pub(crate) fn insert(
         &self,
         len: usize,
         lifetime: Option<Duration>,
@@ -822,15 +822,13 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
             return CacheOut::NotInserted(response);
         }
 
-        self.cache
-            .insert(
-                key,
-                (Arc::new(response), (OffsetDateTime::now_utc(), lifetime)),
-            )
-            .await;
+        self.cache.insert(
+            key,
+            (Arc::new(response), (OffsetDateTime::now_utc(), lifetime)),
+        );
         CacheOut::None
     }
-    pub(crate) async fn insert_cache_item(
+    pub(crate) fn insert_cache_item(
         &self,
         key: K,
         response: VariedResponse,
@@ -850,7 +848,6 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
             key,
             response,
         )
-        .await
     }
 }
 

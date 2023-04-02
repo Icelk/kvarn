@@ -945,7 +945,7 @@ mod handle_cache_helpers {
     /// Cache `response` if allowed by the other arguments.
     ///
     /// Returns the `response` if it wasn't cached.
-    pub(super) async fn maybe_cache<T>(
+    pub(super) fn maybe_cache<T>(
         host: &Host,
         server_cache: comprash::ServerCachePreference,
         path_query: PathQuery,
@@ -967,7 +967,7 @@ mod handle_cache_helpers {
                         comprash::UriKey::Path(path_query.into_path())
                     };
                     debug!("Caching uri {:?}!", &key);
-                    response_cache.insert_cache_item(key, response).await;
+                    response_cache.insert_cache_item(key, response);
                     return None;
                 }
             }
@@ -998,13 +998,13 @@ mod handle_cache_helpers {
                 // inline `UriKey::call_all` because of annoying Rust semantics
                 // regarding calling impl Fns. We also had to deal with this in
                 // `kvarn::extensions`.
-                match cache.get_cache_item(&uri_key).await.into_option() {
+                match cache.get_cache_item(&uri_key).into_option() {
                     Some(t) => (uri_key, Some(t)),
                     None => match uri_key {
                         UriKey::Path(_) => (uri_key, None),
                         UriKey::PathQuery(path_query) => {
                             let uri_key = UriKey::Path(path_query.into_path());
-                            let result = cache.get_cache_item(&uri_key).await.into_option();
+                            let result = cache.get_cache_item(&uri_key).into_option();
                             (uri_key, result)
                         }
                     },
@@ -1018,20 +1018,18 @@ mod handle_cache_helpers {
                 let mut resp = (*resp).clone();
                 let a = Arc::clone(resp.push_response(compressed_response, params));
                 if let Some(cache) = &host.response_cache {
-                    cache
-                        .insert(
-                            0,
-                            lifetime.1.map(|dur| {
-                                dur.saturating_sub(
-                                    (OffsetDateTime::now_utc() - lifetime.0)
-                                        .max(time::Duration::ZERO)
-                                        .unsigned_abs(),
-                                )
-                            }),
-                            key,
-                            resp,
-                        )
-                        .await;
+                    cache.insert(
+                        0,
+                        lifetime.1.map(|dur| {
+                            dur.saturating_sub(
+                                (OffsetDateTime::now_utc() - lifetime.0)
+                                    .max(time::Duration::ZERO)
+                                    .unsigned_abs(),
+                            )
+                        }),
+                        key,
+                        resp,
+                    );
                 }
                 a
             }
@@ -1053,8 +1051,7 @@ mod handle_cache_helpers {
                     varied_response,
                     request.method(),
                     &future,
-                )
-                .await;
+                );
 
                 arc
             }
@@ -1079,13 +1076,13 @@ pub async fn handle_cache(
         comprash::UriKey::path_and_query(overide_uri.as_ref().unwrap_or_else(|| request.uri()));
 
     let cached = if let Some(cache) = &host.response_cache {
-        match cache.get_cache_item(&uri_key).await.into_option() {
+        match cache.get_cache_item(&uri_key).into_option() {
             Some(t) => (uri_key, Some(t)),
             None => match uri_key {
                 UriKey::Path(_) => (uri_key, None),
                 UriKey::PathQuery(path_query) => {
                     let uri_key = UriKey::Path(path_query.into_path());
-                    let result = cache.get_cache_item(&uri_key).await.into_option();
+                    let result = cache.get_cache_item(&uri_key).into_option();
                     (uri_key, result)
                 }
             },
@@ -1252,8 +1249,7 @@ pub async fn handle_cache(
                 varied_response,
                 request.method(),
                 &future,
-            )
-            .await;
+            );
 
             if !host.options.disable_if_modified_since && cache_rejected.is_none() {
                 let last_modified = HeaderValue::from_str(

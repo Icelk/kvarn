@@ -23,8 +23,7 @@ pub async fn file_cached<P: AsRef<str>>(path: P, cache: Option<&FileCache>) -> O
     if let Some(cache) = cache {
         cache
             .cache
-            .insert(path.as_ref().to_compact_string(), Bytes::clone(&buffer))
-            .await;
+            .insert(path.as_ref().to_compact_string(), Bytes::clone(&buffer));
     }
     Some(buffer)
 }
