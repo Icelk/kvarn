@@ -43,7 +43,7 @@ percent-encoding = "2"
 time = { version = "0.3.7", features = ["parsing", "formatting", "macros"] }
 # Range because of vulnerability https://rustsec.org/advisories/RUSTSEC-2023-0001.html
 tokio = { version = "1, >=1.23.1", features = ["rt", "io-util", "fs", "sync", "parking_lot", "time", "macros"] }
-tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring", rev = "34b27ab", features = ["bytes"], optional = true }
+tokio-uring = { git = "https://github.com/tokio-rs/tokio-uring", features = ["bytes"], optional = true }
 moka = { version = "0.10.0", features = ["future"], default-features = false }
 
 # HTTPS
