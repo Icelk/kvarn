@@ -142,9 +142,26 @@ impl UriKey {
     }
 }
 
+/// Guesses the mime. `file_contents` should be < 16 bytes.
+pub fn get_mime(extension: &str, file_contents: &[u8]) -> Mime {
+    mime_guess::from_ext(extension)
+        .first_raw()
+        .unwrap_or_else(|| tree_magic_mini::from_u8(file_contents))
+        .parse()
+        .unwrap_or(mime::APPLICATION_OCTET_STREAM)
+}
+/// Heuristically checks `mime` for UTF-8 text formats.
+pub fn is_text(mime: &Mime) -> bool {
+    mime.type_() == mime::TEXT
+        || mime.type_() == mime::APPLICATION
+            && (mime.subtype() == mime::JAVASCRIPT
+                || mime.subtype() == "graphql"
+                || mime.subtype() == mime::JSON
+                || mime.subtype() == mime::XML)
+}
 /// Checks `mime` if the content should be compressed;
 /// heuristically checks for compressed formats.
-pub fn do_compress(mime: &Mime, check_utf8: impl Fn() -> bool) -> bool {
+pub fn do_compress(mime: &Mime) -> bool {
     // IMAGE first, because it is the most likely
     mime.type_() != mime::IMAGE
         && mime.type_() != mime::FONT
@@ -156,14 +173,13 @@ pub fn do_compress(mime: &Mime, check_utf8: impl Fn() -> bool) -> bool {
         && mime.subtype() != "zip"
         && mime.subtype() != "zstd"
         // all applications which are not js, graphql, json, xml, or valid utf-8
-        && (mime.type_() != mime::APPLICATION
-            || (mime.subtype() == mime::JAVASCRIPT
+        && !(mime.type_() == mime::APPLICATION
+            && !(mime.subtype() == mime::JAVASCRIPT
                 || mime.subtype() == "graphql"
                 || mime.subtype() == mime::JSON
                 || mime.subtype() == mime::XML
                 || mime.subtype() == "wasm"
-                || mime.subtype() == "octet-stream"
-                || check_utf8()))
+                || mime.subtype() == "octet-stream"))
 }
 
 /// The preferred compression algorithm.
@@ -346,7 +362,7 @@ impl CompressedResponse {
         debug!("Recognised mime {:?}", &mime);
         let (bytes, compression) = match &mime {
             Some(mime) => {
-                if do_compress(mime, || str::from_utf8(self.get_identity().body()).is_ok()) {
+                if do_compress(mime) {
                     match self.compress {
                         CompressPreference::None => (self.get_identity().body(), "identity"),
                         CompressPreference::Full => {
@@ -411,7 +427,7 @@ impl CompressedResponse {
             headers.entry("cache-control").or_insert(h);
         }
     }
-    fn check_content_type(response: &mut Response<Bytes>, extension: &str) {
+    fn check_content_type(identity_response: &mut Response<Bytes>, extension: &str) {
         fn add_utf_8(headers: &mut HeaderMap, mime: &Mime) {
             let charset = if mime.get_param(mime::CHARSET) == Some(mime::UTF_8) {
                 ""
@@ -426,9 +442,8 @@ impl CompressedResponse {
                 HeaderValue::from_maybe_shared::<Bytes>(header.into_bytes().into()).unwrap();
             headers.insert("content-type", content_type);
         }
-        let utf_8 = response.body().len() < 16 * 1024 && str::from_utf8(response.body()).is_ok();
 
-        match response.headers().get("content-type") {
+        match identity_response.headers().get("content-type") {
             Some(content_type) => {
                 if let Some(mime_type) = content_type
                     .to_str()
@@ -437,30 +452,34 @@ impl CompressedResponse {
                 {
                     #[allow(clippy::match_same_arms)] // we have comments
                     match mime_type.get_param("charset") {
-                        None if utf_8 => {
-                            add_utf_8(response.headers_mut(), &mime_type);
+                        None if is_text(&mime_type) => {
+                            add_utf_8(identity_response.headers_mut(), &mime_type);
                         }
                         // Has charset attribute or we shouldn't add a charset parameter
                         Some(_) | None => {}
                     }
                 }
             }
-            None if !response.body().is_empty() => {
-                let mime = if utf_8 {
-                    mime::TEXT_HTML_UTF_8
-                } else {
-                    mime::APPLICATION_OCTET_STREAM
-                };
-                let mime_type = mime_guess::from_ext(extension).first_or(mime);
+            None if !identity_response.body().is_empty() => {
+                let short_body = identity_response
+                    .body()
+                    .get(..8)
+                    .unwrap_or(identity_response.body());
+
+                let mime = get_mime(extension, short_body);
+
+                let utf_8 = is_text(&mime);
                 if utf_8 {
-                    add_utf_8(response.headers_mut(), &mime_type);
+                    add_utf_8(identity_response.headers_mut(), &mime);
                 } else {
                     // Mime will only contains valid bytes.
                     let content_type = HeaderValue::from_maybe_shared::<Bytes>(
-                        mime_type.to_string().into_bytes().into(),
+                        mime.to_string().into_bytes().into(),
                     )
                     .unwrap();
-                    response.headers_mut().insert("content-type", content_type);
+                    identity_response
+                        .headers_mut()
+                        .insert("content-type", content_type);
                 }
             }
             None => {}

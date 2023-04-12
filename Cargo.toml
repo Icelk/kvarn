@@ -39,6 +39,7 @@ h2 = { version = "0.3", default-features = false, optional = true }
 http = "0.2"
 mime = "0.3"
 mime_guess = "2"
+tree_magic_mini = { version = "3", features = ["tree_magic_db"] }
 percent-encoding = "2"
 
 kvarn_async = { path = "async", version = "0.5.0" }

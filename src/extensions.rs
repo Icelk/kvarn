@@ -1162,20 +1162,32 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                     .headers_mut()
                     .insert("vary", HeaderValue::from_static("range"));
 
+                let first_bytes = {
+                    let v = vec![0; 16];
+                    let (Ok(read), mut v) = file.read_at(v, 0).await else {
+                        return default_error_response(StatusCode::NOT_FOUND, host, None).await;
+                    };
+                    v.truncate(read);
+                    v
+                };
+
                 // Mime
                 if !response.headers().contains_key("content-type") {
-                    let mime = mime::APPLICATION_OCTET_STREAM;
-                    let mime_type = mime_guess::from_ext(
+                    let mime = comprash::get_mime(
                         path.extension()
                             .and_then(std::ffi::OsStr::to_str)
                             .unwrap_or(""),
-                    )
-                    .first_or(mime);
+                        &first_bytes,
+                    );
+                    let mime = if comprash::is_text(&mime) {
+                        let b = mime.to_string().into_bytes();
+                        build_bytes!(&b, b"; charset=utf-8").freeze()
+                    } else {
+                        mime.to_string().into_bytes().into()
+                    };
+
                     // Mime will only contains valid bytes.
-                    let content_type = HeaderValue::from_maybe_shared::<Bytes>(
-                        mime_type.to_string().into_bytes().into(),
-                    )
-                    .unwrap();
+                    let content_type = HeaderValue::from_maybe_shared::<Bytes>(mime).unwrap();
                     response.headers_mut().insert("content-type", content_type);
                 }
 

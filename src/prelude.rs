@@ -86,6 +86,7 @@ pub mod internals {
     pub use mime::{self, Mime};
     pub use mime_guess;
     pub use tokio::time::timeout;
+    pub use tree_magic_mini;
     pub use utils::{
         PresentArguments, PresentArgumentsIter, PresentExtensions, PresentExtensionsIter,
     };
