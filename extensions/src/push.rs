@@ -54,7 +54,7 @@ pub fn always<'a>(
     bytes: Bytes,
     addr: SocketAddr,
 ) -> RetFut<'a, ()> {
-    push(request, host, response_pipe, bytes, addr, None)
+    Box::pin(push(request, host, response_pipe, bytes, addr, None))
 }
 
 pub struct SmartPush {
@@ -101,147 +101,145 @@ impl Default for SmartPush {
     }
 }
 
-fn push<'a>(
+async fn push<'a>(
     request: &'a FatRequest,
     host: &'a Host,
     response_pipe: &'a mut application::ResponsePipe,
     bytes: Bytes,
     addr: SocketAddr,
     manager: Option<&'a Mutex<SmartPush>>,
-) -> RetFut<'a, ()> {
+) {
     use internals::*;
-    Box::pin(async move {
-        // let request = unsafe { request.get_inner() };
-        // let response_pipe = unsafe { response_pipe.get_inner() };
+    // let request = unsafe { request.get_inner() };
+    // let response_pipe = unsafe { response_pipe.get_inner() };
 
-        // If it is not HTTP/1
-        #[allow(irrefutable_let_patterns)]
-        if let ResponsePipe::Http1(_) = &response_pipe {
+    // If it is not HTTP/1
+    #[allow(irrefutable_let_patterns)]
+    if let ResponsePipe::Http1(_) = &response_pipe {
+        return;
+    }
+
+    if let Some(manager) = manager {
+        // let manager = unsafe { manager.get() };
+        let mut lock = manager.lock().await;
+        if !lock.accept(addr) {
             return;
         }
+    }
 
-        if let Some(manager) = manager {
-            // let manager = unsafe { manager.get() };
-            let mut lock = manager.lock().await;
-            if !lock.accept(addr) {
-                return;
-            }
-        }
+    // If user agent is Firefox, return.
+    // This implementations of push doesn not work with Firefox!
+    // I do not know why. Any help is appreciated.
+    // Kvarn follows the HTTP/2 spec completely, according to h2spec.
+    if request
+        .headers()
+        .get("user-agent")
+        .and_then(|user_agent| user_agent.to_str().ok())
+        .map_or(false, |user_agent| user_agent.contains("Firefox/"))
+    {
+        return;
+    }
 
-        // If user agent is Firefox, return.
-        // This implementations of push doesn not work with Firefox!
-        // I do not know why. Any help is appreciated.
-        // Kvarn follows the HTTP/2 spec completely, according to h2spec.
-        if request
-            .headers()
-            .get("user-agent")
-            .and_then(|user_agent| user_agent.to_str().ok())
-            .map_or(false, |user_agent| user_agent.contains("Firefox/"))
+    const HTML_START: &str = "<!DOCTYPE html>";
+
+    match str::from_utf8(&bytes) {
+        // If it is HTML
+        Ok(string)
+            if string
+                .get(..HTML_START.len())
+                .map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) =>
         {
-            return;
-        }
+            let mut urls: Vec<_> = url_crawl::get_urls(string).map(String::from).collect();
 
-        const HTML_START: &str = "<!DOCTYPE html>";
+            // remove images
+            urls.retain(|url| {
+                !url.contains(".jpg")
+                    && !url.contains(".avif")
+                    && !url.contains("png")
+                    && !url.contains(".webp")
+                    && !url.contains(".gif")
+            });
 
-        match str::from_utf8(&bytes) {
-            // If it is HTML
-            Ok(string)
-                if string
-                    .get(..HTML_START.len())
-                    .map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) =>
-            {
-                let mut urls: Vec<_> = url_crawl::get_urls(string).map(String::from).collect();
-
-                // remove images
-                urls.retain(|url| {
-                    !url.contains(".jpg")
-                        && !url.contains(".avif")
-                        && !url.contains("png")
-                        && !url.contains(".webp")
-                        && !url.contains(".gif")
-                });
-
-                for url in &mut urls {
-                    if !url.starts_with('/') && !url.contains(':') {
-                        let path = request.uri().path();
-                        let mut last_slash = 0;
-                        for (pos, c) in path.chars().enumerate() {
-                            if c == '/' {
-                                last_slash = pos;
-                            }
-                        }
-                        url.insert_str(0, &path[..=last_slash]);
-                    }
-                }
-
-                debug!("Pushing urls {:?}", urls);
-
-                urls.sort_unstable();
-                urls.dedup();
-
-                for url in urls {
-                    let mut uri = request.uri().clone().into_parts();
-                    if let Some(uri) =
-                        uri::PathAndQuery::from_maybe_shared::<Bytes>(url.into_bytes().into())
-                            .ok()
-                            .and_then(|path| {
-                                uri.path_and_query = Some(path);
-                                Uri::from_parts(uri).ok()
-                            })
-                    {
-                        let mut push_request = Request::builder().uri(uri);
-                        macro_rules! copy_header {
-                            ($builder: expr, $headers: expr, $name: expr) => {
-                                for header in $headers.get_all($name) {
-                                    $builder = $builder.header($name, header);
-                                }
-                            };
-                        }
-                        let headers = request.headers();
-
-                        copy_header!(push_request, headers, "accept-encoding");
-                        copy_header!(push_request, headers, "accept-language");
-                        copy_header!(push_request, headers, "user-agent");
-                        copy_header!(push_request, headers, "host");
-                        copy_header!(push_request, headers, "origin");
-                        copy_header!(push_request, headers, "cookies");
-
-                        let push_request = push_request.body(()).expect(
-                            "failed to construct a request only from another valid request.",
-                        );
-
-                        let empty_request = utils::empty_clone_request(&push_request);
-
-                        let mut response_pipe = match response_pipe.push_request(empty_request) {
-                            Ok(pipe) => pipe,
-                            Err(_) => return,
-                        };
-
-                        let mut push_request = push_request
-                            .map(|_| kvarn::application::Body::Bytes(Bytes::new().into()));
-
-                        let response = kvarn::handle_cache(&mut push_request, addr, host).await;
-
-                        if let Err(err) = kvarn::SendKind::Push(&mut response_pipe)
-                            .send(response, request, host, addr)
-                            .await
-                        {
-                            error!("Error occurred when pushing request. {:?}", err);
+            for url in &mut urls {
+                if !url.starts_with('/') && !url.contains(':') {
+                    let path = request.uri().path();
+                    let mut last_slash = 0;
+                    for (pos, c) in path.chars().enumerate() {
+                        if c == '/' {
+                            last_slash = pos;
                         }
                     }
+                    url.insert_str(0, &path[..=last_slash]);
                 }
-
-                debug!("Push done.");
             }
-            // Else, do nothing
-            _ => {}
+
+            debug!("Pushing urls {:?}", urls);
+
+            urls.sort_unstable();
+            urls.dedup();
+
+            for url in urls {
+                let mut uri = request.uri().clone().into_parts();
+                if let Some(uri) =
+                    uri::PathAndQuery::from_maybe_shared::<Bytes>(url.into_bytes().into())
+                        .ok()
+                        .and_then(|path| {
+                            uri.path_and_query = Some(path);
+                            Uri::from_parts(uri).ok()
+                        })
+                {
+                    let mut push_request = Request::builder().uri(uri);
+                    macro_rules! copy_header {
+                        ($builder: expr, $headers: expr, $name: expr) => {
+                            for header in $headers.get_all($name) {
+                                $builder = $builder.header($name, header);
+                            }
+                        };
+                    }
+                    let headers = request.headers();
+
+                    copy_header!(push_request, headers, "accept-encoding");
+                    copy_header!(push_request, headers, "accept-language");
+                    copy_header!(push_request, headers, "user-agent");
+                    copy_header!(push_request, headers, "host");
+                    copy_header!(push_request, headers, "origin");
+                    copy_header!(push_request, headers, "cookies");
+
+                    let push_request = push_request
+                        .body(())
+                        .expect("failed to construct a request only from another valid request.");
+
+                    let empty_request = utils::empty_clone_request(&push_request);
+
+                    let mut response_pipe = match response_pipe.push_request(empty_request) {
+                        Ok(pipe) => pipe,
+                        Err(_) => return,
+                    };
+
+                    let mut push_request =
+                        push_request.map(|_| kvarn::application::Body::Bytes(Bytes::new().into()));
+
+                    let response = kvarn::handle_cache(&mut push_request, addr, host).await;
+
+                    if let Err(err) = kvarn::SendKind::Push(&mut response_pipe)
+                        .send(response, request, host, addr)
+                        .await
+                    {
+                        error!("Error occurred when pushing request. {:?}", err);
+                    }
+                }
+            }
+
+            debug!("Push done.");
         }
-        if let Some(manager) = manager {
-            // let manager = unsafe { manager.get() };
-            let mut lock = manager.lock().await;
-            lock.register(addr);
-        }
-    })
+        // Else, do nothing
+        _ => {}
+    }
+    if let Some(manager) = manager {
+        // let manager = unsafe { manager.get() };
+        let mut lock = manager.lock().await;
+        lock.register(addr);
+    }
 }
 
 #[cfg(test)]

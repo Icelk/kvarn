@@ -1138,7 +1138,7 @@ impl<R> RuleSet<R> {
 ///
 /// Does not support present extensions, nor post extensions.
 #[must_use]
-#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, unused_mut)]
 pub fn stream_body() -> Box<dyn PrepareCall> {
     prepare!(req, host, path, _addr, {
         debug!("Streaming body for {:?}", req.uri().path());
@@ -1156,15 +1156,20 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
             } else {
                 None
             };
-            if let (Ok(file), Some(meta)) = (file, meta) {
+            if let (Ok(mut file), Some(meta)) = (file, meta) {
                 let mut response = Response::new(Bytes::new());
                 response
                     .headers_mut()
                     .insert("vary", HeaderValue::from_static("range"));
 
                 let first_bytes = {
-                    let v = vec![0; 16];
+                    let mut v = vec![0; 16];
+                    #[cfg(feature = "uring")]
                     let (Ok(read), mut v) = file.read_at(v, 0).await else {
+                        return default_error_response(StatusCode::NOT_FOUND, host, None).await;
+                    };
+                    #[cfg(not(feature = "uring"))]
+                    let Ok(read) = file.read(&mut v).await else {
                         return default_error_response(StatusCode::NOT_FOUND, host, None).await;
                     };
                     v.truncate(read);
@@ -1225,9 +1230,14 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                     }
                 });
                 #[cfg(not(feature = "uring"))]
-                let fut = response_pipe_fut!(response, _host, move |file: fs::File| {
-                    let _err = tokio::io::copy(file, response).await;
-                });
+                let fut = response_pipe_fut!(
+                    response,
+                    _host,
+                    move |file: fs::File, first_bytes: Vec<u8>| {
+                        let _ = response.write_all(first_bytes).await;
+                        let _err = tokio::io::copy(file, response).await;
+                    }
+                );
 
                 FatResponse::new(response, comprash::ServerCachePreference::None)
                     .with_future_and_len(fut, len)

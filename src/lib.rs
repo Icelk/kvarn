@@ -1020,7 +1020,7 @@ mod handle_cache_helpers {
                 if let Some(cache) = &host.response_cache {
                     cache.insert(
                         0,
-                        lifetime.1.map(|dur| {
+                        lifetime.2.map(|dur| {
                             dur.saturating_sub(
                                 (OffsetDateTime::now_utc() - lifetime.0)
                                     .max(time::Duration::ZERO)
@@ -1092,7 +1092,7 @@ pub async fn handle_cache(
     };
     #[allow(clippy::single_match_else, clippy::unnested_or_patterns)]
     let (response, identity, future) = match cached {
-        (uri_key, Some((resp, (creation, _))))
+        (uri_key, Some((resp, (creation, creation_formatted, _))))
             if sanitize_data.is_ok()
                 && matches!(request.method(), &Method::GET | &Method::HEAD) =>
         {
@@ -1182,16 +1182,10 @@ pub async fn handle_cache(
                 (response, identity_body, future)
             };
             if !host.options.disable_if_modified_since {
-                let last_modified = HeaderValue::from_str(
-                    &creation
-                        .format(&comprash::HTTP_DATE)
-                        .expect("failed to format datetime"),
-                )
-                .expect("We know these bytes are valid.");
                 response_data
                     .0
                     .headers_mut()
-                    .insert("last-modified", last_modified);
+                    .insert("last-modified", creation_formatted);
             }
             response_data
         }

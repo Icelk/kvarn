@@ -143,6 +143,7 @@ impl UriKey {
 }
 
 /// Guesses the mime. `file_contents` should be < 16 bytes.
+#[must_use]
 pub fn get_mime(extension: &str, file_contents: &[u8]) -> Mime {
     mime_guess::from_ext(extension)
         .first_raw()
@@ -151,6 +152,7 @@ pub fn get_mime(extension: &str, file_contents: &[u8]) -> Mime {
         .unwrap_or(mime::APPLICATION_OCTET_STREAM)
 }
 /// Heuristically checks `mime` for UTF-8 text formats.
+#[must_use]
 pub fn is_text(mime: &Mime) -> bool {
     mime.type_() == mime::TEXT
         || mime.type_() == mime::APPLICATION
@@ -161,6 +163,7 @@ pub fn is_text(mime: &Mime) -> bool {
 }
 /// Checks `mime` if the content should be compressed;
 /// heuristically checks for compressed formats.
+#[must_use]
 pub fn do_compress(mime: &Mime) -> bool {
     // IMAGE first, because it is the most likely
     mime.type_() != mime::IMAGE
@@ -817,7 +820,7 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
     {
         match self.cache.get(key) {
             Some(value_and_lifetime)
-                if value_and_lifetime.1 .1.map_or(true, |lifetime| {
+                if value_and_lifetime.1 .2.map_or(true, |lifetime| {
                     OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
                 }) =>
             {
@@ -841,10 +844,16 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
             return CacheOut::NotInserted(response);
         }
 
-        self.cache.insert(
-            key,
-            (Arc::new(response), (OffsetDateTime::now_utc(), lifetime)),
-        );
+        let date_time = OffsetDateTime::now_utc();
+        let header = HeaderValue::from_str(
+            &date_time
+                .format(&comprash::HTTP_DATE)
+                .expect("failed to format datetime"),
+        )
+        .expect("We know these bytes are valid.");
+
+        self.cache
+            .insert(key, (Arc::new(response), (date_time, header, lifetime)));
         CacheOut::None
     }
     pub(crate) fn insert_cache_item(
@@ -880,7 +889,7 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
 ///
 /// Keep in mind that `Duration` is the std variant, while `Duration` is the time crate's
 /// variant, which supports negative durations.
-pub type LifetimeCache<T> = (T, (OffsetDateTime, Option<Duration>));
+pub type LifetimeCache<T> = (T, (OffsetDateTime, HeaderValue, Option<Duration>));
 
 #[cfg(test)]
 mod tests {
