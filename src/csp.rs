@@ -478,7 +478,7 @@ impl Default for ValueSet {
 ///         .arc(),
 /// );
 /// ```
-pub type Csp = RuleSet<CompiledRule>;
+pub type Csp = RuleSet<ComputedRule>;
 impl Default for Csp {
     fn default() -> Self {
         Self::empty().add("*", CspRule::default())
@@ -486,13 +486,14 @@ impl Default for Csp {
 }
 
 /// A rule with the [`HeaderValue`] precomputed (unless you're using nonce).
-pub struct CompiledRule(pub Rule, Option<HeaderValue>);
-impl Debug for CompiledRule {
+#[derive(Clone)]
+pub struct ComputedRule(pub Rule, Option<HeaderValue>);
+impl Debug for ComputedRule {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
-impl From<Rule> for CompiledRule {
+impl From<Rule> for ComputedRule {
     fn from(value: Rule) -> Self {
         let computed = value.to_header();
         Self(value, computed)

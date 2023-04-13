@@ -13,7 +13,7 @@ use std::{borrow::Borrow, hash::Hash};
 pub static HTTP_DATE: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short case_sensitive:true], [day padding:zero] [month repr:short case_sensitive:true] [year padding:zero repr:full base:calendar sign:automatic] [hour repr:24 padding:zero]:[minute padding:zero]:[second padding:zero] GMT");
 
 /// A [`MokaCache`] with appropriate type parameters for a file cache.
-pub type FileCache = MokaCache<CompactString, Bytes>;
+pub type FileCache = MokaCache<CompactString, Option<(OffsetDateTime, Bytes)>>;
 /// A [`MokaCache`] with appropriate type parameters for a response cache.
 pub type ResponseCache = MokaCache<UriKey, LifetimeCache<Arc<VariedResponse>>>;
 
