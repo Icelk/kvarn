@@ -90,11 +90,24 @@ pub fn new() -> Extensions {
 /// shutdown_manager.wait().await;
 /// # }
 pub fn mount_all(extensions: &mut Extensions) {
+    #[cfg(feature = "templates")]
     let template_cache = templates::Cache::new();
     extensions.add_present_internal("download", Box::new(download));
     extensions.add_present_internal("cache", Box::new(cache));
-    extensions.add_present_internal("hide", hide(template_cache.clone()));
-    extensions.add_present_file("private", hide(template_cache.clone()));
+    extensions.add_present_internal(
+        "hide",
+        hide(
+            #[cfg(feature = "templates")]
+            template_cache.clone(),
+        ),
+    );
+    extensions.add_present_file(
+        "private",
+        hide(
+            #[cfg(feature = "templates")]
+            template_cache.clone(),
+        ),
+    );
     extensions.add_present_internal("allow-ips", Box::new(ip_allow));
     #[cfg(feature = "templates")]
     extensions.add_present_internal("tmpl", templates_ext(template_cache));
@@ -168,7 +181,9 @@ pub fn cache<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
     ready(())
 }
 
-pub fn hide(template_cache: Arc<templates::Cache>) -> Box<dyn PresentCall> {
+pub fn hide(
+    #[cfg(feature = "templates")] template_cache: Arc<templates::Cache>,
+) -> Box<dyn PresentCall> {
     present!(data, move |template_cache: Arc<templates::Cache>| {
         #[allow(unused_mut)] // cfg
         let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host), None).await;
