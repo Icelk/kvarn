@@ -184,7 +184,10 @@ pub fn cache<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
 pub fn hide(
     #[cfg(feature = "templates")] template_cache: Arc<templates::Cache>,
 ) -> Box<dyn PresentCall> {
-    present!(data, move |template_cache: Arc<templates::Cache>| {
+    async fn inner(
+        data: &mut extensions::PresentData<'_>,
+        #[cfg(feature = "templates")] template_cache: &Arc<templates::Cache>,
+    ) {
         #[allow(unused_mut)] // cfg
         let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host), None).await;
         let arguments = utils::extensions::PresentExtensions::new(error.body().clone());
@@ -212,7 +215,19 @@ pub fn hide(
         }
 
         *data.response = error.map(Into::into);
-    })
+    }
+    #[cfg(not(feature = "templates"))]
+    {
+        present!(data, {
+            inner(data).await;
+        })
+    }
+    #[cfg(feature = "templates")]
+    {
+        present!(data, move |template_cache: Arc<templates::Cache>| {
+            inner(data, template_cache).await;
+        })
+    }
 }
 
 pub fn ip_allow<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
