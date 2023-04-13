@@ -1084,15 +1084,15 @@ impl<R> RuleSet<R> {
     /// By default, `path` will only match requests with the exact path.
     /// This can be changed by appending `*` to the end of the path, which
     /// will then check if the request path start with `path`.
-    pub fn add(mut self, path: impl AsRef<str>, rule: R) -> Self {
+    pub fn add(mut self, path: impl AsRef<str>, rule: impl Into<R>) -> Self {
         self.add_mut(path, rule);
         self
     }
     /// Same as [`Self::add`] but operating on a mutable reference.
-    pub fn add_mut(&mut self, path: impl AsRef<str>, rule: R) -> &mut Self {
+    pub fn add_mut(&mut self, path: impl AsRef<str>, rule: impl Into<R>) -> &mut Self {
         let path = path.as_ref().to_owned();
 
-        self.rules.push((path, rule));
+        self.rules.push((path, rule.into()));
 
         self.rules.sort_by(|a, b| {
             use std::cmp::Ordering;

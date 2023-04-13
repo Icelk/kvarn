@@ -886,9 +886,6 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
 /// The [`OffsetDateTime`] is when the item was added and
 /// the [`Duration`] how long the item can be kept.
 /// A `Duration` value of `None` means the item will never expire.
-///
-/// Keep in mind that `Duration` is the std variant, while `Duration` is the time crate's
-/// variant, which supports negative durations.
 pub type LifetimeCache<T> = (T, (OffsetDateTime, HeaderValue, Option<Duration>));
 
 #[cfg(test)]

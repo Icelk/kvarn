@@ -478,10 +478,24 @@ impl Default for ValueSet {
 ///         .arc(),
 /// );
 /// ```
-pub type Csp = RuleSet<CspRule>;
+pub type Csp = RuleSet<CompiledRule>;
 impl Default for Csp {
     fn default() -> Self {
         Self::empty().add("*", CspRule::default())
+    }
+}
+
+/// A rule with the [`HeaderValue`] precomputed (unless you're using nonce).
+pub struct CompiledRule(pub Rule, Option<HeaderValue>);
+impl Debug for CompiledRule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl From<Rule> for CompiledRule {
+    fn from(value: Rule) -> Self {
+        let computed = value.to_header();
+        Self(value, computed)
     }
 }
 
@@ -494,7 +508,12 @@ impl Extensions {
                 if let Some(rule) = csp.get(request.uri().path()) {
                     let nonce = response.headers().get("csp-nonce");
                     let some_nonce = nonce.is_some();
-                    if let Some(header) = rule.to_header_nonce(nonce) {
+                    let header = if some_nonce {
+                        rule.0.to_header_nonce(nonce)
+                    } else {
+                        rule.1.clone()
+                    };
+                    if let Some(header) = header {
                         if let Some(header) = response.headers().get("content-security-policy") {
                             warn!(
                                 "Overriding current `content-security-policy` \
