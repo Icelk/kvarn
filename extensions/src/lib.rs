@@ -90,13 +90,14 @@ pub fn new() -> Extensions {
 /// shutdown_manager.wait().await;
 /// # }
 pub fn mount_all(extensions: &mut Extensions) {
+    let template_cache = templates::Cache::new();
     extensions.add_present_internal("download", Box::new(download));
     extensions.add_present_internal("cache", Box::new(cache));
-    extensions.add_present_internal("hide", Box::new(hide));
-    extensions.add_present_file("private", Box::new(hide));
+    extensions.add_present_internal("hide", hide(template_cache.clone()));
+    extensions.add_present_file("private", hide(template_cache.clone()));
     extensions.add_present_internal("allow-ips", Box::new(ip_allow));
     #[cfg(feature = "templates")]
-    extensions.add_present_internal("tmpl", Box::new(templates_ext));
+    extensions.add_present_internal("tmpl", templates_ext(template_cache));
     #[cfg(feature = "push")]
     push::mount(extensions, SmartPush::default());
 }
@@ -167,8 +168,8 @@ pub fn cache<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
     ready(())
 }
 
-pub fn hide<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
-    box_fut!({
+pub fn hide(template_cache: Arc<templates::Cache>) -> Box<dyn PresentCall> {
+    present!(data, move |template_cache: Arc<templates::Cache>| {
         #[allow(unused_mut)] // cfg
         let mut error = default_error(StatusCode::NOT_FOUND, Some(data.host), None).await;
         let arguments = utils::extensions::PresentExtensions::new(error.body().clone());
@@ -182,7 +183,13 @@ pub fn hide<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
                         c.replace(0..arguments.data_start(), b"");
                         c
                     });
-                    templates::handle_template(&argument, error.body_mut(), data.host).await;
+                    templates::handle_template(
+                        template_cache,
+                        &argument,
+                        error.body_mut(),
+                        data.host,
+                    )
+                    .await;
                     *data.response = error;
                     return;
                 }

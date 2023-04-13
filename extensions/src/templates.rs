@@ -1,32 +1,77 @@
 use crate::*;
 
+type TemplateMap = HashMap<CompactString, Bytes>;
+pub struct Cache(comprash::MokaCache<CompactString, (chrono::OffsetDateTime, Arc<TemplateMap>)>);
+impl Cache {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self(comprash::MokaCache::default()))
+    }
+    async fn resolve_template(
+        &self,
+        host: &Host,
+        template: &str,
+        files: &[impl AsRef<str>],
+    ) -> Option<Bytes> {
+        for file in files {
+            let tmpls = self.get_file(host, file.as_ref()).await;
+            if let Some(tmpls) = tmpls {
+                if let Some(tmpl) = tmpls.get(template) {
+                    return Some(tmpl.clone());
+                }
+            }
+        }
+        None
+    }
+    async fn get_file(&self, host: &Host, path: &str) -> Option<Arc<TemplateMap>> {
+        if let Some(tmpls) = self.0.cache.get(path) {
+            let mtime = host
+                .file_cache
+                .as_ref()
+                .and_then(|cache| cache.cache.get(path));
+            let mtime = match mtime {
+                Some(opt) => opt?.0,
+                None => {
+                    let stat = read::stat(path).await;
+                    if let Some(stat) = stat {
+                        stat.mtime
+                    } else {
+                        if let Some(c) = &host.file_cache {
+                            c.cache.insert(path.to_compact_string(), None);
+                        }
+                        return None;
+                    }
+                }
+            };
+            if mtime <= tmpls.0 {
+                return Some(tmpls.1);
+            }
+        }
+        let (file, mtime) = read::file_cached_with_mtime(path, host.file_cache.as_ref()).await?;
+        let map = Arc::new(extract_templates(file));
+        self.0.cache.insert(path.to_compact_string(), (mtime, map));
+        self.0.cache.get(path).map(|(_, map)| map)
+    }
+}
+
 #[derive(Eq, PartialEq)]
 enum Stage {
     Text,
     Placeholder,
 }
 
-pub fn templates<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
-    box_fut!({
-        handle_template(&data.args, data.response.body_mut(), data.host).await;
+pub fn templates(cache: Arc<Cache>) -> Box<dyn PresentCall> {
+    present!(data, move |cache: Arc<Cache>| {
+        handle_template(cache, &data.args, data.response.body_mut(), data.host).await;
     })
 }
 
 pub async fn handle_template(
+    cache: &Cache,
     arguments: &utils::PresentArguments,
     body: &mut utils::BytesCow,
     host: &Host,
 ) {
-    let mut file_contents = Vec::with_capacity(arguments.iter().count());
-    for argument in arguments.iter().rev() {
-        let file = read_template_file(argument, host).await;
-        if let Some(file) = file {
-            file_contents.push(file);
-        }
-    }
-
-    // Get templates, from cache or file
-    let templates = collect_templates(file_contents.iter().map(|b| &b[..]));
+    let files: Vec<_> = arguments.iter().rev().map(|s| path(host, s)).collect();
 
     // Remove first line if it contains "tmpl-ignore", for formatting quirks.
     let mut file = body.as_ref();
@@ -97,8 +142,9 @@ pub async fn handle_template(
                         // Good; we have UTF-8
                         if let Ok(key) = str::from_utf8(&file[placeholder_start + 2..position]) {
                             // If it is a valid template?
-                            if let Some(template) = templates.get(key) {
-                                response.extend_from_slice(template);
+                            if let Some(template) = cache.resolve_template(host, key, &files).await
+                            {
+                                response.extend_from_slice(&template);
                             }
                         }
                     }
@@ -127,37 +173,17 @@ pub async fn handle_template(
 
     *body = utils::BytesCow::Mut(response)
 }
-fn collect_templates<'a, I: Iterator<Item = &'a [u8]>>(files: I) -> HashMap<&'a str, &'a [u8]> {
-    let mut templates = HashMap::with_capacity(32);
-
-    for file in files {
-        for (key, value) in extract_templates(file).into_iter() {
-            templates.insert(key, value);
-        }
-    }
-
-    templates
+fn path(host: &Host, file: &str) -> CompactString {
+    utils::make_path(&host.path, "templates", file, None)
 }
-async fn read_template_file<'a>(file: &str, host: &'a Host) -> Option<Bytes> {
-    let path = utils::make_path(&host.path, "templates", file, None);
-
-    // The template file will be access several times.
-    match read_file_cached(&path, host.file_cache.as_ref()).await {
-        Some(file) => Some(file),
-        None => {
-            warn!("Requested template file {:?} doesn't exist.", file);
-            None
-        }
-    }
-}
-fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
+fn extract_templates(file: Bytes) -> TemplateMap {
     let mut templates = HashMap::with_capacity(16);
 
     let mut stage = Stage::Text;
     let mut placeholder_start = 0;
     let mut escaped = 0;
     let mut start_byte = Some(0);
-    let mut name = None;
+    let mut name: Option<&str> = None;
     let mut newline_size = 1;
 
     for (position, byte) in file.iter().copied().enumerate() {
@@ -185,7 +211,10 @@ fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
                         let end = end.saturating_sub(newline_size);
                         if let Some(name) = name.take() {
                             let start = start_byte.take().unwrap();
-                            templates.insert(name, &file[start..end.max(start)]);
+                            templates.insert(
+                                name.to_compact_string(),
+                                file.slice(start..end.max(start)),
+                            );
                         }
                         placeholder_start = position;
                         stage = Stage::Placeholder;
@@ -233,7 +262,10 @@ fn extract_templates(file: &[u8]) -> HashMap<&str, &[u8]> {
         if file.get(file.len().saturating_sub(1)) == Some(&LF) {
             trim += 1;
         }
-        templates.insert(name, &file[start_byte.take().unwrap()..file.len() - trim]);
+        templates.insert(
+            name.to_compact_string(),
+            file.slice(start_byte.take().unwrap()..file.len() - trim),
+        );
     }
 
     templates
