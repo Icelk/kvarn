@@ -211,6 +211,7 @@ pub fn process_document<P: AsRef<Path>>(
     ignored_extensions: &[&str],
     continue_behaviour: ContinueBehaviour,
     theme: &str,
+    syntax_highlighting: bool,
 ) -> Result<(), ()> {
     match process_inner(
         path,
@@ -220,6 +221,7 @@ pub fn process_document<P: AsRef<Path>>(
         ignored_extensions,
         continue_behaviour,
         theme,
+        syntax_highlighting,
     ) {
         Ok(()) => Ok(()),
         Err(ref err) if err.kind() == io::ErrorKind::PermissionDenied => {
@@ -249,6 +251,7 @@ fn process_inner<P: AsRef<Path>>(
     ignored_extensions: &[&str],
     continue_behaviour: ContinueBehaviour,
     theme: &str,
+    syntax_highlighting: bool,
 ) -> io::Result<()> {
     let path = path.as_ref();
     if path.extension().and_then(OsStr::to_str).map(|s| s == "md") == Some(false)
@@ -489,6 +492,7 @@ fn process_inner<P: AsRef<Path>>(
     let parser = highlight::SyntaxPreprocessor {
         parent: parser,
         theme,
+        skip: !syntax_highlighting,
     };
 
     let mut output = Vec::with_capacity(input.len() * 2);
@@ -525,6 +529,7 @@ pub fn watch<P: AsRef<Path>>(
     ignored_extensions: &[&str],
     mut continue_behaviour: ContinueBehaviour,
     theme: &str,
+    syntax_highlighting: bool,
 ) {
     use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
     use std::sync::mpsc::channel;
@@ -572,6 +577,7 @@ pub fn watch<P: AsRef<Path>>(
                         ignored_extensions,
                         continue_behaviour,
                         theme,
+                        syntax_highlighting,
                     );
                     let local_path = if let Ok(wd) = std::env::current_dir() {
                         path.strip_prefix(wd).unwrap_or(&path)

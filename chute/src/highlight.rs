@@ -15,6 +15,7 @@ lazy_static::lazy_static! {
 pub(crate) struct SyntaxPreprocessor<'a, I: Iterator<Item = Event<'a>>> {
     pub(crate) parent: I,
     pub(crate) theme: &'a str,
+    pub(crate) skip: bool,
 }
 
 impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
@@ -22,6 +23,9 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
+        if self.skip {
+            return self.parent.next();
+        }
         let lang = match self.parent.next()? {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) if !lang.is_empty() => lang,
             other => return Some(other),

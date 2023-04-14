@@ -81,6 +81,14 @@ fn main() {
                     "Solarized (light)",
                 ]))
                 .default_value("base16-eighties.dark"),
+        )
+        .arg(
+            Arg::new("no-highlighting")
+                .long("no-syntax-highlighting")
+                .short('d')
+                .help("Disable syntax highlighting.")
+                .conflicts_with("theme")
+                .action(ArgAction::SetTrue),
         );
 
     #[cfg(feature = "completion")]
@@ -129,6 +137,7 @@ fn main() {
     let theme = matches
         .get_one::<String>("theme")
         .expect("We provided a default");
+    let syntax_highlighting = !matches.get_flag("no-highlighting");
 
     for path in paths {
         let path = Path::new(path);
@@ -146,6 +155,7 @@ fn main() {
                         IGNORED_EXTENSIONS,
                         continue_behaviour,
                         &theme,
+                        syntax_highlighting,
                     );
                 });
                 threads.push(thread);
@@ -159,6 +169,7 @@ fn main() {
                     IGNORED_EXTENSIONS,
                     continue_behaviour,
                     theme,
+                    syntax_highlighting,
                 )
                 .is_err()
                 {
