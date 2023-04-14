@@ -100,8 +100,33 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
 
             for line in lines {
                 if let Ok(tokens) = highlighter.highlight_line(line, ss) {
-                    for (style, content) in tokens {
-                        let new_style = style != last_style;
+                    for (mut style, content) in tokens {
+                        // hack for JSON issues
+                        if Some(style.foreground) == theme.settings.background {
+                            // if light theme
+                            if style.foreground.r / 3
+                                + style.foreground.g / 3
+                                + style.foreground.b / 3
+                                > 128
+                            {
+                                style.foreground = Color {
+                                    r: 76,
+                                    g: 75,
+                                    b: 72,
+                                    a: 255,
+                                }
+                            } else {
+                                style.foreground = Color {
+                                    r: 211,
+                                    g: 208,
+                                    b: 200,
+                                    a: 255,
+                                }
+                            }
+                        }
+
+                        let new_style = style.foreground != last_style.foreground
+                            || style.font_style != last_style.font_style;
                         if new_style && !content.trim().is_empty() {
                             last_style = style;
                             if !first {
