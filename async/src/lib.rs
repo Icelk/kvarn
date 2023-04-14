@@ -309,6 +309,20 @@ pub mod read {
         let mut lf_in_row = 0_u8;
         let mut header_end = 0;
 
+        *parsed
+            .headers_mut()
+            .expect("request headers shouldn't have an error: we just created it") =
+            HeaderMap::with_capacity(
+                buffer
+                    .get(..1042)
+                    .unwrap_or(&buffer)
+                    .windows(2)
+                    .filter(|s| s == b"\r\n")
+                    .count()
+                    .saturating_sub(2)
+                    .min(20),
+            );
+
         for (pos, byte) in buffer.iter().copied().enumerate() {
             header_end += 1;
             if byte == chars::CR {

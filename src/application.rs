@@ -346,7 +346,10 @@ mod request {
 
                         unsafe { buffer.set_len(buffer.capacity()) };
                         let Encryption::Tcp(tcp) = &mut *stream;
-                        let read_now = tcp.read(&mut buffer[*read..]).ok().ok_or(Error::UnexpectedEnd)?;
+                        let read_now = tcp
+                            .read(&mut buffer[*read..])
+                            .ok()
+                            .ok_or(Error::UnexpectedEnd)?;
                         *read += read_now;
                         unsafe { buffer.set_len(*read) };
 
