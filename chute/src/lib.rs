@@ -16,6 +16,8 @@ use std::io;
 use std::path::Path;
 use unicode_categories::UnicodeCategories;
 
+mod highlight;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ContinueBehaviour {
     /// Asks the user for confirmation.
@@ -208,14 +210,16 @@ pub fn process_document<P: AsRef<Path>>(
     footer: &[u8],
     ignored_extensions: &[&str],
     continue_behaviour: ContinueBehaviour,
+    theme: &str,
 ) -> Result<(), ()> {
-    match _process(
+    match process_inner(
         path,
         header_pre_meta,
         header_post_meta,
         footer,
         ignored_extensions,
         continue_behaviour,
+        theme,
     ) {
         Ok(()) => Ok(()),
         Err(ref err) if err.kind() == io::ErrorKind::PermissionDenied => {
@@ -237,13 +241,14 @@ static FORMAT: &[time::format_description::FormatItem] = time::macros::format_de
 );
 
 #[allow(clippy::too_many_lines)]
-fn _process<P: AsRef<Path>>(
+fn process_inner<P: AsRef<Path>>(
     path: P,
     header_pre_meta: &[u8],
     header_post_meta: &[u8],
     footer: &[u8],
     ignored_extensions: &[&str],
     continue_behaviour: ContinueBehaviour,
+    theme: &str,
 ) -> io::Result<()> {
     let path = path.as_ref();
     if path.extension().and_then(OsStr::to_str).map(|s| s == "md") == Some(false)
@@ -481,6 +486,10 @@ fn _process<P: AsRef<Path>>(
         }
         _ => event,
     });
+    let parser = highlight::SyntaxPreprocessor {
+        parent: parser,
+        theme,
+    };
 
     let mut output = Vec::with_capacity(input.len() * 2);
 
@@ -515,6 +524,7 @@ pub fn watch<P: AsRef<Path>>(
     footer: &[u8],
     ignored_extensions: &[&str],
     mut continue_behaviour: ContinueBehaviour,
+    theme: &str,
 ) {
     use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
     use std::sync::mpsc::channel;
@@ -561,6 +571,7 @@ pub fn watch<P: AsRef<Path>>(
                         footer,
                         ignored_extensions,
                         continue_behaviour,
+                        theme,
                     );
                     let local_path = if let Ok(wd) = std::env::current_dir() {
                         path.strip_prefix(wd).unwrap_or(&path)

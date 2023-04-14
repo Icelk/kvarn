@@ -1,3 +1,4 @@
+use clap::builder::PossibleValuesParser;
 use clap::{Arg, ArgAction, ArgGroup, Command};
 use kvarn_utils::prelude::*;
 use std::env;
@@ -60,6 +61,26 @@ fn main() {
                 .arg("continue")
                 .arg("yes")
                 .arg("no"),
+        )
+        .arg(
+            Arg::new("theme")
+                .long("theme")
+                .short('t')
+                .help(
+                    "Theme used for static syntax highlighting.\n\
+                    See https://docs.rs/syntect/5.0.0/syntect/highlighting/struct.ThemeSet.html \
+                    for all options.",
+                )
+                .value_parser(PossibleValuesParser::new([
+                    "base16-eighties.dark",
+                    "base16-ocean.dark",
+                    "base16-mocha.dark",
+                    "base16-ocean.light",
+                    "InspiredGitHub",
+                    "Solarized (dark)",
+                    "Solarized (light)",
+                ]))
+                .default_value("base16-eighties.dark"),
         );
 
     #[cfg(feature = "completion")]
@@ -105,11 +126,16 @@ fn main() {
 
     let mut bad_status = false;
 
+    let theme = matches
+        .get_one::<String>("theme")
+        .expect("We provided a default");
+
     for path in paths {
         let path = Path::new(path);
         match path.is_dir() {
             true => {
                 let path = path.to_path_buf();
+                let theme = theme.clone();
                 let thread = std::thread::spawn(move || {
                     info!("Watching directory and overriding files.");
                     lib::watch(
@@ -119,6 +145,7 @@ fn main() {
                         FOOTER,
                         IGNORED_EXTENSIONS,
                         continue_behaviour,
+                        &theme,
                     );
                 });
                 threads.push(thread);
@@ -131,6 +158,7 @@ fn main() {
                     FOOTER,
                     IGNORED_EXTENSIONS,
                     continue_behaviour,
+                    theme,
                 )
                 .is_err()
                 {

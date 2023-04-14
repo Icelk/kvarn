@@ -32,6 +32,8 @@ clap_autocomplete = { version = ">= 0.4.1", optional = true }
 env_logger = { version = "0.10", optional = true, default-features = false, features = ["auto-color", "humantime"] }
 log = { version = "0.4.17", optional = true }
 notify-debouncer-mini = { version = "0.2.1", default-features = false }
+syntect = { version = "5.0.0", default-features = false, features = ["default-fancy"] }
+lazy_static = "1.4.0"
 
 [features]
 default = ["date", "bin", "completion"]

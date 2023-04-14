@@ -126,6 +126,12 @@ inherits = "release"
 lto = true
 strip = true
 
+# speed up Kvarn chute's syntax highlighting when developing
+[profile.dev.package.regex]
+opt-level = 3
+[profile.dev.package.fancy-regex]
+opt-level = 3
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
