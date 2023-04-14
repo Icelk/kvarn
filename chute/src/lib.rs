@@ -5,6 +5,7 @@
     clippy::pedantic,
     clippy::perf
 )]
+#![allow(clippy::too_many_lines, clippy::too_many_arguments)]
 
 use colored::Colorize;
 use kvarn_utils::prelude::*;

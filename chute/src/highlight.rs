@@ -79,6 +79,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
         html.push_str(lang.as_ref());
         html.push_str("\">");
 
+        #[allow(clippy::match_same_arms)] // they are different types of files we map to "sh"
         let syntax_lang = match lang.as_ref() {
             "typescript" | "ts" | "jsx" => "javascript",
             // this seems to work best
