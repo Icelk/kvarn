@@ -242,9 +242,9 @@ pub mod read {
         let read_now = tokio::time::timeout(timeout, reader.read(&mut buffer[*read..]))
             .await
             .ok()
-            .ok_or(Error::Done)?
+            .ok_or(Error::UnexpectedEnd)?
             .ok()
-            .ok_or(Error::Done)?;
+            .ok_or(Error::UnexpectedEnd)?;
         *read += read_now;
         unsafe { buffer.set_len(*read) };
 

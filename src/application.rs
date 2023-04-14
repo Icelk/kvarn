@@ -256,7 +256,7 @@ impl HttpConnection {
                     }
                     Err(err) => Err(err.into()),
                 },
-                None => Err(utils::parse::Error::Done.into()),
+                None => Err(utils::parse::Error::UnexpectedEnd.into()),
             },
         }
     }
@@ -346,7 +346,7 @@ mod request {
 
                         unsafe { buffer.set_len(buffer.capacity()) };
                         let Encryption::Tcp(tcp) = &mut *stream;
-                        let read_now = tcp.read(&mut buffer[*read..]).ok().ok_or(Error::Done)?;
+                        let read_now = tcp.read(&mut buffer[*read..]).ok().ok_or(Error::UnexpectedEnd)?;
                         *read += read_now;
                         unsafe { buffer.set_len(*read) };
 

@@ -18,7 +18,7 @@ pub enum Error {
     /// No path was parsed as part of a [`Request`]
     NoPath,
     /// Done reading and processing
-    Done,
+    UnexpectedEnd,
     /// The header is too long.
     ///
     /// 'header' is the data before `\r\n\r\n`, and
@@ -51,7 +51,7 @@ impl Error {
         match self {
             Self::Http(_) => "http library parsing error",
             Self::NoPath => "no path was supplied in the request",
-            Self::Done => "stream is exhausted",
+            Self::UnexpectedEnd => "stream is exhausted",
             Self::HeaderTooLong => "header is too long",
             Self::InvalidPath => "path is invalid or contains illegal bytes",
             Self::InvalidMethod => "method is invalid",
@@ -87,7 +87,7 @@ impl From<Error> for io::Error {
             | Error::IllegalName
             | Error::IllegalValue
             | Error::NoHost => io::Error::new(io::ErrorKind::InvalidData, err.as_str()),
-            Error::Done => io::Error::new(io::ErrorKind::BrokenPipe, err.as_str()),
+            Error::UnexpectedEnd => io::Error::new(io::ErrorKind::BrokenPipe, err.as_str()),
         }
     }
 }
