@@ -1046,16 +1046,17 @@ impl LazyRequestBody {
         Self { body, result: None }
     }
     /// Reads the `Bytes` from the request body.
+    /// `max_len` can be used to limit memory allocation. 16MB is often enough for every case.
     ///
     /// # Errors
     ///
     /// Returns any errors from reading the inner [`Body`].
     #[inline]
-    pub async fn get(&mut self) -> io::Result<&Bytes> {
+    pub async fn get(&mut self, max_len: usize) -> io::Result<&Bytes> {
         if let Some(ref result) = self.result {
             Ok(result)
         } else {
-            let buffer = unsafe { &mut *self.body }.read_to_bytes().await?;
+            let buffer = unsafe { &mut *self.body }.read_to_bytes(max_len).await?;
             self.result.replace(buffer);
             // ok; we've just assigned to it
             Ok(self.result.as_ref().unwrap())

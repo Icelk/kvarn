@@ -508,18 +508,23 @@ mod request {
         /// Passes any errors returned from the inner reader.
         /// See [`super::Http1Body::read_to_bytes()`] and [`h2::RecvStream::poll_data()`] for more info.
         #[inline]
-        pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
+        pub async fn read_to_bytes(&mut self, max_len: usize) -> io::Result<Bytes> {
             match self {
                 Self::Bytes(bytes) => Ok(bytes.inner().clone()),
-                Self::Http1(h1) => h1.read_to_bytes().await,
+                Self::Http1(h1) => h1.read_to_bytes(max_len).await,
                 #[cfg(feature = "http2")]
                 Self::Http2(h2) => {
                     let mut bytes = bytes::BytesMut::new();
                     while let Some(result) = h2.data().await {
+                        let left = max_len.saturating_sub(bytes.len());
+                        if left == 0 {
+                            break;
+                        }
+
                         let data = result
                             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
 
-                        bytes.extend_from_slice(&data);
+                        bytes.extend_from_slice(&data[..(data.len().min(left))]);
 
                         h2.flow_control().release_capacity(data.len()).unwrap();
                     }
@@ -606,8 +611,8 @@ mod response {
         ///
         /// Returns any errors from the underlying reader.
         #[inline]
-        pub async fn read_to_bytes(&mut self) -> io::Result<Bytes> {
-            let len = self.content_length;
+        pub async fn read_to_bytes(&mut self, max_len: usize) -> io::Result<Bytes> {
+            let len = self.content_length.min(max_len);
 
             if len == 0 {
                 return Ok(Bytes::new());
@@ -621,7 +626,7 @@ mod response {
                 self.offset = self.bytes.len();
             }
             if let Ok(result) = timeout(
-                Duration::from_millis(250),
+                Duration::from_secs(30),
                 async_bits::read_to_end_or_max(&mut buffer, &mut *self, len),
             )
             .await

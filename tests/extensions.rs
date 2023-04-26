@@ -80,7 +80,11 @@ async fn body() {
             extensions.add_prepare_single(
                 "/api-1",
                 prepare!(req, _, path, _, {
-                    let body = req.body_mut().read_to_bytes().await.unwrap();
+                    let body = req
+                        .body_mut()
+                        .read_to_bytes(1024 * 1024 * 16)
+                        .await
+                        .unwrap();
                     let body = str::from_utf8(&body).unwrap();
 
                     assert_eq!(body, "This is the full body.");
@@ -92,7 +96,11 @@ async fn body() {
             extensions.add_prepare_single(
                 "/api-2",
                 prepare!(req, _, _, _, move |length: usize| {
-                    let body = req.body_mut().read_to_bytes().await.unwrap();
+                    let body = req
+                        .body_mut()
+                        .read_to_bytes(1024 * 1024 * 16)
+                        .await
+                        .unwrap();
 
                     println!("Body len: {}", body.len());
                     let expected = vec![chars::SPACE; *length];
@@ -105,7 +113,11 @@ async fn body() {
             extensions.add_prepare_single(
                 "/api-3",
                 prepare!(req, _host, _path, _addr, {
-                    let body = req.body_mut().read_to_bytes().await.unwrap();
+                    let body = req
+                        .body_mut()
+                        .read_to_bytes(1024 * 1024 * 16)
+                        .await
+                        .unwrap();
                     let body = str::from_utf8(&body).unwrap();
 
                     assert_eq!(body, "");

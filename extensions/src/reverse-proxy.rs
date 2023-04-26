@@ -424,7 +424,7 @@ impl Manager {
                       rewrite_url: bool| {
                     let mut empty_req = utils::empty_clone_request(req);
                     let mut bytes = return_status!(
-                        req.body_mut().read_to_bytes().await.ok(),
+                        req.body_mut().read_to_bytes(1024 * 1024 * 16).await.ok(),
                         StatusCode::BAD_GATEWAY,
                         host
                     );

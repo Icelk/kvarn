@@ -166,7 +166,7 @@ fn php<'a>(
                 return default_error_response(StatusCode::NOT_FOUND, host, None).await;
             }
 
-            let body = match req.body_mut().read_to_bytes().await {
+            let body = match req.body_mut().read_to_bytes(1024 * 1024 * 16).await {
                 Ok(body) => body,
                 Err(_) => {
                     return FatResponse::cache(
