@@ -570,7 +570,7 @@ pub fn watch<P: AsRef<Path>>(
                 let path = event.path;
                 if path.exists() && path.extension().and_then(OsStr::to_str) == Some("md") {
                     // This can fail, it'll print an error.
-                    let _ = process_document(
+                    let _err = process_document(
                         &path,
                         header_pre_meta,
                         header_post_meta,

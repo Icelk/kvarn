@@ -1235,7 +1235,7 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                     response,
                     _host,
                     move |file: fs::File, first_bytes: Vec<u8>| {
-                        let _ = response.write_all(first_bytes).await;
+                        drop(response.write_all(first_bytes).await);
                         let _err = tokio::io::copy(file, response).await;
                     }
                 );
