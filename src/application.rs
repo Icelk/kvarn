@@ -678,7 +678,7 @@ mod response {
                     self.offset = self.bytes.len();
                 }
                 cx.waker().wake_by_ref();
-                Poll::Pending
+                Poll::Ready(Ok(()))
             } else {
                 let mut lock = self.reader.lock();
                 let mut reader = match unsafe { Pin::new_unchecked(&mut lock) }.poll(cx) {
