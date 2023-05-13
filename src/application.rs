@@ -518,6 +518,9 @@ mod request {
                 Self::Http2(h2) => {
                     let mut bytes = bytes::BytesMut::new();
                     while let Some(result) = h2.data().await {
+                        h2.flow_control()
+                            .release_capacity(result.as_ref().map_or(0, Bytes::len))
+                            .expect("we're releasing what go received");
                         let left = max_len.saturating_sub(bytes.len());
                         if left == 0 {
                             break;
