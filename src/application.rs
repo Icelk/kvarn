@@ -216,6 +216,8 @@ impl HttpConnection {
             Version::HTTP_2 => {
                 let result = h2::server::Builder::new()
                     .max_concurrent_streams(512)
+                    // 4MiB, not the bad default 64KiB
+                    .initial_window_size(4 * 1024 * 1024)
                     .handshake(stream)
                     .await;
                 match result {
