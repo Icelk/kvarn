@@ -518,6 +518,7 @@ mod request {
                 Self::Http2(h2) => {
                     let mut bytes = bytes::BytesMut::new();
                     while let Some(result) = h2.data().await {
+                        // Important to allow more data to be sent!
                         h2.flow_control()
                             .release_capacity(result.as_ref().map_or(0, Bytes::len))
                             .expect("we're releasing what go received");
@@ -530,8 +531,6 @@ mod request {
                             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
 
                         bytes.extend_from_slice(&data[..(data.len().min(left))]);
-
-                        h2.flow_control().release_capacity(data.len()).unwrap();
                     }
                     Ok(bytes.freeze())
                 }
