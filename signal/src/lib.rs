@@ -255,6 +255,7 @@ pub mod unix {
                                         debug!("In tokio task, handling message");
                                         let mut data = Vec::with_capacity(4 * 1024);
                                         #[allow(clippy::uninit_vec)] // we set back the length after
+                                        #[cfg(feature = "uring")]
                                         unsafe {
                                             data.set_len(data.capacity());
                                         }
