@@ -71,6 +71,8 @@ pub struct Manager {
     shutting_down: AtomicBool,
     #[cfg(feature = "graceful-shutdown")]
     connections: AtomicIsize,
+    #[cfg(feature = "graceful-shutdown")]
+    received: AtomicBool,
 
     #[cfg(feature = "graceful-shutdown")]
     wakers: WakerList,
@@ -101,6 +103,7 @@ impl Manager {
                 shutdown: AtomicBool::new(false),
                 shutting_down: AtomicBool::new(false),
                 connections: AtomicIsize::new(0),
+                received: AtomicBool::new(false),
 
                 wakers: WakerList::new(_capacity),
 
@@ -301,7 +304,9 @@ impl Manager {
         {
             let mut receiver = WatchReceiver::clone(&self.finished_channel.1);
             drop(receiver.changed().await);
-            info!("Received shutdown signal");
+            if !self.received.swap(true, Ordering::SeqCst) {
+                info!("Received shutdown signal");
+            }
         }
         #[cfg(not(feature = "graceful-shutdown"))]
         {
