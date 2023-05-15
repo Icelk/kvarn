@@ -654,6 +654,7 @@ impl CollectionBuilder {
             self.0.default.is_none(),
             "Can not set default host multiple times."
         );
+        info!("Set default host {:?}", host.name);
         self.0.default = Some(host.name.clone());
         self.insert(host)
     }
@@ -675,6 +676,7 @@ impl CollectionBuilder {
     #[inline]
     #[must_use]
     pub fn build(self) -> Arc<Collection> {
+        trace!("Build host collection: {:#?}", self.0);
         Arc::new(self.into_inner())
     }
     /// Converts `self` to a [`Collection`].
@@ -751,6 +753,7 @@ impl Collection {
     #[inline]
     #[must_use]
     pub fn get_default(&self) -> Option<&Host> {
+        trace!("Getting default {:?}", self.default);
         self.default
             .as_ref()
             .and_then(|default| self.get_host(default))
