@@ -532,7 +532,10 @@ pub fn watch<P: AsRef<Path>>(
     theme: &str,
     syntax_highlighting: bool,
 ) {
-    use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
+    use notify_debouncer_full::{
+        new_debouncer,
+        notify::{RecursiveMode, Watcher},
+    };
     use std::sync::mpsc::channel;
 
     let path = path.as_ref();
@@ -567,11 +570,10 @@ pub fn watch<P: AsRef<Path>>(
     loop {
         if let Ok(Ok(events)) = rx.recv() {
             for event in events {
-                let path = event.path;
+                let path = &event.paths[0];
                 if path.exists() && path.extension().and_then(OsStr::to_str) == Some("md") {
-                    // This can fail, it'll print an error.
-                    let _err = process_document(
-                        &path,
+                    let r = process_document(
+                        path,
                         header_pre_meta,
                         header_post_meta,
                         footer,
@@ -580,13 +582,13 @@ pub fn watch<P: AsRef<Path>>(
                         theme,
                         syntax_highlighting,
                     );
-                    let local_path = if let Ok(wd) = std::env::current_dir() {
-                        path.strip_prefix(wd).unwrap_or(&path)
-                    } else {
-                        &path
-                    };
-                    if let Some(path) = local_path.to_str() {
-                        info!("Converted {} to HTML.", path);
+                    if r.is_ok() {
+                        let local_path = if let Ok(wd) = std::env::current_dir() {
+                            path.strip_prefix(wd).unwrap_or(path)
+                        } else {
+                            path
+                        };
+                        info!("Converted {} to HTML.", local_path.display());
                     }
                 }
             }
