@@ -633,18 +633,14 @@ pub fn valid_version(bytes: &[u8]) -> bool {
 #[inline]
 pub fn get_body_length_request<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
-    if method_has_request_body(request.method()) {
-        request
-            .headers()
-            .get("content-length")
-            .map(HeaderValue::to_str)
-            .and_then(Result::ok)
-            .map(usize::from_str)
-            .and_then(Result::ok)
-            .unwrap_or(0)
-    } else {
-        0
-    }
+    request
+        .headers()
+        .get("content-length")
+        .map(HeaderValue::to_str)
+        .and_then(Result::ok)
+        .map(usize::from_str)
+        .and_then(Result::ok)
+        .unwrap_or(0)
 }
 /// Sets the `content-length` of `headers` to `len`.
 #[inline]
@@ -674,13 +670,6 @@ pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Metho
     } else {
         0
     }
-}
-
-/// Does a request of type `method` have a body?
-#[inline]
-#[must_use]
-pub fn method_has_request_body(method: &Method) -> bool {
-    matches!(*method, Method::POST | Method::PUT | Method::DELETE)
 }
 /// Does a response of type `method` have a body?
 #[inline]
