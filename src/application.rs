@@ -305,9 +305,7 @@ mod request {
 
         #[cfg(not(feature = "async-networking"))]
         let (head, bytes) = async {
-            use bytes::BytesMut;
-            use kvarn_utils::{chars, parse::Error, parse::RequestParseStage, prelude::*};
-            use std::io::Read;
+            use kvarn_utils::{parse::Error, parse::RequestParseStage, prelude::*};
 
             #[inline]
             fn contains_two_newlines(bytes: &[u8]) -> bool {

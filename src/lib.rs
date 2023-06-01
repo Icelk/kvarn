@@ -464,7 +464,7 @@ pub async fn spawn<T: Send + 'static>(
 ) -> impl Future<Output = T> {
     #[cfg(not(feature = "async-networking"))]
     {
-        async move { task.await }
+        task
     }
     #[cfg(feature = "async-networking")]
     {
