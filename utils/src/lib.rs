@@ -633,6 +633,12 @@ pub fn valid_version(bytes: &[u8]) -> bool {
 #[inline]
 pub fn get_body_length_request<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
+    if matches!(
+        *request.method(),
+        Method::GET | Method::HEAD | Method::OPTIONS | Method::CONNECT | Method::TRACE
+    ) {
+        return 0;
+    }
     request
         .headers()
         .get("content-length")
