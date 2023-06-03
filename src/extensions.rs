@@ -1093,9 +1093,13 @@ impl<R> RuleSet<R> {
     pub fn add_mut(&mut self, path: impl AsRef<str>, rule: impl Into<R>) -> &mut Self {
         let path = path.as_ref().to_owned();
 
+        if let Ok(idx) = self.rules.binary_search_by(|probe| probe.0.cmp(&path)) {
+            // not swap_remove, because ordering!
+            self.rules.remove(idx);
+        }
         self.rules.push((path, rule.into()));
 
-        self.rules.sort_by(|a, b| {
+        self.rules.sort_unstable_by(|a, b| {
             use std::cmp::Ordering;
             if a.0.ends_with('*') == b.0.ends_with('*') {
                 b.0.len().cmp(&a.0.len())
