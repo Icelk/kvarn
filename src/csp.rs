@@ -372,6 +372,15 @@ pub enum Value {
     /// `unsafe-eval`
     /// Allow use of dynamic code evaluation such as eval, setImmediate, and window.execScript.
     UnsafeEval,
+    /// `wasm-unsafe-eval`
+    ///
+    /// See <https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/script-src#unsafe_webassembly_execution>
+    WasmUnsafeEval,
+    /// `strict-dynamic`
+    ///
+    /// See
+    /// <https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/script-src#strict-dynamic>
+    StrictDynamic,
     /// `host`
     /// Only allow loading of resources from a specific host, with optional scheme, port, and path.
     ///
@@ -379,6 +388,8 @@ pub enum Value {
     Uri(CompactString),
     /// Only allow loading of resources over a specific scheme, should always end with `:`. e.g. `https:`, `http:`, `data:` etc.
     Scheme(CompactString),
+    /// Raw CSP rule, for when this enum doesn't provide an adequate alternative
+    Raw(CompactString),
 }
 impl Value {
     /// Returns a string representing `self`.
@@ -391,8 +402,11 @@ impl Value {
             Self::Same => "'self'",
             Self::UnsafeInline => "'unsafe-inline'",
             Self::UnsafeEval => "'unsafe-eval'",
+            Self::WasmUnsafeEval => "'wasm-unsafe-eval'",
+            Self::StrictDynamic => "'strict-dynamic'",
             Self::Uri(s) => s,
             Self::Scheme(scheme) => scheme,
+            Self::Raw(v) => v,
         }
     }
 }
@@ -428,6 +442,16 @@ impl ValueSet {
     pub fn unsafe_eval(self) -> Self {
         self.push(Value::UnsafeEval)
     }
+    /// Adds [`Value::WasmUnsafeEval`] to `self`.
+    #[inline]
+    pub fn wasm_unsafe_eval(self) -> Self {
+        self.push(Value::WasmUnsafeEval)
+    }
+    /// Adds [`Value::StrictDynamic`] to `self`.
+    #[inline]
+    pub fn strict_dynamic(self) -> Self {
+        self.push(Value::StrictDynamic)
+    }
     /// Adds `uri` to `self`.
     #[inline]
     pub fn uri(self, uri: impl Into<String>) -> Self {
@@ -444,6 +468,17 @@ impl ValueSet {
         let s = scheme.into();
         assert!(s.ends_with(':'), "scheme has to end with ':'.");
         self.push(Value::Scheme(s.to_compact_string()))
+    }
+    /// Adds [`Value::Raw`] to `self`.
+    /// `source_expression` has to be surrounded in single-quotes.
+    #[inline]
+    pub fn raw(self, source_expression: impl Into<String>) -> Self {
+        let s = source_expression.into();
+        assert!(
+            s.starts_with('\'') && s.ends_with('\''),
+            "source_expression has to start and end with '"
+        );
+        self.push(Value::Raw(s.to_compact_string()))
     }
     /// Pushes another `value` to the set of values of `self`.
     #[inline]
@@ -481,7 +516,7 @@ impl Default for ValueSet {
 pub type Csp = RuleSet<ComputedRule>;
 impl Default for Csp {
     fn default() -> Self {
-        Self::empty().add("*", CspRule::default())
+        Self::empty().add("/*", CspRule::default())
     }
 }
 
