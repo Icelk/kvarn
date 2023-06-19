@@ -15,6 +15,6 @@ categories = ["web-programming", "development-tools::testing"]
 kvarn = { path = "../", features = ["full"], version = "0.5.0" }
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls-manual-roots"] }
 rand = "0.8"
-rcgen = "0.10"
+rcgen = "0.11"
 tokio = { version = "1, >=1.23.1", features = ["macros"] }
 rustls = "0.21"
