@@ -164,9 +164,10 @@ pub fn is_text(mime: &Mime) -> bool {
 /// Checks `mime` if the content should be compressed;
 /// heuristically checks for compressed formats.
 #[must_use]
+#[allow(clippy::nonminimal_bool)]
 pub fn do_compress(mime: &Mime) -> bool {
     // IMAGE first, because it is the most likely
-    mime.type_() != mime::IMAGE
+    !(mime.type_() == mime::IMAGE && !(mime.subtype() == "svg"))
         && mime.type_() != mime::FONT
         && mime.type_() != mime::VIDEO
         && mime.type_() != mime::AUDIO
