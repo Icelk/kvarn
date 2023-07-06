@@ -183,7 +183,7 @@ pub mod unix {
                         {
                             let meta = std::fs::metadata(&watcher_path);
                             if meta.is_err() {
-                                drop(reload_sender.send(false));
+                                let _ = reload_sender.send(false);
                             }
                         }
                     }
@@ -288,7 +288,7 @@ pub mod unix {
 
                                         if close {
                                             info!("Closing");
-                                            drop(sender.send(true));
+                                            let _ = sender.send(true);
                                             debug!("Closed");
                                         }
 
