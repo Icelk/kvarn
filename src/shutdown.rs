@@ -290,7 +290,7 @@ impl Manager {
                 recieved += 1;
             }
             info!("Sending shutdown signal");
-            drop(channel.send(()));
+            let _ = channel.send(());
         });
     }
     /// Waits for Kvarn to enter the `shutdown` state.

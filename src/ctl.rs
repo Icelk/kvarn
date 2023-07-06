@@ -688,7 +688,7 @@ pub(crate) async fn listen(
         let _task = spawn(async move {
             drop(sd.get_initate_shutdown_watcher().changed().await);
             info!("Send close to ctl socket, because we started shutting down.");
-            drop(close_ctl.send(true));
+            let _ = close_ctl.send(true);
         })
         .await;
 
