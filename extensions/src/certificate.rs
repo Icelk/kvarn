@@ -345,7 +345,7 @@ pub fn get_cert(
 
         delay *= 2;
         tries += 1;
-        match tries < 5 {
+        match tries < 10 {
             true => debug!("order is not ready, waiting {delay:?} {state:?} {tries}"),
             false => {
                 error!("order is not ready {state:?} {tries}");
