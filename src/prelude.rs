@@ -60,7 +60,8 @@ pub mod networking {
     pub use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
     #[cfg(all(feature = "async-networking", feature = "uring"))]
     pub use {
-        crate::application::TcpStreamAsyncWrapper as TcpStream, tokio_uring::net::TcpListener,tokio::net::UdpSocket
+        crate::application::TcpStreamAsyncWrapper as TcpStream, tokio::net::UdpSocket,
+        tokio_uring::net::TcpListener,
     };
 }
 
