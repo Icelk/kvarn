@@ -214,7 +214,7 @@ pub trait PostCall: KvarnSendSync {
         &'a self,
         request: &'a FatRequest,
         host: &'a Host,
-        response_pipe: &'a mut ResponsePipe,
+        response_pipe: &'a mut ResponseBodyPipe,
         identity_body: Bytes,
         addr: SocketAddr,
     ) -> RetFut<'a, ()>;
@@ -223,7 +223,7 @@ impl<
         F: for<'a> Fn(
                 &'a FatRequest,
                 &'a Host,
-                &'a mut ResponsePipe,
+                &'a mut ResponseBodyPipe,
                 Bytes,
                 SocketAddr,
             ) -> RetFut<'a, ()>
@@ -234,7 +234,7 @@ impl<
         &'a self,
         request: &'a FatRequest,
         host: &'a Host,
-        response_pipe: &'a mut ResponsePipe,
+        response_pipe: &'a mut ResponseBodyPipe,
         identity_body: Bytes,
         addr: SocketAddr,
     ) -> RetFut<'a, ()> {
@@ -963,7 +963,7 @@ impl Extensions {
         &self,
         request: &FatRequest,
         bytes: Bytes,
-        response_pipe: &mut ResponsePipe,
+        response_pipe: &mut ResponseBodyPipe,
         addr: SocketAddr,
         host: &Host,
     ) {
@@ -1206,21 +1206,31 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                 #[cfg(not(feature = "uring"))]
                 let len = meta.len() as usize;
 
-                #[cfg(feature = "uring")]
+                #[allow(clippy::uninit_vec)]
                 let fut = response_pipe_fut!(response, _host, move |file: fs::File| {
-                    let mut buf = Vec::with_capacity(1024 * 32);
+                    let mut buf = Vec::with_capacity(1024 * 64);
+                    #[cfg(feature = "uring")]
                     let mut pos = 0;
                     unsafe { buf.set_len(buf.capacity()) };
                     loop {
-                        let (r, b) = file.read_at(buf, pos).await;
-                        buf = b;
+                        #[cfg(feature = "uring")]
+                        let r = {
+                            let (r, b) = file.read_at(buf, pos).await;
+                            buf = b;
+                            r
+                        };
+                        #[cfg(not(feature = "uring"))]
+                        let r = file.read(&mut buf).await;
                         match r {
                             Ok(read) => {
                                 if read == 0 {
                                     break;
                                 }
-                                pos += read as u64;
-                                match response.write_all(&buf[..read]).await {
+                                #[cfg(feature = "uring")]
+                                {
+                                    pos += read as u64;
+                                }
+                                match response.send(Bytes::copy_from_slice(&buf[..read])).await {
                                     Ok(()) => {}
                                     Err(_) => {
                                         break;
@@ -1234,15 +1244,6 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                         }
                     }
                 });
-                #[cfg(not(feature = "uring"))]
-                let fut = response_pipe_fut!(
-                    response,
-                    _host,
-                    move |file: fs::File, first_bytes: Vec<u8>| {
-                        drop(response.write_all(first_bytes).await);
-                        let _err = tokio::io::copy(file, response).await;
-                    }
-                );
 
                 FatResponse::new(response, comprash::ServerCachePreference::None)
                     .with_future_and_len(fut, len)
@@ -1523,7 +1524,7 @@ mod macros {
                 (),
                 |$request: &'a $crate::FatRequest: &$crate::FatRequest: a1,
                 $host: &'a $crate::prelude::Host: &$crate::prelude::Host: a2,
-                $response_pipe: &'a mut $crate::application::ResponsePipe: &mut $crate::application::ResponsePipe: a3,
+                $response_pipe: &'a mut $crate::application::ResponseBodyPipe: &mut $crate::application::ResponseBodyPipe: a3,
                 $bytes: $crate::prelude::Bytes: $crate::prelude::Bytes: a4,
                 $addr: $crate::prelude::SocketAddr: $crate::prelude::SocketAddr: a5|,
                 $(($($move:$ty),+))?,

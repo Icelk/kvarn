@@ -50,7 +50,7 @@ pub fn mount(extensions: &mut Extensions, manager: SmartPush) -> &mut Extensions
 pub fn always<'a>(
     request: &'a FatRequest,
     host: &'a Host,
-    response_pipe: &'a mut application::ResponsePipe,
+    response_pipe: &'a mut application::ResponseBodyPipe,
     bytes: Bytes,
     addr: SocketAddr,
 ) -> RetFut<'a, ()> {
@@ -104,7 +104,7 @@ impl Default for SmartPush {
 async fn push<'a>(
     request: &'a FatRequest,
     host: &'a Host,
-    response_pipe: &'a mut application::ResponsePipe,
+    response_pipe: &'a mut application::ResponseBodyPipe,
     bytes: Bytes,
     addr: SocketAddr,
     manager: Option<&'a Mutex<SmartPush>>,
@@ -113,9 +113,9 @@ async fn push<'a>(
     // let request = unsafe { request.get_inner() };
     // let response_pipe = unsafe { response_pipe.get_inner() };
 
-    // If it is not HTTP/1
+    // If it is not HTTP/2
     #[allow(irrefutable_let_patterns)]
-    if let ResponsePipe::Http1(_) = &response_pipe {
+    if !matches!(response_pipe, ResponseBodyPipe::Http2(_, _)) {
         return;
     }
 
@@ -211,7 +211,7 @@ async fn push<'a>(
 
                     let empty_request = utils::empty_clone_request(&push_request);
 
-                    let mut response_pipe = match response_pipe.push_request(empty_request) {
+                    let response_pipe = match response_pipe.push_request(empty_request) {
                         Ok(pipe) => pipe,
                         Err(_) => return,
                     };
@@ -221,7 +221,7 @@ async fn push<'a>(
 
                     let response = kvarn::handle_cache(&mut push_request, addr, host).await;
 
-                    if let Err(err) = kvarn::SendKind::Push(&mut response_pipe)
+                    if let Err(err) = kvarn::SendKind::Push(response_pipe)
                         .send(response, request, host, addr)
                         .await
                     {

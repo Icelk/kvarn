@@ -116,18 +116,83 @@ pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture)
         .with_future(future)
 }
 
+/// Error from WebSocket operations
+#[derive(Debug)]
+pub enum Error {
+    /// WebSocket currently isn't supported for HTTP/3 nor HTTP/2.
+    WebSocketUnsupported,
+}
+/// Variants of WebSocket streams.
+#[derive(Debug)]
+pub enum WSStream<'a> {
+    ///
+    Http1(&'a Arc<Mutex<Encryption>>),
+}
+impl<'a> AsyncRead for WSStream<'a> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Http1(s) => match s.try_lock() {
+                Err(_) => Poll::Pending,
+                Ok(mut s) => Pin::new(&mut *s).poll_read(cx, buf),
+            },
+        }
+    }
+}
+impl<'a> AsyncWrite for WSStream<'a> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match self.get_mut() {
+            Self::Http1(s) => match s.try_lock() {
+                Err(_) => Poll::Pending,
+                Ok(mut s) => Pin::new(&mut *s).poll_write(cx, buf),
+            },
+        }
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match self.get_mut() {
+            Self::Http1(s) => {
+                if let Ok(mut s) = s.try_lock() {
+                    Pin::new(&mut *s).poll_flush(cx)
+                } else {
+                    Poll::Pending
+                }
+            }
+        }
+    }
+}
+
 /// Get a [`tokio_tungstenite::WebSocketStream`] from the `pipe` given by [`response_pipe_fut!`].
 ///
 /// # Examples
 ///
 /// See [`response()`].
+///
+/// # Errors
+///
+/// Errors if `pipe` is [unsupported](Error::WebSocketUnsupported).
 pub async fn wrap(
     pipe: &mut ResponseBodyPipe,
-) -> tokio_tungstenite::WebSocketStream<&mut ResponseBodyPipe> {
-    tokio_tungstenite::WebSocketStream::from_raw_socket(
-        pipe,
-        tungstenite::protocol::Role::Server,
-        None,
-    )
-    .await
+) -> Result<tokio_tungstenite::WebSocketStream<WSStream>, Error> {
+    match pipe {
+        ResponseBodyPipe::Http1(s) => Ok(tokio_tungstenite::WebSocketStream::from_raw_socket(
+            WSStream::Http1(s),
+            tungstenite::protocol::Role::Server,
+            None,
+        )
+        .await),
+        #[cfg(feature = "http2")]
+        ResponseBodyPipe::Http2(_, _) => Err(Error::WebSocketUnsupported),
+        #[cfg(feature = "http3")]
+        ResponseBodyPipe::Http3(_) => Err(Error::WebSocketUnsupported),
+    }
 }

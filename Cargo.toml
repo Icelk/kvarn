@@ -34,6 +34,7 @@ bytes = "1"
 compact_str = "0.7.0"
 log = "0.4"
 time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
+socket2 = { version = "0.5.3", optional = true, features = ["all"] }
 
 h2 = { version = "0.3.17", default-features = false, optional = true }
 http = "0.2"
@@ -74,6 +75,11 @@ tokio-tungstenite = { version = "0.19", optional = true, default-features = fals
 sha-1 = { version = "0.10", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink"] }
 
+# HTTP/3
+h3 = { version = "0.0.2", optional = true }
+h3-quinn = { version = "0.0.3", optional = true }
+quinn = { version = "0.10.1", default-features = false, features = ["tls-rustls", "log", "runtime-tokio"], optional = true }
+
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", default-features = false }
 
@@ -92,9 +98,10 @@ br = ["brotli"]
 gzip = ["flate2"]
 
 # HTTP standards
-all-http = ["https", "http2"]
+all-http = ["https", "http2", "http3"]
 https = ["rustls", "rustls-pemfile", "webpki", "async-networking"]
 http2 = ["h2", "https"]
+http3 = ["h3", "h3-quinn", "quinn", "https"]
 
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = ["handover"]
@@ -111,7 +118,7 @@ nonce = ["rand", "base64", "memchr"]
 websocket = ["tokio-tungstenite", "sha-1", "base64", "futures-util"]
 
 # Use tokio's async networking instead of the blocking variant.
-async-networking = ["tokio/net"]
+async-networking = ["tokio/net", "socket2"]
 
 uring = ["tokio-uring", "kvarn_signal/uring", "async-networking"]
 

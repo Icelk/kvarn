@@ -982,12 +982,22 @@ impl ResolvesServerCert for Collection {
 /// > ***Note:** this is often not needed, as the ALPN protocols
 /// are set in [`host::Collection::make_config()`].*
 #[must_use]
+#[allow(unused_mut)]
 pub fn alpn() -> Vec<Vec<u8>> {
-    let vec = vec![
+    let mut vec = vec![
         #[cfg(feature = "http2")]
         b"h2".to_vec(),
         b"http/1.1".to_vec(),
     ];
+    #[cfg(feature = "http3")]
+    {
+        vec.insert(0, b"h3-29".to_vec());
+        vec.insert(0, b"h3-30".to_vec());
+        vec.insert(0, b"h3-31".to_vec());
+        vec.insert(0, b"h3-31".to_vec());
+        vec.insert(0, b"h3-32".to_vec());
+        vec.insert(0, b"h3".to_vec());
+    }
     vec
 }
 

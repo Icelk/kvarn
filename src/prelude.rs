@@ -35,7 +35,7 @@ pub use error::{default as default_error, default_response as default_error_resp
 pub use extensions::{Package, Post, Prepare, Present, Prime, ResponsePipeFuture};
 pub use host::{Collection as HostCollection, Host};
 pub use read;
-pub use shutdown::{AcceptAction, AcceptManager};
+pub(crate) use shutdown::{AcceptAction, AcceptManager};
 pub use utils::{build_bytes, chars::*, parse, parse::SanitizeError, AsCleanDebug};
 
 /// **Prelude:** file system
@@ -55,12 +55,12 @@ pub mod fs {
 pub mod networking {
     pub use super::async_bits::*;
     #[cfg(not(feature = "async-networking"))]
-    pub use std::net::{TcpListener, TcpStream};
+    pub use std::net::{TcpListener, TcpStream, UdpSocket};
     #[cfg(all(feature = "async-networking", not(feature = "uring")))]
-    pub use tokio::net::{TcpListener, TcpSocket, TcpStream};
+    pub use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
     #[cfg(all(feature = "async-networking", feature = "uring"))]
     pub use {
-        crate::application::TcpStreamAsyncWrapper as TcpStream, tokio_uring::net::TcpListener,
+        crate::application::TcpStreamAsyncWrapper as TcpStream, tokio_uring::net::TcpListener,tokio::net::UdpSocket
     };
 }
 

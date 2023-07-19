@@ -7,20 +7,26 @@ Info on changes in older versions are available at the [changelog](CHANGELOG.md)
 > The work will be taking place in branches, named after the target release. The order of these feature releases are not set in stone;
 > the features of 0.7.0 might come out as version 0.6.0
 
-# v0.6.0 HTTP/3
+# v0.6.0 edgebleed
 
 This is where Kvarn turns into a cutting-edge web server.
 
 > Kvarn already has a good flexible design, so adding this is largely making
 > a glue-crate to make HTTP/3 accessible like HTTP/2 is in the `h2` crate.
 
+## v0.8.0 io_uring
+
+Use Linux's new `io_uring` interface for handling networking and IO on Linux.
+This should improve performance and power efficiency. This is merged into v0.6.0.
+
 ## To do
 
 _Well..._
 
--   [ ] HTTP/3 crate
--   [ ] HTTP/3 support in Kvarn
--   [ ] cfg to disable new feature
+-   [x] HTTP/3 support in Kvarn
+-   [x] cfg to disable new feature
+-   [x] io_uring support
+-   [ ] io_uring support for HTTP/3
 
 # v0.7.0 DynLan
 
@@ -43,16 +49,3 @@ Another challenge is isolating requests while using one VM.
 -   [ ] cfg
 -   [ ] PHP bindings
 -   [ ] PHP crate
-
-# v0.8.0 io_uring
-
-Use Linux's new `io_uring` interface for handling networking and IO on Linux.
-This should improve performance and power efficiency.
-
-## To do
-
--   [ ] Wait for [`tokio-uring`](https://docs.rs/tokio-uring) to add multithreading support
--   [ ] Or support an entirely different runtime (e.g. [`monoio`](https://github.com/bytedance/monoio)
-        (it shouldn't be an issue that it's developed by ByteDance? Are be being tracked?))
-    -   [ ] Investigate compatibility issues with ecosystem. Actual implementation should be fine
-            (the `net` feature in `tokio` is already optional)

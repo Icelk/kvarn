@@ -13,6 +13,8 @@ pub use response::Http1Body;
 
 #[cfg(all(feature = "uring", not(feature = "async-networking")))]
 compile_error!("You must enable the 'async-networking' feature to use uring.");
+#[cfg(all(feature = "http3", not(feature = "async-networking")))]
+compile_error!("You must enable the 'async-networking' feature to use HTTP/3.");
 
 #[cfg(feature = "uring")]
 pub use uring_tokio_compat::TcpStreamAsyncWrapper;
@@ -30,13 +32,17 @@ pub enum Error {
     /// [`h2`] emitted an error
     #[cfg(feature = "http2")]
     H2(h2::Error),
+    /// [`h3`] emitted an error
+    #[cfg(feature = "http3")]
+    H3(h3::Error),
     /// The HTTP version assumed by the client is not supported.
     /// Invalid ALPN config is a candidate.
     VersionNotSupported,
-    /// You tried to push a response on a HTTP/1 connection.
+    /// You tried to push a response on a HTTP/1 (or HTTP/3, for now) connection.
     ///
     /// *Use HTTP/2 instead, or check if the [`ResponsePipe`] is HTTP/1*.
-    PushOnHttp1,
+    /// Will also fail if you try to push on a pipe returned from a previous push.
+    UnsupportedPush,
     /// Client closed connection before the response could be sent.
     ClientRefusedResponse,
 }
@@ -65,6 +71,13 @@ impl From<h2::Error> for Error {
         Self::H2(err)
     }
 }
+#[cfg(feature = "http3")]
+impl From<h3::Error> for Error {
+    #[inline]
+    fn from(err: h3::Error) -> Self {
+        Self::H3(err)
+    }
+}
 impl From<Error> for io::Error {
     fn from(err: Error) -> io::Error {
         match err {
@@ -72,12 +85,14 @@ impl From<Error> for io::Error {
             Error::Io(io) => io,
             #[cfg(feature = "http2")]
             Error::H2(h2) => io::Error::new(io::ErrorKind::InvalidData, h2),
+            #[cfg(feature = "http3")]
+            Error::H3(h3) => io::Error::new(io::ErrorKind::InvalidData, h3),
 
             Error::VersionNotSupported => io::Error::new(
                 io::ErrorKind::InvalidData,
                 "http version unsupported. Invalid ALPN config.",
             ),
-            Error::PushOnHttp1 => io::Error::new(
+            Error::UnsupportedPush => io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "can not push requests on http/1",
             ),
@@ -92,12 +107,11 @@ impl From<Error> for io::Error {
 ///
 /// See [`HttpConnection::new`] on how to make one and
 /// [`HttpConnection::accept`] on getting a [`FatRequest`].
-#[derive(Debug)]
 #[must_use]
 pub enum HttpConnection {
-    /// A HTTP/1 connection
+    /// An HTTP/1 connection
     Http1(Arc<Mutex<Encryption>>),
-    /// A HTTP/2 connection
+    /// An HTTP/2 connection
     ///
     /// This is boxed because a [`h2::server::Connection`] takes up
     /// over 1000 bytes of memory, and an [`Arc`] 8 bytes.
@@ -107,6 +121,23 @@ pub enum HttpConnection {
     /// We'll see how we move forward once HTTP/3 support lands.
     #[cfg(feature = "http2")]
     Http2(Box<h2::server::Connection<Encryption, bytes::Bytes>>),
+    #[cfg(feature = "http3")]
+    /// An HTTP/3 conenction.
+    Http3(h3::server::Connection<h3_quinn::Connection, bytes::Bytes>),
+}
+impl Debug for HttpConnection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Http1(arg0) => f.debug_tuple("Http1").field(arg0).finish(),
+            #[cfg(feature = "http2")]
+            Self::Http2(arg0) => f.debug_tuple("Http2").field(arg0).finish(),
+            #[cfg(feature = "http3")]
+            Self::Http3(_) => f
+                .debug_tuple("Http3")
+                .field(&"[internal h3 connection]".as_clean())
+                .finish(),
+        }
+    }
 }
 
 /// The data for [`Body::Bytes`].
@@ -117,9 +148,18 @@ pub struct ByteBody {
     read: usize,
 }
 impl ByteBody {
-    /// Get a reference to the bytes of this body.
-    pub fn inner(&self) -> &Bytes {
-        &self.content
+    /// Read the rest of the bytes of this body
+    pub fn read_rest(&mut self) -> Bytes {
+        let b = self.content.slice(self.read..);
+        self.read = self.content.len();
+        b
+    }
+    /// Read `n` bytes of this body
+    pub fn read_n(&mut self, n: usize) -> Bytes {
+        let n = n.min(self.content.len() - self.read);
+        let b = self.content.slice(self.read..(self.read + n));
+        self.read += n;
+        b
     }
 }
 impl From<Bytes> for ByteBody {
@@ -136,7 +176,6 @@ impl From<Bytes> for ByteBody {
 /// The inner variables are streams. To get the bytes, use [`Body::read_to_bytes()`] when needed.
 ///
 /// Also see [`FatRequest`].
-#[derive(Debug)]
 pub enum Body {
     /// A body of [`Bytes`].
     ///
@@ -151,35 +190,94 @@ pub enum Body {
     /// [`Body::read_to_bytes`] leverages this and just
     /// continues writing to the buffer.
     Http1(response::Http1Body<Encryption>),
-    /// A HTTP/2 body provided by [`h2`].
+    /// An HTTP/2 body provided by [`h2`].
     #[cfg(feature = "http2")]
     Http2(h2::RecvStream),
+    /// An HTTP/3 body provided by [`h3`].
+    #[cfg(feature = "http3")]
+    Http3(h3::server::RequestStream<h3_quinn::RecvStream, Bytes>),
+}
+impl Debug for Body {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bytes(arg0) => f.debug_tuple("Bytes").field(arg0).finish(),
+            Self::Http1(arg0) => f.debug_tuple("Http1").field(arg0).finish(),
+            #[cfg(feature = "http2")]
+            Self::Http2(arg0) => f.debug_tuple("Http2").field(arg0).finish(),
+            #[cfg(feature = "http3")]
+            Self::Http3(_) => f
+                .debug_tuple("Http3")
+                .field(&"[internal h3 connection]".as_clean())
+                .finish(),
+        }
+    }
 }
 
 /// A pipe to send a [`Response`] through.
 ///
 /// You may also push requests if the pipe is [`ResponsePipe::Http2`]
 /// by calling [`ResponsePipe::push_request`].
-#[derive(Debug)]
 #[must_use]
 pub enum ResponsePipe {
-    /// A HTTP/1 stream to send a response.
+    /// An HTTP/1 stream to send a response.
     Http1(Arc<Mutex<Encryption>>),
-    /// A HTTP/2 response pipe.
+    /// An HTTP/2 response pipe.
     #[cfg(feature = "http2")]
     Http2(h2::server::SendResponse<Bytes>),
+    /// An HTTP/3 response pipe.
+    #[cfg(feature = "http3")]
+    Http3(h3::server::RequestStream<h3_quinn::SendStream<Bytes>, Bytes>),
+}
+impl Debug for ResponsePipe {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Http1(arg0) => f.debug_tuple("Http1").field(arg0).finish(),
+            #[cfg(feature = "http2")]
+            Self::Http2(arg0) => f.debug_tuple("Http2").field(arg0).finish(),
+            #[cfg(feature = "http3")]
+            Self::Http3(_) => f
+                .debug_tuple("Http3")
+                .field(&"[internal h3 connection]".as_clean())
+                .finish(),
+        }
+    }
+}
+/// Abstraction layer over different kinds of HTTP/2 response senders.
+#[derive(Debug)]
+#[cfg(feature = "http2")]
+pub enum H2SendResponse {
+    /// The initial response
+    Initial(h2::server::SendResponse<Bytes>),
+    /// Server-pushed responses
+    Pushed(h2::server::SendPushedResponse<Bytes>),
 }
 /// A pipe to send a body after the [`Response`] is sent by
 /// [`ResponsePipe::send_response`].
 ///
 /// The [`AsyncWriteExt::shutdown`] does nothing, and will immediately return with Ok(())
-#[derive(Debug)]
 pub enum ResponseBodyPipe {
     /// HTTP/1 pipe
     Http1(Arc<Mutex<Encryption>>),
     /// HTTP/2 pipe
     #[cfg(feature = "http2")]
-    Http2(h2::SendStream<Bytes>),
+    Http2(h2::SendStream<Bytes>, H2SendResponse),
+    /// HTTP/3 pipe
+    #[cfg(feature = "http3")]
+    Http3(h3::server::RequestStream<h3_quinn::SendStream<Bytes>, Bytes>),
+}
+impl Debug for ResponseBodyPipe {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Http1(arg0) => f.debug_tuple("Http1").field(arg0).finish(),
+            #[cfg(feature = "http2")]
+            Self::Http2(arg0, arg1) => f.debug_tuple("Http2").field(arg0).field(arg1).finish(),
+            #[cfg(feature = "http3")]
+            Self::Http3(_) => f
+                .debug_tuple("Http3")
+                .field(&"[internal h3 connection]".as_clean())
+                .finish(),
+        }
+    }
 }
 /// A [`ResponsePipe`]-like for a pushed request-response pair.
 ///
@@ -260,6 +358,17 @@ impl HttpConnection {
                 },
                 None => Err(utils::parse::Error::UnexpectedEnd.into()),
             },
+            #[cfg(feature = "http3")]
+            Self::Http3(c) => match c.accept().await {
+                Ok(opt) => match opt {
+                    Some((req, stream)) => {
+                        let (write, read) = stream.split();
+                        Ok((req.map(|()| Body::Http3(read)), ResponsePipe::Http3(write)))
+                    }
+                    None => Err(utils::parse::Error::UnexpectedEnd.into()),
+                },
+                Err(err) => Err(err.into()),
+            },
         }
     }
     /// Ask this connection to shutdown.
@@ -269,16 +378,15 @@ impl HttpConnection {
                 drop(h.lock().await.shutdown().await);
             }
             #[cfg(feature = "http2")]
-            Self::Http2(_h) => {}
+            Self::Http2(mut h) => h.graceful_shutdown(),
+            #[cfg(feature = "http3")]
+            Self::Http3(mut h) => drop(h.shutdown(1024)),
         }
     }
 }
 
 mod request {
-    use super::{
-        io, response, utils, Arc, AsyncRead, Body, Bytes, Context, Encryption, Error, Mutex, Pin,
-        Poll, ReadBuf, Request,
-    };
+    use super::{io, response, utils, Arc, Body, Bytes, Encryption, Error, Mutex, Request};
 
     #[inline]
     pub(crate) async fn parse_http_1(
@@ -510,7 +618,7 @@ mod request {
         #[inline]
         pub async fn read_to_bytes(&mut self, max_len: usize) -> io::Result<Bytes> {
             match self {
-                Self::Bytes(bytes) => Ok(bytes.inner().clone()),
+                Self::Bytes(bytes) => Ok(bytes.read_rest()),
                 Self::Http1(h1) => h1.read_to_bytes(max_len).await,
                 #[cfg(feature = "http2")]
                 Self::Http2(h2) => {
@@ -529,49 +637,30 @@ mod request {
                             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
 
                         bytes.extend_from_slice(&data[..(data.len().min(left))]);
+                        let left = max_len.saturating_sub(bytes.len());
+                        if left == 0 {
+                            break;
+                        }
                     }
                     Ok(bytes.freeze())
                 }
-            }
-        }
-    }
+                #[cfg(feature = "http3")]
+                Self::Http3(h3) => {
+                    use bytes::BufMut;
+                    let mut bytes = bytes::BytesMut::new();
+                    while let Some(data) = h3.recv_data().await.map_err(Error::H3)? {
+                        let left = max_len.saturating_sub(bytes.len());
+                        if left == 0 {
+                            break;
+                        }
 
-    impl AsyncRead for Body {
-        fn poll_read(
-            self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> Poll<io::Result<()>> {
-            match self.get_mut() {
-                Self::Http1(s) => unsafe { Pin::new_unchecked(s).poll_read(cx, buf) },
-                #[cfg(feature = "http2")]
-                Self::Http2(tls) => {
-                    let data = match tls.poll_data(cx) {
-                        Poll::Ready(data) => data,
-                        Poll::Pending => return Poll::Pending,
-                    };
-                    match data {
-                        Some(d) => match d {
-                            Ok(data) => buf.put_slice(&data),
-                            Err(err) => {
-                                let err = io::Error::new(io::ErrorKind::InvalidData, err);
-                                return Poll::Ready(Err(err));
-                            }
-                        },
-                        None => return Poll::Ready(Ok(())),
+                        bytes.put(data);
+                        let left = max_len.saturating_sub(bytes.len());
+                        if left == 0 {
+                            break;
+                        }
                     }
-                    Poll::Ready(Ok(()))
-                }
-                Self::Bytes(byte_body) => {
-                    let rest = byte_body.inner().get(byte_body.read..).unwrap_or(&[]);
-                    if rest.is_empty() {
-                        return Poll::Ready(Ok(()));
-                    }
-                    let len = std::cmp::min(buf.remaining(), rest.len());
-                    buf.put_slice(&rest[..len]);
-                    byte_body.read += len;
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
+                    Ok(bytes.freeze())
                 }
             }
         }
@@ -713,61 +802,47 @@ mod response {
         /// [`h2::server::SendResponse::send_response()`] for more info.
         #[inline]
         pub async fn send_response(
-            &mut self,
+            self,
             mut response: Response<()>,
             #[allow(unused_variables)] end_of_stream: bool,
         ) -> Result<ResponseBodyPipe, Error> {
             match self {
                 Self::Http1(s) => {
-                    let mut writer = s.lock().await;
-                    match response
-                        .headers()
-                        .get("connection")
-                        .map(HeaderValue::to_str)
-                        .and_then(Result::ok)
                     {
-                        Some("close") | None => {
-                            response
-                                .headers_mut()
-                                .insert("connection", HeaderValue::from_static("keep-alive"));
+                        let mut writer = s.lock().await;
+                        match response
+                            .headers()
+                            .get("connection")
+                            .map(HeaderValue::to_str)
+                            .and_then(Result::ok)
+                        {
+                            Some("close") | None => {
+                                response
+                                    .headers_mut()
+                                    .insert("connection", HeaderValue::from_static("keep-alive"));
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                        let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
+                        async_bits::write::response(&response, b"", &mut writer).await?;
+                        writer.flush().await?;
+                        writer.into_inner();
                     }
-                    let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
-                    async_bits::write::response(&response, b"", &mut writer).await?;
-                    writer.flush().await?;
-                    writer.into_inner();
 
-                    Ok(ResponseBodyPipe::Http1(Arc::clone(s)))
+                    Ok(ResponseBodyPipe::Http1(s))
                 }
                 #[cfg(feature = "http2")]
-                Self::Http2(s) => match s.send_response(response, end_of_stream) {
+                Self::Http2(mut s) => match s.send_response(response, end_of_stream) {
                     Err(ref err) if err.get_io().is_none() && err.reason().is_none() => {
                         Err(Error::ClientRefusedResponse)
                     }
                     Err(err) => Err(err.into()),
-                    Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
+                    Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe, H2SendResponse::Initial(s))),
                 },
-            }
-        }
-        /// Pushes `request` to client.
-        ///
-        /// # Errors
-        ///
-        /// If you try to push if `self` is [`ResponsePipe::Http1`], an [`Error::PushOnHttp1`] is returned.
-        /// Returns errors from [`h2::server::SendResponse::push_request()`].
-        #[inline]
-        #[allow(clippy::needless_pass_by_value)]
-        pub fn push_request(
-            &mut self,
-            #[allow(unused_variables)] request: Request<()>,
-        ) -> Result<PushedResponsePipe, Error> {
-            match self {
-                Self::Http1(_) => Err(Error::PushOnHttp1),
-                #[cfg(feature = "http2")]
-                Self::Http2(h2) => match h2.push_request(request) {
-                    Ok(pipe) => Ok(PushedResponsePipe::Http2(pipe)),
+                #[cfg(feature = "http3")]
+                Self::Http3(mut s) => match s.send_response(response).await {
                     Err(err) => Err(err.into()),
+                    Ok(()) => Ok(ResponseBodyPipe::Http3(s)),
                 },
             }
         }
@@ -784,6 +859,8 @@ mod response {
                 },
                 #[cfg(feature = "http2")]
                 Self::Http2(_) => *response.version_mut() = Version::HTTP_2,
+                #[cfg(feature = "http3")]
+                Self::Http3(_) => *response.version_mut() = Version::HTTP_3,
             }
         }
     }
@@ -798,22 +875,23 @@ mod response {
         #[inline]
         #[allow(clippy::needless_pass_by_value)]
         pub fn send_response(
-            &mut self,
+            self,
             response: Response<()>,
             end_of_stream: bool,
         ) -> Result<ResponseBodyPipe, Error> {
             match self {
                 #[cfg(feature = "http2")]
-                Self::Http2(s) => {
+                Self::Http2(mut s) => {
                     let mut response = response;
                     *response.version_mut() = Version::HTTP_2;
 
                     match s.send_response(response, end_of_stream) {
                         Err(err) => Err(err.into()),
-                        Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe)),
+                        Ok(pipe) => Ok(ResponseBodyPipe::Http2(pipe, H2SendResponse::Pushed(s))),
                     }
                 }
-                #[cfg(not(any(feature = "http2")))]
+                #[allow(unreachable_patterns)]
+                #[cfg(not(feature = "http2"))]
                 _ => unreachable!(),
             }
         }
@@ -857,9 +935,36 @@ mod response {
                     }
                 }
                 #[cfg(feature = "http2")]
-                Self::Http2(h2) => h2.send_data(data, end_of_stream)?,
+                Self::Http2(h2, _) => h2.send_data(data, end_of_stream)?,
+                #[cfg(feature = "http3")]
+                Self::Http3(h3) => h3.send_data(data).await?,
             }
             Ok(())
+        }
+        /// Pushes `request` to client.
+        ///
+        /// # Errors
+        ///
+        /// If you try to push if `self` is [`ResponsePipe::Http1`], an [`Error::PushOnHttp1`] is returned.
+        /// Returns errors from [`h2::server::SendResponse::push_request()`].
+        #[inline]
+        #[allow(clippy::needless_pass_by_value)]
+        pub fn push_request(
+            &mut self,
+            #[allow(unused_variables)] request: Request<()>,
+        ) -> Result<PushedResponsePipe, Error> {
+            match self {
+                Self::Http1(_) => Err(Error::UnsupportedPush),
+                #[cfg(feature = "http2")]
+                Self::Http2(_, H2SendResponse::Pushed(_)) => Err(Error::UnsupportedPush),
+                #[cfg(feature = "http2")]
+                Self::Http2(_, H2SendResponse::Initial(h2)) => match h2.push_request(request) {
+                    Ok(pipe) => Ok(PushedResponsePipe::Http2(pipe)),
+                    Err(err) => Err(err.into()),
+                },
+                #[cfg(feature = "http3")]
+                Self::Http3(_) => Err(Error::UnsupportedPush),
+            }
         }
         /// Closes the pipe.
         ///
@@ -872,64 +977,9 @@ mod response {
             match self {
                 Self::Http1(h1) => h1.lock().await.flush().await.map_err(Into::into),
                 #[cfg(feature = "http2")]
-                Self::Http2(h2) => h2.send_data(Bytes::new(), true).map_err(Error::from),
-            }
-        }
-    }
-    impl AsyncRead for ResponseBodyPipe {
-        fn poll_read(
-            self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> Poll<io::Result<()>> {
-            match self.get_mut() {
-                Self::Http1(s) => match s.try_lock() {
-                    Err(_) => Poll::Pending,
-                    Ok(mut s) => Pin::new(&mut *s).poll_read(cx, buf),
-                },
-                #[cfg(feature = "http2")]
-                Self::Http2(_) => Poll::Ready(Ok(())),
-            }
-        }
-    }
-    impl AsyncWrite for ResponseBodyPipe {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-            buf: &[u8],
-        ) -> Poll<Result<usize, io::Error>> {
-            match self.get_mut() {
-                Self::Http1(s) => match s.try_lock() {
-                    Err(_) => Poll::Pending,
-                    Ok(mut s) => Pin::new(&mut *s).poll_write(cx, buf),
-                },
-                #[cfg(feature = "http2")]
-                Self::Http2(s) => Poll::Ready(
-                    s.send_data(Bytes::copy_from_slice(buf), false)
-                        .map_err(|e| {
-                            if e.is_io() {
-                                // This is ok; we just checked it is IO.
-                                e.into_io().unwrap()
-                            } else {
-                                io::Error::new(io::ErrorKind::Other, e.to_string())
-                            }
-                        })
-                        .map(|()| buf.len()),
-                ),
-            }
-        }
-        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-            if let Self::Http1(s) = self.get_mut() {
-                if let Ok(mut s) = s.try_lock() {
-                    Pin::new(&mut *s).poll_flush(cx)
-                } else {
-                    Poll::Pending
-                }
-            } else {
-                Poll::Ready(Ok(()))
+                Self::Http2(h2, _) => h2.send_data(Bytes::new(), true).map_err(Error::from),
+                #[cfg(feature = "http3")]
+                Self::Http3(h3) => h3.finish().await.map_err(Error::from),
             }
         }
     }

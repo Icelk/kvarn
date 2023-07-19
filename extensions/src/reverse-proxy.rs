@@ -17,22 +17,6 @@ pub mod async_bits {
             }
         };
     }
-    macro_rules! ret_ready_err {
-        ($poll: expr) => {
-            match $poll {
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Ready(r) => Poll::Ready(r),
-                _ => $poll,
-            }
-        };
-        ($poll: expr, $map: expr) => {
-            match $poll {
-                Poll::Ready(Err(e)) => return Poll::Ready(Err($map(e))),
-                Poll::Ready(r) => Poll::Ready(r),
-                _ => Poll::Pending,
-            }
-        };
-    }
 
     #[derive(Debug)]
     pub struct CopyBuffer {
@@ -251,45 +235,72 @@ impl OpenBackError {
         }
     }
 }
-pub struct ByteProxy<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> {
-    front: &'a mut F,
+pub struct ByteProxy<'a, B: AsyncRead + AsyncWrite + Unpin> {
+    front: &'a mut ResponseBodyPipe,
     back: &'a mut B,
     // ToDo: Optimize to one buffer!
-    front_buf: CopyBuffer,
-    back_buf: CopyBuffer,
+    buf: Vec<u8>,
 }
-impl<'a, F: AsyncRead + AsyncWrite + Unpin, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, F, B> {
-    pub fn new(front: &'a mut F, back: &'a mut B) -> Self {
+impl<'a, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, B> {
+    pub fn new(front: &'a mut ResponseBodyPipe, back: &'a mut B) -> Self {
         Self {
             front,
             back,
-            front_buf: CopyBuffer::new(),
-            back_buf: CopyBuffer::new(),
+            buf: Vec::with_capacity(16 * 1024),
         }
-    }
-    pub fn poll_channel(&mut self, cx: &mut Context) -> Poll<Result<(), OpenBackError>> {
-        macro_rules! copy_from_to {
-            ($reader: expr, $error: expr, $buf: expr, $writer: expr) => {
-                if let Poll::Ready(Ok(pipe_closed)) = ret_ready_err!(
-                    $buf.poll_copy(cx, Pin::new($reader), Pin::new($writer)),
-                    $error
-                ) {
-                    if pipe_closed {
-                        return Poll::Ready(Err(OpenBackError::Closed));
-                    } else {
-                        return Poll::Ready(Ok(()));
-                    }
-                };
-            };
-        }
-
-        copy_from_to!(self.back, OpenBackError::Back, self.front_buf, self.front);
-        copy_from_to!(self.front, OpenBackError::Front, self.back_buf, self.back);
-
-        Poll::Pending
     }
     pub async fn channel(&mut self) -> Result<(), OpenBackError> {
-        futures_util::future::poll_fn(|cx| self.poll_channel(cx)).await
+        let mut front_done = false;
+        let mut back_done = false;
+        loop {
+            if !front_done {
+                if let ResponseBodyPipe::Http1(h1) = self.front {
+                    {
+                        unsafe { self.buf.set_len(self.buf.capacity()) };
+                        let read = h1
+                            .lock()
+                            .await
+                            .read(&mut self.buf)
+                            .await
+                            .map_err(OpenBackError::Front)?;
+                        if read == 0 {
+                            front_done = true;
+                        }
+                        unsafe { self.buf.set_len(read) };
+                    }
+                    self.back
+                        .write_all(&self.buf)
+                        .await
+                        .map_err(OpenBackError::Back)?;
+                } else {
+                    front_done = true;
+                }
+            }
+            if !back_done {
+                {
+                    unsafe { self.buf.set_len(self.buf.capacity()) };
+                    let read = self
+                        .back
+                        .read(&mut self.buf)
+                        .await
+                        .map_err(OpenBackError::Back)?;
+                    if read == 0 {
+                        back_done = true;
+                    }
+                    unsafe { self.buf.set_len(read) };
+                }
+                self.front
+                    .send(Bytes::copy_from_slice(&self.buf))
+                    .await
+                    .map_err(io::Error::from)
+                    .map_err(OpenBackError::Front)?;
+            }
+
+            if front_done && back_done {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 

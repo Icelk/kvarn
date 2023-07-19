@@ -123,7 +123,7 @@ impl Manager {
     /// Adds a listener to this manager.
     ///
     /// This is used so the `accept` future resolves immediately when the shutdown is triggered.
-    pub fn add_listener(&mut self, listener: TcpListener) -> AcceptManager {
+    pub(crate) fn add_listener(&mut self, listener: Listener) -> AcceptManager {
         AcceptManager {
             #[cfg(feature = "graceful-shutdown")]
             index: {
@@ -351,31 +351,58 @@ impl Manager {
 /// Can either be a new connection or a shutdown signal.
 /// The listener should be dropped right after the shutdown signal is received.
 #[must_use]
-pub enum AcceptAction {
+pub(crate) enum AcceptAction {
     /// Shutdown signal; immediately drop this struct.
+    #[allow(dead_code)]
     Shutdown,
     /// Accept a new connection or handle a IO error.
-    Accept(io::Result<(TcpStream, SocketAddr)>),
+    AcceptTcp(io::Result<(TcpStream, SocketAddr)>),
+    /// Accept a new connection or handle a IO error.
+    #[cfg(feature = "http3")]
+    AcceptUdp(io::Result<h3_quinn::quinn::Connection>),
 }
-
 impl Debug for AcceptAction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Shutdown => write!(f, "Shutdown"),
-            Self::Accept(arg0) => f
+            Self::AcceptTcp(arg0) => f
                 .debug_tuple("Accept")
                 .field(&arg0.as_ref().map(|(_, addr)| addr))
                 .finish(),
+            #[cfg(feature = "http3")]
+            Self::AcceptUdp(arg0) => f
+                .debug_tuple("Accept")
+                .field(
+                    &arg0
+                        .as_ref()
+                        .map(h3_quinn::quinn::Connection::remote_address),
+                )
+                .finish(),
         }
+    }
+}
+pub(crate) enum Listener {
+    Tcp(TcpListener),
+    #[cfg(feature = "http3")]
+    Udp(h3_quinn::Endpoint),
+}
+impl Listener {
+    pub(crate) fn local_addr(&self) -> SocketAddr {
+        match self {
+            Listener::Tcp(tcp) => tcp.local_addr(),
+            #[cfg(feature = "http3")]
+            Listener::Udp(udp) => udp.local_addr(),
+        }
+        .unwrap_or_else(|_| SocketAddr::V4(net::SocketAddrV4::new(net::Ipv4Addr::LOCALHOST, 0)))
     }
 }
 /// A wrapper around [`TcpListener`] (and `UdpListener` when HTTP/3 comes around)
 /// which waits for a new connection **or** a shutdown signal.
 #[must_use]
-pub struct AcceptManager {
+pub(crate) struct AcceptManager {
     #[cfg(feature = "graceful-shutdown")]
     index: WakerIndex,
-    listener: TcpListener,
+    listener: Listener,
 }
 // SAFETY: TcpListener is just an FD, and can be sent across threads.
 unsafe impl Send for AcceptManager {}
@@ -400,7 +427,7 @@ impl AcceptManager {
     /// Please increase the count of connections on [`Manager`] when this connection is accepted
     /// and decrease it when the connection dies.
     #[allow(clippy::let_and_return)] // cfg
-    pub async fn accept(&mut self, _manager: &Manager) -> AcceptAction {
+    pub(crate) async fn accept(&mut self, _manager: &Manager) -> AcceptAction {
         #[cfg(feature = "async-networking")]
         {
             let action = AcceptFuture {
@@ -418,12 +445,14 @@ impl AcceptManager {
         }
         #[cfg(not(feature = "async-networking"))]
         {
-            AcceptAction::Accept(self.listener.accept())
+            match &mut self.listener {
+                Listener::Tcp(tcp) => AcceptAction::AcceptTcp(tcp.accept()),
+            }
         }
     }
     /// Returns a reference to the inner listener.
     #[must_use]
-    pub fn get_inner(&self) -> &TcpListener {
+    pub(crate) fn get_inner(&self) -> &Listener {
         &self.listener
     }
 }
@@ -433,7 +462,18 @@ struct AcceptFuture<'a> {
     manager: &'a Manager,
     #[cfg(feature = "graceful-shutdown")]
     index: WakerIndex,
-    listener: &'a mut TcpListener,
+    listener: &'a mut Listener,
+}
+#[cfg(all(feature = "async-networking", feature = "http3"))]
+async fn accept_udp(endpoint: &mut h3_quinn::Endpoint) -> io::Result<h3_quinn::quinn::Connection> {
+    if let Some(s) = endpoint.accept().await {
+        s.await.map_err(io::Error::from)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::ConnectionReset,
+            "accept socket finished",
+        ))
+    }
 }
 #[cfg(feature = "async-networking")]
 impl<'a> AcceptFuture<'a> {
@@ -451,34 +491,55 @@ impl<'a> AcceptFuture<'a> {
                 self.manager.set_waker(self.index, Waker::clone(cx.waker()));
                 Poll::Pending
             });
-            let listener_fut = self.listener.accept();
-            tokio::pin!(shutdown_fut);
-            #[cfg(feature = "uring")]
-            tokio::select! {
-                _ = shutdown_fut => AcceptAction::Shutdown,
-                r = listener_fut => AcceptAction::Accept(r.map(|(stream, addr)| (TcpStream::new(stream), addr))),
-            }
-            #[cfg(not(feature = "uring"))]
-            tokio::select! {
-                _ = shutdown_fut => AcceptAction::Shutdown,
-                r = listener_fut => AcceptAction::Accept(r),
+            match self.listener {
+                Listener::Tcp(tcp) => {
+                    let listener_fut = tcp.accept();
+                    tokio::pin!(shutdown_fut);
+                    #[cfg(feature = "uring")]
+                    tokio::select! {
+                        _ = shutdown_fut => AcceptAction::Shutdown,
+                        r = listener_fut => AcceptAction::AcceptTcp(r.map(|(stream, addr)| (TcpStream::new(stream), addr))),
+                    }
+                    #[cfg(not(feature = "uring"))]
+                    tokio::select! {
+                        _ = shutdown_fut => AcceptAction::Shutdown,
+                        r = listener_fut => AcceptAction::AcceptTcp(r),
 
+                    }
+                }
+                #[cfg(feature = "http3")]
+                Listener::Udp(udp) => {
+                    let listener_fut = accept_udp(udp);
+                    tokio::pin!(shutdown_fut);
+                    tokio::select! {
+                        _ = shutdown_fut => AcceptAction::Shutdown,
+                        r = listener_fut => AcceptAction::AcceptUdp(r),
+
+                    }
+                }
             }
         }
         #[cfg(not(feature = "graceful-shutdown"))]
         {
             #[cfg(feature = "uring")]
             {
-                AcceptAction::Accept(
-                    self.listener
-                        .accept()
-                        .await
-                        .map(|(stream, addr)| (TcpStream::new(stream), addr)),
-                )
+                match self.listener {
+                    Listener::Tcp(s) => AcceptAction::AcceptTcp(
+                        s.accept()
+                            .await
+                            .map(|(stream, addr)| (TcpStream::new(stream), addr)),
+                    ),
+                    #[cfg(feature = "http3")]
+                    Listener::Udp(udp) => AcceptAction::AcceptUdp(accept_udp(udp).await),
+                }
             }
             #[cfg(not(feature = "uring"))]
             {
-                AcceptAction::Accept(self.listener.accept().await)
+                match self.listener {
+                    Listener::Tcp(s) => AcceptAction::AcceptTcp(s.accept().await),
+                    #[cfg(feature = "http3")]
+                    Listener::Udp(udp) => AcceptAction::AcceptUdp(accept_udp(udp).await),
+                }
             }
         }
     }

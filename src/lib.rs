@@ -206,6 +206,9 @@ impl RunConfig {
     /// # };
     /// ```
     pub async fn execute(self) -> Arc<shutdown::Manager> {
+        #[cfg(feature = "async-networking")]
+        use socket2::{Domain, Protocol, Type};
+
         let RunConfig {
             ports,
             #[cfg(feature = "handover")]
@@ -244,54 +247,115 @@ impl RunConfig {
             #[cfg(feature = "async-networking")]
             for descriptor in &ports {
                 fn create_listener(
-                    create_socket: impl Fn() -> tokio::net::TcpSocket,
+                    create_socket: impl Fn() -> socket2::Socket,
+                    tcp: bool,
                     address: SocketAddr,
                     shutdown_manager: &mut shutdown::Manager,
+                    #[allow(unused_variables)] descriptor: &PortDescriptor,
                 ) -> AcceptManager {
                     let socket = create_socket();
                     #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
                     {
-                        if socket.set_reuseaddr(true).is_err()
-                            || socket.set_reuseport(true).is_err()
+                        if socket.set_reuse_address(true).is_err()
+                            || socket.set_reuse_port(true).is_err()
                         {
                             error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.");
                         }
                     }
-                    socket.bind(address).expect("Failed to bind address");
+                    socket
+                        .bind(&address.into())
+                        .expect("Failed to bind address");
 
-                    let listener = socket
+                    info!("tcp {tcp}, addr {address:?}");
+
+                    // wrap listener
+                    #[cfg(feature = "http3")]
+                    if !tcp {
+                        return shutdown_manager.add_listener(shutdown::Listener::Udp(
+                            h3_quinn::Endpoint::new(
+                                h3_quinn::quinn::EndpointConfig::default(),
+                                Some(h3_quinn::quinn::ServerConfig::with_crypto(
+                                    descriptor.server_config.clone().unwrap(),
+                                )),
+                                socket.into(),
+                                h3_quinn::quinn::default_runtime().unwrap(),
+                            )
+                            .unwrap(),
+                        ));
+                    }
+
+                    socket
                         .listen(1024)
                         .expect("Failed to listen on bound address.");
 
-                    // wrap listener
                     #[cfg(feature = "uring")]
-                    let listener =
-                        tokio_uring::net::TcpListener::from_std(listener.into_std().unwrap());
+                    let listener = tokio_uring::net::TcpListener::from_std(socket.into());
+                    #[cfg(not(feature = "uring"))]
+                    let listener = TcpListener::from_std(socket.into()).unwrap();
 
-                    shutdown_manager.add_listener(listener)
+                    shutdown_manager.add_listener(shutdown::Listener::Tcp(listener))
                 }
 
                 if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
                     let listener = create_listener(
                         || {
-                            tokio::net::TcpSocket::new_v4()
+                            socket2::Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
                                 .expect("Failed to create a new IPv4 socket configuration")
                         },
+                        true,
                         SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), descriptor.port),
                         &mut shutdown_manager,
+                        descriptor,
                     );
                     listeners.push((listener, Arc::clone(descriptor)));
                 }
                 if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
                     let listener = create_listener(
                         || {
-                            tokio::net::TcpSocket::new_v6()
+                            socket2::Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))
                                 .expect("Failed to create a new IPv6 socket configuration")
                         },
+                        true,
                         SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), descriptor.port),
                         &mut shutdown_manager,
+                        descriptor,
                     );
                     listeners.push((listener, Arc::clone(descriptor)));
+                }
+                #[cfg(feature = "http3")]
+                if descriptor.server_config.is_some() {
+                    if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
+                        let listener = create_listener(
+                            || {
+                                socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))
+                                    .expect("Failed to create a new IPv4 socket configuration")
+                            },
+                            false,
+                            SocketAddr::new(
+                                IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
+                                descriptor.port,
+                            ),
+                            &mut shutdown_manager,
+                            descriptor,
+                        );
+                        listeners.push((listener, Arc::clone(descriptor)));
+                    }
+                    if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
+                        let listener = create_listener(
+                            || {
+                                socket2::Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))
+                                    .expect("Failed to create a new IPv6 socket configuration")
+                            },
+                            false,
+                            SocketAddr::new(
+                                IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
+                                descriptor.port,
+                            ),
+                            &mut shutdown_manager,
+                            descriptor,
+                        );
+                        listeners.push((listener, Arc::clone(descriptor)));
+                    }
                 }
             }
             #[cfg(not(feature = "async-networking"))]
@@ -303,7 +367,7 @@ impl RunConfig {
                     ))
                     .expect("Failed to bind to IPv4");
                     listeners.push((
-                        shutdown_manager.add_listener(listener),
+                        shutdown_manager.add_listener(shutdown::Listener::Tcp(listener)),
                         Arc::clone(descriptor),
                     ));
                 }
@@ -314,7 +378,7 @@ impl RunConfig {
                     ))
                     .expect("Failed to bind to IPv6");
                     listeners.push((
-                        shutdown_manager.add_listener(listener),
+                        shutdown_manager.add_listener(shutdown::Listener::Tcp(listener)),
                         Arc::clone(descriptor),
                     ));
                 }
@@ -473,13 +537,22 @@ pub async fn spawn<T: Send + 'static>(
     }
 }
 
+/// An incoming connection, before it's wrapped with HTTP.
+#[derive(Debug)]
+pub enum Incoming {
+    /// Used for HTTP/1 & HTTP/2
+    Tcp(TcpStream),
+    /// Used for HTTP/3
+    #[cfg(feature = "http3")]
+    Udp(h3_quinn::quinn::Connection),
+}
 async fn accept(
     mut listener: AcceptManager,
     descriptor: Arc<PortDescriptor>,
     shutdown_manager: &Arc<shutdown::Manager>,
     first: bool,
 ) -> Result<(), io::Error> {
-    let local_addr = listener.get_inner().local_addr().unwrap();
+    let local_addr = listener.get_inner().local_addr();
     if first {
         info!(
             "Started listening on port {} using {}",
@@ -489,7 +562,7 @@ async fn accept(
     }
 
     loop {
-        match listener.accept(shutdown_manager).await {
+        let (stream, addr) = match listener.accept(shutdown_manager).await {
             AcceptAction::Shutdown => {
                 if first {
                     info!(
@@ -500,47 +573,8 @@ async fn accept(
                 }
                 return Ok(());
             }
-            AcceptAction::Accept(result) => match result {
-                Ok((socket, addr)) => {
-                    match descriptor.data.limiter().register(addr.ip()) {
-                        LimitAction::Drop => {
-                            drop(socket);
-                            return Ok(());
-                        }
-                        LimitAction::Send | LimitAction::Passed => {}
-                    }
-
-                    let descriptor = Arc::clone(&descriptor);
-
-                    #[cfg(feature = "graceful-shutdown")]
-                    let shutdown_manager = Arc::clone(shutdown_manager);
-                    let _task = spawn(async move {
-                        #[cfg(feature = "graceful-shutdown")]
-                        shutdown_manager.add_connection();
-                        let _result = handle_connection(socket, addr, descriptor, || {
-                            #[cfg(feature = "async-networking")]
-                            {
-                                #[cfg(feature = "graceful-shutdown")]
-                                {
-                                    !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
-                                }
-                                #[cfg(not(feature = "graceful-shutdown"))]
-                                {
-                                    true
-                                }
-                            }
-                            #[cfg(not(feature = "async-networking"))]
-                            {
-                                false
-                            }
-                        })
-                        .await;
-                        #[cfg(feature = "graceful-shutdown")]
-                        shutdown_manager.remove_connection();
-                    })
-                    .await;
-                    continue;
-                }
+            AcceptAction::AcceptTcp(result) => match result {
+                Ok((stream, addr)) => (Incoming::Tcp(stream), addr),
                 Err(err) => {
                     #[cfg(feature = "graceful-shutdown")]
                     let connections = format!(
@@ -551,12 +585,74 @@ async fn accept(
                     let connections = "";
 
                     // An error occurred
-                    error!("Failed to accept() on listener.{connections}");
+                    error!("Failed to accept() on TCP listener.{connections}");
 
                     return Err(err);
                 }
             },
+            #[cfg(feature = "http3")]
+            AcceptAction::AcceptUdp(result) => match result {
+                Ok(stream) => {
+                    let addr = stream.remote_address();
+                    (Incoming::Udp(stream), addr)
+                }
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::TimedOut {
+                        continue;
+                    }
+                    #[cfg(feature = "graceful-shutdown")]
+                    let connections = format!(
+                        " {} current connections.",
+                        shutdown_manager.get_connecions()
+                    );
+                    #[cfg(not(feature = "graceful-shutdown"))]
+                    let connections = "";
+
+                    // An error occurred
+                    error!("Failed to accept() on UDP listener.{connections}");
+
+                    return Err(err);
+                }
+            },
+        };
+
+        match descriptor.data.limiter().register(addr.ip()) {
+            LimitAction::Drop => {
+                drop(stream);
+                return Ok(());
+            }
+            LimitAction::Send | LimitAction::Passed => {}
         }
+
+        let descriptor = Arc::clone(&descriptor);
+
+        #[cfg(feature = "graceful-shutdown")]
+        let shutdown_manager = Arc::clone(shutdown_manager);
+        let _task = spawn(async move {
+            #[cfg(feature = "graceful-shutdown")]
+            shutdown_manager.add_connection();
+            let _result = handle_connection(stream, addr, descriptor, || {
+                #[cfg(feature = "async-networking")]
+                {
+                    #[cfg(feature = "graceful-shutdown")]
+                    {
+                        !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
+                    }
+                    #[cfg(not(feature = "graceful-shutdown"))]
+                    {
+                        true
+                    }
+                }
+                #[cfg(not(feature = "async-networking"))]
+                {
+                    false
+                }
+            })
+            .await;
+            #[cfg(feature = "graceful-shutdown")]
+            shutdown_manager.remove_connection();
+        })
+        .await;
     }
 }
 
@@ -573,45 +669,89 @@ async fn accept(
 /// Will pass any errors from reading the request, making a TLS handshake, and writing the response.
 /// See [`handle_cache()`] and [`handle_request()`]; errors from them are passed up, through this fn.
 pub async fn handle_connection(
-    stream: TcpStream,
+    stream: Incoming,
     address: SocketAddr,
     descriptor: Arc<PortDescriptor>,
     mut continue_accepting: impl FnMut() -> bool,
 ) -> io::Result<()> {
-    // LAYER 2
-    #[cfg(feature = "https")]
-    let encrypted = {
-        encryption::Encryption::new_tcp(stream, descriptor.server_config.clone())
-            .await
-            .map_err(|err| match err {
-                encryption::Error::Io(io) => io,
-                encryption::Error::Tls(tls) => io::Error::new(io::ErrorKind::InvalidData, tls),
-            })
-    }?;
-    #[cfg(not(feature = "https"))]
-    let encrypted = encryption::Encryption::new_tcp(stream);
+    let (mut http, sni, version) = match stream {
+        Incoming::Tcp(stream) => {
+            // LAYER 2
+            #[cfg(feature = "https")]
+            let encrypted = {
+                encryption::Encryption::new_tcp(stream, descriptor.server_config.clone())
+                    .await
+                    .map_err(|err| match err {
+                        encryption::Error::Io(io) => io,
+                        encryption::Error::Tls(tls) => {
+                            io::Error::new(io::ErrorKind::InvalidData, tls)
+                        }
+                    })
+            }?;
+            #[cfg(not(feature = "https"))]
+            let encrypted = encryption::Encryption::new_tcp(stream);
 
-    let version = match encrypted.alpn_protocol() {
-        Some(b"h2") => Version::HTTP_2,
-        None | Some(b"http/1.1") => Version::HTTP_11,
-        Some(b"http/1.0") => Version::HTTP_10,
-        Some(b"http/0.9") => Version::HTTP_09,
-        Some(proto) => {
-            warn!("HTTP version not supported. Something is probably wrong with your alpn config. Client requested {}", String::from_utf8_lossy(proto));
-            return Ok(());
+            let version = match encrypted.alpn_protocol() {
+                Some(b"h2") => Version::HTTP_2,
+                None | Some(b"http/1.1") => Version::HTTP_11,
+                Some(b"http/1.0") => Version::HTTP_10,
+                Some(b"http/0.9") => Version::HTTP_09,
+                Some(proto) => {
+                    warn!(
+                        "HTTP version not supported. \
+                        Something is probably wrong with your alpn config. \
+                        Client requested {}",
+                        String::from_utf8_lossy(proto)
+                    );
+                    return Ok(());
+                }
+            };
+            let sni = encrypted.server_name().map(|s| s.to_compact_string());
+            debug!("New connection requesting hostname '{sni:?}'");
+
+            // LAYER 3
+            let http = application::HttpConnection::new(encrypted, version)
+                .await
+                .map_err::<io::Error, _>(application::Error::into)?;
+            (http, sni, version)
+        }
+        #[cfg(feature = "http3")]
+        Incoming::Udp(stream) => {
+            let handshake_data: Box<h3_quinn::quinn::crypto::rustls::HandshakeData> = stream
+                .handshake_data()
+                .expect("connection is established")
+                .downcast()
+                .expect("we're using rustls");
+            (
+                application::HttpConnection::Http3(
+                    h3::server::builder()
+                        .build(h3_quinn::Connection::new(stream))
+                        .await
+                        .map_err(application::Error::H3)?,
+                ),
+                handshake_data.server_name.map(CompactString::from),
+                Version::HTTP_3,
+            )
         }
     };
-    let sni = encrypted.server_name().map(|s| s.to_compact_string());
-    debug!("New connection requesting hostname '{sni:?}'");
-
-    // LAYER 3
-    let mut http = application::HttpConnection::new(encrypted, version)
-        .await
-        .map_err::<io::Error, _>(application::Error::into)?;
 
     debug!("Accepting requests from {}", address);
 
-    while let Ok((mut request, mut response_pipe)) = http
+    #[allow(unused_variables)]
+    let port = descriptor.port();
+    #[allow(unused_variables)]
+    #[cfg(feature = "https")]
+    let secure = descriptor.server_config.is_some();
+    #[cfg(all(feature = "http3", not(feature = "http2")))]
+    let alt_svc_header = format!("h3=\":{port}\"; ma=2592000");
+    #[cfg(all(feature = "http2", not(feature = "http3")))]
+    let alt_svc_header = format!("h2=\":{port}\"; ma=2592000");
+    #[cfg(all(feature = "http3", feature = "http2"))]
+    let alt_svc_header = format!("h3=\":{port}\"; ma=2592000, h2=\":{port}\"; ma=2592000");
+    #[cfg(any(feature = "http2", feature = "http3"))]
+    let alt_svc_header = Bytes::from(alt_svc_header.into_bytes());
+
+    while let Ok((mut request, response_pipe)) = http
         .accept(
             descriptor
                 .data
@@ -668,19 +808,29 @@ pub async fn handle_connection(
         debug_assert!(descriptor.data.get_host(&host.name).is_some());
         let hostname = host.name.clone();
         let moved_host_collection = Arc::clone(&descriptor.data);
+        #[cfg(any(feature = "http2", feature = "http3"))]
+        let alt_svc_header = alt_svc_header.clone();
         let future = async move {
             // UNWRAP: This host must be part of the Collection, as we got it from there.
             let host = moved_host_collection.get_host(&hostname).unwrap();
-            let response = handle_cache(&mut request, address, host).await;
+            #[allow(unused_mut)]
+            let mut response = handle_cache(&mut request, address, host).await;
 
-            if let Err(err) = SendKind::Send(&mut response_pipe)
+            #[cfg(any(feature = "http2", feature = "http3"))]
+            if secure {
+                response.response.headers_mut().append(
+                    HeaderName::from_static("alt-svc"),
+                    HeaderValue::from_maybe_shared(alt_svc_header).unwrap(),
+                );
+            }
+
+            if let Err(err) = SendKind::Send(response_pipe)
                 .send(response, &request, host, address)
                 .await
             {
                 error!("Got error from writing response: {:?}", err);
             }
             drop(request);
-            drop(response_pipe);
         };
 
         // When version is HTTP/1, we block the socket if we begin listening to it again.
@@ -706,13 +856,13 @@ pub async fn handle_connection(
 /// Most often, this is `Send`, but when a push promise is created,
 /// this will be `Push`. This can be used by [`extensions::Post`].
 #[derive(Debug)]
-pub enum SendKind<'a> {
+pub enum SendKind {
     /// Send the response normally.
-    Send(&'a mut application::ResponsePipe),
+    Send(application::ResponsePipe),
     /// Send the response as a HTTP/2 push.
-    Push(&'a mut application::PushedResponsePipe),
+    Push(application::PushedResponsePipe),
 }
-impl<'a> SendKind<'a> {
+impl SendKind {
     /// Ensures correct version and length (only applicable for HTTP/1 connections)
     /// of a response according to inner enum variants.
     #[inline]
@@ -729,7 +879,7 @@ impl<'a> SendKind<'a> {
     /// returns any errors with sending the data.
     #[inline]
     pub async fn send(
-        &mut self,
+        self,
         response: CacheReply,
         request: &FatRequest,
         host: &Host,
@@ -791,7 +941,7 @@ impl<'a> SendKind<'a> {
 
                 // Process post extensions
                 host.extensions
-                    .resolve_post(request, identity_body, response_pipe, address, host)
+                    .resolve_post(request, identity_body, &mut body_pipe, address, host)
                     .await;
 
                 // Close the pipe.
