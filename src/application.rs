@@ -216,7 +216,7 @@ impl Debug for Body {
 /// A pipe to send a [`Response`] through.
 ///
 /// You may also push requests if the pipe is [`ResponsePipe::Http2`]
-/// by calling [`ResponsePipe::push_request`].
+/// by calling [`ResponseBodyPipe::push_request`]. after you call [`ResponsePipe::send_response`].
 #[must_use]
 pub enum ResponsePipe {
     /// An HTTP/1 stream to send a response.
@@ -945,7 +945,7 @@ mod response {
         ///
         /// # Errors
         ///
-        /// If you try to push if `self` is [`ResponsePipe::Http1`], an [`Error::PushOnHttp1`] is returned.
+        /// If you try to push if `self` is [`ResponsePipe::Http1`], an [`Error::UnsupportedPush`] is returned.
         /// Returns errors from [`h2::server::SendResponse::push_request()`].
         #[inline]
         #[allow(clippy::needless_pass_by_value)]
