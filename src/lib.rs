@@ -248,7 +248,7 @@ impl RunConfig {
             for descriptor in &ports {
                 fn create_listener(
                     create_socket: impl Fn() -> socket2::Socket,
-                    tcp: bool,
+                    #[allow(unused_variables)] tcp: bool,
                     address: SocketAddr,
                     shutdown_manager: &mut shutdown::Manager,
                     #[allow(unused_variables)] descriptor: &PortDescriptor,
