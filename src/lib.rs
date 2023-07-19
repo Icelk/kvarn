@@ -624,6 +624,15 @@ async fn accept(
             },
         };
 
+        debug!(
+            "Accepting stream from {addr:?}: {}",
+            if matches!(stream, Incoming::Tcp(_)) {
+                "TCP"
+            } else {
+                "QUIC"
+            }
+        );
+
         match descriptor.data.limiter().register(addr.ip()) {
             LimitAction::Drop => {
                 drop(stream);

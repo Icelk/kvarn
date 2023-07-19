@@ -1511,8 +1511,9 @@ mod macros {
     /// # use kvarn::prelude::*;
     /// let extension = post!(_, _, response_pipe, _, _, {
     ///     match response_pipe {
-    ///         application::ResponsePipe::Http1(c) => println!("This is a HTTP/1 connection. {:?}", c),
-    ///         application::ResponsePipe::Http2(c) => println!("This is a HTTP/2 connection. {:?}", c),
+    ///         application::ResponseBodyPipe::Http1(c) => println!("This is an HTTP/1 connection. {c:?}"),
+    ///         application::ResponseBodyPipe::Http2(c, _) => println!("This is an HTTP/2 connection. {c:?}"),
+    ///         application::ResponseBodyPipe::Http3(c) => println!("This is an HTTP/3 connection."),
     ///     }
     /// });
     /// ```

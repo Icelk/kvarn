@@ -483,7 +483,7 @@ impl<'a> AcceptFuture<'a> {
     async fn accept(self) -> AcceptAction {
         #[cfg(feature = "graceful-shutdown")]
         {
-            debug!(
+            trace!(
                 "Shutting down? {}",
                 self.manager.shutdown.load(Ordering::Acquire)
             );

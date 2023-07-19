@@ -117,6 +117,11 @@ impl ServerBuilder {
     /// The inner [`Extensions`] can be modified with [`Self::with_extensions`]
     /// and the [`host::Options`] with [`Self::with_options`]
     pub fn new(extensions: Extensions, options: host::Options) -> Self {
+        let _ = env_logger::Builder::new()
+            .parse_filters("rustls=warn,debug")
+            .is_test(true)
+            .parse_default_env()
+            .try_init();
         Self {
             https: true,
             extensions,

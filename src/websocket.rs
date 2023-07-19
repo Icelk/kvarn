@@ -31,7 +31,7 @@ static SEC_MAGIC_STRING: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 ///             req,
 ///             host,
 ///             response_pipe_fut!(response_pipe, _host, {
-///                 let mut ws = kvarn::websocket::wrap(response_pipe).await;
+///                 let mut ws = kvarn::websocket::wrap(response_pipe).await.unwrap();
 ///                 while let Some(Ok(message)) = ws.next().await {
 ///                     let _ = ws.send(message).await;
 ///                 }
