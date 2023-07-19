@@ -311,6 +311,15 @@ impl From<(Extensions, host::Options)> for ServerBuilder {
     }
 }
 
+/// The testing prelude.
+/// Also imports `kvarn::prelude::*`.
+pub mod prelude {
+    pub use super::{Server, ServerBuilder};
+    #[doc(hidden)]
+    pub use kvarn::prelude::*;
+    pub use reqwest;
+}
+
 #[cfg(test)]
 mod tests {
     use super::ServerBuilder;
@@ -343,13 +352,4 @@ mod tests {
         let server = ServerBuilder::default().http().run().await;
         simple_request(&server).await;
     }
-}
-
-/// The testing prelude.
-/// Also imports `kvarn::prelude::*`.
-pub mod prelude {
-    pub use super::{Server, ServerBuilder};
-    #[doc(hidden)]
-    pub use kvarn::prelude::*;
-    pub use reqwest;
 }
