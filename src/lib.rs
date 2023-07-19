@@ -254,6 +254,11 @@ impl RunConfig {
                     #[allow(unused_variables)] descriptor: &PortDescriptor,
                 ) -> AcceptManager {
                     let socket = create_socket();
+                    // match MIO's settings
+                    socket
+                        .set_nonblocking(true)
+                        .expect("Failed to set `nonblocking` for socket.");
+                    let _ = socket.set_cloexec(true);
                     #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
                     {
                         if socket.set_reuse_address(true).is_err()
