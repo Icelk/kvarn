@@ -266,8 +266,6 @@ impl RunConfig {
                         .bind(&address.into())
                         .expect("Failed to bind address");
 
-                    info!("tcp {tcp}, addr {address:?}");
-
                     // wrap listener
                     #[cfg(feature = "http3")]
                     if !tcp {
@@ -552,11 +550,16 @@ async fn accept(
     shutdown_manager: &Arc<shutdown::Manager>,
     first: bool,
 ) -> Result<(), io::Error> {
-    let local_addr = listener.get_inner().local_addr();
+    let local_addr = listener.inner().local_addr();
     if first {
         info!(
-            "Started listening on port {} using {}",
+            "Started listening on port {} using {}/{}",
             local_addr.port(),
+            if listener.inner().is_tcp() {
+                "TCP"
+            } else {
+                "QUIC"
+            },
             if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
         );
     }
@@ -817,7 +820,7 @@ pub async fn handle_connection(
             let mut response = handle_cache(&mut request, address, host).await;
 
             #[cfg(any(feature = "http2", feature = "http3"))]
-            if secure {
+            if secure && version != Version::HTTP_3 {
                 response.response.headers_mut().append(
                     HeaderName::from_static("alt-svc"),
                     HeaderValue::from_maybe_shared(alt_svc_header).unwrap(),

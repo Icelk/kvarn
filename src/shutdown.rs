@@ -387,6 +387,9 @@ pub(crate) enum Listener {
     Udp(h3_quinn::Endpoint),
 }
 impl Listener {
+    pub(crate) fn is_tcp(&self) -> bool {
+        matches!(self, Self::Tcp(_))
+    }
     pub(crate) fn local_addr(&self) -> SocketAddr {
         match self {
             Listener::Tcp(tcp) => tcp.local_addr(),
@@ -452,7 +455,7 @@ impl AcceptManager {
     }
     /// Returns a reference to the inner listener.
     #[must_use]
-    pub(crate) fn get_inner(&self) -> &Listener {
+    pub(crate) fn inner(&self) -> &Listener {
         &self.listener
     }
 }
