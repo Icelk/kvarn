@@ -458,7 +458,7 @@ impl<'a> Query<'a> {
     /// Watch [this Youtube video](https://youtu.be/QVZBl8yxVX0) to see how it can be exploited.
     #[must_use]
     pub fn get_last(&self, name: &'a str) -> Option<&QueryPair> {
-        self.get_all(name).rev().next()
+        self.get_all(name).next_back()
     }
     /// If the value is found then [`Result::Ok`] is returned, containing the
     /// index of the matching element.
