@@ -759,14 +759,11 @@ pub async fn handle_connection(
     #[allow(unused_variables)]
     #[cfg(feature = "https")]
     let secure = descriptor.server_config.is_some();
-    #[cfg(all(feature = "http3", not(feature = "http2")))]
-    let alt_svc_header = format!("h3=\":{port}\"; ma=2592000");
-    #[cfg(all(feature = "http2", not(feature = "http3")))]
-    let alt_svc_header = format!("h2=\":{port}\"; ma=2592000");
-    #[cfg(all(feature = "http3", feature = "http2"))]
-    let alt_svc_header = format!("h3=\":{port}\"; ma=2592000, h2=\":{port}\"; ma=2592000");
-    #[cfg(any(feature = "http2", feature = "http3"))]
-    let alt_svc_header = Bytes::from(alt_svc_header.into_bytes());
+    #[cfg(feature = "http3")]
+    let alt_svc_header = Some(format!("h3=\":{port}\";ma=2592000"));
+    #[cfg(not(feature = "http3"))]
+    let alt_svc_header = None;
+    let alt_svc_header = alt_svc_header.map(|h| Bytes::from(h.into_bytes()));
 
     while let Ok((mut request, response_pipe)) = http
         .accept(
@@ -825,7 +822,6 @@ pub async fn handle_connection(
         debug_assert!(descriptor.data.get_host(&host.name).is_some());
         let hostname = host.name.clone();
         let moved_host_collection = Arc::clone(&descriptor.data);
-        #[cfg(any(feature = "http2", feature = "http3"))]
         let alt_svc_header = alt_svc_header.clone();
         let future = async move {
             // UNWRAP: This host must be part of the Collection, as we got it from there.
@@ -833,12 +829,13 @@ pub async fn handle_connection(
             #[allow(unused_mut)]
             let mut response = handle_cache(&mut request, address, host).await;
 
-            #[cfg(any(feature = "http2", feature = "http3"))]
-            if secure && version != Version::HTTP_3 {
-                response.response.headers_mut().append(
-                    HeaderName::from_static("alt-svc"),
-                    HeaderValue::from_maybe_shared(alt_svc_header).unwrap(),
-                );
+            if let Some(alt_svc_header) = alt_svc_header {
+                if secure && version != Version::HTTP_3 {
+                    response.response.headers_mut().append(
+                        HeaderName::from_static("alt-svc"),
+                        HeaderValue::from_maybe_shared(alt_svc_header).unwrap(),
+                    );
+                }
             }
 
             if let Err(err) = SendKind::Send(response_pipe)
