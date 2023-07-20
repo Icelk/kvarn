@@ -71,6 +71,8 @@ pub mod limiting;
 pub mod prelude;
 pub mod read;
 pub mod shutdown;
+#[cfg(all(feature = "uring", feature = "http3"))]
+mod uring_udp;
 pub mod vary;
 pub mod websocket;
 
@@ -272,7 +274,7 @@ impl RunConfig {
                         .expect("Failed to bind address");
 
                     // wrap listener
-                    #[cfg(feature = "http3")]
+                    #[cfg(all(feature = "http3", not(feature = "uring")))]
                     if !tcp {
                         return shutdown_manager.add_listener(shutdown::Listener::Udp(
                             h3_quinn::Endpoint::new(
@@ -281,6 +283,22 @@ impl RunConfig {
                                     descriptor.server_config.clone().unwrap(),
                                 )),
                                 socket.into(),
+                                h3_quinn::quinn::default_runtime().unwrap(),
+                            )
+                            .unwrap(),
+                        ));
+                    }
+                    #[cfg(all(feature = "http3", feature = "uring"))]
+                    if !tcp {
+                        return shutdown_manager.add_listener(shutdown::Listener::Udp(
+                            h3_quinn::Endpoint::new_with_abstract_socket(
+                                h3_quinn::quinn::EndpointConfig::default(),
+                                Some(h3_quinn::quinn::ServerConfig::with_crypto(
+                                    descriptor.server_config.clone().unwrap(),
+                                )),
+                                uring_udp::UringUdpSocket::new(
+                                    tokio_uring::net::UdpSocket::from_std(socket.into()),
+                                ),
                                 h3_quinn::quinn::default_runtime().unwrap(),
                             )
                             .unwrap(),
@@ -762,7 +780,7 @@ pub async fn handle_connection(
     #[cfg(feature = "http3")]
     let alt_svc_header = Some(format!("h3=\":{port}\";ma=2592000"));
     #[cfg(not(feature = "http3"))]
-    let alt_svc_header = None;
+    let alt_svc_header: Option<String> = None;
     let alt_svc_header = alt_svc_header.map(|h| Bytes::from(h.into_bytes()));
 
     while let Ok((mut request, response_pipe)) = http

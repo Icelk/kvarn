@@ -26,7 +26,7 @@ _Well..._
 -   [x] HTTP/3 support in Kvarn
 -   [x] cfg to disable new feature
 -   [x] io_uring support
--   [ ] io_uring support for HTTP/3
+-   [x] io_uring support for HTTP/3
 
 # v0.7.0 DynLan
 
