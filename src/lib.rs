@@ -587,6 +587,8 @@ async fn accept(
         );
     }
 
+    let mut fails_without_accepting = 0usize;
+    let fails_without_accepting_threshold = 100;
     loop {
         let (stream, addr) = match listener.accept(shutdown_manager).await {
             AcceptAction::Shutdown => {
@@ -612,8 +614,12 @@ async fn accept(
 
                     // An error occurred
                     error!("Failed to accept() on TCP listener.{connections}");
+                    fails_without_accepting += 1;
 
-                    return Err(err);
+                    if fails_without_accepting > fails_without_accepting_threshold {
+                        return Err(err);
+                    }
+                    continue;
                 }
             },
             #[cfg(feature = "http3")]
@@ -637,10 +643,17 @@ async fn accept(
                     // An error occurred
                     error!("Failed to accept() on UDP listener.{connections}");
 
-                    return Err(err);
+                    fails_without_accepting += 1;
+
+                    if fails_without_accepting > fails_without_accepting_threshold {
+                        return Err(err);
+                    }
+                    continue;
                 }
             },
         };
+
+        fails_without_accepting = 0;
 
         debug!(
             "Accepting stream from {addr:?}: {}",
