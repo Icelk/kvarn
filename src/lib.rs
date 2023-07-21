@@ -774,9 +774,11 @@ pub async fn handle_connection(
 
     #[allow(unused_variables)]
     let port = descriptor.port();
-    #[allow(unused_variables)]
     #[cfg(feature = "https")]
     let secure = descriptor.server_config.is_some();
+    #[cfg(not(feature = "https"))]
+    let secure = false;
+
     #[cfg(feature = "http3")]
     let alt_svc_header = Some(format!("h3=\":{port}\";ma=2592000"));
     #[cfg(not(feature = "http3"))]
