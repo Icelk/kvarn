@@ -74,6 +74,26 @@ impl UringUdpSocket {
                 )?;
             }
         }
+        // Options standardized in RFC 3542
+        if !is_ipv4 {
+            set_socket_option(
+                &socket,
+                libc::IPPROTO_IPV6,
+                libc::IPV6_RECVPKTINFO,
+                OPTION_ON,
+            )?;
+            set_socket_option(
+                &socket,
+                libc::IPPROTO_IPV6,
+                libc::IPV6_RECVTCLASS,
+                OPTION_ON,
+            )?;
+            // Linux's IP_PMTUDISC_PROBE allows us to operate under interface MTU rather than the
+            // kernel's path MTU guess, but actually disabling fragmentation requires this too. See
+            // __ip6_append_data in ip6_output.c.
+            set_socket_option(&socket, libc::IPPROTO_IPV6, libc::IPV6_DONTFRAG, OPTION_ON)?;
+        }
+
         Ok(Self {
             send_fut: RefCell::new(Vec::new()),
             sent: RefCell::new(0),
@@ -220,6 +240,9 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.socket.local_addr()
+    }
+    fn may_fragment(&self) -> bool {
+        false
     }
 }
 
