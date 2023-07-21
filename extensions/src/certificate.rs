@@ -183,7 +183,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                     )
                 }
                 Err(err) => {
-                    if account_failures < 3 {
+                    if account_failures < 10 {
                         if let small_acme::Error::Http(err) = &err {
                             if let small_acme::ureq::Error::Status(400, _) = &**err {
                                 // retry with new account
@@ -343,14 +343,15 @@ pub fn get_cert(
             break state;
         }
 
-        delay *= 2;
+        if delay < Duration::from_secs(10) {
+            delay *= 2;
+        }
         tries += 1;
-        match tries < 10 {
-            true => debug!("order is not ready, waiting {delay:?} {state:?} {tries}"),
-            false => {
-                error!("order is not ready {state:?} {tries}");
-                return Err(small_acme::Error::Str("order is not ready"));
-            }
+        if tries < 30 {
+            debug!("order is not ready, waiting {delay:?} {state:?} {tries}")
+        } else {
+            error!("order is not ready {state:?} {tries}");
+            return Err(small_acme::Error::Str("order is not ready"));
         }
     };
 
