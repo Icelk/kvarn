@@ -843,7 +843,8 @@ mod response {
                 Self::Http3(mut s) => match s.send_response(response).await {
                     Err(ref err)
                         if err.try_get_code() == Some(h3::error::Code::H3_REQUEST_CANCELLED)
-                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED) =>
+                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED)
+                            || err.try_get_code() == Some(h3::error::Code::H3_NO_ERROR) =>
                     {
                         Err(Error::ClientRefusedResponse)
                     }
