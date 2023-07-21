@@ -143,6 +143,13 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
                         let msg_control = msg_control.as_deref_mut().unwrap();
                         // mimic `msghdr` we got back, since `tokio-uring` abstracts away that.
                         // `msg_name` doesn't seem to be needed, since we're only interested in `cmsg`.
+                        // meta[0] = quinn::udp::RecvMeta {
+                        //     addr: *addr,
+                        //     len: *read,
+                        //     ecn: None,
+                        //     stride: *read,
+                        //     dst_ip: None,
+                        // };
                         let hdr = libc::msghdr {
                             msg_control: msg_control.as_mut_ptr().cast(),
                             msg_controllen: msg_control.len(),
@@ -243,9 +250,11 @@ fn prepare_msg(
         encoder.push(libc::IPPROTO_IPV6, libc::IPV6_TCLASS, ecn);
     }
 
-    if let Some(segment_size) = transmit.segment_size {
-        gso::set_segment_size(&mut encoder, segment_size as u16);
-    }
+    // apparently, setting this might cause the UDP to fail to send...
+
+    // if let Some(segment_size) = transmit.segment_size {
+    //     gso::set_segment_size(&mut encoder, segment_size as u16);
+    // }
 
     if let Some(ip) = &transmit.src_ip {
         match ip {
@@ -362,6 +371,7 @@ mod gso {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_segment_size(encoder: &mut cmsg::Encoder, segment_size: u16) {
         encoder.push(libc::SOL_UDP, libc::UDP_SEGMENT, segment_size);
     }
