@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::mem;
+use std::os::fd::AsRawFd;
 use std::ptr;
 
 use futures_util::FutureExt;
@@ -43,13 +44,42 @@ impl Debug for UringUdpSocket {
     }
 }
 impl UringUdpSocket {
-    pub(crate) fn new(socket: tokio_uring::net::UdpSocket) -> Self {
-        Self {
+    pub(crate) fn new(socket: tokio_uring::net::UdpSocket, is_ipv4: bool) -> io::Result<Self> {
+        const OPTION_ON: libc::c_int = 1;
+        if let Err(err) = set_socket_option(&socket, libc::IPPROTO_IP, libc::IP_RECVTOS, OPTION_ON)
+        {
+            info!("Ignoring error setting IP_RECVTOS on socket: {err:?}");
+        }
+
+        {
+            // opportunistically try to enable GRO. See gro::gro_segments().
+            let _ = set_socket_option(&socket, libc::SOL_UDP, libc::UDP_GRO, OPTION_ON);
+
+            // Forbid IPv4 fragmentation. Set even for IPv6 to account for IPv6 mapped IPv4 addresses.
+            set_socket_option(
+                &socket,
+                libc::IPPROTO_IP,
+                libc::IP_MTU_DISCOVER,
+                libc::IP_PMTUDISC_PROBE,
+            )?;
+
+            if is_ipv4 {
+                set_socket_option(&socket, libc::IPPROTO_IP, libc::IP_PKTINFO, OPTION_ON)?;
+            } else {
+                set_socket_option(
+                    &socket,
+                    libc::IPPROTO_IPV6,
+                    libc::IPV6_MTU_DISCOVER,
+                    libc::IP_PMTUDISC_PROBE,
+                )?;
+            }
+        }
+        Ok(Self {
             send_fut: RefCell::new(Vec::new()),
             sent: RefCell::new(0),
             recv_fut: RefCell::new(None),
             socket,
-        }
+        })
     }
 }
 
@@ -325,8 +355,7 @@ fn decode_recv(addr: SocketAddr, hdr: &libc::msghdr, len: usize) -> RecvMeta {
 }
 
 mod gso {
-    use super::{cmsg, io, mem, ptr};
-    use std::os::fd::AsRawFd;
+    use super::{cmsg, set_socket_option};
 
     /// Checks whether GSO support is available by setting the `UDP_SEGMENT`
     /// option on a socket
@@ -348,32 +377,31 @@ mod gso {
             Err(_) => 1,
         }
     }
-    fn set_socket_option(
-        socket: &impl AsRawFd,
-        level: libc::c_int,
-        name: libc::c_int,
-        value: libc::c_int,
-    ) -> Result<(), io::Error> {
-        let rc = unsafe {
-            libc::setsockopt(
-                socket.as_raw_fd(),
-                level,
-                name,
-                ptr::addr_of!(value).cast(),
-                mem::size_of_val(&value) as _,
-            )
-        };
-
-        if rc == 0 {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
-    }
-
     #[allow(dead_code)]
     pub(crate) fn set_segment_size(encoder: &mut cmsg::Encoder, segment_size: u16) {
         encoder.push(libc::SOL_UDP, libc::UDP_SEGMENT, segment_size);
+    }
+}
+fn set_socket_option(
+    socket: &impl AsRawFd,
+    level: libc::c_int,
+    name: libc::c_int,
+    value: libc::c_int,
+) -> Result<(), io::Error> {
+    let rc = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            level,
+            name,
+            ptr::addr_of!(value).cast(),
+            mem::size_of_val(&value) as _,
+        )
+    };
+
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 

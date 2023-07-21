@@ -275,6 +275,7 @@ impl RunConfig {
 
                     // wrap listener
                     #[cfg(all(feature = "http3", not(feature = "uring")))]
+                    // #[cfg(feature = "http3")]
                     if !tcp {
                         return shutdown_manager.add_listener(shutdown::Listener::Udp(
                             h3_quinn::Endpoint::new(
@@ -290,19 +291,20 @@ impl RunConfig {
                     }
                     #[cfg(all(feature = "http3", feature = "uring"))]
                     if !tcp {
-                        return shutdown_manager.add_listener(shutdown::Listener::Udp(
-                            h3_quinn::Endpoint::new_with_abstract_socket(
-                                h3_quinn::quinn::EndpointConfig::default(),
-                                Some(h3_quinn::quinn::ServerConfig::with_crypto(
-                                    descriptor.server_config.clone().unwrap(),
-                                )),
-                                uring_udp::UringUdpSocket::new(
-                                    tokio_uring::net::UdpSocket::from_std(socket.into()),
-                                ),
-                                h3_quinn::quinn::default_runtime().unwrap(),
+                        let endpoint = h3_quinn::Endpoint::new_with_abstract_socket(
+                            h3_quinn::quinn::EndpointConfig::default(),
+                            Some(h3_quinn::quinn::ServerConfig::with_crypto(
+                                descriptor.server_config.clone().unwrap(),
+                            )),
+                            uring_udp::UringUdpSocket::new(
+                                tokio_uring::net::UdpSocket::from_std(socket.into()),
+                                address.is_ipv4(),
                             )
-                            .unwrap(),
-                        ));
+                            .expect("failed to change socket settings"),
+                            h3_quinn::quinn::default_runtime().unwrap(),
+                        )
+                        .unwrap();
+                        return shutdown_manager.add_listener(shutdown::Listener::Udp(endpoint));
                     }
 
                     socket

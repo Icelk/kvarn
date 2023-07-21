@@ -944,7 +944,19 @@ mod response {
                 #[cfg(feature = "http2")]
                 Self::Http2(h2, _) => h2.send_data(data, end_of_stream)?,
                 #[cfg(feature = "http3")]
-                Self::Http3(h3) => h3.send_data(data).await?,
+                Self::Http3(h3) => match h3.send_data(data).await {
+                    Err(ref err)
+                        if err.try_get_code() == Some(h3::error::Code::H3_REQUEST_CANCELLED)
+                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED)
+                            || err.try_get_code() == Some(h3::error::Code::H3_NO_ERROR) =>
+                    {
+                        return Err(Error::ClientRefusedResponse);
+                    }
+                    err @ Err(_) => {
+                        err?;
+                    }
+                    Ok(()) => {}
+                },
             }
             Ok(())
         }
@@ -986,7 +998,17 @@ mod response {
                 #[cfg(feature = "http2")]
                 Self::Http2(h2, _) => h2.send_data(Bytes::new(), true).map_err(Error::from),
                 #[cfg(feature = "http3")]
-                Self::Http3(h3) => h3.finish().await.map_err(Error::from),
+                Self::Http3(h3) => match h3.finish().await {
+                    Ok(()) => Ok(()),
+                    Err(ref err)
+                        if err.try_get_code() == Some(h3::error::Code::H3_REQUEST_CANCELLED)
+                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED)
+                            || err.try_get_code() == Some(h3::error::Code::H3_NO_ERROR) =>
+                    {
+                        Err(Error::ClientRefusedResponse)
+                    }
+                    r => r.map_err(Error::from),
+                },
             }
         }
     }
