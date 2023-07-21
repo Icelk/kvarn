@@ -578,10 +578,9 @@ async fn accept(
         info!(
             "Started listening on port {} using {}/{}",
             local_addr.port(),
-            if listener.inner().is_tcp() {
-                "TCP"
-            } else {
-                "QUIC"
+            match listener.inner() {
+                shutdown::Listener::Tcp(_) => "TCP",
+                shutdown::Listener::Udp(_) => "QUIC",
             },
             if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
         );
@@ -657,10 +656,9 @@ async fn accept(
 
         debug!(
             "Accepting stream from {addr:?}: {}",
-            if matches!(stream, Incoming::Tcp(_)) {
-                "TCP"
-            } else {
-                "QUIC"
+            match stream {
+                Incoming::Tcp(_) => "TCP",
+                Incoming::Udp(_) => "QUIC",
             }
         );
 
@@ -875,7 +873,7 @@ pub async fn handle_connection(
                 .send(response, &request, host, address)
                 .await
             {
-                error!("Got error from writing response: {:?}", err);
+                error!("Got error when writing response: {:?}", err);
             }
             drop(request);
         };

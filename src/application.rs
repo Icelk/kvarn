@@ -841,6 +841,12 @@ mod response {
                 },
                 #[cfg(feature = "http3")]
                 Self::Http3(mut s) => match s.send_response(response).await {
+                    Err(ref err)
+                        if err.try_get_code() == Some(h3::error::Code::H3_REQUEST_CANCELLED)
+                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED) =>
+                    {
+                        Err(Error::ClientRefusedResponse)
+                    }
                     Err(err) => Err(err.into()),
                     Ok(()) => Ok(ResponseBodyPipe::Http3(s)),
                 },
