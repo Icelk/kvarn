@@ -580,6 +580,7 @@ async fn accept(
             local_addr.port(),
             match listener.inner() {
                 shutdown::Listener::Tcp(_) => "TCP",
+                #[cfg(feature = "http3")]
                 shutdown::Listener::Udp(_) => "QUIC",
             },
             if local_addr.is_ipv4() { "IPv4" } else { "IPv6" }
@@ -658,6 +659,7 @@ async fn accept(
             "Accepting stream from {addr:?}: {}",
             match stream {
                 Incoming::Tcp(_) => "TCP",
+                #[cfg(feature = "http3")]
                 Incoming::Udp(_) => "QUIC",
             }
         );
