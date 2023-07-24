@@ -23,7 +23,7 @@ pulldown-cmark = { version = "0.9", default-features = false, features = ["simd"
 notify = "6"
 unicode_categories = "0.1"
 time = { version = "0.3", optional = true, features = ["formatting", "macros", "local-offset"] }
-time-tz = { version = "1", optional = true, features = ["system"] }
+time-tz = { version = "2", optional = true, features = ["system"] }
 kvarn_utils = "0.5"
 
 # Bin deps
