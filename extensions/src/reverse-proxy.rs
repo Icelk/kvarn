@@ -120,7 +120,7 @@ impl EstablishedConnection {
 
         let response = match tokio::time::timeout(
             timeout,
-            kvarn::prelude::async_bits::read::response(&mut *self, 16 * 1024, timeout),
+            kvarn::prelude::async_bits::read::response(&mut *self, 4 * 1024 * 1024, timeout),
         )
         .await
         {
@@ -238,66 +238,95 @@ impl OpenBackError {
 pub struct ByteProxy<'a, B: AsyncRead + AsyncWrite + Unpin> {
     front: &'a mut ResponseBodyPipe,
     back: &'a mut B,
-    // ToDo: Optimize to one buffer!
-    buf: Vec<u8>,
+    front_buf: Vec<u8>,
+    back_buf: Vec<u8>,
 }
 impl<'a, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, B> {
     pub fn new(front: &'a mut ResponseBodyPipe, back: &'a mut B) -> Self {
         Self {
             front,
             back,
-            buf: Vec::with_capacity(16 * 1024),
+            front_buf: Vec::with_capacity(16 * 1024),
+            back_buf: Vec::with_capacity(16 * 1024),
         }
     }
     pub async fn channel(&mut self) -> Result<(), OpenBackError> {
         let mut front_done = false;
         let mut back_done = false;
         loop {
-            if !front_done {
-                if let ResponseBodyPipe::Http1(h1) = self.front {
-                    {
-                        unsafe { self.buf.set_len(self.buf.capacity()) };
+            match (front_done, back_done) {
+                // if any one is done, close the other!
+                (true, false) => {
+                    self.back.shutdown().await.map_err(OpenBackError::Back)?;
+                    break;
+                }
+                (false, true) => {
+                    if let ResponseBodyPipe::Http1(h1) = self.front {
+                        h1.lock()
+                            .await
+                            .shutdown()
+                            .await
+                            .map_err(OpenBackError::Front)?;
+                        break;
+                    } else {
+                        front_done = true;
+                    }
+                }
+                (false, false) => {
+                    let ResponseBodyPipe::Http1(h1) = self.front else {
+                        // won't ever go into this branch again
+                        front_done = true;
+                        continue;
+                    };
+                    let front_read = async {
+                        unsafe { self.front_buf.set_len(self.front_buf.capacity()) };
                         let read = h1
                             .lock()
                             .await
-                            .read(&mut self.buf)
+                            .read(&mut self.front_buf)
                             .await
                             .map_err(OpenBackError::Front)?;
                         if read == 0 {
                             front_done = true;
                         }
-                        unsafe { self.buf.set_len(read) };
-                    }
-                    self.back
-                        .write_all(&self.buf)
-                        .await
-                        .map_err(OpenBackError::Back)?;
-                } else {
-                    front_done = true;
-                }
-            }
-            if !back_done {
-                {
-                    unsafe { self.buf.set_len(self.buf.capacity()) };
-                    let read = self
-                        .back
-                        .read(&mut self.buf)
-                        .await
-                        .map_err(OpenBackError::Back)?;
-                    if read == 0 {
-                        back_done = true;
-                    }
-                    unsafe { self.buf.set_len(read) };
-                }
-                self.front
-                    .send(Bytes::copy_from_slice(&self.buf))
-                    .await
-                    .map_err(io::Error::from)
-                    .map_err(OpenBackError::Front)?;
-            }
+                        unsafe { self.front_buf.set_len(read) };
+                        Ok::<(), OpenBackError>(())
+                    };
+                    let back_read = async {
+                        unsafe { self.back_buf.set_len(self.back_buf.capacity()) };
+                        let read = self
+                            .back
+                            .read(&mut self.back_buf)
+                            .await
+                            .map_err(OpenBackError::Back)?;
+                        if read == 0 {
+                            back_done = true;
+                        }
+                        unsafe { self.back_buf.set_len(read) };
+                        Ok::<(), OpenBackError>(())
+                    };
 
-            if front_done && back_done {
-                break;
+                    tokio::select! {
+                        r = front_read => {
+                            r?;
+                            self.back
+                                .write_all(&self.front_buf)
+                                .await
+                                .map_err(OpenBackError::Back)?;
+                        }
+                        r = back_read => {
+                            r?;
+                            self.front
+                                .send(Bytes::copy_from_slice(&self.back_buf))
+                                .await
+                                .map_err(io::Error::from)
+                                .map_err(OpenBackError::Back)?;
+                        }
+                    }
+                }
+                (true, true) => {
+                    break;
+                }
             }
         }
         Ok(())
@@ -539,36 +568,28 @@ impl Manager {
                                 let mut open_back = ByteProxy::new(response_pipe, connection);
                                 debug!("Created open back!");
 
-                                loop {
-                                    // Add 90 second timeout to UDP connections.
-                                    let timeout_result = if udp_connection {
-                                        tokio::time::timeout(
-                                            Duration::from_secs(90),
-                                            open_back.channel(),
-                                        )
-                                        .await
-                                    } else {
-                                        Ok(open_back.channel().await)
-                                    };
+                                // Add 90 second timeout to UDP connections.
+                                let timeout_result = if udp_connection {
+                                    tokio::time::timeout(
+                                        Duration::from_secs(90),
+                                        open_back.channel(),
+                                    )
+                                    .await
+                                } else {
+                                    Ok(open_back.channel().await)
+                                };
 
-                                    if let Ok(r) = timeout_result {
-                                        debug!("Open back responded! {:?}", r);
-                                        match r {
-                                            Err(err) => {
-                                                if !matches!(
-                                                    err.get_io_kind(),
-                                                    io::ErrorKind::ConnectionAborted
-                                                        | io::ErrorKind::ConnectionReset
-                                                        | io::ErrorKind::BrokenPipe
-                                                ) {
-                                                    warn!("Reverse proxy io error: {:?}", err);
-                                                }
-                                                break;
-                                            }
-                                            Ok(()) => continue,
+                                if let Ok(r) = timeout_result {
+                                    debug!("Open back responded! {:?}", r);
+                                    if let Err(err) = r {
+                                        if !matches!(
+                                            err.get_io_kind(),
+                                            io::ErrorKind::ConnectionAborted
+                                                | io::ErrorKind::ConnectionReset
+                                                | io::ErrorKind::BrokenPipe
+                                        ) {
+                                            warn!("Reverse proxy io error: {:?}", err);
                                         }
-                                    } else {
-                                        break;
                                     }
                                 }
                             }
