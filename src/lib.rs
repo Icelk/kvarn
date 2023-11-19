@@ -242,7 +242,10 @@ impl RunConfig {
 
         // artefact from ↑. When not uring, the outer vec is 1 in length
         let mut all_listeners: Vec<
-            Vec<(Box<dyn Fn() -> AcceptManager + Send + Sync>, Arc<PortDescriptor>)>,
+            Vec<(
+                Box<dyn Fn() -> AcceptManager + Send + Sync>,
+                Arc<PortDescriptor>,
+            )>,
         > = Vec::with_capacity(instances);
 
         let ports: Vec<_> = ports.into_iter().map(Arc::new).collect();
@@ -475,9 +478,6 @@ impl RunConfig {
                 let shutdown_manager = Arc::clone(&shutdown_manager);
                 std::thread::spawn(move || {
                     tokio_uring::start(async move {
-                        // `TODO`: seems like tokio-uring sometimes segfaults when exiting. Maybe
-                        // this has to do with sockets being moved between runtimes?
-                        // Is a socket registered on another runtime also slowing things down?
                         accept(listener(), descriptor, &shutdown_manager, n == 0)
                             .await
                             .expect("failed to accept message");

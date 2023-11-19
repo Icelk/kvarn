@@ -93,7 +93,7 @@ pub struct Manager {
     pub(crate) handover_socket_path: Option<PathBuf>,
 }
 unsafe impl Send for Manager {}
-unsafe impl Sync for Manager{}
+unsafe impl Sync for Manager {}
 impl Manager {
     /// Creates a new shutdown manager with the capacity of the list of wakers set to `_capacity`.
     ///
