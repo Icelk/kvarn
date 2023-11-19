@@ -161,30 +161,10 @@ pub mod chars {
     pub const CR: u8 = b'\r';
     /// ` `
     pub const SPACE: u8 = b' ';
-    /// `!`
-    pub const BANG: u8 = b'!';
     /// `"`
-    pub const QUOTATION: u8 = b'"';
-    /// `$`
-    pub const DOLLAR: u8 = b'$';
-    /// `&`
-    pub const AMPERSAND: u8 = b'&';
-    /// `.`
-    pub const PERIOD: u8 = b'.';
-    /// `/`
-    pub const FORWARD_SLASH: u8 = b'/';
-    /// `:`
-    pub const COLON: u8 = b':';
-    /// `>`
-    pub const R_TAG: u8 = b'>';
-    /// `|`
-    pub const PIPE: u8 = b'|';
-    /// `[`
-    pub const L_SQ_BRACKET: u8 = b'[';
-    /// `\`
-    pub const ESCAPE: u8 = b'\\';
-    /// `]`
-    pub const R_SQ_BRACKET: u8 = b']';
+    pub const DOUBLE_QUOTES: u8 = b'"';
+    /// `'`
+    pub const SINGLE_QUOTES: u8 = b'\'';
 }
 
 /// [`Bytes`] but potentially [`BytesMut`], which enables e.g. changing the data without
@@ -1074,7 +1054,7 @@ mod tests {
     }
     #[test]
     fn quoted_str_split_3() {
-        let s = r#" how' bou't this?' no end to this quote "#;
+        let s = r" how' bou't this?' no end to this quote ";
         assert_eq!(
             quoted_str_split(s).collect::<Vec<_>>(),
             ["how bout", "this? no end to this quote "]

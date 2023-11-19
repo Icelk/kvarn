@@ -1,18 +1,22 @@
 //! Parsing utilities and constants for Kvarn extensions.
 
 use crate::{
-    chars::{AMPERSAND, BANG, CR, LF, R_TAG, SPACE},
+    chars::{CR, LF, SPACE},
     str, Arc, Bytes, Debug,
 };
 
 /// Magic number for [`Present`](https://kvarn.org/extensions/#present) extension.
 ///
 /// `!> `
-pub const PRESENT_INTERNAL_PREFIX: &[u8] = &[BANG, R_TAG, SPACE];
+pub const PRESENT_INTERNAL_PREFIX: &[u8] = b"!> ";
 /// Separator between [`Present`](https://kvarn.org/extensions/#present) extensions.
 ///
 /// ` &> `
-pub const PRESENT_INTERNAL_AND: &[u8] = &[SPACE, AMPERSAND, R_TAG, SPACE];
+pub const PRESENT_INTERNAL_AND: &[u8] = b" &> ";
+/// Trimmed [`PRESENT_INTERNAL_AND`].
+///
+/// `&>`
+pub const PRESENT_INTERNAL_AND_TRIMMED: &[u8] = b"&>";
 
 #[derive(Debug)]
 struct PresentExtensionPosData {
@@ -78,18 +82,23 @@ impl PresentExtensions {
                 let len = pos - start;
                 let span = (start, len);
 
-                // We have to borrow same mutably, which isn't possible in closures.
-                #[allow(clippy::option_if_let_else)]
-                if let Some(name) = last_name {
-                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(name, span));
-                } else {
-                    last_name = Some((start, len));
-                    extensions_args.push(PresentExtensionPosData::from_name_and_arg(span, span));
+                if len > 0 && &data[start..pos] != PRESENT_INTERNAL_AND_TRIMMED {
+                    // We have to borrow same mutably, which isn't possible in closures.
+                    #[allow(clippy::option_if_let_else)]
+                    if let Some(name) = last_name {
+                        extensions_args
+                            .push(PresentExtensionPosData::from_name_and_arg(name, span));
+                    } else {
+                        last_name = Some((start, len));
+                        extensions_args
+                            .push(PresentExtensionPosData::from_name_and_arg(span, span));
+                    }
                 }
                 if byte == CR {
                     has_cr = true;
                 }
                 if byte == LF {
+                    println!("{extensions_args:#?}");
                     return Some(Self {
                         data,
                         extensions: Arc::new(extensions_args),
@@ -278,27 +287,6 @@ File's contents.
             assert_eq!(extension.name(), "allow-ips");
             let mut arguments = extension.iter();
             assert_eq!(arguments.next(), Some("10.0.0.16"));
-            assert_eq!(arguments.next(), Some("&>"));
-            assert_eq!(arguments.next(), None);
-        }
-        assert!(extensions.next().is_none());
-    }
-    #[test]
-    #[should_panic]
-    fn failing() {
-        let file = "\
-!>  tmpl standard.html  md.html  &>
-File's contents.
-";
-        let mut extensions = PresentExtensions::new(Bytes::from_static(file.as_bytes()))
-            .unwrap()
-            .into_iter();
-        {
-            let extension = extensions.next().unwrap();
-            assert_eq!(extension.name(), "tmpl");
-            let mut arguments = extension.iter();
-            assert_eq!(arguments.next(), Some("standard.html"));
-            assert_eq!(arguments.next(), Some("md.html"));
             assert_eq!(arguments.next(), None);
         }
         assert!(extensions.next().is_none());
@@ -314,14 +302,10 @@ File's contents.
             .into_iter();
         {
             let extension = extensions.next().unwrap();
-            assert_eq!(extension.name(), "");
+            assert_eq!(extension.name(), "tmpl");
             let mut arguments = extension.iter();
-            assert_eq!(arguments.next(), Some("tmpl"));
             assert_eq!(arguments.next(), Some("standard.html"));
-            assert_eq!(arguments.next(), Some(""));
             assert_eq!(arguments.next(), Some("md.html"));
-            assert_eq!(arguments.next(), Some(""));
-            assert_eq!(arguments.next(), Some("&>"));
             assert_eq!(arguments.next(), None);
         }
         assert!(extensions.next().is_none());

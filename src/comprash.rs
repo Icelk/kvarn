@@ -7,6 +7,7 @@
 //! The main type in this module is [`CompressedResponse`], a dynamically compressed
 //! response receiving correct headers and [`extensions`].
 use crate::prelude::{chrono::*, *};
+#[allow(unused_imports)]
 use std::cell::UnsafeCell;
 use std::{borrow::Borrow, hash::Hash};
 

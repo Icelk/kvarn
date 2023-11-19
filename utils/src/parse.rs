@@ -645,7 +645,7 @@ pub fn query(query: &str) -> Query {
 #[inline]
 #[must_use]
 pub fn uri(path: &str) -> Option<&str> {
-    if path.as_bytes().first().copied() != Some(chars::FORWARD_SLASH) {
+    if path.as_bytes().first().copied() != Some(b'/') {
         return None;
     }
     // Unsafe is ok, since we remove the first byte of a string that is always `/`, occupying exactly one byte.
@@ -851,7 +851,7 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
         }
         match parse_stage {
             RequestParseStage::HeaderName(..) => {
-                if byte == chars::COLON {
+                if byte == b':' {
                     name_end = pos;
                     if bytes.get(pos + 1) != Some(&chars::SPACE) {
                         parse_stage.next();
