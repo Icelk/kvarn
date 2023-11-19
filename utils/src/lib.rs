@@ -608,8 +608,6 @@ pub fn valid_version(bytes: &[u8]) -> bool {
     )
 }
 /// Gets the body length from the [`Request::headers`] of `request`.
-///
-/// If [`method_has_request_body`] returns `false` or the header isn't present, it defaults to `0`.
 #[inline]
 pub fn get_body_length_request<T>(request: &Request<T>) -> usize {
     use std::str::FromStr;
@@ -640,7 +638,7 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
 /// Gets the body length of a `response`.
 ///
 /// If `method` is [`Some`] and [`method_has_response_body`] returns false, `0` is
-/// returned. If the [`method_has_request_body`] or `method` is [`None`],
+/// returned. If `method` is [`None`],
 /// the `content-length` header is checked. `0` is otherwise returned.
 pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> usize {
     use std::str::FromStr;

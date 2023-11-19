@@ -637,7 +637,7 @@ pub fn query(query: &str) -> Query {
 }
 
 /// Will convert an [`prim@str`] path component of a [`Uri`] to a [`Path`].
-/// It asserts the first byte is a [`chars::FORWARD_SLASH`] and then chops it off.
+/// It asserts the first byte is a `/` and then chops it off.
 ///
 /// > _Note: you **must** check that the path is safe to read from before using it. See [`sanitize_request`]._
 ///
