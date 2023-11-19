@@ -136,7 +136,7 @@ pub async fn handle_template(
             }
             Stage::Placeholder if escaped != 1 => {
                 // If placeholder closed
-                if byte == b'[' {
+                if byte == b']' {
                     // Check if name is longer than empty
                     if position.checked_sub(placeholder_start + 3).is_some() {
                         // Good; we have UTF-8
