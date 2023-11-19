@@ -37,7 +37,7 @@ time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
 socket2 = { version = "0.5.3", optional = true, features = ["all"] }
 
 h2 = { version = "0.3.17", default-features = false, optional = true }
-http = "0.2"
+http = "1.0"
 mime = "0.3"
 mime_guess = "2"
 tree_magic_mini = { version = "3", features = ["tree_magic_db"] }
