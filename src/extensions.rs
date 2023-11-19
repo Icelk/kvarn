@@ -144,10 +144,6 @@ pub trait PresentCall: KvarnSendSync {
     /// # Arguments
     ///
     /// [`PresentData`] contains all the references to the data needed.
-    ///
-    /// > The use of a separate struct for all the references is a product of the previous design,
-    /// > before the macros and [`utils::SuperUnsafePointer`]s. Then, you had to do the `unsafe` dereferencing
-    /// > yourself. Only having to dereference one struct was easier.
     fn call<'a>(&'a self, present_data: &'a mut PresentData<'a>) -> RetFut<'a, ()>;
 }
 impl<F: for<'a> Fn(&'a mut PresentData<'a>) -> RetFut<'a, ()> + KvarnSendSync> PresentCall for F {

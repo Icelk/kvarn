@@ -102,7 +102,7 @@ pub async fn handle_template(
     let mut start_byte = Some(0);
 
     for (position, byte) in file.iter().copied().enumerate() {
-        let is_escape = byte == ESCAPE;
+        let is_escape = byte == b'\\';
 
         match stage {
             Stage::Text => {
@@ -136,7 +136,7 @@ pub async fn handle_template(
             }
             Stage::Placeholder if escaped != 1 => {
                 // If placeholder closed
-                if byte == R_SQ_BRACKET {
+                if byte == b'[' {
                     // Check if name is longer than empty
                     if position.checked_sub(placeholder_start + 3).is_some() {
                         // Good; we have UTF-8
@@ -190,7 +190,7 @@ fn extract_templates(file: Bytes) -> TemplateMap {
         if byte == CR {
             newline_size = 2;
         }
-        let is_escape = byte == ESCAPE;
+        let is_escape = byte == b'\\';
 
         match stage {
             Stage::Text => {
@@ -223,7 +223,7 @@ fn extract_templates(file: Bytes) -> TemplateMap {
             }
             Stage::Placeholder if escaped != 1 => {
                 // If placeholder closed
-                if byte == R_SQ_BRACKET {
+                if byte == b']' {
                     // Check if name is longer than empty
                     if position.checked_sub(placeholder_start + 3).is_some() {
                         // Good; we have UTF-8
