@@ -7,6 +7,7 @@
 //! The main type in this module is [`CompressedResponse`], a dynamically compressed
 //! response receiving correct headers and [`extensions`].
 use crate::prelude::{chrono::*, *};
+use std::cell::UnsafeCell;
 use std::{borrow::Borrow, hash::Hash};
 
 /// The HTTP date time format in the [`time`] format.
@@ -277,12 +278,14 @@ impl Default for CompressionOptions {
 pub struct CompressedResponse {
     identity: Response<Bytes>,
     #[cfg(feature = "gzip")]
-    gzip: Option<Bytes>,
+    gzip: UnsafeCell<Option<Bytes>>,
     #[cfg(feature = "br")]
-    br: Option<Bytes>,
+    br: UnsafeCell<Option<Bytes>>,
 
     compress: CompressPreference,
 }
+unsafe impl Send for CompressedResponse {}
+unsafe impl Sync for CompressedResponse {}
 impl CompressedResponse {
     pub(crate) fn new(
         mut identity: Response<Bytes>,
@@ -297,12 +300,20 @@ impl CompressedResponse {
         Self {
             identity,
             #[cfg(feature = "gzip")]
-            gzip: None,
+            gzip: UnsafeCell::new(None),
             #[cfg(feature = "br")]
-            br: None,
+            br: UnsafeCell::new(None),
 
             compress,
         }
+    }
+    #[cfg(feature = "gzip")]
+    fn gzip(&self) -> &Option<Bytes> {
+        unsafe { &*self.gzip.get() }
+    }
+    #[cfg(feature = "br")]
+    fn br(&self) -> &Option<Bytes> {
+        unsafe { &*self.br.get() }
     }
     /// Gets the response with an uncompressed body.
     #[inline]
@@ -519,7 +530,7 @@ impl CompressedResponse {
     /// as it is available with any set of features
     #[cfg(feature = "gzip")]
     pub async fn get_gzip(&self, level: u32) -> &Bytes {
-        if self.gzip.is_none() {
+        if self.gzip().is_none() {
             let bytes = self.identity.body().clone();
             let buffer = threading::spawn_blocking(move || {
                 let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
@@ -537,13 +548,13 @@ impl CompressedResponse {
             .unwrap();
 
             // Last check to make sure we don't override any value.
-            if self.gzip.is_none() {
+            if self.gzip().is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
-                unsafe { (*{ utils::ref_to_mut(&self.gzip) }).replace(buffer) };
+                unsafe { (*self.gzip.get()).replace(buffer) };
             }
         }
-        self.gzip.as_ref().unwrap()
+        self.gzip().as_ref().unwrap()
     }
     /// Gets the Brotli compressed version of [`CompressedResponse::get_identity()`]
     ///
@@ -551,7 +562,7 @@ impl CompressedResponse {
     /// as it is available with any set of features
     #[cfg(feature = "br")]
     pub async fn get_br(&self, level: u32) -> &Bytes {
-        if self.br.is_none() {
+        if self.br().is_none() {
             let bytes = self.identity.body().clone();
             let buffer = threading::spawn_blocking(move || {
                 let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
@@ -569,13 +580,13 @@ impl CompressedResponse {
             .await
             .unwrap();
             // Last check to make sure we don't override any value.
-            if self.br.is_none() {
+            if self.br().is_none() {
                 // maybe shooting myself in the foot...
                 // but should be OK, since we only set it once, otherwise it's None.
-                unsafe { (*{ utils::ref_to_mut(&self.br) }).replace(buffer) };
+                unsafe { (*self.br.get()).replace(buffer) };
             }
         }
-        self.br.as_ref().unwrap()
+        self.br().as_ref().unwrap()
     }
 }
 

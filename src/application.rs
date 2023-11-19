@@ -307,6 +307,8 @@ impl HttpConnection {
     pub async fn new(stream: Encryption, version: Version) -> Result<Self, Error> {
         #[allow(clippy::match_same_arms)] // When http2 isn't enabled
         match version {
+            #[allow(clippy::arc_with_non_send_sync)] // only for tokio-uring, and that probably
+            // won't use that much HTTP/1, so I'll ignore.
             Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
                 Ok(Self::Http1(Arc::new(Mutex::new(stream))))
             }
@@ -1059,6 +1061,7 @@ mod uring_tokio_compat {
                         .as_ref()
                         .map(|_| "[internal future]".as_clean())
                 ),
+                (self.write_buf, &"[internal buffer]".as_clean()),
                 (self.read_buf, &"[internal buffer]".as_clean()),
                 (self.write_fut, &"[internal buffer]".as_clean()),
                 (self.stream, &"[internal stream]".as_clean()),

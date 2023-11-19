@@ -74,15 +74,14 @@ async fn handover() {
                         }
                         failed.store(true, threading::Ordering::SeqCst);
                         println!("{:?}", std::time::SystemTime::now());
-                        Err::<(), _>(err).unwrap();
-                        unreachable!()
+                        panic!("{err}");
                     }
                     Ok(r) => r,
                 };
                 if let Err(err) = response.text().await {
                     failed.store(true, threading::Ordering::SeqCst);
                     println!("{:?}", std::time::SystemTime::now());
-                    Err::<(), _>(err).unwrap();
+                    panic!("{err}");
                 }
             });
             // Stop when not running!

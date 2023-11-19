@@ -12,7 +12,6 @@
 
 use crate::prelude::*;
 use comprash::CompressedResponse;
-use utils::SuperUnsafePointer;
 
 /// The transformation on a request header to get the
 /// "key" header value to store in the cache (in the [`HeaderCollection`]).
@@ -214,7 +213,7 @@ fn get_header(headers: &[Header]) -> HeaderValue {
 
     bytes.put(always_add);
 
-    for header in headers.iter() {
+    for header in headers {
         bytes.put(&b", "[..]);
         bytes.put(header.name.as_bytes());
     }
@@ -246,11 +245,25 @@ pub(crate) struct Header {
 /// Contains the name of the header,
 /// how to get the header value to store,
 /// and a default if the header isn't available in the request.
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Clone)]
 struct ReferenceHeader {
     name: &'static str,
-    transformation: SuperUnsafePointer<Transformation>,
+    transformation: Transformation,
     default: &'static str,
+}
+impl Debug for ReferenceHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut s = f.debug_struct(utils::ident_str!(ReferenceHeader));
+
+        utils::fmt_fields!(
+            s,
+            (self.name),
+            (self.transformation, &"[transformation]".as_clean()),
+            (self.default)
+        );
+
+        s.finish()
+    }
 }
 
 /// A list of [`Header`]s.
@@ -292,7 +305,7 @@ impl VariedResponse {
                     name: rule.name(),
                     // This is (mostly) safe because the type is `Pin` and `Host` is alive as long as the
                     // Kvarn server.
-                    transformation: SuperUnsafePointer::new(rule.transformation()),
+                    transformation: rule.transformation().clone(),
                     default: rule.default(),
                 }
             })
@@ -333,9 +346,7 @@ impl VariedResponse {
                 .map(HeaderValue::to_str)
                 .and_then(Result::ok)
             {
-                // SAFETY: guaranteed by [`Self::new`]
-                let transformation = unsafe { reference.transformation.get() };
-                let header = transformation(header);
+                let header = (reference.transformation)(header);
                 headers.push(Header {
                     name: reference.name,
                     transformed: header,

@@ -22,4 +22,4 @@ pub use std::str;
 pub use std::sync::Arc;
 pub use std::time::{Duration, Instant};
 
-pub use crate::{build_bytes, chars, extensions, parse, ref_to_mut, AsCleanDebug, WriteableBytes};
+pub use crate::{build_bytes, chars, extensions, parse, AsCleanDebug, WriteableBytes};

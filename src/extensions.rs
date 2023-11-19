@@ -1170,11 +1170,13 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                 let first_bytes = {
                     let mut v = vec![0; 16];
                     #[cfg(feature = "uring")]
-                    let (Ok(read), mut v) = file.read_at(v, 0).await else {
+                    let (Ok(read), mut v) = file.read_at(v, 0).await
+                    else {
                         return default_error_response(StatusCode::NOT_FOUND, host, None).await;
                     };
                     #[cfg(not(feature = "uring"))]
-                    let Ok(read) = file.read(&mut v).await else {
+                    let Ok(read) = file.read(&mut v).await
+                    else {
                         return default_error_response(StatusCode::NOT_FOUND, host, None).await;
                     };
                     v.truncate(read);

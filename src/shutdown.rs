@@ -497,12 +497,12 @@ impl<'a> AcceptFuture<'a> {
                     tokio::pin!(shutdown_fut);
                     #[cfg(feature = "uring")]
                     tokio::select! {
-                        _ = shutdown_fut => AcceptAction::Shutdown,
+                        () = shutdown_fut => AcceptAction::Shutdown,
                         r = listener_fut => AcceptAction::AcceptTcp(r.map(|(stream, addr)| (TcpStream::new(stream), addr))),
                     }
                     #[cfg(not(feature = "uring"))]
                     tokio::select! {
-                        _ = shutdown_fut => AcceptAction::Shutdown,
+                        () = shutdown_fut => AcceptAction::Shutdown,
                         r = listener_fut => AcceptAction::AcceptTcp(r),
 
                     }
@@ -512,7 +512,7 @@ impl<'a> AcceptFuture<'a> {
                     let listener_fut = accept_udp(udp);
                     tokio::pin!(shutdown_fut);
                     tokio::select! {
-                        _ = shutdown_fut => AcceptAction::Shutdown,
+                        () = shutdown_fut => AcceptAction::Shutdown,
                         r = listener_fut => AcceptAction::AcceptUdp(r),
 
                     }
