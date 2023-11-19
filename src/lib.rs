@@ -207,6 +207,7 @@ impl RunConfig {
     /// shutdown_manager.wait().await;
     /// # };
     /// ```
+    #[allow(clippy::type_complexity)]
     pub async fn execute(self) -> Arc<shutdown::Manager> {
         #[cfg(feature = "async-networking")]
         use socket2::{Domain, Protocol, Type};
@@ -223,7 +224,8 @@ impl RunConfig {
         info!("Starting server on {} ports.", ports.len());
 
         let len = ports.len();
-        let mut shutdown_manager = shutdown::Manager::new(len);
+        // * 8 for some buffer, since unsafe writes could happen otherwise
+        let mut shutdown_manager = unsafe { shutdown::Manager::new(len * 8) };
 
         #[cfg(feature = "handover")]
         let ports_clone = Arc::new(ports.clone());
@@ -239,20 +241,31 @@ impl RunConfig {
         let instances = 1;
 
         // artefact from ↑. When not uring, the outer vec is 1 in length
-        let mut all_listeners: Vec<Vec<(AcceptManager, Arc<PortDescriptor>)>> =
-            Vec::with_capacity(instances);
+        let mut all_listeners: Vec<
+            Vec<(Box<dyn Fn() -> AcceptManager + Send + Sync>, Arc<PortDescriptor>)>,
+        > = Vec::with_capacity(instances);
 
         let ports: Vec<_> = ports.into_iter().map(Arc::new).collect();
 
+        #[cfg(feature = "handover")]
+        let handover_path = ctl_path.unwrap_or_else(ctl::socket_path);
+
+        #[cfg(feature = "graceful-shutdown")]
+        {
+            shutdown_manager.handover_socket_path = Some(handover_path.clone());
+        }
+
+        let shutdown_manager = shutdown_manager.build();
+
         for _ in 0..instances {
-            let mut listeners = Vec::new();
+            let mut listeners: Vec<(Box<dyn Fn() -> AcceptManager + Send + Sync>, _)> = Vec::new();
             #[cfg(feature = "async-networking")]
             for descriptor in &ports {
                 fn create_listener(
                     create_socket: impl Fn() -> socket2::Socket,
                     #[allow(unused_variables)] tcp: bool,
                     address: SocketAddr,
-                    shutdown_manager: &mut shutdown::Manager,
+                    shutdown_manager: &shutdown::Manager,
                     #[allow(unused_variables)] descriptor: &PortDescriptor,
                 ) -> AcceptManager {
                     let socket = create_socket();
@@ -322,64 +335,90 @@ impl RunConfig {
                 }
 
                 if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
-                    let listener = create_listener(
-                        || {
-                            socket2::Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+                    let mgr = shutdown_manager.clone();
+                    let d = descriptor.clone();
+                    let listener = move || {
+                        create_listener(
+                            || {
+                                socket2::Socket::new(
+                                    Domain::IPV4,
+                                    Type::STREAM,
+                                    Some(Protocol::TCP),
+                                )
                                 .expect("Failed to create a new IPv4 socket configuration")
-                        },
-                        true,
-                        SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), descriptor.port),
-                        &mut shutdown_manager,
-                        descriptor,
-                    );
-                    listeners.push((listener, Arc::clone(descriptor)));
+                            },
+                            true,
+                            SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), d.port),
+                            &mgr,
+                            &d,
+                        )
+                    };
+                    listeners.push((Box::new(listener), Arc::clone(descriptor)));
                 }
                 if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
-                    let listener = create_listener(
-                        || {
-                            socket2::Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))
+                    let mgr = shutdown_manager.clone();
+                    let d = descriptor.clone();
+                    let listener = move || {
+                        create_listener(
+                            || {
+                                socket2::Socket::new(
+                                    Domain::IPV6,
+                                    Type::STREAM,
+                                    Some(Protocol::TCP),
+                                )
                                 .expect("Failed to create a new IPv6 socket configuration")
-                        },
-                        true,
-                        SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), descriptor.port),
-                        &mut shutdown_manager,
-                        descriptor,
-                    );
-                    listeners.push((listener, Arc::clone(descriptor)));
+                            },
+                            true,
+                            SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), d.port),
+                            &mgr,
+                            &d,
+                        )
+                    };
+                    listeners.push((Box::new(listener), Arc::clone(descriptor)));
                 }
                 #[cfg(feature = "http3")]
                 if descriptor.server_config.is_some() {
                     if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
-                        let listener = create_listener(
-                            || {
-                                socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))
+                        let mgr = shutdown_manager.clone();
+                        let d = descriptor.clone();
+                        let listener = move || {
+                            create_listener(
+                                || {
+                                    socket2::Socket::new(
+                                        Domain::IPV4,
+                                        Type::DGRAM,
+                                        Some(Protocol::UDP),
+                                    )
                                     .expect("Failed to create a new IPv4 socket configuration")
-                            },
-                            false,
-                            SocketAddr::new(
-                                IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
-                                descriptor.port,
-                            ),
-                            &mut shutdown_manager,
-                            descriptor,
-                        );
-                        listeners.push((listener, Arc::clone(descriptor)));
+                                },
+                                false,
+                                SocketAddr::new(IpAddr::V4(net::Ipv4Addr::UNSPECIFIED), d.port),
+                                &mgr,
+                                &d,
+                            )
+                        };
+                        listeners.push((Box::new(listener), Arc::clone(descriptor)));
                     }
                     if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
-                        let listener = create_listener(
-                            || {
-                                socket2::Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))
+                        let mgr = shutdown_manager.clone();
+                        let d = descriptor.clone();
+                        let listener = move || {
+                            create_listener(
+                                || {
+                                    socket2::Socket::new(
+                                        Domain::IPV6,
+                                        Type::DGRAM,
+                                        Some(Protocol::UDP),
+                                    )
                                     .expect("Failed to create a new IPv6 socket configuration")
-                            },
-                            false,
-                            SocketAddr::new(
-                                IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
-                                descriptor.port,
-                            ),
-                            &mut shutdown_manager,
-                            descriptor,
-                        );
-                        listeners.push((listener, Arc::clone(descriptor)));
+                                },
+                                false,
+                                SocketAddr::new(IpAddr::V6(net::Ipv6Addr::UNSPECIFIED), d.port),
+                                &mgr,
+                                &d,
+                            )
+                        };
+                        listeners.push((Box::new(listener), Arc::clone(descriptor)));
                     }
                 }
             }
@@ -412,16 +451,6 @@ impl RunConfig {
         }
 
         #[cfg(feature = "handover")]
-        let handover_path = ctl_path.unwrap_or_else(ctl::socket_path);
-
-        #[cfg(feature = "graceful-shutdown")]
-        {
-            shutdown_manager.handover_socket_path = Some(handover_path.clone());
-        }
-
-        let shutdown_manager = shutdown_manager.build();
-
-        #[cfg(feature = "handover")]
         if ctl {
             // make sure we shut down before listening
             #[cfg(any(
@@ -446,7 +475,10 @@ impl RunConfig {
                 let shutdown_manager = Arc::clone(&shutdown_manager);
                 std::thread::spawn(move || {
                     tokio_uring::start(async move {
-                        accept(listener, descriptor, &shutdown_manager, n == 0)
+                        // `TODO`: seems like tokio-uring sometimes segfaults when exiting. Maybe
+                        // this has to do with sockets being moved between runtimes?
+                        // Is a socket registered on another runtime also slowing things down?
+                        accept(listener(), descriptor, &shutdown_manager, n == 0)
                             .await
                             .expect("failed to accept message");
                         shutdown_manager.wait().await;
@@ -460,7 +492,7 @@ impl RunConfig {
             for (listener, descriptor) in listeners {
                 let shutdown_manager = Arc::clone(&shutdown_manager);
                 let future = async move {
-                    accept(listener, descriptor, &shutdown_manager, true)
+                    accept(listener(), descriptor, &shutdown_manager, true)
                         .await
                         .expect("Failed to accept message!");
                 };

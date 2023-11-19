@@ -75,7 +75,7 @@ pub struct Manager {
     received: AtomicBool,
 
     #[cfg(feature = "graceful-shutdown")]
-    wakers: WakerList,
+    wakers: std::cell::UnsafeCell<std::sync::Mutex<WakerList>>,
 
     #[cfg(feature = "graceful-shutdown")]
     inititate_channel: (WatchSender<()>, WatchReceiver<()>),
@@ -92,9 +92,15 @@ pub struct Manager {
     #[cfg(feature = "graceful-shutdown")]
     pub(crate) handover_socket_path: Option<PathBuf>,
 }
+unsafe impl Send for Manager {}
+unsafe impl Sync for Manager{}
 impl Manager {
     /// Creates a new shutdown manager with the capacity of the list of wakers set to `_capacity`.
-    pub fn new(_capacity: usize) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// `_capacity >= number of add_listener calls`
+    pub unsafe fn new(_capacity: usize) -> Self {
         #[cfg(feature = "graceful-shutdown")]
         {
             let channel = watch_channel(());
@@ -105,7 +111,9 @@ impl Manager {
                 connections: AtomicIsize::new(0),
                 received: AtomicBool::new(false),
 
-                wakers: WakerList::new(_capacity),
+                wakers: std::cell::UnsafeCell::new(std::sync::Mutex::new(WakerList::new(
+                    _capacity,
+                ))),
 
                 inititate_channel: watch_channel(()),
                 finished_channel: (Arc::new(channel.0), channel.1),
@@ -123,11 +131,12 @@ impl Manager {
     /// Adds a listener to this manager.
     ///
     /// This is used so the `accept` future resolves immediately when the shutdown is triggered.
-    pub(crate) fn add_listener(&mut self, listener: Listener) -> AcceptManager {
+    pub(crate) fn add_listener(&self, listener: Listener) -> AcceptManager {
         AcceptManager {
             #[cfg(feature = "graceful-shutdown")]
             index: {
-                let wakers = self.wakers.get_mut();
+                let mut lock = unsafe { &*self.wakers.get() }.lock().unwrap();
+                let wakers = lock.get_mut();
                 let len = wakers.len();
                 wakers.push(None);
                 WakerIndex(len)
@@ -206,9 +215,15 @@ impl Manager {
     /// it does not matter which comes first. Also, only one thread should write to this
     /// with the same `index`; this is not a problem since only the Kvarn crate has access to this.
     /// This is also upheld by [`WakerIndex`].
+    ///
+    /// Also, the list never decreases in length, so the index will always be valid.
+    /// Unless it's extended when this is running. But since we initiate with the necessary
+    /// capacity (and not less), it **should** never expand.
     #[cfg(all(feature = "graceful-shutdown", feature = "async-networking"))]
     pub(crate) fn set_waker(&self, index: WakerIndex, waker: Waker) {
-        let wakers = unsafe { &mut *self.wakers.get() };
+        let inner = unsafe { &mut *self.wakers.get() };
+        let inner = inner.get_mut().unwrap();
+        let wakers = unsafe { &mut *inner.get() };
         wakers[index.0] = Some(waker);
     }
     /// # Safety
@@ -216,7 +231,9 @@ impl Manager {
     /// See [`Self::set_waker`].
     #[cfg(all(feature = "graceful-shutdown", feature = "async-networking"))]
     pub(crate) fn remove_waker(&self, index: WakerIndex) {
-        let wakers = unsafe { &mut *self.wakers.get() };
+        let inner = unsafe { &mut *self.wakers.get() };
+        let inner = inner.get_mut().unwrap();
+        let wakers = unsafe { &mut *inner.get() };
         wakers[index.0] = None;
     }
 
@@ -264,7 +281,7 @@ impl Manager {
 
         // we stop listening immediately
         info!("Notifying wakers.");
-        self.wakers.notify();
+        unsafe { &*self.wakers.get() }.lock().unwrap().notify();
     }
     #[cfg(feature = "graceful-shutdown")]
     fn _shutdown(&self) {
