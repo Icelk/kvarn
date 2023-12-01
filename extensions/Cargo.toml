@@ -27,7 +27,7 @@ rustls = { version = "0.21", optional = true, default-features = false }
 # serialize credentials
 ron = { version = "0.8", optional = true }
 rcgen = { version = "0.11", optional = true }
-rustls-pemfile = { version = "1", optional = true }
+rustls-pemfile = { version = "2", optional = true }
 rand = { version = "0.8", optional = true }
 dashmap = { version = "5", optional = true }
 
