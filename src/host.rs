@@ -107,7 +107,7 @@ impl Host {
     ) -> Result<Self, (CertificateError, Self)> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
-            Ok((cert, pk)) => Ok(Self::new(host_name, cert, pk, path, extensions, options)),
+            Ok(key) => Ok(Self::new(host_name, key, path, extensions, options)),
             Err(err) => Err((err, Self::unsecure(host_name, path, extensions, options))),
         }
     }
@@ -132,9 +132,7 @@ impl Host {
     ) -> Result<Self, CertificateError> {
         let cert = get_certified_key(cert_path, private_key_path);
         match cert {
-            Ok((cert, pk)) => Ok(Self::new_name_from_cert(
-                cert, pk, path, extensions, options,
-            )),
+            Ok(key) => Ok(Self::new_name_from_cert(key, path, extensions, options)),
             Err(err) => Err(err),
         }
     }
@@ -167,18 +165,15 @@ impl Host {
     #[cfg(feature = "https")]
     pub fn new(
         name: impl AsRef<str>,
-        cert: Vec<rustls::Certificate>,
-        pk: Arc<dyn sign::SigningKey>,
+        key: sign::CertifiedKey,
         path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
-        let cert = sign::CertifiedKey::new(cert, pk);
-
         Self {
             name: name.as_ref().to_compact_string(),
             alternative_names: Vec::new(),
-            certificate: std::sync::RwLock::new(Some(Arc::new(cert))),
+            certificate: std::sync::RwLock::new(Some(Arc::new(key))),
             path: path.as_ref().to_compact_string(),
             extensions,
             file_cache: Some(MokaCache::default()),
@@ -197,14 +192,13 @@ impl Host {
     /// Panics if `cert.is_empty()` or if the first certificate in `cert` is invalid.
     #[cfg(all(feature = "https", feature = "auto-hostname"))]
     pub fn new_name_from_cert(
-        cert: Vec<rustls::Certificate>,
-        pk: Arc<dyn sign::SigningKey>,
+        key: sign::CertifiedKey,
         path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
         use x509_parser::prelude::FromDer;
-        let tbs = x509_parser::certificate::X509Certificate::from_der(&cert[0].0)
+        let tbs = x509_parser::certificate::X509Certificate::from_der(&key.cert[0])
             .expect("certificate invalid, failed to get host name")
             .1
             .tbs_certificate;
@@ -235,7 +229,7 @@ impl Host {
                 alt_names.push((*name).to_compact_string());
             }
         }
-        let mut me = Self::new(name, cert, pk, path, extensions, options);
+        let mut me = Self::new(name, key, path, extensions, options);
         me.alternative_names = alt_names;
         me
     }
@@ -483,7 +477,7 @@ impl Host {
     }
 }
 /// Options for [`Host`].
-/// Values wrapped in [`Option`]s usually use hardcoded defaults when the value is [`None`].
+/// Values wrapped in [`Option`]s usually use hardcoded defaults when the value is [`None`].
 ///
 /// This can easily be cloned to be shared across multiple hosts.
 #[derive(Debug, Clone)]
@@ -842,6 +836,14 @@ impl Collection {
     #[must_use]
     pub fn make_config(self: &Arc<Self>) -> ServerConfig {
         let mut config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_cert_resolver(self.clone());
+        config.alpn_protocols = alpn();
+        config
+    }
+    #[cfg(feature = "rustls-21")]
+    pub(crate) fn make_config_21(self: &Arc<Self>) -> rustls_21::ServerConfig {
+        let mut config = rustls_21::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
             .with_cert_resolver(self.clone());
@@ -976,6 +978,118 @@ impl ResolvesServerCert for Collection {
             .and_then(|host| host.certificate.read().unwrap().as_ref().map(Arc::clone))
     }
 }
+#[cfg(feature = "rustls-21")]
+thread_local! {
+    // `TODO`: potential memory leak when cycling
+    static CERT_MAP: std::cell::RefCell<HashMap<CompactString, (usize, Arc<rustls_21::sign::CertifiedKey>)>> = std::cell::RefCell::new( HashMap::new());
+}
+#[cfg(feature = "rustls-21")]
+impl rustls_21::server::ResolvesServerCert for Collection {
+    #[inline]
+    fn resolve(
+        &self,
+        client_hello: rustls_21::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls_21::sign::CertifiedKey>> {
+        self.get_option_or_default(client_hello.server_name())
+            .and_then(|host| {
+                let key = host.certificate.read().unwrap();
+                let arc = key.as_ref();
+                match arc {
+                    Some(arc) => {
+                        let addr = Arc::as_ptr(arc) as usize;
+                        let key = CERT_MAP.with(|map| {
+                            let mut map = map.borrow_mut();
+                            if let Some((addr2, key)) = map.get(&host.name) {
+                                // if new cert, update
+                                if *addr2 == addr {
+                                    return key.clone();
+                                }
+                            }
+                            let key = rustls_to_rustls_21_key(arc);
+                            let key = Arc::new(key);
+                            map.insert(host.name.clone(), (addr, key.clone()));
+                            key
+                        });
+                        Some(key)
+                    }
+                    None => None,
+                }
+            })
+    }
+}
+#[cfg(feature = "rustls-21")]
+fn rustls_to_rustls_21_key(key: &sign::CertifiedKey) -> rustls_21::sign::CertifiedKey {
+    struct SignerCompat(Box<dyn sign::Signer>);
+    impl rustls_21::sign::Signer for SignerCompat {
+        fn sign(&self, message: &[u8]) -> Result<Vec<u8>, rustls_21::Error> {
+            use rustls_21::Error as E2;
+
+            match self.0.sign(message) {
+                Ok(vec) => Ok(vec),
+                Err(err) => Err(E2::General(err.to_string())),
+            }
+        }
+
+        fn scheme(&self) -> rustls_21::SignatureScheme {
+            use rustls::SignatureScheme as SS1;
+            use rustls_21::SignatureScheme as SS2;
+            match self.0.scheme() {
+                SS1::RSA_PKCS1_SHA1 => SS2::RSA_PKCS1_SHA1,
+                SS1::ECDSA_SHA1_Legacy => SS2::ECDSA_SHA1_Legacy,
+                SS1::RSA_PKCS1_SHA256 => SS2::RSA_PKCS1_SHA256,
+                SS1::ECDSA_NISTP256_SHA256 => SS2::ECDSA_NISTP256_SHA256,
+                SS1::RSA_PKCS1_SHA384 => SS2::RSA_PKCS1_SHA384,
+                SS1::ECDSA_NISTP384_SHA384 => SS2::ECDSA_NISTP384_SHA384,
+                SS1::RSA_PKCS1_SHA512 => SS2::RSA_PKCS1_SHA512,
+                SS1::ECDSA_NISTP521_SHA512 => SS2::ECDSA_NISTP521_SHA512,
+                SS1::RSA_PSS_SHA256 => SS2::RSA_PSS_SHA256,
+                SS1::RSA_PSS_SHA384 => SS2::RSA_PSS_SHA384,
+                SS1::RSA_PSS_SHA512 => SS2::RSA_PSS_SHA512,
+                SS1::ED25519 => SS2::ED25519,
+                SS1::ED448 => SS2::ED448,
+                SS1::Unknown(u) => SS2::Unknown(u),
+                _ => SS2::Unknown(u16::MAX),
+            }
+        }
+    }
+    struct SigningKeyCompat(Arc<dyn sign::SigningKey>);
+    impl rustls_21::sign::SigningKey for SigningKeyCompat {
+        #[allow(clippy::transmute_ptr_to_ptr)]
+        fn choose_scheme(
+            &self,
+            offered: &[rustls_21::SignatureScheme],
+        ) -> Option<Box<dyn rustls_21::sign::Signer>> {
+            // safety: the bit layout of SignatureScheme is identical & both are explicitly noted
+            // as u16 enums in the source.
+            let offered = unsafe { std::mem::transmute(offered) };
+            let signer = self.0.choose_scheme(offered)?;
+            let signer = Box::new(SignerCompat(signer));
+            Some(signer)
+        }
+
+        fn algorithm(&self) -> rustls_21::SignatureAlgorithm {
+            use rustls::SignatureAlgorithm as SA1;
+            use rustls_21::SignatureAlgorithm as SA2;
+            match self.0.algorithm() {
+                SA1::Anonymous => SA2::Anonymous,
+                SA1::RSA => SA2::RSA,
+                SA1::DSA => SA2::DSA,
+                SA1::ECDSA => SA2::ECDSA,
+                SA1::ED25519 => SA2::ED25519,
+                SA1::ED448 => SA2::ED448,
+                SA1::Unknown(u) => SA2::Unknown(u),
+                _ => SA2::Unknown(255),
+            }
+        }
+    }
+    let certs = key
+        .cert
+        .iter()
+        .map(|cert| rustls_21::Certificate(cert.to_vec()))
+        .collect::<Vec<_>>();
+    let pk = key.key.clone();
+    rustls_21::sign::CertifiedKey::new(certs, Arc::new(SigningKeyCompat(pk)))
+}
 
 /// All the supported ALPN protocols.
 ///
@@ -1045,7 +1159,7 @@ pub fn default_status_code_cache_filter(code: StatusCode) -> CacheAction {
     CacheAction::from_drop(matches!(code.as_u16(), 400..=403 | 405..=409 | 411..=499|100..=199|304))
 }
 
-/// An error regarding creation of a [`rustls::sign::CertifiedKey`].
+/// An error regarding creation of a [`sign::CertifiedKey`].
 #[cfg(feature = "https")]
 #[derive(Debug)]
 pub enum CertificateError {
@@ -1068,12 +1182,6 @@ impl From<io::Error> for CertificateError {
     }
 }
 
-/// A pair of [`rustls::Certificate`] and [`sign::SigningKey`].
-///
-/// Returned from [`get_certified_key`].
-#[cfg(feature = "https")]
-pub type CertKeyPair = (Vec<rustls::Certificate>, Arc<dyn sign::SigningKey>);
-
 /// Extracts a [`sign::CertifiedKey`] from `cert_path` and `private_key_path`.
 ///
 /// # Errors
@@ -1083,33 +1191,28 @@ pub type CertKeyPair = (Vec<rustls::Certificate>, Arc<dyn sign::SigningKey>);
 pub fn get_certified_key(
     cert_path: impl AsRef<str>,
     private_key_path: impl AsRef<str>,
-) -> Result<CertKeyPair, CertificateError> {
+) -> Result<sign::CertifiedKey, CertificateError> {
     let mut chain = io::BufReader::new(std::fs::File::open(cert_path.as_ref())?);
     let mut private_key = io::BufReader::new(std::fs::File::open(private_key_path.as_ref())?);
 
-    let mut private_keys = Vec::with_capacity(4);
-    private_keys.extend(match rustls_pemfile::pkcs8_private_keys(&mut private_key) {
-        Ok(key) => key,
-        Err(_) => return Err(CertificateError::ImproperPrivateKeyFormat),
-    });
-    if private_keys.is_empty() {
-        private_keys.extend(match rustls_pemfile::rsa_private_keys(&mut private_key) {
-            Ok(key) => key,
-            Err(_) => return Err(CertificateError::ImproperPrivateKeyFormat),
-        });
+    let private_key = match rustls_pemfile::private_key(&mut private_key) {
+        Ok(Some(key)) => key,
+        Ok(None) => return Err(CertificateError::NoKey),
+        Err(err) => {
+            error!("Invalid private key read, ignoring: {err}");
+            return Err(CertificateError::InvalidPrivateKey);
+        }
+    };
+
+    let key = rustls::crypto::ring::sign::any_supported_type(&private_key)
+        .map_err(|_| CertificateError::InvalidPrivateKey)?;
+    let mut certs = Vec::with_capacity(4);
+    for cert in rustls_pemfile::certs(&mut chain) {
+        match cert {
+            Ok(c) => certs.push(c),
+            Err(_) => return Err(CertificateError::ImproperCertificateFormat),
+        }
     }
-    let key = match private_keys.into_iter().next() {
-        Some(key) => rustls::PrivateKey(key),
-        None => return Err(CertificateError::NoKey),
-    };
 
-    let key = sign::any_supported_type(&key).map_err(|_| CertificateError::InvalidPrivateKey)?;
-    let chain = match rustls_pemfile::certs(&mut chain) {
-        Ok(cert) => cert,
-        Err(_) => return Err(CertificateError::ImproperCertificateFormat),
-    };
-
-    let chain = chain.into_iter().map(rustls::Certificate).collect();
-
-    Ok((chain, key))
+    Ok(sign::CertifiedKey::new(certs, key))
 }

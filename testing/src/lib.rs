@@ -7,8 +7,10 @@
 #![allow(clippy::missing_panics_doc)]
 
 use kvarn::prelude::*;
-
-type CertifiedKey = (rustls::Certificate, Arc<dyn rustls::sign::SigningKey>);
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer},
+    sign::CertifiedKey,
+};
 
 macro_rules! impl_methods {
     ($($method: ident $name: ident),*) => {
@@ -37,7 +39,7 @@ impl Server {
     pub fn client(&self) -> reqwest::ClientBuilder {
         let mut client = reqwest::Client::builder();
         if let Some(cert) = self.cert() {
-            let cert = reqwest::Certificate::from_der(&cert.0).unwrap();
+            let cert = reqwest::Certificate::from_der(cert).unwrap();
             client = client.add_root_certificate(cert);
         };
         client
@@ -66,8 +68,8 @@ impl Server {
     /// Gets the certificate, if any.
     /// This dictates whether or not HTTPS should be on.
     #[must_use]
-    pub fn cert(&self) -> Option<&rustls::Certificate> {
-        self.certificate.as_ref().map(|(cert, _)| cert)
+    pub fn cert(&self) -> Option<&CertificateDer<'static>> {
+        self.certificate.as_ref().map(|key| &key.cert[0])
     }
 
     /// Gets a [`shutdown::Manager`] which is [`Send`].
@@ -231,26 +233,19 @@ impl ServerBuilder {
         let path = path.as_deref().unwrap_or("tests");
 
         let (mut host, certified_key) = if https {
-            let (cert, pk) = cert.unwrap_or_else(|| {
+            let key = cert.unwrap_or_else(|| {
                 let self_signed_cert =
                     rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
-                let cert = rustls::Certificate(self_signed_cert.serialize_der().unwrap());
+                let cert = CertificateDer::from(self_signed_cert.serialize_der().unwrap());
 
-                let pk = rustls::PrivateKey(self_signed_cert.serialize_private_key_der());
-                let pk = rustls::sign::any_supported_type(&pk).unwrap();
-                (cert, pk)
+                let pk = PrivateKeyDer::Pkcs8(self_signed_cert.serialize_private_key_der().into());
+                let pk = rustls::crypto::ring::sign::any_supported_type(&pk).unwrap();
+                CertifiedKey::new(vec![cert], pk)
             });
 
             (
-                Host::new(
-                    "localhost",
-                    vec![cert.clone()],
-                    pk.clone(),
-                    path,
-                    extensions,
-                    options,
-                ),
-                Some((cert, pk)),
+                Host::new("localhost", key.clone(), path, extensions, options),
+                Some(key),
             )
         } else {
             (Host::unsecure("localhost", path, extensions, options), None)

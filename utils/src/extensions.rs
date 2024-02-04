@@ -98,7 +98,6 @@ impl PresentExtensions {
                     has_cr = true;
                 }
                 if byte == LF {
-                    println!("{extensions_args:#?}");
                     return Some(Self {
                         data,
                         extensions: Arc::new(extensions_args),
@@ -131,7 +130,7 @@ impl PresentExtensions {
     ///
     /// Clones the inner data.
     #[inline]
-    pub fn iter(&self) -> PresentExtensionsIter {
+    pub fn iter_clone(&self) -> PresentExtensionsIter {
         PresentExtensionsIter {
             data: Self::clone(self),
             index: 0,
@@ -226,6 +225,13 @@ impl PresentArguments {
             back_index: self.len,
             index: 1,
         }
+    }
+}
+impl<'a> IntoIterator for &'a PresentArguments {
+    type Item = &'a str;
+    type IntoIter = PresentArgumentsIter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 /// An iterator of [`prim@str`] for the arguments in [`PresentArguments`]

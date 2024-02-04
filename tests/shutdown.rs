@@ -54,7 +54,7 @@ async fn handover() {
             }
             let mut client = reqwest::Client::builder();
             if let Some(cert) = &cert {
-                let cert = reqwest::Certificate::from_der(&cert.0).unwrap();
+                let cert = reqwest::Certificate::from_der(cert).unwrap();
                 client = client.add_root_certificate(cert);
             };
             let client = client.build().unwrap();

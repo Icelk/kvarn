@@ -1314,7 +1314,7 @@ mod macros {
             #[cfg(feature = "uring")]
             // not requirement of Send + Sync
             struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret>> {
-                ext_function_private: F,
+                function_private: F,
                 $($($move:$ty,)+)?
             }
             #[cfg(feature = "uring")]
@@ -1325,16 +1325,16 @@ mod macros {
                     $($name: $param_type,)*
                 ) -> $crate::extensions::RetFut<'a, $ret> {
                     let Self {
-                        ext_function_private,
+                        function_private,
                         $($($move,)+)?
                     } = self;
-                    (ext_function_private)($($name,)* $($($move,)+)?)
+                    (function_private)($($name,)* $($($move,)+)?)
                 }
             }
 
             #[cfg(not(feature = "uring"))]
             struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> {
-                ext_function_private: F,
+                function_private: F,
                 $($($move:$ty,)+)?
             }
 
@@ -1345,14 +1345,14 @@ mod macros {
                     $($name: $param_type,)*
                 ) -> $crate::extensions::RetFut<'a, $ret> {
                     let Self {
-                        ext_function_private,
+                        function_private,
                         $($($move,)+)?
                     } = self;
-                    (ext_function_private)($($name,)* $($($move,)+)?)
+                    (function_private)($($name,)* $($($move,)+)?)
                 }
             }
             Box::new(Ext {
-                ext_function_private: move |$($param: $param_type_no_lifetimes,)* $($($move: & $($mut)? $ty,)+)?| {
+                function_private: move |$($param: $param_type_no_lifetimes,)* $($($move: & $($mut)? $ty,)+)?| {
                     Box::pin(async move {
                         $code
                     })

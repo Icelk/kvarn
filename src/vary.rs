@@ -376,6 +376,6 @@ impl VariedResponse {
     pub(crate) fn first(&self) -> &Arc<(CompressedResponse, HeaderCollection)> {
         // We know there will be at least one; the [`Self::new`] method always inserts one
         // response.
-        self.responses.get(0).unwrap()
+        self.responses.first().unwrap()
     }
 }

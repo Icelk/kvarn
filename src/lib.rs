@@ -280,9 +280,9 @@ impl RunConfig {
                         return shutdown_manager.add_listener(shutdown::Listener::Udp(
                             h3_quinn::Endpoint::new(
                                 h3_quinn::quinn::EndpointConfig::default(),
-                                Some(h3_quinn::quinn::ServerConfig::with_crypto(
-                                    descriptor.server_config.clone().unwrap(),
-                                )),
+                                Some(h3_quinn::quinn::ServerConfig::with_crypto(Arc::new(
+                                    descriptor.data.make_config_21(),
+                                ))),
                                 socket.into(),
                                 h3_quinn::quinn::default_runtime().unwrap(),
                             )
@@ -293,14 +293,16 @@ impl RunConfig {
                     if !tcp {
                         let endpoint = h3_quinn::Endpoint::new_with_abstract_socket(
                             h3_quinn::quinn::EndpointConfig::default(),
-                            Some(h3_quinn::quinn::ServerConfig::with_crypto(
-                                descriptor.server_config.clone().unwrap(),
-                            )),
-                            uring_udp::UringUdpSocket::new(
-                                tokio_uring::net::UdpSocket::from_std(socket.into()),
-                                address.is_ipv4(),
-                            )
-                            .expect("failed to change socket settings"),
+                            Some(h3_quinn::quinn::ServerConfig::with_crypto(Arc::new(
+                                descriptor.data.make_config_21(),
+                            ))),
+                            Arc::new(
+                                uring_udp::UringUdpSocket::new(
+                                    tokio_uring::net::UdpSocket::from_std(socket.into()),
+                                    address.is_ipv4(),
+                                )
+                                .expect("failed to change socket settings"),
+                            ),
                             h3_quinn::quinn::default_runtime().unwrap(),
                         )
                         .unwrap();

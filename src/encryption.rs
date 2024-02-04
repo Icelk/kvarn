@@ -77,7 +77,7 @@ impl Encryption {
     #[cfg(feature = "https")]
     #[inline]
     #[must_use]
-    pub fn peer_certificates(&self) -> Option<&[rustls::Certificate]> {
+    pub fn peer_certificates(&self) -> Option<&[CertificateDer]> {
         match self {
             Self::TcpTls(s) => s.session.peer_certificates(),
             Self::Tcp(_) => None,

@@ -193,7 +193,7 @@ pub fn hide(
         let arguments = utils::extensions::PresentExtensions::new(error.body().clone());
         if let Some(arguments) = &arguments {
             #[allow(unused_variables)] // cfg
-            for argument in arguments.iter() {
+            for argument in arguments.iter_clone() {
                 #[cfg(feature = "templates")]
                 if argument.name() == "tmpl" {
                     let mut error = error.map(|b| {

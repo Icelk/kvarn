@@ -105,6 +105,7 @@ impl UringUdpSocket {
 
 // `tokio-uring` is a single-threaded runtime, therefore this will never be sent, anyway
 unsafe impl Send for UringUdpSocket {}
+unsafe impl Sync for UringUdpSocket {}
 
 const CMSG_LEN: usize = 88;
 type IpTosTy = libc::c_int;
@@ -112,7 +113,6 @@ type IpTosTy = libc::c_int;
 impl quinn::AsyncUdpSocket for UringUdpSocket {
     fn poll_send(
         &self,
-        _state: &quinn::udp::UdpState,
         cx: &mut Context,
         transmits: &[quinn::udp::Transmit],
     ) -> Poll<Result<usize, io::Error>> {
@@ -167,7 +167,7 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
             *self.sent.borrow_mut() = sent;
         }
         // make sure we actually poll the newly created future
-        self.poll_send(_state, cx, transmits)
+        self.poll_send(cx, transmits)
     }
 
     fn poll_recv(

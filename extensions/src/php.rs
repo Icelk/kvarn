@@ -222,6 +222,6 @@ mod tests {
             .await;
 
         let response = server.get("index.php").send().await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status().as_str(), StatusCode::NOT_FOUND.as_str());
     }
 }

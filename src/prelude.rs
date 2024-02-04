@@ -10,8 +10,6 @@
 //! - a threading prelude
 
 pub use kvarn_async::prelude::*;
-#[allow(unreachable_pub)] // incorrect lint?
-pub use kvarn_utils::prelude::*;
 
 // Modules
 pub use crate::application;
@@ -35,6 +33,8 @@ pub use error::{default as default_error, default_response as default_error_resp
 pub use extensions::{Package, Post, Prepare, Present, Prime, ResponsePipeFuture};
 pub use host::{Collection as HostCollection, Host};
 pub use read;
+#[cfg(feature = "https")]
+pub use rustls::pki_types::CertificateDer;
 pub(crate) use shutdown::{AcceptAction, AcceptManager};
 pub use utils::{build_bytes, chars::*, parse, parse::SanitizeError, AsCleanDebug};
 

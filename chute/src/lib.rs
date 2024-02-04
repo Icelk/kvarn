@@ -460,7 +460,7 @@ fn process_inner<P: AsRef<Path>>(
 
     let mut parser_header_index = 0;
     let parser = parser.map(|event| match event {
-        Event::Start(Tag::Heading(level, _, classes)) => {
+        Event::Start(Tag::Heading { level, classes, .. }) => {
             let Header { anchor, .. } = &headers[parser_header_index];
             parser_header_index += 1;
 

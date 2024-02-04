@@ -2,7 +2,7 @@
 name = "kvarn"
 # also bump all other versions (e.g. `grep 0\\.3`)
 # remove "#![doc(html_root_url = "https://doc.kvarn.org/")]" from lib.rs
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
 rust-version = "1.56"
@@ -36,26 +36,29 @@ log = "0.4"
 time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
 socket2 = { version = "0.5.3", optional = true, features = ["all"] }
 
-h2 = { version = "0.3.17", default-features = false, optional = true }
-http = "0.2"
+h2 = { version = "0.4.2", default-features = false, optional = true }
+http = "1.0"
 mime = "0.3"
 mime_guess = "2"
 tree_magic_mini = { version = "3", features = ["tree_magic_db"] }
 percent-encoding = "2"
 
-kvarn_async = { path = "async", version = "0.5.0" }
-kvarn_utils = { path = "utils", version = "0.5.0" }
-kvarn_signal = { path = "signal", version = "0.1", optional = true }
+kvarn_async = { path = "async", version = "0.6.0" }
+kvarn_utils = { path = "utils", version = "0.6.0" }
+kvarn_signal = { path = "signal", version = "0.2", optional = true }
 # Range because of vulnerability https://rustsec.org/advisories/RUSTSEC-2023-0001.html
-tokio = { version = "1, >=1.23.1", features = ["rt", "io-util", "fs", "sync", "parking_lot", "time", "macros"] }
-tokio-uring = { git = "https://github.com/Icelk/tokio-uring", branch = "recvmsg-msg_control", features = ["bytes"], optional = true }
+tokio = { version = "1.24", features = ["rt", "io-util", "fs", "sync", "parking_lot", "time", "macros"] }
+# tokio-uring = { git = "https://github.com/Icelk/tokio-uring", branch = "recvmsg-msg_control", features = ["bytes"], optional = true }
+tokio-uring = { version = "0.4.0-alpha1", package = "kvarn-tokio-uring", features = ["bytes"], optional = true }
 
 moka = { version = "0.12", features = ["sync"], default-features = false }
 dashmap = "5"
 
 # HTTPS
-rustls = { version = "0.21", optional = true }
-rustls-pemfile = { version = "1.0", optional = true }
+rustls = { version = "0.22", optional = true }
+# bad hack because quinn hasn't updated yet
+rustls-21 = { version = "0.21", package = "rustls", optional = true }
+rustls-pemfile = { version = "2.0", optional = true }
 webpki = { version = "0.22", optional = true }
 
 # nonce
@@ -71,14 +74,14 @@ brotli = { version = "3", optional = true }
 flate2 = { version = "1", optional = true }
 
 # WebSockets
-tokio-tungstenite = { version = "0.20", optional = true, default-features = false }
+tokio-tungstenite = { version = "0.21", optional = true, default-features = false }
 sha-1 = { version = "0.10", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink"] }
 
 # HTTP/3
-h3 = { version = "0.0.3", optional = true }
-h3-quinn = { version = "0.0.4", optional = true }
-quinn = { version = "0.10.1", default-features = false, features = ["tls-rustls", "log", "runtime-tokio"], optional = true }
+h3 = { version = "0.0.4", optional = true }
+h3-quinn = { version = "0.0.6-alpha1", package = "kvarn-h3-quinn", optional = true }
+quinn = { version = "0.11.0-alpha1", package = "kvarn-quinn", default-features = false, features = ["tls-rustls", "log", "runtime-tokio"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", default-features = false }
@@ -101,7 +104,7 @@ gzip = ["flate2"]
 all-http = ["https", "http2", "http3"]
 https = ["rustls", "rustls-pemfile", "webpki", "async-networking"]
 http2 = ["h2", "https"]
-http3 = ["h3", "h3-quinn", "quinn", "https"]
+http3 = ["h3", "h3-quinn", "quinn", "rustls-21", "https"]
 
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = ["handover"]
@@ -125,7 +128,7 @@ uring = ["tokio-uring", "kvarn_signal/uring", "async-networking"]
 # also add to https://kvarn.org/cargo-features.
 
 [dev-dependencies]
-kvarn_testing = { path = "testing", version = "0.5" }
+kvarn_testing = { path = "testing", version = "0.6" }
 
 # profile for binary sub-crates.
 [profile.distribution]

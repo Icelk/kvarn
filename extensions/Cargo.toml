@@ -1,6 +1,6 @@
 [package]
 name = "kvarn-extensions"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
 description = "Extensions for the Kvarn web server. Features HTTP/2 automatic push and a templating engine."
@@ -13,21 +13,22 @@ categories = ["template-engine"]
 
 [dependencies]
 futures-util = "0.3"
-kvarn = { path = "../", default-features = false, version = "0.5" }
+kvarn = { path = "../", default-features = false, version = "0.6" }
 kvarn-fastcgi-client = { version = "0.1", optional = true }
-tokio = { version = "1, >=1.23.1", features = ["fs"] }
-tokio-uring = { git = "https://github.com/Icelk/tokio-uring", branch = "recvmsg-msg_control", features = ["bytes"], optional = true }
+tokio = { version = "1.24", features = ["fs"] }
+# tokio-uring = { git = "https://github.com/Icelk/tokio-uring", branch = "recvmsg-msg_control", features = ["bytes"], optional = true }
+tokio-uring = { version = "0.4.0-alpha1", package = "kvarn-tokio-uring", features = ["bytes"], optional = true }
 async_chunked_transfer = "1.4"
 percent-encoding = { version = "2", optional = true }
 memchr = "2"
 url-crawl = { path = "../url-crawl", optional = true }
-small-acme = { version = ">= 0.1.2, < 0.2", optional = true }
+small-acme = { version = "0.2.2", optional = true }
 x509-parser = { version = "0.15", optional = true }
-rustls = { version = "0.21", optional = true, default-features = false }
+rustls = { version = "0.22", optional = true, default-features = false }
 # serialize credentials
 ron = { version = "0.8", optional = true }
-rcgen = { version = "0.11", optional = true }
-rustls-pemfile = { version = "1", optional = true }
+rcgen = { version = "0.12", optional = true }
+rustls-pemfile = { version = "2", optional = true }
 rand = { version = "0.8", optional = true }
 dashmap = { version = "5", optional = true }
 
@@ -36,7 +37,7 @@ default = ["php", "templates", "push", "view-counter"]
 connection = ["tokio/net", "tokio/io-util"]
 php = ["kvarn-fastcgi-client", "connection", "percent-encoding"]
 templates = []
-push = ["url-crawl"]
+push = ["url-crawl", "kvarn/http2"]
 reverse-proxy = ["connection", "url-crawl"]
 # Automatic HTTPS certificates
 certificate = ["small-acme", "x509-parser", "rustls", "rustls-pemfile", "ron", "rcgen", "kvarn/https", "rand"]
@@ -44,8 +45,8 @@ view-counter = ["dashmap"]
 uring = ["kvarn/uring", "tokio-uring"]
 
 [dev-dependencies]
-tokio = { version = "1, >=1.23.1", features = ["net", "io-util", "macros"] }
-kvarn_testing = { path = "../testing", version = "0.5" }
+tokio = { version = "1.24", features = ["net", "io-util", "macros"] }
+kvarn_testing = { path = "../testing", version = "0.6" }
 
 [package.metadata.docs.rs]
 all-features = true

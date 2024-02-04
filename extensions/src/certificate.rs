@@ -2,6 +2,7 @@ use std::io::Cursor;
 
 use kvarn::prelude::*;
 use rcgen::{Certificate, CertificateParams, DistinguishedName};
+use rustls::pki_types::PrivateKeyDer;
 use small_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt,
     NewAccount, NewOrder, OrderStatus,
@@ -35,7 +36,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
         let cert = host.certificate.read().unwrap();
         cert.as_ref()
             .and_then(|cert| {
-                get_expiration(&cert.end_entity_cert().unwrap().0)
+                get_expiration(cert.end_entity_cert().unwrap())
                     // update cert every 60 days (Let's encrypt gives us 90 days)
                     .map(|time| time - chrono::time::Duration::days(30))
             })
@@ -129,13 +130,12 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             })
             .await
             .unwrap();
-            let Some(new_account) = new_account else {
+            let Some((new_account, credentials)) = new_account else {
                 tokio::time::sleep(Duration::from_secs(60)).await;
                 continue;
             };
 
-            let new_account_serialized =
-                AcmeAccount(ron::to_string(&new_account.credentials()).unwrap());
+            let new_account_serialized = AcmeAccount(ron::to_string(&credentials).unwrap());
             if let Err(err) =
                 tokio::fs::create_dir_all(&account_path.parent().unwrap_or_else(|| Path::new("/")))
                     .await
@@ -164,13 +164,9 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 }
                 Err(small_acme::Error::Str(s)) if s == NOT_PUBLIC_ERROR => {
                     debug!("We're not public facing: don't renew certs");
-                    let Ok((og_key, cert, pk)) = generate_self_signed_cert(domain.clone()) else {
+                    let Ok((og_key, key)) = generate_self_signed_cert(domain.clone()) else {
                         return;
                     };
-                    let key = rustls::sign::CertifiedKey::new(
-                        vec![cert],
-                        rustls::sign::any_supported_type(&pk).expect("this was just generated"),
-                    );
                     info!(
                         "Using self-signed for {domain}. \
                         Consider creating your own self-signed certificate \
@@ -244,7 +240,7 @@ pub struct AcmeAccount(pub String);
 pub fn get_account(
     contact: &[&str],
     account: Option<&AcmeAccount>,
-) -> Result<Account, small_acme::Error> {
+) -> Result<(Account, AccountCredentials), small_acme::Error> {
     let credentials: Option<AccountCredentials> = account.and_then(|a| {
         ron::from_str(&a.0)
             .map_err(|err| {
@@ -253,8 +249,10 @@ pub fn get_account(
             })
             .ok()
     });
-    let account = credentials.and_then(|c| Account::from_credentials(c).ok());
-    account.map(Ok).unwrap_or_else(|| {
+    let account = credentials
+        .as_ref()
+        .and_then(|c| Account::from_credentials(c.clone()).ok());
+    account.zip(credentials).map(Ok).unwrap_or_else(|| {
         Account::create(
             &NewAccount {
                 contact,
@@ -262,6 +260,7 @@ pub fn get_account(
                 only_return_existing: false,
             },
             LetsEncrypt::Production.url(),
+            None,
         )
     })
 }
@@ -287,15 +286,15 @@ pub fn get_cert(
     let identifiers: Vec<_> = std::iter::once(Identifier::Dns(domain.clone()))
         .chain(alt_names.into_iter().map(|v| v.into()).map(Identifier::Dns))
         .collect();
-    let (mut order, state) = account.new_order(&NewOrder {
+    let mut order = account.new_order(&NewOrder {
         identifiers: &identifiers,
     })?;
 
-    debug!("order state: {:#?}", state);
+    debug!("order state: {:#?}", order.state());
 
     // Pick the desired challenge type and prepare the response.
 
-    let authorizations = order.authorizations(&state.authorizations)?;
+    let authorizations = order.authorizations()?;
     let mut challenges = Vec::with_capacity(authorizations.len());
     for authz in &authorizations {
         match authz.status {
@@ -339,8 +338,9 @@ pub fn get_cert(
     let mut delay = Duration::from_millis(250);
     let state = loop {
         std::thread::sleep(delay);
-        let state = order.state()?;
-        if let OrderStatus::Ready | OrderStatus::Invalid = state.status {
+        order.refresh()?;
+        let state = order.state();
+        if let OrderStatus::Ready | OrderStatus::Invalid | OrderStatus::Valid = state.status {
             debug!("order state: {:#?}", state);
             break state;
         }
@@ -379,18 +379,51 @@ pub fn get_cert(
 
     // Finalize the order and print certificate chain, private key and account credentials.
 
-    let cert_chain_pem = order.finalize(&csr, &state.finalize)?;
+    order.finalize(&csr)?;
 
-    let certs = rustls_pemfile::certs(&mut Cursor::new(&cert_chain_pem))
-        .map_err(|_| "let's encrypt returned invalid pem certs")?;
+    let mut tries = 1u8;
+    let mut delay = Duration::from_millis(250);
+    let cert_chain_pem = loop {
+        std::thread::sleep(delay);
+        let cert = order.certificate();
+        if let Ok(cert) = cert {
+            if let Some(cert) = cert {
+                break cert;
+            } else {
+                return Err(small_acme::Error::Str("empty cert response"));
+            }
+        }
+
+        if delay < Duration::from_secs(10) {
+            delay *= 2;
+        }
+        tries += 1;
+        if tries < 30 {
+            debug!("certificate is not ready, waiting {delay:?} tries: {tries}")
+        } else {
+            error!("certificate is not ready tries: {tries}");
+            return Err(small_acme::Error::Str("certificate is not ready"));
+        }
+    };
+
+    let mut certs = Vec::with_capacity(4);
+    for cert in rustls_pemfile::certs(&mut Cursor::new(&cert_chain_pem)) {
+        if let Ok(cert) = cert {
+            certs.push(cert);
+        } else {
+            return Err("let's encrypt returned invalid pem certs".into());
+        }
+    }
 
     let expires = get_expiration(&certs[0]).ok_or("let's encrypt gave an invalid pem cert")?;
 
     Ok((
         rustls::sign::CertifiedKey::new(
-            certs.into_iter().map(rustls::Certificate).collect(),
-            rustls::sign::any_supported_type(&rustls::PrivateKey(key.serialize_private_key_der()))
-                .map_err(|_| "FATAL: private key is invalid!")?,
+            certs,
+            rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(
+                key.serialize_private_key_der().into(),
+            ))
+            .map_err(|_| "FATAL: private key is invalid!")?,
         ),
         expires,
         (cert_chain_pem, key.serialize_private_key_pem()),
@@ -398,12 +431,14 @@ pub fn get_cert(
 }
 fn generate_self_signed_cert(
     name: impl Into<String>,
-) -> Result<(rcgen::Certificate, rustls::Certificate, rustls::PrivateKey), Box<dyn std::error::Error>>
-{
+) -> Result<(rcgen::Certificate, rustls::sign::CertifiedKey), Box<dyn std::error::Error>> {
     let key = rcgen::generate_simple_self_signed(vec![name.into()])?;
-    let pk = rustls::PrivateKey(key.serialize_private_key_der());
-    let cert = rustls::Certificate(key.serialize_der()?);
-    Ok((key, cert, pk))
+    let pk = rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(
+        key.serialize_private_key_der().into(),
+    ))
+    .unwrap();
+    let cert = vec![key.serialize_der()?.into()];
+    Ok((key, rustls::sign::CertifiedKey::new(cert, pk)))
 }
 
 fn get_expiration(cert: &[u8]) -> Option<chrono::OffsetDateTime> {

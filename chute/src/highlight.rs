@@ -1,4 +1,4 @@
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, FontStyle, Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
@@ -44,7 +44,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
                                 CowStr::Boxed(s.into())
                             }
                         }
-                        Some(Event::End(Tag::CodeBlock(_))) | None => break,
+                        Some(Event::End(TagEnd::CodeBlock)) | None => break,
                         Some(e) => {
                             return Some(Event::Text(
                                 format!("Unexpected markdown event {:#?}", e).into(),
@@ -54,7 +54,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
                 }
                 code
             }
-            Some(Event::End(Tag::CodeBlock(_))) | None => CowStr::Borrowed(""),
+            Some(Event::End(TagEnd::CodeBlock)) | None => CowStr::Borrowed(""),
             Some(e) => {
                 return Some(Event::Text(
                     format!("Unexpected markdown event {:#?}", e).into(),

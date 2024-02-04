@@ -19,7 +19,7 @@ required-features = ["bin"]
 
 [dependencies]
 colored = "2.0"
-pulldown-cmark = { version = "0.9", default-features = false, features = ["simd"] }
+pulldown-cmark = { version = "0.10", default-features = false, features = ["simd", "html"] }
 notify = "6"
 unicode_categories = "0.1"
 time = { version = "0.3", optional = true, features = ["formatting", "macros", "local-offset"] }
@@ -29,7 +29,7 @@ kvarn_utils = "0.5"
 # Bin deps
 clap = { version = "4", optional = true, features = ["cargo"] }
 clap_autocomplete = { version = ">= 0.4.1", optional = true }
-env_logger = { version = "0.10", optional = true, default-features = false, features = ["auto-color", "humantime"] }
+env_logger = { version = "0.11", optional = true, default-features = false, features = ["auto-color", "humantime"] }
 log = { version = "0.4.17", optional = true }
 notify-debouncer-full = { version = "0.3", default-features = false }
 syntect = { version = "5.0.0", default-features = false, features = ["default-fancy"] }
