@@ -298,17 +298,17 @@ fn process_inner<P: AsRef<Path>>(
 
     let mut extension_list = hardcoded_extensions
         .as_ref()
-        .map_or_else(Vec::new, |ext| ext.iter().collect());
+        .map_or_else(Vec::new, |ext| ext.iter_clone().collect());
 
     let file_extensions = kvarn_utils::PresentExtensions::new(buffer.clone());
     let mut file_content_start = file_extensions
         .as_ref()
         .map_or(0, kvarn_utils::PresentExtensions::data_start);
 
-    if let Some(file_extensions) = &file_extensions {
+    if let Some(file_extensions) = file_extensions {
         let mut ignored_extensions = ignored_extensions.to_vec();
 
-        'extension_loop: for extension in file_extensions.iter() {
+        'extension_loop: for extension in file_extensions {
             // Check for ignored extensions, and skip pushing it to main extensions if matched
             if let Some(pos) = ignored_extensions
                 .iter()
@@ -339,7 +339,7 @@ fn process_inner<P: AsRef<Path>>(
             }
         }
         write_file.write_all(extension.name().as_bytes())?;
-        for arg in extension.iter() {
+        for arg in extension {
             write_file.write_all(b" ")?;
             write_file.write_all(arg.as_bytes())?;
         }
