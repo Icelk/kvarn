@@ -197,7 +197,7 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
                     }
 
                     if e.raw_os_error() != Some(libc::EMSGSIZE) {
-                        log_sendmsg_error(&mut *self.last_send_error.borrow_mut(), &e, &transmits[0]);
+                        log_sendmsg_error(&mut self.last_send_error.borrow_mut(), &e, &transmits[0]);
                     }
                     has_error = true;
                 }
