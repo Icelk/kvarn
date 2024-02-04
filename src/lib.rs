@@ -225,6 +225,7 @@ impl RunConfig {
 
         let len = ports.len();
         // * 8 for some buffer, since unsafe writes could happen otherwise
+        #[allow(unused_mut)] // in cfg(graceful-shutdown) we do
         let mut shutdown_manager = unsafe { shutdown::Manager::new(len * 8) };
 
         #[cfg(feature = "handover")]
@@ -428,26 +429,30 @@ impl RunConfig {
             #[cfg(not(feature = "async-networking"))]
             for descriptor in &ports {
                 if matches!(descriptor.version, BindIpVersion::V4 | BindIpVersion::Both) {
-                    let listener = TcpListener::bind(SocketAddr::new(
-                        IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
-                        descriptor.port,
-                    ))
-                    .expect("Failed to bind to IPv4");
-                    listeners.push((
-                        shutdown_manager.add_listener(shutdown::Listener::Tcp(listener)),
-                        Arc::clone(descriptor),
-                    ));
+                    let mgr = shutdown_manager.clone();
+                    let d = descriptor.clone();
+                    let listener = move || {
+                        let listener = TcpListener::bind(SocketAddr::new(
+                            IpAddr::V4(net::Ipv4Addr::UNSPECIFIED),
+                            d.port,
+                        ))
+                        .expect("Failed to bind to IPv4");
+                        mgr.add_listener(shutdown::Listener::Tcp(listener))
+                    };
+                    listeners.push((Box::new(listener), descriptor.clone()));
                 }
                 if matches!(descriptor.version, BindIpVersion::V6 | BindIpVersion::Both) {
-                    let listener = TcpListener::bind(SocketAddr::new(
-                        IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
-                        descriptor.port,
-                    ))
-                    .expect("Failed to bind to IPv6");
-                    listeners.push((
-                        shutdown_manager.add_listener(shutdown::Listener::Tcp(listener)),
-                        Arc::clone(descriptor),
-                    ));
+                    let mgr = shutdown_manager.clone();
+                    let d = descriptor.clone();
+                    let listener = move || {
+                        let listener = TcpListener::bind(SocketAddr::new(
+                            IpAddr::V6(net::Ipv6Addr::UNSPECIFIED),
+                            d.port,
+                        ))
+                        .expect("Failed to bind to IPv6");
+                        mgr.add_listener(shutdown::Listener::Tcp(listener))
+                    };
+                    listeners.push((Box::new(listener), descriptor.clone()));
                 }
             }
             all_listeners.push(listeners);
