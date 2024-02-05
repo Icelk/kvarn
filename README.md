@@ -10,15 +10,34 @@
 
 # [Kvarn](https://kvarn.org/)
 
-> An extensible and efficient forward-thinking web server.
-
-Kvarn is an extendable backend library with [native async everywhere](https://kvarn.org/extensions/);
-[zero downtime](https://kvarn.org/features/#graceful-shutdown--handover); and
-[safe & fast defaults](https://kvarn.org/features/#sane-defaults).
-
-Kvarn is batteries-included (optional defaults) with support for reverse proxying, auto HTTP/2 push,
-in-memory caching (proper cache invalidation), server communication through [`kvarnctl`](https://github.com/Icelk/kvarn/tree/main/ctl/),
-and easy website creation through Markdown and [Chute](https://github.com/Icelk/kvarn/tree/main/chute/).
+<blockquote style="display: inline-block; margin: 0 1rem">
+    <b
+        >A forward-thinking fast web server designed to fit
+        <i>your</i> needs, efficiently.</b
+    >
+</blockquote>
+<p>
+    Kvarn is a <a href="https://rust-lang.org">rusty</a>,
+    <a href="https://github.com/Icelk/kvarn/blob/main/LICENSE"
+        >open-source</a
+    >, extendable web application framework with
+    <a href="https://kvarn.org/extensions/">native async everywhere</a>;
+    <a href="https://kvarn.org/features/#graceful-shutdown--handover"
+        >zero downtime</a
+    >; and
+    <a href="https://kvarn.org/features/#sane-defaults"
+        >safe &amp; fast defaults</a
+    >.
+</p>
+<p>
+    Kvarn is batteries-included (optional defaults) with support for
+    <b>automatic HTTPS certificates</b>, <b>HTTP/3</b>, io_uring everywhere,
+    reverse proxying, auto HTTP/2 push, in-memory caching (proper cache
+    invalidation), server communication provided by
+    <a href="https://github.com/Icelk/kvarn/tree/main/ctl/">a simple CLI</a
+    >, and easy website creation through Markdown and
+    <a href="https://github.com/Icelk/kvarn/tree/main/chute/">Chute</a>.
+</p>
 
 If you're looking for an **executable** to run your webserver with, see [Mölla](https://github.com/Icelk/moella).
 Using Mölla, you can configure your host(s), add a search engine, authentication, and other parts of the
@@ -36,7 +55,7 @@ If you need to develop custom extension (like [those on icelk.dev](https://githu
 you need to compile Kvarn yourself. Luckily,
 [Mölla makes it easy to add custom extensions](https://github.com/Icelk/icelk.dev/blob/659df7f19b2ac22efbe4d20f0978c9f58964c76b/server/src/main.rs#L13-L21).
 
-To use the latest and greatest you can add Kvarn as a git dependency:
+To use the latest and greatest you can add Kvarn as a git dependency, though the latest version is recommended:
 
 ```ini
 [dependencies]
@@ -45,7 +64,7 @@ kvarn = { git = "https://github.com/Icelk/kvarn" }
 
 ## Dependencies
 
-To increase security, build-times, reliability, and speed, I use the minimal reasonable number of dependencies.
+To increase security, build-times, reliability, and speed, I use dependencies sparingly.
 
 The two heavy-hitters are `tokio` (async runtime for async networking, file access, and extensions) and `rustls` (for encryption, optional if you want to run a unsafe (often local) web server).
 `brotli` and `flate2` are enabled by default to provide compression, but can be turned off.
