@@ -25,31 +25,27 @@ pub async fn connect(
         Ok(stream) => stream,
         Err(err) => return Err(FastcgiError::FailedToConnect(err)),
     };
-    let mut client = Client::new(stream, true);
+    let client = Client::new(stream);
 
-    let len = body.len().to_string();
     let remote_addr = match address.ip() {
         IpAddr::V4(addr) => addr.to_string(),
         IpAddr::V6(addr) => addr.to_string(),
     };
-    let remote_port = address.port().to_string();
-
     let mut params = Params::default()
-        .set_request_method(method)
-        .set_script_name(file_name)
-        .set_script_filename(file_path)
-        .set_request_uri(path)
-        .set_document_uri(path)
-        .set_remote_addr(&remote_addr)
-        .set_remote_port(&remote_port)
-        .set_server_addr("0.0.0.0")
-        .set_server_port("")
-        .set_server_name("Kvarn/0.5.0")
-        .set_content_type(content_type)
-        .set_content_length(&len);
+        .request_method(method)
+        .script_name(file_name)
+        .script_filename(file_path)
+        .request_uri(path)
+        .document_uri(path)
+        .remote_addr(&remote_addr)
+        .remote_port(address.port())
+        .server_addr("0.0.0.0")
+        .server_name("Kvarn/0.5.0")
+        .content_type(content_type)
+        .content_length(body.len());
 
     if let Some(query) = query {
-        params = params.set_query_string(query);
+        params = params.query_string(query);
     }
 
     let param_headers: Vec<_> = headers
@@ -66,13 +62,13 @@ pub async fn connect(
         .collect();
 
     for (name, value) in &param_headers {
-        params.insert(name, value);
+        params.insert(Cow::Borrowed(name), Cow::Borrowed(value));
     }
 
     let request = kvarn_fastcgi_client::Request::new(params, body);
 
-    match client.execute(request).await {
-        Ok(output) => match output.get_stdout() {
+    match client.execute_once(request).await {
+        Ok(output) => match output.stdout {
             Some(output) => Ok(output),
             None => Err(FastcgiError::NoStdout),
         },
