@@ -192,11 +192,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                             return;
                         }
                     };
-                    info!(
-                        "Using self-signed for {domain}. \
-                        Consider creating your own self-signed certificate \
-                        for persistent browser warnings."
-                    );
+                    info!("Using self-signed for {domain}.");
                     (
                         key,
                         chrono::OffsetDateTime::now_utc()
