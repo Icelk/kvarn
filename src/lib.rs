@@ -277,6 +277,7 @@ impl RunConfig {
                     socket
                         .set_nonblocking(true)
                         .expect("Failed to set `nonblocking` for socket.");
+                    #[cfg(unix)]
                     let _ = socket.set_cloexec(true);
                     #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
                     {
