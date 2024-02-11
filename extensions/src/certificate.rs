@@ -28,6 +28,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
     account_path: impl AsRef<Path>,
     cert_path: impl AsRef<Path>,
     pk_path: impl AsRef<Path>,
+    dev: bool,
 ) {
     let contact: Vec<_> = contact.into_iter().collect();
     let domain = host.name.clone();
@@ -44,7 +45,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             .and_then(|cert| {
                 get_expiration(cert.end_entity_cert().unwrap()).map(|(time, self_signed)| {
                     // if self-signed, try to get proper
-                    if self_signed {
+                    if self_signed && !dev {
                         info!("Detected self-signed cert on {domain}. Trying to get real certificate.");
                         chrono::OffsetDateTime::now_utc()
                     } else {
@@ -164,10 +165,16 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             account = Some(new_account_serialized);
 
             let d = tokio::task::spawn_blocking(move || {
-                get_cert(&new_account, moved_domain, alt_names, |token, data| {
-                    let mut tokens = tokens.write().unwrap();
-                    tokens.insert(token.to_owned(), data.to_owned());
-                })
+                get_cert(
+                    &new_account,
+                    moved_domain,
+                    alt_names,
+                    |token, data| {
+                        let mut tokens = tokens.write().unwrap();
+                        tokens.insert(token.to_owned(), data.to_owned());
+                    },
+                    dev,
+                )
             })
             .await
             .unwrap();
@@ -232,7 +239,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 info!("Sleep until {exp} before renewing cert (which expires at {expiration}) on {domain})");
             }
 
-            if !certs_pem.is_empty() && !pk_pem.is_empty() && !self_signed {
+            if !certs_pem.is_empty() && !pk_pem.is_empty() && (!self_signed || dev) {
                 if let Err(err) =
                     tokio::fs::create_dir_all(&cert_path.parent().unwrap_or_else(|| Path::new("/")))
                         .await
@@ -293,6 +300,7 @@ pub fn get_cert(
     domain: impl Into<String>,
     alt_names: Vec<impl Into<String>>,
     set_token: impl Fn(&str, &str),
+    dev: bool,
 ) -> Result<
     (
         rustls::sign::CertifiedKey,
@@ -354,7 +362,9 @@ pub fn get_cert(
             }
             tries += 1;
             if tries > 10 {
-                warn!("Tries 10 times to access {url}, but we don't seem to control that. Using self-signed!");
+                if !dev {
+                    warn!("Tried 10 times to access {url}, but we don't seem to control that. Using self-signed!");
+                }
                 return Err(NOT_PUBLIC_ERROR.into());
             }
             std::thread::sleep(Duration::from_millis(1000));
