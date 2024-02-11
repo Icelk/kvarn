@@ -443,7 +443,7 @@ impl AcceptManager {
     ///
     /// Please increase the count of connections on [`Manager`] when this connection is accepted
     /// and decrease it when the connection dies.
-    #[allow(clippy::let_and_return)] // cfg
+    #[allow(clippy::let_and_return, clippy::no_effect_underscore_binding)] // cfg
     pub(crate) async fn accept(&mut self, _manager: &Manager) -> AcceptAction {
         #[cfg(feature = "async-networking")]
         {
