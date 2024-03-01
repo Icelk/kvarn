@@ -67,7 +67,7 @@ memchr = { version = "2", optional = true }
 rand = { version = "0.8", optional = true, features = ["small_rng"] }
 
 # Automatic hostname
-x509-parser = { version = "0.15", optional = true }
+x509-parser = { version = "0.16", optional = true }
 
 # Compression
 brotli = { version = "3", optional = true }
