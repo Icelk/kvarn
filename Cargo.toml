@@ -55,7 +55,7 @@ moka = { version = "0.12", features = ["sync"], default-features = false }
 dashmap = "5"
 
 # HTTPS
-rustls = { version = "0.22", optional = true }
+rustls = { version = "0.23", optional = true }
 # bad hack because quinn hasn't updated yet
 rustls-21 = { version = "0.21", package = "rustls", optional = true }
 rustls-pemfile = { version = "2.0", optional = true }

@@ -24,7 +24,7 @@ memchr = "2"
 url-crawl = { version = "0.2", path = "../url-crawl", optional = true }
 small-acme = { version = "0.2.2", optional = true }
 x509-parser = { version = "0.15", optional = true }
-rustls = { version = "0.22", optional = true, default-features = false }
+rustls = { version = "0.23", optional = true, default-features = false }
 # serialize credentials
 ron = { version = "0.8", optional = true }
 rcgen = { version = "0.12", optional = true }
