@@ -157,8 +157,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             {
                 warn!("Failed to write ACME account credentials to {account_path:?}: {err}");
             }
-            if let Err(err) =
-                tokio::fs::write(&account_path, new_account_serialized.0.as_bytes()).await
+            if let Err(err) = write(&account_path, new_account_serialized.0.as_bytes(), true).await
             {
                 warn!("Failed to write ACME account credentials to {account_path:?}: {err}");
             }
@@ -242,7 +241,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 {
                     error!("Failed to write new TLS certificate (chain): {err}");
                 }
-                if let Err(err) = tokio::fs::write(&cert_path, certs_pem).await {
+                if let Err(err) = write(&cert_path, certs_pem, false).await {
                     error!("Failed to write new TLS certificate (chain): {err}");
                 }
                 if let Err(err) =
@@ -251,7 +250,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 {
                     error!("Failed to write new TLS private key: {err}");
                 }
-                if let Err(err) = tokio::fs::write(&pk_path, pk_pem).await {
+                if let Err(err) = write(&pk_path, pk_pem, true).await {
                     error!("Failed to write new TLS private key: {err}");
                 }
             }
@@ -486,4 +485,16 @@ fn get_expiration(cert: &[u8]) -> Option<(chrono::OffsetDateTime, bool)> {
             .iter_common_name()
             .any(|n| n.as_str().map_or(false, |s| s.contains("rcgen")));
     Some((cert.validity().not_after.to_datetime(), self_signed))
+}
+
+async fn write(path: &Path, bytes: impl AsRef<[u8]>, _protected: bool) -> io::Result<()> {
+    let mut open = tokio::fs::OpenOptions::new();
+    open.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    if _protected {
+        open.mode(0o600);
+    }
+    let mut file = open.open(path).await?;
+    file.write_all(bytes.as_ref()).await?;
+    Ok(())
 }
