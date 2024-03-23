@@ -1890,13 +1890,13 @@ impl Debug for FatResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         enum BytesOrStr<'a> {
             Str(&'a str),
-            Bytes(&'a [u8]),
+            Bytes,
         }
         impl<'a> Debug for BytesOrStr<'a> {
             fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
                 match self {
                     Self::Str(s) => f.write_str(s),
-                    Self::Bytes(_) => f.write_str("[binary data]"),
+                    Self::Bytes => f.write_str("[binary data]"),
                 }
             }
         }
@@ -1904,7 +1904,7 @@ impl Debug for FatResponse {
         let body = if let Ok(s) = str::from_utf8(self.response.body()) {
             BytesOrStr::Str(s)
         } else {
-            BytesOrStr::Bytes(self.response.body())
+            BytesOrStr::Bytes
         };
         let response = response.map(|()| body);
         let mut s = f.debug_struct(utils::ident_str!(FatResponse));
