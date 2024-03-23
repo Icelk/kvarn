@@ -40,7 +40,7 @@ async fn handover() {
         .await;
 
     let url = server.url("/");
-    let cert = server.cert().map(Clone::clone);
+    let cert = server.cert().clone();
     let failed = Arc::new(threading::atomic::AtomicBool::new(false));
 
     let running = Arc::new(threading::atomic::AtomicBool::new(true));
