@@ -212,6 +212,9 @@ impl RunConfig {
         #[cfg(feature = "async-networking")]
         use socket2::{Domain, Protocol, Type};
 
+        #[cfg(feature = "https")]
+        encryption::attach_crypto_provider();
+
         let RunConfig {
             ports,
             #[cfg(feature = "handover")]

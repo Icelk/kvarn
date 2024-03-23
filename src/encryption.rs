@@ -11,6 +11,25 @@ use rustls::{ServerConfig, ServerConnection};
 #[cfg(feature = "https")]
 use tokio_tls::{MidHandshake, TlsState, TlsStream};
 
+/// Attaches a [`rustls::crypto::CryptoProvider`] unless one already exists.
+///
+/// [`rustls::crypto::ring`] is used.
+#[cfg(feature = "https")]
+pub fn attach_crypto_provider() {
+    #[allow(clippy::collapsible_if)] // more logical
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        if rustls::crypto::ring::default_provider()
+            .install_default()
+            .is_err()
+        {
+            warn!(
+                "Crypto provider race. Should be fine, as long \
+                    as the other provider also is ring"
+            );
+        }
+    }
+}
+
 #[cfg(all(feature = "https", not(feature = "async-networking")))]
 compile_error!(
     "Please enable the feature async-networking to use HTTPS. \

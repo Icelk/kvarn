@@ -5,7 +5,6 @@ on:
         paths-ignore:
             - "chute/**"
             - "ctl/**"
-            - "tests/**"
             - "testing/**"
             - ".github/workflows/chute.yml"
             - ".github/workflows/kvarnctl.yml"

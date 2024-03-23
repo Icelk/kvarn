@@ -835,6 +835,8 @@ impl Collection {
     #[inline]
     #[must_use]
     pub fn make_config(self: &Arc<Self>) -> ServerConfig {
+        encryption::attach_crypto_provider();
+
         let mut config = ServerConfig::builder()
             .with_no_client_auth()
             .with_cert_resolver(self.clone());
