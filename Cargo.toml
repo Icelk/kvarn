@@ -70,7 +70,7 @@ rand = { version = "0.8", optional = true, features = ["small_rng"] }
 x509-parser = { version = "0.16", optional = true }
 
 # Compression
-brotli = { version = "3", optional = true }
+brotli = { version = "4", optional = true }
 flate2 = { version = "1", optional = true }
 
 # WebSockets
