@@ -1151,6 +1151,9 @@ mod handle_cache_helpers {
                 Err(err) => error::sanitize_error_into_response(*err, host).await,
             }
             .into_parts();
+        if host.options.disable_client_cache {
+            client_cache = comprash::ClientCachePreference::None;
+        }
 
         host.extensions
             .resolve_present(
@@ -1174,13 +1177,7 @@ mod handle_cache_helpers {
             },
         };
         (
-            comprash::CompressedResponse::new(
-                resp,
-                compress,
-                client_cache,
-                extension,
-                host.options.disable_client_cache,
-            ),
+            comprash::CompressedResponse::new(resp, compress, client_cache, extension),
             client_cache,
             server_cache,
             future,

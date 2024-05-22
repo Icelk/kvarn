@@ -295,10 +295,9 @@ impl CompressedResponse {
         compress: CompressPreference,
         client_cache: ClientCachePreference,
         extension: &str,
-        disable_client_cache: bool,
     ) -> Self {
         let headers = identity.headers_mut();
-        Self::set_client_cache(headers, client_cache, disable_client_cache);
+        Self::set_client_cache(headers, client_cache);
         Self::check_content_type(&mut identity, extension);
         Self {
             identity,
@@ -431,16 +430,8 @@ impl CompressedResponse {
     }
 
     #[inline]
-    fn set_client_cache(
-        headers: &mut HeaderMap,
-        preference: ClientCachePreference,
-        disable_client_cache: bool,
-    ) {
-        let header = if disable_client_cache {
-            Some(HeaderValue::from_static("no-store"))
-        } else {
-            preference.as_header()
-        };
+    fn set_client_cache(headers: &mut HeaderMap, preference: ClientCachePreference) {
+        let header = preference.as_header();
         if let Some(h) = header {
             headers.entry("cache-control").or_insert(h);
         }
