@@ -139,7 +139,7 @@ impl<
 /// See [module level documentation](extensions) and [kvarn.org](https://kvarn.org/extensions/) for more info.
 pub type Present = Box<dyn PresentCall>;
 /// Implement this to pass your extension to [`Extensions::add_present_file`] or
-/// [`Extensions::add_present_internal`].
+/// [`Extensions::add_present_internal`] or [`Extensions::add_present_fn`].
 pub trait PresentCall: KvarnSendSync {
     /// # Arguments
     ///
@@ -401,6 +401,7 @@ pub struct Extensions {
     prepare_fn: Vec<(Id, If, Prepare)>,
     present_internal: HashMap<CompactString, Present>,
     present_file: HashMap<CompactString, Present>,
+    present_fn: Vec<(Id, If, Present)>,
     package: Vec<(Id, Package)>,
     post: Vec<(Id, Post)>,
     // also update Debug implementation when adding fields
@@ -417,6 +418,7 @@ impl Extensions {
             prepare_fn: Vec::new(),
             present_internal: HashMap::new(),
             present_file: HashMap::new(),
+            present_fn: Vec::new(),
             package: Vec::new(),
             post: Vec::new(),
         }
@@ -804,6 +806,19 @@ impl Extensions {
     pub fn get_present_file(&self) -> &HashMap<CompactString, Present> {
         &self.present_file
     }
+    /// Adds a [`Present`] file extension, filtered by `predicate`
+    pub fn add_present_fn(&mut self, predicate: If, extension: Present, id: Id) {
+        add_sorted_list!(self.present_fn, id, predicate, extension,);
+    }
+    /// Removes the [`Present`] file extension (if any) with `id`.
+    pub fn remove_present_fn(&mut self, id: Id) {
+        remove_sorted_list!(self.present_fn, id);
+    }
+    /// Get a reference to the [`Present`] file extensions bound to a predicate.
+    #[must_use]
+    pub fn get_present_fn(&self) -> &HashMap<CompactString, Present> {
+        &self.present_file
+    }
     /// Adds a [`Package`] extension, used to make last-minute changes to response. Higher [`Id::priority()`] extensions are ran first.
     pub fn add_package(&mut self, extension: Package, id: Id) {
         add_sorted_list!(self.package, id, extension,);
@@ -904,24 +919,23 @@ impl Extensions {
         let response_body = utils::BytesCow::Ref(response_body);
         let mut cow_response = response_head.map(|()| response_body);
 
-        if let Some(extensions) = extensions {
-            for extension_name_args in extensions {
-                if let Some(extension) = self.present_internal.get(extension_name_args.name()) {
-                    let mut data = PresentData {
-                        address,
-                        request,
-                        body,
-                        host,
-                        path: path.map(Path::new),
-                        server_cache_preference,
-                        client_cache_preference,
-                        response: &mut cow_response,
-                        args: extension_name_args,
-                    };
-                    extension.call(&mut data).await;
-                }
+        for (_, predicate, ext) in &self.present_fn {
+            if (predicate)(request, host) {
+                let mut data = PresentData {
+                    address,
+                    request,
+                    body,
+                    host,
+                    path: path.map(Path::new),
+                    server_cache_preference,
+                    client_cache_preference,
+                    response: &mut cow_response,
+                    args: PresentArguments::empty(),
+                };
+                ext.call(&mut data).await;
             }
         }
+
         if let Some(extension) = path
             .map(Path::new)
             .and_then(Path::extension)
@@ -940,6 +954,25 @@ impl Extensions {
                 args: PresentArguments::empty(),
             };
             extension.call(&mut data).await;
+        }
+
+        if let Some(extensions) = extensions {
+            for extension_name_args in extensions {
+                if let Some(extension) = self.present_internal.get(extension_name_args.name()) {
+                    let mut data = PresentData {
+                        address,
+                        request,
+                        body,
+                        host,
+                        path: path.map(Path::new),
+                        server_cache_preference,
+                        client_cache_preference,
+                        response: &mut cow_response,
+                        args: extension_name_args,
+                    };
+                    extension.call(&mut data).await;
+                }
+            }
         }
 
         *response = cow_response.map(utils::BytesCow::freeze);
@@ -998,6 +1031,7 @@ impl Debug for Extensions {
             (self.prepare_fn, map!(self.prepare_fn)),
             (self.present_internal, map!(self.present_internal)),
             (self.present_file, map!(self.present_file)),
+            (self.present_fn, map!(self.present_fn)),
             (self.package, map!(self.package)),
             (self.post, map!(self.post)),
         );
