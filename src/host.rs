@@ -1169,7 +1169,7 @@ pub enum CertificateError {
     Io(io::Error),
     /// The private key is of improper format.
     ImproperPrivateKeyFormat,
-    /// THe certificate (public key) is of improper format.
+    /// The certificate (public key) is of improper format.
     ImproperCertificateFormat,
     /// No key was found.
     NoKey,

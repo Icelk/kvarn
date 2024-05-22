@@ -224,6 +224,8 @@ impl PreferredCompression {
         }
     }
 }
+// invalid lint
+#[allow(clippy::derivable_impls)]
 impl Default for PreferredCompression {
     fn default() -> Self {
         #[cfg(feature = "br")]

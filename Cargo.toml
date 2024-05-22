@@ -5,7 +5,7 @@ name = "kvarn"
 version = "0.6.1"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.64"
 description = "A forward-thinking fast web server designed to fit your needs, efficiently."
 # main branch documentation
 # documentation = "https://doc.kvarn.org/kvarn/"

@@ -177,7 +177,7 @@ impl ServerBuilder {
             Some(previous.port()),
         ));
         println!("Previous port {}", previous.port());
-        self.cert = previous.certificate.clone();
+        self.cert.clone_from(&previous.certificate);
         self
     }
 

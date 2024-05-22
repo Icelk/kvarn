@@ -1081,6 +1081,7 @@ pub struct CacheReply {
     ///
     /// Internally used in [`SendKind`] to apply [`utils::CriticalRequestComponents`] to the response.
     pub sanitize_data: Result<utils::CriticalRequestComponents, SanitizeError>,
+    #[allow(clippy::doc_markdown)]
     /// Must be awaited.
     ///
     /// Can be used for WebSocket connections.

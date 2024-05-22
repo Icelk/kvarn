@@ -125,7 +125,9 @@ pub enum Error {
 /// Variants of WebSocket streams.
 #[derive(Debug)]
 pub enum WSStream<'a> {
-    ///
+    /// HTTP/1 version
+    /// WebTransport was introduced in HTTP/3 and WebSocket support is sketch in HTTP/2,
+    /// so this is unlikely to get more versions
     Http1(&'a Arc<Mutex<Encryption>>),
 }
 impl<'a> AsyncRead for WSStream<'a> {
