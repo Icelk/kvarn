@@ -158,14 +158,24 @@ pub fn cache<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()> {
                     "client" => {
                         if let Ok(preference) = cache.parse() {
                             c = Some(preference)
+                        } else {
+                            warn!("Parsing of client cache argument failed: {cache}");
                         }
                     }
                     "server" => {
                         if let Ok(preference) = cache.parse() {
                             s = Some(preference)
+                        } else {
+                            warn!("Parsing of client cache argument failed: {cache}");
                         }
                     }
-                    _ => {}
+                    _ => {
+                        warn!(
+                            "client extension used incorrectly, format: !> cache \
+                            <client OR server>:<<integer>s OR ignore OR full \
+                            OR changing OR none OR <empty>>"
+                        );
+                    }
                 }
             }
         }
@@ -269,24 +279,45 @@ pub fn ip_allow<'a>(data: &'a mut extensions::PresentData<'a>) -> RetFut<'a, ()>
 /// The priority for the [`Package`] extension is `16`
 pub type ForceCacheRules = Vec<(String, comprash::ClientCachePreference)>;
 pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
-    extensions.add_package(
-        package!(response, req, _, _, move |rules: ForceCacheRules| {
+    let rules = Arc::new(rules);
+    let r1 = rules.clone();
+
+    fn resolve(
+        path: &str,
+        extension: Option<&str>,
+        rules: &ForceCacheRules,
+    ) -> Option<comprash::ClientCachePreference> {
+        if let Some(extension) = extension {
+            for (rule, preference) in &**rules {
+                let replace = (rule.starts_with('/') && path.starts_with(rule))
+                    || rule.strip_prefix('.').map_or(false, |ext| ext == extension)
+                    || rule
+                        .strip_prefix('*')
+                        .and_then(|rule| rule.strip_suffix('*'))
+                        .map_or(false, |rule| path.contains(rule));
+                if replace {
+                    return Some(*preference);
+                }
+            }
+        }
+        None
+    }
+
+    extensions.add_present_fn(
+        Box::new(move |req, _host| {
+            let rules = &r1;
             let extension = req.uri().path().split('.').last();
             let path = req.uri().path();
-            if let Some(extension) = extension {
-                for (rule, preference) in rules {
-                    let replace = (rule.starts_with('/') && path.starts_with(rule))
-                        || rule.strip_prefix('.').map_or(false, |ext| ext == extension)
-                        || rule
-                            .strip_prefix('*')
-                            .and_then(|rule| rule.strip_suffix('*'))
-                            .map_or(false, |rule| path.contains(rule));
-                    if replace {
-                        if let Some(h) = preference.as_header() {
-                            response.headers_mut().insert("cache-control", h);
-                        }
-                    }
-                }
+            resolve(path, extension, rules).is_some()
+        }),
+        present!(data, move |rules: Arc<ForceCacheRules>| {
+            let req = data.request;
+            let extension = req.uri().path().split('.').last();
+            let path = req.uri().path();
+            if let Some(preference) = resolve(path, extension, rules) {
+                *data.client_cache_preference = preference;
+            } else {
+                error!("(internal bug) force cache rules inconsistent")
             }
         }),
         extensions::Id::new(16, "force_cache: Adding cache-control header").no_override(),
