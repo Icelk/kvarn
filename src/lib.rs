@@ -300,9 +300,12 @@ impl RunConfig {
                     if !tcp {
                         return shutdown_manager.add_listener(shutdown::Listener::Udp(
                             h3_quinn::Endpoint::new(
-                                h3_quinn::quinn::EndpointConfig::default(),
-                                Some(h3_quinn::quinn::ServerConfig::with_crypto(Arc::new(
-                                    descriptor.data.make_config_21(),
+                                quinn::EndpointConfig::default(),
+                                Some(quinn::ServerConfig::with_crypto(Arc::new(
+                                    quinn::crypto::rustls::QuicServerConfig::try_from(
+                                        descriptor.data.make_config(),
+                                    )
+                                    .unwrap(),
                                 ))),
                                 socket.into(),
                                 h3_quinn::quinn::default_runtime().unwrap(),
@@ -313,9 +316,12 @@ impl RunConfig {
                     #[cfg(all(feature = "http3", feature = "uring"))]
                     if !tcp {
                         let endpoint = h3_quinn::Endpoint::new_with_abstract_socket(
-                            h3_quinn::quinn::EndpointConfig::default(),
-                            Some(h3_quinn::quinn::ServerConfig::with_crypto(Arc::new(
-                                descriptor.data.make_config_21(),
+                            quinn::EndpointConfig::default(),
+                            Some(quinn::ServerConfig::with_crypto(Arc::new(
+                                quinn::crypto::rustls::QuicServerConfig::try_from(
+                                    descriptor.data.make_config(),
+                                )
+                                .unwrap(),
                             ))),
                             Arc::new(
                                 uring_udp::UringUdpSocket::new(

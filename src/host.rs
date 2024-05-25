@@ -843,15 +843,6 @@ impl Collection {
         config.alpn_protocols = alpn();
         config
     }
-    #[cfg(feature = "rustls-21")]
-    pub(crate) fn make_config_21(self: &Arc<Self>) -> rustls_21::ServerConfig {
-        let mut config = rustls_21::ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_cert_resolver(self.clone());
-        config.alpn_protocols = alpn();
-        config
-    }
 
     /// Gets the `pre_host_limiter` to manage limits before any of the request is read, or even a
     /// TLS session is initiated.
@@ -979,118 +970,6 @@ impl ResolvesServerCert for Collection {
         self.get_option_or_default(client_hello.server_name())
             .and_then(|host| host.certificate.read().unwrap().as_ref().map(Arc::clone))
     }
-}
-#[cfg(feature = "rustls-21")]
-thread_local! {
-    // `TODO`: potential memory leak when cycling
-    static CERT_MAP: std::cell::RefCell<HashMap<CompactString, (usize, Arc<rustls_21::sign::CertifiedKey>)>> = std::cell::RefCell::new( HashMap::new());
-}
-#[cfg(feature = "rustls-21")]
-impl rustls_21::server::ResolvesServerCert for Collection {
-    #[inline]
-    fn resolve(
-        &self,
-        client_hello: rustls_21::server::ClientHello<'_>,
-    ) -> Option<Arc<rustls_21::sign::CertifiedKey>> {
-        self.get_option_or_default(client_hello.server_name())
-            .and_then(|host| {
-                let key = host.certificate.read().unwrap();
-                let arc = key.as_ref();
-                match arc {
-                    Some(arc) => {
-                        let addr = Arc::as_ptr(arc) as usize;
-                        let key = CERT_MAP.with(|map| {
-                            let mut map = map.borrow_mut();
-                            if let Some((addr2, key)) = map.get(&host.name) {
-                                // if new cert, update
-                                if *addr2 == addr {
-                                    return key.clone();
-                                }
-                            }
-                            let key = rustls_to_rustls_21_key(arc);
-                            let key = Arc::new(key);
-                            map.insert(host.name.clone(), (addr, key.clone()));
-                            key
-                        });
-                        Some(key)
-                    }
-                    None => None,
-                }
-            })
-    }
-}
-#[cfg(feature = "rustls-21")]
-fn rustls_to_rustls_21_key(key: &sign::CertifiedKey) -> rustls_21::sign::CertifiedKey {
-    struct SignerCompat(Box<dyn sign::Signer>);
-    impl rustls_21::sign::Signer for SignerCompat {
-        fn sign(&self, message: &[u8]) -> Result<Vec<u8>, rustls_21::Error> {
-            use rustls_21::Error as E2;
-
-            match self.0.sign(message) {
-                Ok(vec) => Ok(vec),
-                Err(err) => Err(E2::General(err.to_string())),
-            }
-        }
-
-        fn scheme(&self) -> rustls_21::SignatureScheme {
-            use rustls::SignatureScheme as SS1;
-            use rustls_21::SignatureScheme as SS2;
-            match self.0.scheme() {
-                SS1::RSA_PKCS1_SHA1 => SS2::RSA_PKCS1_SHA1,
-                SS1::ECDSA_SHA1_Legacy => SS2::ECDSA_SHA1_Legacy,
-                SS1::RSA_PKCS1_SHA256 => SS2::RSA_PKCS1_SHA256,
-                SS1::ECDSA_NISTP256_SHA256 => SS2::ECDSA_NISTP256_SHA256,
-                SS1::RSA_PKCS1_SHA384 => SS2::RSA_PKCS1_SHA384,
-                SS1::ECDSA_NISTP384_SHA384 => SS2::ECDSA_NISTP384_SHA384,
-                SS1::RSA_PKCS1_SHA512 => SS2::RSA_PKCS1_SHA512,
-                SS1::ECDSA_NISTP521_SHA512 => SS2::ECDSA_NISTP521_SHA512,
-                SS1::RSA_PSS_SHA256 => SS2::RSA_PSS_SHA256,
-                SS1::RSA_PSS_SHA384 => SS2::RSA_PSS_SHA384,
-                SS1::RSA_PSS_SHA512 => SS2::RSA_PSS_SHA512,
-                SS1::ED25519 => SS2::ED25519,
-                SS1::ED448 => SS2::ED448,
-                SS1::Unknown(u) => SS2::Unknown(u),
-                _ => SS2::Unknown(u16::MAX),
-            }
-        }
-    }
-    struct SigningKeyCompat(Arc<dyn sign::SigningKey>);
-    impl rustls_21::sign::SigningKey for SigningKeyCompat {
-        #[allow(clippy::transmute_ptr_to_ptr)]
-        fn choose_scheme(
-            &self,
-            offered: &[rustls_21::SignatureScheme],
-        ) -> Option<Box<dyn rustls_21::sign::Signer>> {
-            // safety: the bit layout of SignatureScheme is identical & both are explicitly noted
-            // as u16 enums in the source.
-            let offered = unsafe { std::mem::transmute(offered) };
-            let signer = self.0.choose_scheme(offered)?;
-            let signer = Box::new(SignerCompat(signer));
-            Some(signer)
-        }
-
-        fn algorithm(&self) -> rustls_21::SignatureAlgorithm {
-            use rustls::SignatureAlgorithm as SA1;
-            use rustls_21::SignatureAlgorithm as SA2;
-            match self.0.algorithm() {
-                SA1::Anonymous => SA2::Anonymous,
-                SA1::RSA => SA2::RSA,
-                SA1::DSA => SA2::DSA,
-                SA1::ECDSA => SA2::ECDSA,
-                SA1::ED25519 => SA2::ED25519,
-                SA1::ED448 => SA2::ED448,
-                SA1::Unknown(u) => SA2::Unknown(u),
-                _ => SA2::Unknown(255),
-            }
-        }
-    }
-    let certs = key
-        .cert
-        .iter()
-        .map(|cert| rustls_21::Certificate(cert.to_vec()))
-        .collect::<Vec<_>>();
-    let pk = key.key.clone();
-    rustls_21::sign::CertifiedKey::new(certs, Arc::new(SigningKeyCompat(pk)))
 }
 
 /// All the supported ALPN protocols.

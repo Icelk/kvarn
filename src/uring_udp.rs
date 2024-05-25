@@ -27,47 +27,57 @@ use quinn::udp::{EcnCodepoint, RecvMeta, Transmit};
 use crate::prelude::*;
 
 #[allow(clippy::type_complexity)]
-pub(crate) struct UringUdpSocket {
+struct Inner {
     // store futures until completion, since `tokio-uring` doesn't have a poll interface.
-    send_fut:
-        RefCell<Vec<Pin<Box<dyn Future<Output = (io::Result<usize>, Vec<Bytes>, Option<Bytes>)>>>>>,
-    sent: RefCell<usize>,
-    recv_fut: RefCell<
-        Option<
-            Pin<
-                Box<
-                    dyn Future<
-                        Output = (
-                            io::Result<(usize, SocketAddr, Option<Vec<u8>>)>,
-                            Vec<Vec<u8>>,
-                        ),
-                    >,
+    //
+    // TODO: sketchy: we don't copy the contents but assume they're kept in memory...
+    send_fut: Option<
+        Pin<Box<dyn Future<Output = (io::Result<usize>, Vec<&'static [u8]>, Option<Vec<u8>>)>>>,
+    >,
+    send_complete: bool,
+
+    recv_fut: Option<
+        Pin<
+            Box<
+                dyn Future<
+                    Output = (
+                        io::Result<(usize, SocketAddr, Option<Vec<u8>>)>,
+                        Vec<Vec<u8>>,
+                    ),
                 >,
             >,
         >,
     >,
 
+    msg_vec: Option<Vec<&'static [u8]>>,
+    ctrl_vec: Option<Vec<u8>>,
+
     socket: tokio_uring::net::UdpSocket,
 
-    last_send_error: RefCell<Instant>,
-    max_gso_segments: RefCell<usize>,
+    last_send_error: Instant,
+    max_gso_segments: usize,
     gro_segments: usize,
     may_fragment: bool,
 
-    sendmsg_einval: RefCell<bool>,
+    sendmsg_einval: bool,
+}
+pub(crate) struct UringUdpSocket {
+    inner: RefCell<Inner>,
 }
 impl Debug for UringUdpSocket {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let me = self.inner.borrow();
         f.debug_struct("UringUdpSocket")
             .field("send_fut", &"[send_fut]".as_clean())
-            .field("sent", &*self.sent.borrow())
             .field("recv_fut", &"[recv_fut]".as_clean())
+            .field("msg_vec", &"[msg_vec]".as_clean())
+            .field("ctrl_vec", &"[ctrl_vec]".as_clean())
             .field("socket", &"[internal socket]".as_clean())
-            .field("last_send_error", &*self.last_send_error.borrow())
-            .field("max_gso_segments", &*self.max_gso_segments.borrow())
-            .field("gro_segments", &self.gro_segments)
-            .field("may_fragment", &self.may_fragment)
-            .field("sendmsg_einval", &*self.sendmsg_einval.borrow())
+            .field("last_send_error", &me.last_send_error)
+            .field("max_gso_segments", &me.max_gso_segments)
+            .field("gro_segments", &me.gro_segments)
+            .field("may_fragment", &me.may_fragment)
+            .field("sendmsg_einval", &me.sendmsg_einval)
             .finish()
     }
 }
@@ -132,18 +142,23 @@ impl UringUdpSocket {
         let now = Instant::now();
 
         Ok(Self {
-            send_fut: RefCell::new(Vec::new()),
-            sent: RefCell::new(0),
-            recv_fut: RefCell::new(None),
-            socket: io,
+            inner: RefCell::new(Inner {
+                send_fut: None,
+                recv_fut: None,
+                send_complete: false,
 
-            last_send_error: RefCell::new(
-                now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now),
-            ),
-            max_gso_segments: RefCell::new(gso::max_gso_segments()),
-            gro_segments: gro::gro_segments(),
-            may_fragment,
-            sendmsg_einval: RefCell::new(false),
+                msg_vec: Some(Vec::with_capacity(1)),
+                ctrl_vec: Some(Vec::new()),
+
+                socket: io,
+
+                last_send_error: now.checked_sub(2 * IO_ERROR_LOG_INTERVAL).unwrap_or(now),
+
+                max_gso_segments: gso::max_gso_segments(),
+                gro_segments: gro::gro_segments(),
+                may_fragment,
+                sendmsg_einval: false,
+            }),
         })
     }
 }
@@ -157,95 +172,129 @@ type IpTosTy = libc::c_int;
 /// Log at most 1 IO error per minute
 const IO_ERROR_LOG_INTERVAL: Duration = std::time::Duration::from_secs(60);
 const OPTION_ON: libc::c_int = 1;
-// Chosen somewhat arbitrarily; might benefit from additional tuning.
-const BATCH_SIZE: usize = 32;
 
-impl quinn::AsyncUdpSocket for UringUdpSocket {
-    fn poll_send(
-        &self,
-        cx: &mut Context,
-        transmits: &[quinn::udp::Transmit],
-    ) -> Poll<Result<usize, io::Error>> {
-        // in brackets so RefCell borrow doesn't leak into recursion
-        {
-            let num_transmits = transmits.len().min(BATCH_SIZE);
-            // check stored futures
-            let mut vec = self.send_fut.borrow_mut();
-            let vec = &mut *vec;
-            let empty = vec.is_empty();
-            // `TODO`: some prettier error handling?
-            let mut has_error = false;
-            vec.retain_mut(|fut| {
-                let poll = fut.poll_unpin(cx);
-                let is_pending = poll.is_pending();
-                if let Poll::Ready((Err(e), _, _)) = poll {
+#[derive(Debug)]
+struct UdpPoller {
+    socket: Arc<UringUdpSocket>,
+}
+impl quinn::UdpPoller for UdpPoller {
+    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        let mut me = self.socket.inner.borrow_mut();
+        let result = if let Some(fut) = &mut me.send_fut {
+            fut.poll_unpin(cx)
+        } else {
+            // assume we're ready to write
+            return Poll::Ready(Ok(()));
+            // return Poll::Ready(Err(io::Error::new(
+            //     io::ErrorKind::InvalidInput,
+            //     "try_send hasn't been called!",
+            // )));
+        };
+        match result {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready((result, mut msg_vec, ctrl_vec)) => {
+                msg_vec.clear();
+                me.msg_vec = Some(msg_vec);
+                let mut ctrl_vec = ctrl_vec.unwrap();
+                ctrl_vec.clear();
+                me.ctrl_vec = Some(ctrl_vec);
+
+                me.send_complete = true;
+
+                if let Err(e) = &result {
                     if let Some(libc::EIO | libc::EINVAL) = e.raw_os_error() {
                         // Prevent new transmits from being scheduled using GSO. Existing GSO transmits
                         // may already be in the pipeline, so we need to tolerate additional failures.
-                        if *self.max_gso_segments.borrow() > 1 {
-                            error!("Your network card doesn't support certain optimizations (GSO or GRO).");
-                            self.max_gso_segments
-                                .replace(1);
+                        if me.max_gso_segments > 1 {
+                            error!(
+                                "Your network card doesn't support \
+                                certain optimizations (GSO or GRO)."
+                            );
+                            me.max_gso_segments = 1;
                         }
-                    }
 
-                    if e.raw_os_error() == Some(libc::EINVAL) {
+                        // as if this didn't happen. Parent will retry
+                        me.send_fut = None;
+                    } else if e.raw_os_error() == Some(libc::EINVAL) {
                         // Some arguments to `sendmsg` are not supported.
                         // Switch to fallback mode.
-                        self.sendmsg_einval
-                            .replace(true);
-                    }
+                        me.sendmsg_einval = true;
 
-                    if e.raw_os_error() != Some(libc::EMSGSIZE) {
-                        log_sendmsg_error(&mut self.last_send_error.borrow_mut(), &e, &transmits[0]);
+                        error!(
+                            "Your network card doesn't support \
+                            certain optimizations (FEC / sendmsg)."
+                        );
+
+                        // as if this didn't happen. Parent will retry
+                        me.send_fut = None;
+                    } else if e.raw_os_error() != Some(libc::EMSGSIZE) {
+                        log_sendmsg_error(&mut me.last_send_error, e);
                     }
-                    has_error = true;
                 }
-                is_pending
-            });
-            if !empty {
-                if has_error {
-                    return Poll::Ready(Ok(num_transmits.min(1)));
-                }
-                // became empty, everything is complete
-                if vec.is_empty() {
-                    return Poll::Ready(Ok(*self.sent.borrow()));
-                }
-                return Poll::Pending;
+                Poll::Ready(result.map(|_| ()))
             }
-
+        }
+    }
+}
+impl quinn::AsyncUdpSocket for UringUdpSocket {
+    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn quinn::UdpPoller>> {
+        Box::pin(UdpPoller { socket: self })
+    }
+    fn try_send(&self, transmit: &quinn::udp::Transmit) -> Result<(), io::Error> {
+        let mut me = self.inner.borrow_mut();
+        if me.send_fut.is_some() {
+            if me.send_complete {
+                me.send_fut = None;
+                me.send_complete = false;
+                Ok(())
+            } else {
+                warn!("internal h3: tried to send multiple transmits at the same time");
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            }
+        } else {
             // we copy this from `quinn-udp/cmsg.rs` since we have to extract the `ctrl` later.
             let mut hdr: libc::msghdr = unsafe { mem::zeroed() };
             let mut iov: libc::iovec = unsafe { mem::zeroed() };
             let mut ctrl = cmsg::Aligned([0u8; CMSG_LEN]);
-            let mut sent = 0;
 
-            while sent < transmits.len() {
-                let addr = socket2::SockAddr::from(transmits[sent].destination);
-                prepare_msg(
-                    &transmits[sent],
-                    &addr,
-                    &mut hdr,
-                    &mut iov,
-                    &mut ctrl,
-                    *self.sendmsg_einval.borrow(),
-                );
-                let fut = self.socket.sendmsg(
-                    vec![transmits[sent].contents.clone()],
-                    Some(transmits[sent].destination),
-                    Some(Bytes::copy_from_slice(&ctrl.0[..hdr.msg_controllen])),
-                );
-                // this is OK, since the lifetime in `fut` comes from `self.socket`. `self` owns both the
-                // socket and the future. And `self` will never be dropped (assumed), so the `Drop` impl is
-                // unimportant.
-                let fut = unsafe { future_to_static_lifetime(Box::pin(fut)) };
-                vec.push(fut);
-                sent += 1;
-            }
-            *self.sent.borrow_mut() = sent;
+            let addr = socket2::SockAddr::from(transmit.destination);
+            prepare_msg(
+                transmit,
+                &addr,
+                &mut hdr,
+                &mut iov,
+                &mut ctrl,
+                me.sendmsg_einval,
+            );
+            let t = unsafe { transmit_to_static_lifetime(transmit) };
+
+            let mut msgs = me.msg_vec.take().expect("multiple sends at the same time");
+            msgs.push(t.contents);
+
+            let mut ctrl_vec = me.ctrl_vec.take().expect("multiple sends at the same time");
+            ctrl_vec.extend_from_slice(&ctrl.0[..hdr.msg_controllen]);
+
+            // https://docs.rs/kvarn-tokio-uring/latest/kvarn_tokio_uring/net/struct.UdpSocket.html#method.sendmsg_zc
+            let fut: Pin<Box<dyn Future<Output = _>>> = if transmit.contents.len() > 10_000 {
+                Box::pin(
+                    me.socket
+                        .sendmsg_zc(msgs, Some(transmit.destination), Some(ctrl_vec)),
+                )
+            } else {
+                Box::pin(
+                    me.socket
+                        .sendmsg(msgs, Some(transmit.destination), Some(ctrl_vec)),
+                )
+            };
+
+            // this is OK, since the lifetime in `fut` comes from `self.socket`. `self` owns both the
+            // socket and the future. And `self` will never be dropped (assumed), so the `Drop` impl is
+            // unimportant.
+            let fut = unsafe { future_to_static_lifetime(fut) };
+            me.send_fut = Some(fut);
+            me.send_complete = false;
+            Err(io::Error::from(io::ErrorKind::WouldBlock))
         }
-        // make sure we actually poll the newly created future
-        self.poll_send(cx, transmits)
     }
 
     fn poll_recv(
@@ -256,13 +305,12 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
     ) -> Poll<io::Result<usize>> {
         // in brackets so RefCell borrow doesn't leak into recursion
         {
+            let mut me = self.inner.borrow_mut();
             // check stored future
-            let mut fut = self.recv_fut.borrow_mut();
-            let fut_opt = &mut *fut;
-            if let Some(fut) = fut_opt {
+            if let Some(fut) = &mut me.recv_fut {
                 let poll = fut.poll_unpin(cx);
                 if poll.is_ready() {
-                    *fut_opt = None;
+                    me.recv_fut = None;
                 }
                 if let Poll::Ready((mut r, mut buf)) = poll {
                     // we created the vecs even though we didn't own them, so let's just forget about
@@ -294,7 +342,7 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
                 }
                 return Poll::Pending;
             }
-            let fut = self.socket.recvmsg(
+            let fut = me.socket.recvmsg(
                 // we know (hopefully) that `quinn` will keep `bufs` alive for the duration of this
                 // future (all calls to `poll_recv` until we return `Poll::Ready`), so making a Vec &
                 // assuming our ownership is OK. We also `mem::forget` the vecs later, so no
@@ -310,23 +358,23 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
             // socket and the future. And `self` will never be dropped (assumed), so the `Drop` impl is
             // unimportant.
             let fut = unsafe { future_to_static_lifetime(Box::pin(fut)) };
-            *fut_opt = Some(fut);
+            me.recv_fut = Some(fut);
             // make sure we actually poll the newly created future
         }
         self.poll_recv(cx, bufs, meta)
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.socket.local_addr()
+        self.inner.borrow().socket.local_addr()
     }
     fn may_fragment(&self) -> bool {
-        self.may_fragment
+        self.inner.borrow().may_fragment
     }
     fn max_transmit_segments(&self) -> usize {
-        *self.max_gso_segments.borrow()
+        self.inner.borrow().max_gso_segments
     }
     fn max_receive_segments(&self) -> usize {
-        self.gro_segments
+        self.inner.borrow().gro_segments
     }
 }
 
@@ -334,6 +382,9 @@ unsafe fn future_to_static_lifetime<'a, T>(
     fut: Pin<Box<dyn Future<Output = T> + 'a>>,
 ) -> Pin<Box<dyn Future<Output = T> + 'static>> {
     mem::transmute(fut)
+}
+unsafe fn transmit_to_static_lifetime(transmit: &Transmit) -> &'static Transmit<'static> {
+    mem::transmute(transmit)
 }
 
 fn prepare_msg(
@@ -482,14 +533,15 @@ fn set_socket_option_supported(
 fn log_sendmsg_error(
     last_send_error: &mut Instant,
     err: impl core::fmt::Debug,
-    transmit: &Transmit,
+    // transmit: &Transmit,
 ) {
     let now = Instant::now();
     if now.saturating_duration_since(*last_send_error) > IO_ERROR_LOG_INTERVAL {
         *last_send_error = now;
-        warn!(
-        "sendmsg error: {:?}, Transmit: {{ destination: {:?}, src_ip: {:?}, enc: {:?}, len: {:?}, segment_size: {:?} }}",
-            err, transmit.destination, transmit.src_ip, transmit.ecn, transmit.contents.len(), transmit.segment_size);
+        warn!("sendmsg error: {err:?}",);
+        // warn!(
+        // "sendmsg error: {:?}, Transmit: {{ destination: {:?}, src_ip: {:?}, enc: {:?}, len: {:?}, segment_size: {:?} }}",
+        //     err, transmit.destination, transmit.src_ip, transmit.ecn, transmit.contents.len(), transmit.segment_size);
     }
 }
 

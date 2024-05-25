@@ -46,7 +46,6 @@ percent-encoding = "2"
 kvarn_async = { path = "async", version = "0.6.0" }
 kvarn_utils = { path = "utils", version = "0.6.0" }
 kvarn_signal = { path = "signal", version = "0.2", optional = true }
-# Range because of vulnerability https://rustsec.org/advisories/RUSTSEC-2023-0001.html
 tokio = { version = "1.24", features = ["rt", "io-util", "fs", "sync", "parking_lot", "time", "macros"] }
 # tokio-uring = { git = "https://github.com/Icelk/tokio-uring", branch = "recvmsg-msg_control", features = ["bytes"], optional = true }
 tokio-uring = { version = "0.4.0-alpha1", package = "kvarn-tokio-uring", features = ["bytes"], optional = true }
@@ -55,9 +54,7 @@ moka = { version = "0.12", features = ["sync"], default-features = false }
 dashmap = "5"
 
 # HTTPS
-rustls = { version = "0.23", optional = true, features = ["ring"] }
-# bad hack because quinn hasn't updated yet
-rustls-21 = { version = "0.21", package = "rustls", optional = true }
+rustls = { version = "0.23", optional = true, features = ["std", "ring", "logging", "tls12"], default-features = false }
 rustls-pemfile = { version = "2.0", optional = true }
 webpki = { version = "0.22.4", optional = true }
 
@@ -79,9 +76,9 @@ sha-1 = { version = "0.10", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink"] }
 
 # HTTP/3
-h3 = { version = "0.0.4", optional = true }
-h3-quinn = { version = "0.0.6-alpha1", package = "kvarn-h3-quinn", optional = true }
-quinn = { version = "0.11.0-alpha1", package = "kvarn-quinn", default-features = false, features = ["tls-rustls", "log", "runtime-tokio"], optional = true }
+h3 = { version = "0.0.5", optional = true }
+h3-quinn = { version = "0.0.6", optional = true }
+quinn = { version = "0.11.1", default-features = false, features = ["rustls", "log", "runtime-tokio"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", default-features = false }
@@ -104,7 +101,7 @@ gzip = ["flate2"]
 all-http = ["https", "http2", "http3"]
 https = ["rustls", "rustls-pemfile", "webpki", "async-networking"]
 http2 = ["h2", "https"]
-http3 = ["h3", "h3-quinn", "quinn", "rustls-21", "https"]
+http3 = ["h3", "h3-quinn", "quinn", "https"]
 
 # Graceful shutdown; shutdown.rs
 graceful-shutdown = ["handover"]
