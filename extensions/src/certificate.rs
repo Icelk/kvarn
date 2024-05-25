@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use kvarn::prelude::*;
-use rcgen::{Certificate, CertificateParams, DistinguishedName};
+use rcgen::{CertificateParams, DistinguishedName};
 use rustls::pki_types::PrivateKeyDer;
 use small_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt,
@@ -184,7 +184,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 }
                 Err(small_acme::Error::Str(s)) if s == NOT_PUBLIC_ERROR => {
                     debug!("We're not public facing: don't renew certs");
-                    let (og_key, key) = match generate_self_signed_cert(domain.clone()) {
+                    let (rcg, cert_key) = match generate_self_signed_cert(domain.clone()) {
                         Ok(v) => v,
                         Err(err) => {
                             error!("Failed to create self-signed cert: {err}");
@@ -193,11 +193,11 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                     };
                     info!("Using self-signed for {domain}.");
                     (
-                        key,
+                        cert_key,
                         chrono::OffsetDateTime::now_utc()
                             + chrono::time::Duration::days(365 * 2000),
-                        og_key.serialize_pem().unwrap(),
-                        og_key.serialize_private_key_pem(),
+                        rcg.cert.pem(),
+                        rcg.key_pair.serialize_pem(),
                         true,
                     )
                 }
@@ -405,16 +405,16 @@ pub fn get_cert(
     // If the order is ready, we can provision the certificate.
     // Use the rcgen library to create a Certificate Signing Request.
 
-    let mut params = CertificateParams::new(names.clone());
+    let key = rcgen::KeyPair::generate().unwrap();
+    let mut params = CertificateParams::new(names.clone()).map_err(|_| "domain names invalid")?;
     params.distinguished_name = DistinguishedName::new();
-    let key = Certificate::from_params(params).map_err(|_| "domain names invalid")?;
-    let csr = key
-        .serialize_request_der()
-        .map_err(|_| "let's encrypt gave an invalid cert")?;
+    let csr = params
+        .serialize_request(&key)
+        .map_err(|_| "domain names invalid")?;
 
     // Finalize the order and print certificate chain, private key and account credentials.
 
-    order.finalize(&csr)?;
+    order.finalize(csr.der())?;
 
     let mut tries = 1u8;
     let mut delay = Duration::from_millis(250);
@@ -457,24 +457,26 @@ pub fn get_cert(
         rustls::sign::CertifiedKey::new(
             certs,
             rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(
-                key.serialize_private_key_der().into(),
+                key.serialized_der().into(),
             ))
             .map_err(|_| "FATAL: private key is invalid!")?,
         ),
         expires,
-        (cert_chain_pem, key.serialize_private_key_pem()),
+        (cert_chain_pem, key.serialize_pem()),
     ))
 }
 fn generate_self_signed_cert(
     name: impl Into<String>,
-) -> Result<(rcgen::Certificate, rustls::sign::CertifiedKey), Box<dyn std::error::Error>> {
-    let key = rcgen::generate_simple_self_signed(vec![name.into()])?;
-    let pk = rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(
-        key.serialize_private_key_der().into(),
+) -> Result<(rcgen::CertifiedKey, rustls::sign::CertifiedKey), Box<dyn std::error::Error>> {
+    let self_signed_cert = rcgen::generate_simple_self_signed(vec![name.into()])?;
+    let cert = self_signed_cert.cert.der().clone();
+
+    let pk = PrivateKeyDer::Pkcs8(self_signed_cert.key_pair.serialized_der().into());
+    let pk = rustls::crypto::ring::sign::any_supported_type(&pk).unwrap();
+    Ok((
+        self_signed_cert,
+        rustls::sign::CertifiedKey::new(vec![cert], pk),
     ))
-    .unwrap();
-    let cert = vec![key.serialize_der()?.into()];
-    Ok((key, rustls::sign::CertifiedKey::new(cert, pk)))
 }
 
 fn get_expiration(cert: &[u8]) -> Option<(chrono::OffsetDateTime, bool)> {
