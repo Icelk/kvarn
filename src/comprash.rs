@@ -255,6 +255,7 @@ pub struct CompressionOptions {
     ///
     /// `0` means that the C zstd library decides the default.
     /// Note that this can be negative.
+    /// See <https://facebook.github.io/zstd/> for more context.
     #[cfg(feature = "zstd")]
     pub zstd_level: i32,
     /// The level of zstd compression.
@@ -268,17 +269,31 @@ pub struct CompressionOptions {
     #[cfg(feature = "gzip")]
     pub gzip_level: u32,
 }
-#[allow(clippy::derivable_impls)] // cfg messes with it
-impl Default for CompressionOptions {
-    fn default() -> Self {
+impl CompressionOptions {
+    /// Default for responses which are not cached.
+    #[must_use]
+    pub fn oneshot() -> Self {
         Self {
             preferred: PreferredCompression::default(),
             #[cfg(feature = "zstd")]
-            zstd_level: 0,
+            zstd_level: 1,
             #[cfg(feature = "br")]
             brotli_level: 3,
             #[cfg(feature = "gzip")]
             gzip_level: 1,
+        }
+    }
+    /// Default for responses which are cached.
+    #[must_use]
+    pub fn cached() -> Self {
+        Self {
+            preferred: PreferredCompression::default(),
+            #[cfg(feature = "zstd")]
+            zstd_level: 4,
+            #[cfg(feature = "br")]
+            brotli_level: 4,
+            #[cfg(feature = "gzip")]
+            gzip_level: 2,
         }
     }
 }
@@ -357,8 +372,23 @@ impl CompressedResponse {
     pub async fn clone_preferred<T>(
         &self,
         request: &Request<T>,
-        options: &CompressionOptions,
+        regular_options: &CompressionOptions,
+        cached_options: &CompressionOptions,
+        do_cache: bool,
     ) -> Result<Response<Bytes>, &'static str> {
+        if self.compress == CompressPreference::None {
+            return Ok(self.clone_identity_set_compression(
+                self.get_identity().body().clone(),
+                HeaderValue::from_static("identity"),
+            ));
+        }
+
+        let options = if do_cache {
+            cached_options
+        } else {
+            regular_options
+        };
+
         let values = match request
             .headers()
             .get("accept-encoding")
@@ -401,47 +431,42 @@ impl CompressedResponse {
         let (bytes, compression) = match &mime {
             Some(mime) => {
                 if do_compress(mime) {
-                    match self.compress {
-                        CompressPreference::None => (self.get_identity().body(), "identity"),
-                        CompressPreference::Full => {
-                            #[cfg(feature = "zstd")]
-                            let contains_zstd = contains("zstd");
-                            #[cfg(feature = "br")]
-                            let contains_br = contains("br");
-                            #[cfg(feature = "gzip")]
-                            let contains_gzip = contains("gzip");
+                    #[cfg(feature = "zstd")]
+                    let contains_zstd = contains("zstd");
+                    #[cfg(feature = "br")]
+                    let contains_br = contains("br");
+                    #[cfg(feature = "gzip")]
+                    let contains_gzip = contains("gzip");
 
-                            #[allow(unused_mut)]
-                            let mut preferred = match options.preferred.as_str() {
-                                #[cfg(feature = "zstd")]
-                                "zstd" if contains_zstd => {
-                                    Some((self.get_zstd(options.zstd_level).await, "zstd"))
-                                }
-                                #[cfg(feature = "br")]
-                                "br" if contains_br => {
-                                    Some((self.get_br(options.brotli_level).await, "br"))
-                                }
-                                #[cfg(feature = "gzip")]
-                                "gzip" if contains_gzip => {
-                                    Some((self.get_gzip(options.gzip_level).await, "gzip"))
-                                }
-                                _ => None,
-                            };
-                            #[cfg(feature = "br")]
-                            if preferred.is_none() && contains_zstd {
-                                preferred = Some((self.get_zstd(options.zstd_level).await, "zstd"));
-                            }
-                            #[cfg(feature = "br")]
-                            if preferred.is_none() && contains_br {
-                                preferred = Some((self.get_br(options.brotli_level).await, "br"));
-                            }
-                            #[cfg(feature = "gzip")]
-                            if preferred.is_none() && contains_gzip {
-                                preferred = Some((self.get_gzip(options.gzip_level).await, "gzip"));
-                            }
-                            preferred.unwrap_or_else(|| (self.get_identity().body(), "identity"))
+                    #[allow(unused_mut)]
+                    let mut preferred = match options.preferred.as_str() {
+                        #[cfg(feature = "zstd")]
+                        "zstd" if contains_zstd => {
+                            Some((self.get_zstd(options.zstd_level).await, "zstd"))
                         }
+                        #[cfg(feature = "br")]
+                        "br" if contains_br => {
+                            Some((self.get_br(options.brotli_level).await, "br"))
+                        }
+                        #[cfg(feature = "gzip")]
+                        "gzip" if contains_gzip => {
+                            Some((self.get_gzip(options.gzip_level).await, "gzip"))
+                        }
+                        _ => None,
+                    };
+                    #[cfg(feature = "br")]
+                    if preferred.is_none() && contains_zstd {
+                        preferred = Some((self.get_zstd(options.zstd_level).await, "zstd"));
                     }
+                    #[cfg(feature = "br")]
+                    if preferred.is_none() && contains_br {
+                        preferred = Some((self.get_br(options.brotli_level).await, "br"));
+                    }
+                    #[cfg(feature = "gzip")]
+                    if preferred.is_none() && contains_gzip {
+                        preferred = Some((self.get_gzip(options.gzip_level).await, "gzip"));
+                    }
+                    preferred.unwrap_or_else(|| (self.get_identity().body(), "identity"))
                 } else {
                     debug!("Not compressing; filtered out.");
                     (self.get_identity().body(), "identity")

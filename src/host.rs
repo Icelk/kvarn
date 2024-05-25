@@ -79,8 +79,10 @@ pub struct Host {
 
     /// Other settings.
     pub options: Options,
-    /// Preferences and options for compression.
-    pub compression_options: comprash::CompressionOptions,
+    /// Preferences and options for compression when a response is not cached.
+    pub compression_options_oneshot: comprash::CompressionOptions,
+    /// Preferences and options for compression when a response is cached.
+    pub compression_options_cached: comprash::CompressionOptions,
     // also add to debug implementation when inserting new field
 }
 impl Host {
@@ -182,7 +184,8 @@ impl Host {
             limiter: LimitManager::default(),
             vary: Vary::default(),
 
-            compression_options: comprash::CompressionOptions::default(),
+            compression_options_oneshot: comprash::CompressionOptions::oneshot(),
+            compression_options_cached: comprash::CompressionOptions::cached(),
         }
     }
     /// Same as [`Self::new`], but extracts the host name from the certificate.
@@ -255,7 +258,9 @@ impl Host {
             options,
             limiter: LimitManager::default(),
             vary: Vary::default(),
-            compression_options: comprash::CompressionOptions::default(),
+
+            compression_options_oneshot: comprash::CompressionOptions::oneshot(),
+            compression_options_cached: comprash::CompressionOptions::cached(),
         }
     }
 
@@ -404,19 +409,47 @@ impl Host {
     }
 
     /// Set the brotli compression level. 1-10, lower values are faster, but compress less.
+    /// Default = 3.
     ///
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "br")]
     pub fn set_brotli_level(&mut self, level: u32) -> &mut Self {
-        self.compression_options.brotli_level = level;
+        self.compression_options_cached.brotli_level = level;
         self
     }
     /// Set the gzip compression level. 1-10, lower values are faster, but compress less.
+    /// Default = 1.
     ///
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "gzip")]
     pub fn set_gzip_level(&mut self, level: u32) -> &mut Self {
-        self.compression_options.gzip_level = level;
+        self.compression_options_cached.gzip_level = level;
+        self
+    }
+    /// Set the zstd compression level. Lower values are faster, but compress less.
+    /// Negative values are allowed. See the link for more info. Default = 4.
+    /// <https://facebook.github.io/zstd/>
+    #[cfg(feature = "zstd")]
+    pub fn set_zstd_level(&mut self, level: i32) -> &mut Self {
+        self.compression_options_cached.zstd_level = level;
+        self
+    }
+    /// Like [`Host::set_brotli_level`] but for responses which are not cached.
+    #[cfg(feature = "br")]
+    pub fn set_brotli_level_oneshot(&mut self, level: u32) -> &mut Self {
+        self.compression_options_oneshot.brotli_level = level;
+        self
+    }
+    /// Like [`Host::set_gzip_level`] but for responses which are not cached.
+    #[cfg(feature = "gzip")]
+    pub fn set_gzip_level_oneshot(&mut self, level: u32) -> &mut Self {
+        self.compression_options_oneshot.gzip_level = level;
+        self
+    }
+    /// Like [`Host::set_zstd_level`] but for responses which are not cached.
+    #[cfg(feature = "zstd")]
+    pub fn set_zstd_level_oneshot(&mut self, level: i32) -> &mut Self {
+        self.compression_options_oneshot.zstd_level = level;
         self
     }
 
@@ -447,15 +480,16 @@ impl Debug for Host {
             (self.limiter),
             (self.vary),
             (self.options),
-            (self.compression_options),
+            (self.compression_options_oneshot),
+            (self.compression_options_cached),
         );
 
         s.finish()
     }
 }
 impl Host {
-    /// Clones this [`Host`] without carrying with any extensions or caches.
-    /// You'll have to add all extensions (and related settings, such as CSP, CORS, HSTS)
+    /// Clones this [`Host`] without carrying with any extensions or cache contents.
+    /// You'll have to add all extensions (and related "settings", such as CSP, CORS, HSTS)
     /// manually.
     ///
     /// Use sparingly.
@@ -472,7 +506,8 @@ impl Host {
             limiter: self.limiter.clone(),
             vary: Vary::default(),
             options: self.options.clone(),
-            compression_options: self.compression_options.clone(),
+            compression_options_cached: self.compression_options_cached.clone(),
+            compression_options_oneshot: self.compression_options_oneshot.clone(),
         }
     }
 }

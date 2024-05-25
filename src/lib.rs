@@ -1190,6 +1190,28 @@ mod handle_cache_helpers {
             path_query,
         )
     }
+    pub(super) fn get_cache<'a, T>(
+        host: &'a Host,
+        server_cache: comprash::ServerCachePreference,
+        status: StatusCode,
+        method: &Method,
+        future: &Option<T>,
+        prepare_ext_cap: impl FnOnce(),
+    ) -> Option<&'a comprash::ResponseCache> {
+        if future.is_none() {
+            if let Some(cache) = &host.response_cache {
+                // Call `host::Options::status_code_cache_filter`
+                let cache_action = (host.options.status_code_cache_filter)(status);
+
+                if server_cache.cache(cache_action, method) {
+                    return Some(cache);
+                }
+            }
+        } else {
+            prepare_ext_cap();
+        }
+        None
+    }
     /// Cache `response` if allowed by the other arguments.
     ///
     /// Returns the `response` if it wasn't cached.
@@ -1201,26 +1223,24 @@ mod handle_cache_helpers {
         method: &Method,
         future: &Option<T>,
     ) -> Option<VariedResponse> {
-        if future.is_none() {
-            if let Some(response_cache) = &host.response_cache {
-                // Call `host::Options::status_code_cache_filter`
-                let cache_action = (host.options.status_code_cache_filter)(
-                    response.first().0.get_identity().status(),
-                );
-
-                if server_cache.cache(cache_action, method) {
-                    let key = if server_cache.query_matters() {
-                        comprash::UriKey::PathQuery(path_query)
-                    } else {
-                        comprash::UriKey::Path(path_query.into_path())
-                    };
-                    debug!("Caching uri {:?}!", &key);
-                    response_cache.insert_cache_item(key, response);
-                    return None;
-                }
-            }
-        } else {
-            debug!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
+        if let Some(cache) = get_cache(
+            host,
+            server_cache,
+            response.first().0.get_identity().status(),
+            method,
+            future,
+            || {
+                debug!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
+            },
+        ) {
+            let key = if server_cache.query_matters() {
+                comprash::UriKey::PathQuery(path_query)
+            } else {
+                comprash::UriKey::Path(path_query.into_path())
+            };
+            debug!("Caching uri {:?}!", &key);
+            cache.insert_cache_item(key, response);
+            return None;
         }
         Some(response)
     }
@@ -1408,7 +1428,12 @@ pub async fn handle_cache(
                     utils::empty_clone_response(resp.get_identity()).map(|()| body)
                 } else {
                     match resp
-                        .clone_preferred(request, &host.compression_options)
+                        .clone_preferred(
+                            request,
+                            &host.compression_options_oneshot,
+                            &host.compression_options_cached,
+                            true,
+                        )
                         .await
                     {
                         Err(message) => {
@@ -1463,8 +1488,21 @@ pub async fn handle_cache(
                 let body = compressed_response.get_identity().body().clone();
                 utils::empty_clone_response(compressed_response.get_identity()).map(|()| body)
             } else {
+                let cache = handle_cache_helpers::get_cache(
+                    host,
+                    server_cache,
+                    compressed_response.get_identity().status(),
+                    request.method(),
+                    &future,
+                    || {},
+                );
                 match compressed_response
-                    .clone_preferred(request, &host.compression_options)
+                    .clone_preferred(
+                        request,
+                        &host.compression_options_oneshot,
+                        &host.compression_options_cached,
+                        cache.is_some(),
+                    )
                     .await
                 {
                     Err(message) => {
