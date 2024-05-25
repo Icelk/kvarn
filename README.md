@@ -1,5 +1,5 @@
 [![crates.io version](https://img.shields.io/crates/v/kvarn)](https://crates.io/crates/kvarn)
-![lines of code](https://img.shields.io/tokei/lines/github/Icelk/kvarn)
+![lines of code](https://tokei.rs/b1/github/Icelk/kvarn?style=flat)
 [![license](https://img.shields.io/github/license/Icelk/kvarn)](#contributing)
 [![CI status](https://img.shields.io/github/actions/workflow/status/Icelk/kvarn/main.yml?branch=main)](https://github.com/Icelk/kvarn/actions)
 [![open issues](https://img.shields.io/github/issues-raw/Icelk/kvarn)](https://github.com/Icelk/kvarn/issues)
