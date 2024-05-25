@@ -69,6 +69,7 @@ x509-parser = { version = "0.16", optional = true }
 # Compression
 brotli = { version = "3", optional = true }
 flate2 = { version = "1", optional = true }
+zstd = { version = "0.13", optional = true, default-features = false, features = ["fat-lto"] }
 
 # WebSockets
 tokio-tungstenite = { version = "0.21", optional = true, default-features = false }
@@ -93,9 +94,11 @@ full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname", "no
 base = ["async-networking", "handover"]
 
 # Compressing
-all-compression = ["br", "gzip"]
+all-compression = ["br", "gzip", "zstd"]
 br = ["brotli"]
 gzip = ["flate2"]
+zstd = ["dep:zstd"]
+zstd-multithread = ["zstd/zstdmt"]
 
 # HTTP standards
 all-http = ["https", "http2", "http3"]

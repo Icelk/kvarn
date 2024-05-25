@@ -192,15 +192,21 @@ pub fn do_compress(mime: &Mime) -> bool {
 ///
 /// The default is chosen according to the [cargo features](https://kvarn.org/cargo-features.) in
 /// the following order:
+/// - Zstd
 /// - Brotli
 /// - Gzip
 /// - None
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PreferredCompression {
-    /// Prefer the brotli algorithm.
+    /// Prefer the Zstd algorithm.
     ///
     /// This is the default and is the best.
+    #[cfg(feature = "zstd")]
+    Zstd,
+    /// Prefer the brotli algorithm.
+    ///
+    /// This is the second best.
     #[cfg(feature = "br")]
     Brotli,
     /// Prefer the gzip algorithm.
@@ -216,6 +222,8 @@ impl PreferredCompression {
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
+            #[cfg(feature = "zstd")]
+            Self::Zstd => "zstd",
             #[cfg(feature = "br")]
             Self::Brotli => "br",
             #[cfg(feature = "gzip")]
@@ -224,22 +232,18 @@ impl PreferredCompression {
         }
     }
 }
-// invalid lint
-#[allow(clippy::derivable_impls)]
 impl Default for PreferredCompression {
     fn default() -> Self {
-        #[cfg(feature = "br")]
-        {
-            PreferredCompression::Brotli
-        }
-        #[cfg(all(not(feature = "br"), feature = "gzip"))]
-        {
-            PreferredCompression::Gzip
-        }
-        #[cfg(all(not(feature = "br"), not(feature = "gzip")))]
-        {
-            PreferredCompression::None
-        }
+        let list = &[
+            #[cfg(feature = "zstd")]
+            PreferredCompression::Zstd,
+            #[cfg(feature = "br")]
+            PreferredCompression::Brotli,
+            #[cfg(feature = "gzip")]
+            PreferredCompression::Gzip,
+            PreferredCompression::None,
+        ];
+        list[0]
     }
 }
 /// Some options for how to compress the response.
@@ -247,7 +251,13 @@ impl Default for PreferredCompression {
 pub struct CompressionOptions {
     /// The preferred compression algorithm.
     pub preferred: PreferredCompression,
-    /// The level of brotli compression.
+    /// The level of zstd compression.
+    ///
+    /// `0` means that the C zstd library decides the default.
+    /// Note that this can be negative.
+    #[cfg(feature = "zstd")]
+    pub zstd_level: i32,
+    /// The level of zstd compression.
     ///
     /// See [some benchmarks](https://quixdb.github.io/squash-benchmark/#results) for more context.
     #[cfg(feature = "br")]
@@ -258,11 +268,12 @@ pub struct CompressionOptions {
     #[cfg(feature = "gzip")]
     pub gzip_level: u32,
 }
-#[allow(clippy::derivable_impls)] // if no features are enabled, we get a warning, since the only field is using it's default
 impl Default for CompressionOptions {
     fn default() -> Self {
         Self {
             preferred: PreferredCompression::default(),
+            #[cfg(feature = "zstd")]
+            zstd_level: 0,
             #[cfg(feature = "br")]
             brotli_level: 3,
             #[cfg(feature = "gzip")]
@@ -280,10 +291,13 @@ impl Default for CompressionOptions {
 #[must_use]
 pub struct CompressedResponse {
     identity: Response<Bytes>,
+    // `TODO`: write atomics
     #[cfg(feature = "gzip")]
     gzip: UnsafeCell<Option<Bytes>>,
     #[cfg(feature = "br")]
     br: UnsafeCell<Option<Bytes>>,
+    #[cfg(feature = "zstd")]
+    zstd: UnsafeCell<Option<Bytes>>,
 
     compress: CompressPreference,
 }
@@ -305,6 +319,8 @@ impl CompressedResponse {
             gzip: UnsafeCell::new(None),
             #[cfg(feature = "br")]
             br: UnsafeCell::new(None),
+            #[cfg(feature = "zstd")]
+            zstd: UnsafeCell::new(None),
 
             compress,
         }
@@ -316,6 +332,10 @@ impl CompressedResponse {
     #[cfg(feature = "br")]
     fn br(&self) -> &Option<Bytes> {
         unsafe { &*self.br.get() }
+    }
+    #[cfg(feature = "zstd")]
+    fn zstd(&self) -> &Option<Bytes> {
+        unsafe { &*self.zstd.get() }
     }
     /// Gets the response with an uncompressed body.
     #[inline]
@@ -367,7 +387,7 @@ impl CompressedResponse {
             ));
         }
 
-        #[cfg(any(feature = "gzip", feature = "br"))]
+        #[cfg(any(feature = "gzip", feature = "br", feature = "zstd"))]
         let contains = |name| values.iter().any(|v| v.value == name && v.quality != 0.0);
 
         let mime = self
@@ -383,6 +403,8 @@ impl CompressedResponse {
                     match self.compress {
                         CompressPreference::None => (self.get_identity().body(), "identity"),
                         CompressPreference::Full => {
+                            #[cfg(feature = "zstd")]
+                            let contains_zstd = contains("zstd");
                             #[cfg(feature = "br")]
                             let contains_br = contains("br");
                             #[cfg(feature = "gzip")]
@@ -390,6 +412,10 @@ impl CompressedResponse {
 
                             #[allow(unused_mut)]
                             let mut preferred = match options.preferred.as_str() {
+                                #[cfg(feature = "zstd")]
+                                "zstd" if contains_zstd => {
+                                    Some((self.get_zstd(options.zstd_level).await, "zstd"))
+                                }
                                 #[cfg(feature = "br")]
                                 "br" if contains_br => {
                                     Some((self.get_br(options.brotli_level).await, "br"))
@@ -400,6 +426,10 @@ impl CompressedResponse {
                                 }
                                 _ => None,
                             };
+                            #[cfg(feature = "br")]
+                            if preferred.is_none() && contains_zstd {
+                                preferred = Some((self.get_zstd(options.zstd_level).await, "zstd"));
+                            }
                             #[cfg(feature = "br")]
                             if preferred.is_none() && contains_br {
                                 preferred = Some((self.get_br(options.brotli_level).await, "br"));
@@ -581,6 +611,45 @@ impl CompressedResponse {
             }
         }
         self.br().as_ref().unwrap()
+    }
+    /// Gets the Zstd compressed version of [`CompressedResponse::get_identity()`]
+    ///
+    /// You should use [`Self::clone_preferred`] to get the preferred compression instead,
+    /// as it is available with any set of features
+    #[cfg(feature = "zstd")]
+    pub async fn get_zstd(&self, level: i32) -> &Bytes {
+        if self.zstd().is_none() {
+            let bytes = self.identity.body().clone();
+            let buffer = threading::spawn_blocking(move || {
+                let mut buffer = utils::WriteableBytes::with_capacity(bytes.len() / 3 + 64);
+
+                let mut encoder = zstd::Encoder::new(&mut buffer, level).unwrap();
+                #[cfg(feature = "zstd-multithread")]
+                #[allow(clippy::cast_possible_truncation)]
+                // we won't saturate a u32!!
+                if let Err(err) = encoder
+                    .multithread(std::thread::available_parallelism().map_or(8, |v| v.get() as u32))
+                {
+                    error!("Failed to enable multithread support for zstd: {err}");
+                }
+                encoder
+                    .write_all(&bytes)
+                    .expect("Failed to compress using Zstd!");
+                encoder.flush().expect("Failed to compress using Zstd!");
+
+                let buffer = buffer.into_inner();
+                buffer.freeze()
+            })
+            .await
+            .unwrap();
+            // Last check to make sure we don't override any value.
+            if self.zstd().is_none() {
+                // maybe shooting myself in the foot...
+                // but should be OK, since we only set it once, otherwise it's None.
+                unsafe { (*self.zstd.get()).replace(buffer) };
+            }
+        }
+        self.zstd().as_ref().unwrap()
     }
 }
 

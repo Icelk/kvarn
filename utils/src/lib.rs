@@ -390,7 +390,7 @@ impl Write for WriteableBytes {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if self.len + buf.len() > self.bytes.capacity() {
-            self.bytes.reserve(buf.len() + 512);
+            self.bytes.reserve(buf.len() * 3 / 2 + 128);
             // This is safe because of the guarantees of `WriteableBytes`; it stores the length internally
             // and applies it when the inner variable is exposed, through `Self::into_inner()`.
             unsafe { self.bytes.set_len(self.bytes.capacity()) };
