@@ -268,6 +268,7 @@ pub struct CompressionOptions {
     #[cfg(feature = "gzip")]
     pub gzip_level: u32,
 }
+#[allow(clippy::derivable_impls)] // cfg messes with it
 impl Default for CompressionOptions {
     fn default() -> Self {
         Self {
