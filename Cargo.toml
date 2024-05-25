@@ -56,15 +56,12 @@ dashmap = "5"
 # HTTPS
 rustls = { version = "0.23.8", optional = true, features = ["std", "ring", "logging", "tls12"], default-features = false }
 rustls-pemfile = { version = "2.1", optional = true }
-webpki = { version = "0.22.4", optional = true }
+rustls-webpki = { version = "0.102", optional = true, default-features = false, features = ["ring", "std"] }
 
 # nonce
 base64 = { version = "0.22", optional = true }
 memchr = { version = "2", optional = true }
 rand = { version = "0.8", optional = true, features = ["small_rng"] }
-
-# Automatic hostname
-x509-parser = { version = "0.16", optional = true }
 
 # Compression
 brotli = { version = "6", optional = true }
@@ -88,7 +85,7 @@ libc = { version = "0.2", default-features = false }
 default = ["full"]
 
 # Enable all features
-full = ["all-http", "all-compression", "graceful-shutdown", "auto-hostname", "nonce", "websocket", "base"]
+full = ["all-http", "all-compression", "graceful-shutdown", "nonce", "websocket", "base"]
 
 # Enable basic features (for all devices but embedded)
 base = ["async-networking", "handover"]
@@ -102,7 +99,7 @@ zstd-multithread = ["zstd/zstdmt"]
 
 # HTTP standards
 all-http = ["https", "http2", "http3"]
-https = ["rustls", "rustls-pemfile", "webpki", "async-networking"]
+https = ["rustls", "rustls-pemfile", "rustls-webpki", "async-networking"]
 http2 = ["h2", "https"]
 http3 = ["h3", "h3-quinn", "quinn", "https"]
 
@@ -110,9 +107,6 @@ http3 = ["h3", "h3-quinn", "quinn", "https"]
 graceful-shutdown = ["handover"]
 # Handover
 handover = ["kvarn_signal"]
-
-# Automatic populating of Host name and alt-names
-auto-hostname = ["x509-parser"]
 
 # nonce implementation
 nonce = ["rand", "base64", "memchr"]

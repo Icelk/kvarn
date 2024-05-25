@@ -124,7 +124,7 @@ impl Host {
     /// # Errors
     ///
     /// Will return any error from [`get_certified_key()`].
-    #[cfg(all(feature = "https", feature = "auto-hostname"))]
+    #[cfg(feature = "https")]
     pub fn read_fs_name_from_cert(
         cert_path: impl AsRef<str>,
         private_key_path: impl AsRef<str>,
@@ -193,53 +193,34 @@ impl Host {
     /// # Panics
     ///
     /// Panics if `cert.is_empty()` or if the first certificate in `cert` is invalid.
-    #[cfg(all(feature = "https", feature = "auto-hostname"))]
+    #[cfg(feature = "https")]
     pub fn new_name_from_cert(
         key: sign::CertifiedKey,
         path: impl AsRef<str>,
         extensions: Extensions,
         options: Options,
     ) -> Self {
-        use x509_parser::prelude::FromDer;
-        let tbs = x509_parser::certificate::X509Certificate::from_der(&key.cert[0])
-            .expect("certificate invalid, failed to get host name")
-            .1
-            .tbs_certificate;
-        let mut names = tbs.subject().iter_common_name();
-        let name = names
-            .next()
-            .expect("no common names were found")
-            .as_str()
-            .expect("the common name contains invalid bytes")
-            .to_owned();
-        let mut alt_names = Vec::new();
-        for name in names.filter_map(|name| name.as_str().ok()) {
-            alt_names.push(name.to_compact_string());
-        }
-        let alt_name = tbs
-            .subject_alternative_name()
-            .expect("alternative name extension of certificate invalid");
-        if let Some(alt_name) = alt_name {
-            for name in alt_name
-                .value
-                .general_names
-                .iter()
-                .filter_map(|name| match name {
-                    x509_parser::prelude::GeneralName::DNSName(name) => Some(name),
-                    _ => None,
-                })
-            {
-                alt_names.push((*name).to_compact_string());
-            }
-        }
-        let mut me = Self::new(name, key, path, extensions, options);
-        me.alternative_names = alt_names;
+        let parsed = rustls_webpki::EndEntityCert::try_from(&key.cert[0])
+            .expect("internal certificate has invalid format?");
+        let names: Vec<_> = parsed
+            .valid_dns_names()
+            .map(|s| s.to_compact_string())
+            .collect();
+        let mut me = Self::new(
+            names.first().expect("cert has no name?").clone(),
+            key,
+            path,
+            extensions,
+            options,
+        );
+        me.alternative_names = names;
         me
     }
     /// Creates a new [`Host`] without a certificate.
     ///
     /// This host will only support non-encrypted HTTP/1 connections.
-    /// Consider enabling the `https` feature and use a self-signed certificate or one from [Let's Encrypt](https://letsencrypt.org/).
+    /// Consider enabling the `https` feature and use a self-signed certificate
+    /// or one from [Let's Encrypt](https://letsencrypt.org/).
     pub fn unsecure(
         host_name: impl AsRef<str>,
         path: impl AsRef<str>,
