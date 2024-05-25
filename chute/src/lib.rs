@@ -496,13 +496,13 @@ fn process_inner<P: AsRef<Path>>(
         skip: !syntax_highlighting,
     };
 
-    let mut output = Vec::with_capacity(input.len() * 2);
+    let mut output = String::with_capacity(input.len() * 2);
 
     // Write HTML from specified file to output file (buffered for performance)
-    html::write_html(&mut output, parser)?;
+    html::push_html(&mut output, parser);
 
     // Write output
-    write_file.write_all(&output)?;
+    write_file.write_all(output.as_bytes())?;
 
     // Writes footer
     write_file.write_all(footer)?;
