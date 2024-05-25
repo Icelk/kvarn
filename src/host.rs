@@ -200,7 +200,7 @@ impl Host {
         extensions: Extensions,
         options: Options,
     ) -> Self {
-        let parsed = rustls_webpki::EndEntityCert::try_from(&key.cert[0])
+        let parsed = webpki::EndEntityCert::try_from(&key.cert[0])
             .expect("internal certificate has invalid format?");
         let names: Vec<_> = parsed
             .valid_dns_names()
