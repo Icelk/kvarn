@@ -48,14 +48,27 @@ async fn main() {
                 .help("Consider 'not found' error to be a success."),
         )
         .arg(
+            Arg::new("uring-workaround")
+                .action(ArgAction::SetTrue)
+                .long("uring-shutdown-workaround")
+                .help(
+                    "For some reason, when we exit the Tokio uring runtime it panics. \n\
+                    This option assumes that to be a successful shutdown (which it is). \n\
+                    TL;DR: to be used when\n    - running Kvarn with uring and \n    \
+                    - using the shutdown / reload behaviour and \n    \
+                    - relying on kvarnctl giving a successful \
+                    status code in e.g. a systemd service",
+                ),
+        )
+        .arg(
             Arg::new("wait")
                 .short('w')
                 .long("wait")
                 .action(ArgAction::SetTrue)
                 .help(
-                    "Waits for Kvarn to turn off. This doesn't get affected by reloads. \
+                    "Waits for Kvarn to turn off. This doesn't get affected by reloads. \n\
                     If no Kvarn instance is running, \
-                    this will wait for a) one to start and b) for it to turn off.",
+                    this will wait for\n    a) one to start and\n    b) for it to turn off.",
                 )
                 .conflicts_with("command"),
         )
@@ -268,10 +281,12 @@ async fn main() {
         });
 
     let accept_not_found = matches.get_flag("accept-not-found");
+    let uring_workaround = matches.get_flag("uring-workaround");
 
     match request(message.as_bytes(), &path, !accept_not_found).await {
         Ok(args) if !matches.get_flag("silent") => println!("{args}"),
         Ok(_) => {}
+        Err(5) if uring_workaround => {}
         Err(3) if accept_not_found => {}
         Err(status) => std::process::exit(status),
     }
