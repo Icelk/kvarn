@@ -243,7 +243,6 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
                 me.send_fut = None;
                 Ok(())
             } else {
-                warn!("internal h3: tried to send multiple transmits at the same time");
                 Err(io::Error::from(io::ErrorKind::WouldBlock))
             }
         } else {
