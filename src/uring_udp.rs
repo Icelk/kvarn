@@ -26,31 +26,29 @@ use quinn::udp::{EcnCodepoint, RecvMeta, Transmit};
 
 use crate::prelude::*;
 
-#[allow(clippy::type_complexity)]
-struct Inner {
-    // store futures until completion, since `tokio-uring` doesn't have a poll interface.
-    //
-    // TODO: sketchy: we don't copy the contents but assume they're kept in memory...
-    send_fut: Option<
-        Pin<Box<dyn Future<Output = (io::Result<usize>, Vec<&'static [u8]>, Option<Vec<u8>>)>>>,
-    >,
-    send_complete: bool,
-
-    recv_fut: Option<
-        Pin<
-            Box<
-                dyn Future<
-                    Output = (
-                        io::Result<(usize, SocketAddr, Option<Vec<u8>>)>,
-                        Vec<Vec<u8>>,
-                    ),
-                >,
-            >,
+type RecvFut = Pin<
+    Box<
+        dyn Future<
+            Output = (
+                io::Result<(usize, SocketAddr, Option<Vec<u8>>)>,
+                Vec<Vec<u8>>,
+            ),
         >,
     >,
+>;
+type SendFut =
+    Pin<Box<dyn Future<Output = (io::Result<usize>, Vec<&'static [u8]>, Option<Vec<u8>>)>>>;
+struct SendData {
+    completed: bool,
+    fut: SendFut,
+}
+type ReusedBuffers = (Vec<&'static [u8]>, Vec<u8>);
+struct Inner {
+    // store futures until completion, since `tokio-uring` doesn't have a poll interface.
+    send_fut: Option<SendData>,
+    recv_fut: Option<RecvFut>,
 
-    msg_vec: Option<Vec<&'static [u8]>>,
-    ctrl_vec: Option<Vec<u8>>,
+    reused_vecs: Option<ReusedBuffers>,
 
     socket: tokio_uring::net::UdpSocket,
 
@@ -70,8 +68,7 @@ impl Debug for UringUdpSocket {
         f.debug_struct("UringUdpSocket")
             .field("send_fut", &"[send_fut]".as_clean())
             .field("recv_fut", &"[recv_fut]".as_clean())
-            .field("msg_vec", &"[msg_vec]".as_clean())
-            .field("ctrl_vec", &"[ctrl_vec]".as_clean())
+            .field("reused_vecs", &"[buffer for reused vecs]".as_clean())
             .field("socket", &"[internal socket]".as_clean())
             .field("last_send_error", &me.last_send_error)
             .field("max_gso_segments", &me.max_gso_segments)
@@ -145,10 +142,8 @@ impl UringUdpSocket {
             inner: RefCell::new(Inner {
                 send_fut: None,
                 recv_fut: None,
-                send_complete: false,
 
-                msg_vec: Some(Vec::with_capacity(1)),
-                ctrl_vec: Some(Vec::new()),
+                reused_vecs: Some((Vec::with_capacity(1), Vec::new())),
 
                 socket: io,
 
@@ -181,7 +176,11 @@ impl quinn::UdpPoller for UdpPoller {
     fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
         let mut me = self.socket.inner.borrow_mut();
         let result = if let Some(fut) = &mut me.send_fut {
-            fut.poll_unpin(cx)
+            let poll = fut.fut.poll_unpin(cx);
+            if poll.is_ready() {
+                fut.completed = true;
+            }
+            poll
         } else {
             // assume we're ready to write
             return Poll::Ready(Ok(()));
@@ -194,12 +193,9 @@ impl quinn::UdpPoller for UdpPoller {
             Poll::Pending => Poll::Pending,
             Poll::Ready((result, mut msg_vec, ctrl_vec)) => {
                 msg_vec.clear();
-                me.msg_vec = Some(msg_vec);
                 let mut ctrl_vec = ctrl_vec.unwrap();
                 ctrl_vec.clear();
-                me.ctrl_vec = Some(ctrl_vec);
-
-                me.send_complete = true;
+                me.reused_vecs = Some((msg_vec, ctrl_vec));
 
                 if let Err(e) = &result {
                     if let Some(libc::EIO | libc::EINVAL) = e.raw_os_error() {
@@ -242,10 +238,9 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
     }
     fn try_send(&self, transmit: &quinn::udp::Transmit) -> Result<(), io::Error> {
         let mut me = self.inner.borrow_mut();
-        if me.send_fut.is_some() {
-            if me.send_complete {
+        if let Some(fut) = &me.send_fut {
+            if fut.completed {
                 me.send_fut = None;
-                me.send_complete = false;
                 Ok(())
             } else {
                 warn!("internal h3: tried to send multiple transmits at the same time");
@@ -268,10 +263,9 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
             );
             let t = unsafe { transmit_to_static_lifetime(transmit) };
 
-            let mut msgs = me.msg_vec.take().expect("multiple sends at the same time");
+            let (mut msgs, mut ctrl_vec) = me.reused_vecs.take().expect("multiple sends at the same time");
             msgs.push(t.contents);
 
-            let mut ctrl_vec = me.ctrl_vec.take().expect("multiple sends at the same time");
             ctrl_vec.extend_from_slice(&ctrl.0[..hdr.msg_controllen]);
 
             // https://docs.rs/kvarn-tokio-uring/latest/kvarn_tokio_uring/net/struct.UdpSocket.html#method.sendmsg_zc
@@ -291,8 +285,10 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
             // socket and the future. And `self` will never be dropped (assumed), so the `Drop` impl is
             // unimportant.
             let fut = unsafe { future_to_static_lifetime(fut) };
-            me.send_fut = Some(fut);
-            me.send_complete = false;
+            me.send_fut = Some(SendData {
+                fut,
+                completed: false,
+            });
             Err(io::Error::from(io::ErrorKind::WouldBlock))
         }
     }
@@ -550,7 +546,6 @@ mod gso {
 
     /// Checks whether GSO support is available by setting the `UDP_SEGMENT`
     /// option on a socket
-    #[allow(dead_code)] // see https://github.com/quinn-rs/quinn/issues/1609
     pub(crate) fn max_gso_segments() -> usize {
         const GSO_SIZE: libc::c_int = 1500;
 
@@ -568,7 +563,6 @@ mod gso {
             Err(_) => 1,
         }
     }
-    #[allow(dead_code)]
     pub(crate) fn set_segment_size(encoder: &mut cmsg::Encoder, segment_size: u16) {
         encoder.push(libc::SOL_UDP, libc::UDP_SEGMENT, segment_size);
     }
@@ -634,10 +628,9 @@ mod cmsg {
         ) {
             assert!(mem::align_of::<T>() <= mem::align_of::<libc::cmsghdr>());
             let space = unsafe { libc::CMSG_SPACE(mem::size_of_val(&value) as _) as usize };
-            #[allow(clippy::unnecessary_cast)] // hdr.msg_controllen defined as size_t
             {
                 assert!(
-                    self.hdr.msg_controllen as usize >= self.len + space,
+                    self.hdr.msg_controllen >= self.len + space,
                     "control message buffer too small. Required: {}, Available: {}",
                     self.len + space,
                     self.hdr.msg_controllen
@@ -673,10 +666,9 @@ mod cmsg {
     /// `cmsg` must refer to a cmsg containing a payload of type `T`
     pub(crate) unsafe fn decode<T: Copy>(cmsg: &libc::cmsghdr) -> T {
         assert!(mem::align_of::<T>() <= mem::align_of::<libc::cmsghdr>());
-        #[allow(clippy::unnecessary_cast)] // cmsg.cmsg_len defined as size_t
         {
             debug_assert_eq!(
-                cmsg.cmsg_len as usize,
+                cmsg.cmsg_len,
                 libc::CMSG_LEN(mem::size_of::<T>() as _) as usize
             );
         }
