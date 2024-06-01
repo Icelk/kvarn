@@ -262,7 +262,10 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
             );
             let t = unsafe { transmit_to_static_lifetime(transmit) };
 
-            let (mut msgs, mut ctrl_vec) = me.reused_vecs.take().expect("multiple sends at the same time");
+            let (mut msgs, mut ctrl_vec) = me
+                .reused_vecs
+                .take()
+                .expect("multiple sends at the same time");
             msgs.push(t.contents);
 
             ctrl_vec.extend_from_slice(&ctrl.0[..hdr.msg_controllen]);
