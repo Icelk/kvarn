@@ -305,6 +305,12 @@ pub mod unix {
                                             return;
                                         }
 
+                                        #[cfg(not(feature = "uring"))]
+                                        if let Err(err) = connection.flush().await {
+                                            warn!("Failed to flush response: {err:?}");
+                                            return;
+                                        }
+
                                         debug!("Wrote response");
                                         if let Some(post_send) = post_send {
                                             (post_send)();

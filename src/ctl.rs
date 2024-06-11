@@ -235,10 +235,6 @@ impl Plugins {
         self.plugins.insert(name.as_ref().to_owned(), plugin);
         self
     }
-    pub(crate) fn _add_plugin(&mut self, name: String, plugin: Plugin) -> &mut Self {
-        self.plugins.insert(name, plugin);
-        self
-    }
     #[cfg(feature = "graceful-shutdown")]
     pub(crate) fn with_shutdown(&mut self) -> &mut Self {
         self.add_plugin(
@@ -586,6 +582,7 @@ pub(crate) async fn listen(
 
         let supports_shutdown = plugins.plugins.contains_key("shutdown");
 
+        info!("try send shutdown to previous instance");
         if supports_shutdown {
             match kvarn_signal::unix::send_to(b"shutdown no-wait".to_vec(), &path)
                 .await

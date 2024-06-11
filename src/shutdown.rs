@@ -321,6 +321,18 @@ impl Manager {
         {
             let mut receiver = WatchReceiver::clone(&self.finished_channel.1);
             drop(receiver.changed().await);
+
+            // delay shutdown by 0.5s to allow kvarn-signal to send it's messages.
+            // 500ms is probably way too overkill, maybe 10 would suffice.
+            // But nothing takes damage from this being larger than it has to.
+            //
+            // This is needed because the executable crashes when the uring feature is enabled.
+            // I think it has something to do with dropping the listeners, which happens after
+            // this, but before the end of the tokio-uring runtime finishes (adding a sleep to the
+            // main function doesn't help).
+            #[cfg(feature = "uring")]
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
             if !self.received.swap(true, Ordering::SeqCst) {
                 info!("Received shutdown signal");
             }
