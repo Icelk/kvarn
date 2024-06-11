@@ -23,7 +23,7 @@ async fn main() {
         .about(ABOUT)
         .arg(
             Arg::new("path")
-                .short('p')
+                .short('s')
                 .long("socket-path")
                 .help(
                     "The name of the socket to communicate over. \
@@ -35,7 +35,7 @@ async fn main() {
         )
         .arg(
             Arg::new("silent")
-                .short('s')
+                .short('q')
                 .num_args(0)
                 .long("quiet")
                 .help("Silence output"),
@@ -233,14 +233,24 @@ async fn main() {
             .expect("we provided a default path value"),
     );
 
+    let uring_workaround = matches.get_flag("uring-workaround");
+
     if matches.get_flag("wait") {
         let mut found = false;
         loop {
             match request(b"wait", &path, false).await {
                 Ok(_) => found = true,
                 Err(status) => match status {
-                    3 if found => break,
-                    3 if !found => {}
+                    5 if uring_workaround => {
+                        if found {
+                            break;
+                        }
+                    }
+                    3 => {
+                        if found {
+                            break;
+                        }
+                    }
                     _ => std::process::exit(status),
                 },
             }
@@ -281,7 +291,6 @@ async fn main() {
         });
 
     let accept_not_found = matches.get_flag("accept-not-found");
-    let uring_workaround = matches.get_flag("uring-workaround");
 
     match request(message.as_bytes(), &path, !accept_not_found).await {
         Ok(args) if !matches.get_flag("silent") => println!("{args}"),
