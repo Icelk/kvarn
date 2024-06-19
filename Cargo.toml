@@ -51,7 +51,7 @@ tokio = { version = "1.24", features = ["rt", "io-util", "fs", "sync", "parking_
 tokio-uring = { version = "0.4.0-alpha1", package = "kvarn-tokio-uring", features = ["bytes"], optional = true }
 
 moka = { version = "0.12", features = ["sync"], default-features = false }
-dashmap = "5"
+dashmap = "6"
 
 # HTTPS
 rustls = { version = "0.23.8", optional = true, features = ["std", "ring", "logging", "tls12"], default-features = false }

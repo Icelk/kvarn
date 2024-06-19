@@ -30,7 +30,7 @@ ron = { version = "0.8", optional = true }
 rcgen = { version = "0.13", optional = true }
 rustls-pemfile = { version = "2", optional = true }
 rand = { version = "0.8", optional = true }
-dashmap = { version = "5", optional = true }
+dashmap = { version = "6", optional = true }
 
 [features]
 default = ["php", "templates", "push", "view-counter"]
