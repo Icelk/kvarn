@@ -31,7 +31,7 @@ members = [
 
 [dependencies]
 bytes = "1"
-compact_str = "0.7.0"
+compact_str = "0.8.0"
 log = "0.4"
 time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
 socket2 = { version = "0.5.3", optional = true, features = ["all"] }
