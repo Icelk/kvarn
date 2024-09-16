@@ -622,12 +622,7 @@ mod cmsg {
         /// # Panics
         /// - If insufficient buffer space remains.
         /// - If `T` has stricter alignment requirements than `cmsghdr`
-        pub(crate) fn push<T: Copy + ?Sized>(
-            &mut self,
-            level: libc::c_int,
-            ty: libc::c_int,
-            value: T,
-        ) {
+        pub(crate) fn push<T>(&mut self, level: libc::c_int, ty: libc::c_int, value: T) {
             assert!(mem::align_of::<T>() <= mem::align_of::<libc::cmsghdr>());
             let space = unsafe { libc::CMSG_SPACE(mem::size_of_val(&value) as _) as usize };
             {
