@@ -266,9 +266,8 @@ pub fn get_account(
 ) -> Result<(Account, AccountCredentials), small_acme::Error> {
     let credentials: Option<AccountCredentials> = account.and_then(|a| {
         ron::from_str(&a.0)
-            .map_err(|err| {
+            .inspect_err(|_err| {
                 warn!("ACME credentials have an invalid format");
-                err
             })
             .ok()
     });
