@@ -991,7 +991,7 @@ impl ResolvesServerCert for Collection {
 /// All the supported ALPN protocols.
 ///
 /// > ***Note:** this is often not needed, as the ALPN protocols
-/// are set in [`host::Collection::make_config()`].*
+/// > are set in [`host::Collection::make_config()`].*
 #[must_use]
 #[allow(unused_mut)]
 pub fn alpn() -> Vec<Vec<u8>> {
