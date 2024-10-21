@@ -442,6 +442,10 @@ impl Manager {
         Self::new(when, connection, timeout).add_modify_fn(modify)
     }
     /// Attach this reverse proxy to `extensions`.
+    ///
+    /// !!Please!! use a [`crate::force_cache`] extension on the paths where the reverse proxy
+    /// acts, with [`comprash::ClientCachePreference::Ignore`].
+    /// ALSO, disable server cache!
     pub fn mount(self, extensions: &mut Extensions) {
         let connection = self.connection;
         let modify = self.modify;
