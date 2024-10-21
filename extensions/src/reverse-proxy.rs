@@ -313,6 +313,10 @@ impl<'a, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, B> {
                                 .write_all(&self.front_buf)
                                 .await
                                 .map_err(OpenBackError::Back)?;
+                            self.back
+                                .flush()
+                                .await
+                                .map_err(OpenBackError::Back)?;
                         }
                         r = back_read => {
                             r?;
@@ -320,7 +324,12 @@ impl<'a, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, B> {
                                 .send(Bytes::copy_from_slice(&self.back_buf))
                                 .await
                                 .map_err(io::Error::from)
-                                .map_err(OpenBackError::Back)?;
+                                .map_err(OpenBackError::Front)?;
+                            self.front
+                                .flush()
+                                .await
+                                .map_err(io::Error::from)
+                                .map_err(OpenBackError::Front)?;
                         }
                     }
                 }

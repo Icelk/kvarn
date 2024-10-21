@@ -928,6 +928,22 @@ mod response {
         pub async fn send(&mut self, data: Bytes) -> Result<(), Error> {
             self.send_with_maybe_close(data, false).await
         }
+        /// Only does something for HTTP/1, since the other protocols are not implemented as
+        /// streams.
+        ///
+        /// # Errors
+        ///
+        /// Passes any errors from flushing the stream.
+        pub async fn flush(&mut self) -> Result<(), Error> {
+            match self {
+                Self::Http1(h1) => {
+                    let mut lock = h1.lock().await;
+                    lock.flush().await?;
+                }
+                _ => {}
+            }
+            Ok(())
+        }
         /// Same as [`Self::send`] but with a `end_of_stream` variable.
         #[inline]
         pub(crate) async fn send_with_maybe_close(
