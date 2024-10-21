@@ -935,12 +935,9 @@ mod response {
         ///
         /// Passes any errors from flushing the stream.
         pub async fn flush(&mut self) -> Result<(), Error> {
-            match self {
-                Self::Http1(h1) => {
-                    let mut lock = h1.lock().await;
-                    lock.flush().await?;
-                }
-                _ => {}
+            if let Self::Http1(h1) = self {
+                let mut lock = h1.lock().await;
+                lock.flush().await?;
             }
             Ok(())
         }

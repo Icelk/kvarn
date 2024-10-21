@@ -1281,6 +1281,7 @@ mod handle_cache_helpers {
         } else {
             (uri_key, None)
         };
+        #[allow(clippy::single_match_else)]
         let arc = match cached {
             (key, Some((resp, lifetime))) => {
                 let mut resp = (*resp).clone();
