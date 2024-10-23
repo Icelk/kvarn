@@ -1244,7 +1244,10 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                     #[cfg(feature = "uring")]
                     let mut pos = 0;
                     unsafe { buf.set_len(buf.capacity()) };
+                    let mut i = 0u32;
                     loop {
+                        // add 1 at the top to skip waiting for connection on first iter
+                        i = i.wrapping_add(1);
                         #[cfg(feature = "uring")]
                         let r = {
                             let (r, b) = file.read_at(buf, pos).await;
@@ -1262,7 +1265,17 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                                 {
                                     pos += read as u64;
                                 }
-                                match response.send(Bytes::copy_from_slice(&buf[..read])).await {
+                                // one chunk is max 64kB (see buffer above)
+                                // we want to check connection status every, say, 10MB, to not
+                                // exhaust resources.
+                                // 10MB/64kB = 160
+                                let data = Bytes::copy_from_slice(&buf[..read]);
+                                let r = if i % 160 == 0 {
+                                    response.send_with_wait(data, 10 * 1024 * 1024).await
+                                } else {
+                                    response.send(data).await
+                                };
+                                match r {
                                     Ok(()) => {}
                                     Err(_) => {
                                         break;

@@ -931,6 +931,8 @@ mod response {
         /// Only does something for HTTP/1, since the other protocols are not implemented as
         /// streams.
         ///
+        /// **To shut down the stream**, it is necessary to call [`ResponseBodyPipe::close`].
+        ///
         /// # Errors
         ///
         /// Passes any errors from flushing the stream.
@@ -940,6 +942,34 @@ mod response {
                 lock.flush().await?;
             }
             Ok(())
+        }
+        /// Same as [`ResponseBodyPipe::send`] but tries its best to wait for the data to actually
+        /// be sent, freeing up previous [`Bytes`] being sent before.
+        ///
+        /// `chunk_size` is the expected size of `data` used to negotiate and wait for capacity
+        /// changes. A value of ~10MB is often good (`chunk_size` is measured in bytes).
+        ///
+        /// # Errors
+        ///
+        /// Same as [`ResponseBodyPipe::send`].
+        pub async fn send_with_wait(
+            &mut self,
+            data: Bytes,
+            chunk_size: usize,
+        ) -> Result<(), Error> {
+            if let Self::Http2(stream, _) = self {
+                stream.reserve_capacity(chunk_size);
+                // if `chunk_size` is 10MB, this artificially limits the connection to 20MB/s for
+                // connections with a ping > 500ms, which imo is fair.
+                //
+                // I really don't care about the result.
+                let _ = tokio::time::timeout(
+                    Duration::from_millis(500),
+                    std::future::poll_fn(|cx| stream.poll_capacity(cx)),
+                )
+                .await;
+            }
+            self.send(data).await
         }
         /// Same as [`Self::send`] but with a `end_of_stream` variable.
         #[inline]
