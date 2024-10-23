@@ -955,10 +955,11 @@ mod response {
         pub async fn send_with_wait(
             &mut self,
             data: Bytes,
-            chunk_size: usize,
+            _chunk_size: usize,
         ) -> Result<(), Error> {
+            #[cfg(feature = "http2")]
             if let Self::Http2(stream, _) = self {
-                stream.reserve_capacity(chunk_size);
+                stream.reserve_capacity(_chunk_size);
                 // if `chunk_size` is 10MB, this artificially limits the connection to 20MB/s for
                 // connections with a ping > 500ms, which imo is fair.
                 //
