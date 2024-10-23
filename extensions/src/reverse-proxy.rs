@@ -105,13 +105,104 @@ pub mod async_bits {
     }
 }
 
+#[doc(hidden)]
+pub mod chain {
+    use super::*;
+
+    pub struct Chain<T, U> {
+        first: T,
+        second: U,
+        done_first: bool,
+    }
+
+    pub(super) fn chain<T, U>(first: T, second: U) -> Chain<T, U>
+    where
+        T: AsyncRead,
+        U: AsyncRead,
+    {
+        Chain {
+            first,
+            second,
+            done_first: false,
+        }
+    }
+
+    impl<T, U> fmt::Debug for Chain<T, U>
+    where
+        T: fmt::Debug,
+        U: fmt::Debug,
+    {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("Chain")
+                .field("t", &self.first)
+                .field("u", &self.second)
+                .finish()
+        }
+    }
+
+    impl<T, U> AsyncRead for Chain<T, U>
+    where
+        T: AsyncRead + Unpin,
+        U: AsyncRead + Unpin,
+    {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let me = &mut *self;
+
+            if !me.done_first {
+                let rem = buf.remaining();
+                ready!(Pin::new(&mut me.first).poll_read(cx, buf))?;
+                if buf.remaining() == rem {
+                    me.done_first = true;
+                } else {
+                    return Poll::Ready(Ok(()));
+                }
+            }
+            Pin::new(&mut me.second).poll_read(cx, buf)
+        }
+    }
+}
+
+pub enum MaybeChunked<R1, R2> {
+    No(R1),
+    Yes(async_chunked_transfer::Decoder<R2>),
+}
+impl<R1: AsyncRead + Unpin, R2: AsyncRead + Unpin> AsyncRead for MaybeChunked<R1, R2> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match &mut *self {
+            Self::No(reader) => Pin::new(reader).poll_read(cx, buf),
+            Self::Yes(reader) => Pin::new(reader).poll_read(cx, buf),
+        }
+    }
+}
+
+pub enum ConnectionResponse {
+    Whole(Response<Bytes>),
+    /// First part of body is in [`Response::body`], the remaining, `len - response.body().len()`
+    /// bytes, are readable from the [`EstablishedConnection`]. If the transfer-encoding is
+    /// chunked, the [`Response::body`] is also chunked so you can just continue relaying the data.
+    Partial {
+        len: Option<usize>,
+        response: Response<Bytes>,
+    },
+}
 impl EstablishedConnection {
-    pub async fn request<T: Debug>(
-        &mut self,
+    /// If the body is `max_len` or greater, you need to continue streaming the body. See
+    /// [`ConnectionResponse::Partial`].
+    pub async fn request<'a, T: Debug>(
+        &'a mut self,
         request: &Request<T>,
         body: &[u8],
         timeout: Duration,
-    ) -> Result<Response<Bytes>, GatewayError> {
+        max_len: usize,
+    ) -> Result<ConnectionResponse, GatewayError> {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
         debug!("Sending request");
         write::request(request, body, &mut buffered).await?;
@@ -127,23 +218,6 @@ impl EstablishedConnection {
             Ok(result) => match result {
                 Err(err) => return Err(err.into()),
                 Ok(response) => {
-                    enum MaybeChunked<R1, R2> {
-                        No(R1),
-                        Yes(async_chunked_transfer::Decoder<R2>),
-                    }
-                    impl<R1: AsyncRead + Unpin, R2: AsyncRead + Unpin> AsyncRead for MaybeChunked<R1, R2> {
-                        fn poll_read(
-                            mut self: Pin<&mut Self>,
-                            cx: &mut Context<'_>,
-                            buf: &mut ReadBuf<'_>,
-                        ) -> Poll<io::Result<()>> {
-                            match &mut *self {
-                                Self::No(reader) => Pin::new(reader).poll_read(cx, buf),
-                                Self::Yes(reader) => Pin::new(reader).poll_read(cx, buf),
-                            }
-                        }
-                    }
-
                     let chunked =
                         utils::header_eq(response.headers(), "transfer-encoding", "chunked");
                     let len = if chunked {
@@ -154,32 +228,57 @@ impl EstablishedConnection {
                         utils::get_body_length_response(&response, None)
                     };
 
+                    if !chunked && len > max_len {
+                        return Ok(ConnectionResponse::Partial {
+                            len: Some(len),
+                            // it isn't chunked, so this is fine!
+                            response,
+                        });
+                    }
+
                     let (mut head, body) = utils::split_response(response);
 
                     let body = if len == 0 || len <= body.len() {
                         body
                     } else {
                         let mut buffer = BytesMut::with_capacity(body.len() + 512);
+                        let original_body_len = body.len();
 
-                        let reader = if chunked {
-                            let reader = AsyncReadExt::chain(&*body, &mut *self);
+                        let mut reader = if chunked {
+                            let reader = chain::chain(std::io::Cursor::new(body), self);
                             let decoder = async_chunked_transfer::Decoder::new(reader);
                             MaybeChunked::Yes(decoder)
                         } else {
                             buffer.extend(&body);
-                            MaybeChunked::No(&mut *self)
+                            MaybeChunked::No(self)
                         };
 
                         if let Ok(result) = tokio::time::timeout(
                             timeout,
-                            read_to_end_or_max(&mut buffer, reader, len),
+                            read_to_end_or_max(&mut buffer, &mut reader, len.min(max_len)),
                         )
                         .await
                         {
-                            result?
+                            result?;
+                            if buffer.len() >= max_len && chunked {
+                                use std::fmt::Write;
+
+                                // we're over max len and chunked, resort to write what we've read
+                                // thus far as a chunk.
+                                let buf_cap = buffer.len() + 4 /* \r\n ×2 */ + 10 /* length string */;
+                                let mut new_buf = BytesMut::with_capacity(buf_cap);
+                                write!(new_buf, "{}\r\n", buffer.len())
+                                    .expect("writing an integer to a BytesMut!!");
+                                new_buf.extend_from_slice(b"\r\n");
+                                drop(reader);
+                                return Ok(ConnectionResponse::Partial {
+                                    len: None,
+                                    response: head.map(|()| new_buf.freeze()),
+                                });
+                            }
                         } else {
                             warn!("Remote read timed out.");
-                            unsafe { buffer.set_len(if chunked { 0 } else { body.len() }) };
+                            unsafe { buffer.set_len(if chunked { 0 } else { original_body_len }) };
                         }
 
                         if chunked {
@@ -194,7 +293,7 @@ impl EstablishedConnection {
             },
             Err(_) => return Err(GatewayError::Timeout),
         };
-        Ok(response)
+        Ok(ConnectionResponse::Whole(response))
     }
 }
 
@@ -373,6 +472,8 @@ impl Manager {
     }
     /// Disables the built-in feature of rewriting the relative URLs so they point to the forwarded
     /// site.
+    ///
+    /// **NOTE** that rewrite doesn't work when the response body is streamed.
     pub fn disable_url_rewrite(mut self) -> Self {
         self.rewrite_url = false;
         self
@@ -516,13 +617,22 @@ impl Manager {
                         modify(&mut empty_req, &mut bytes, addr);
                     }
 
-                    let result = connection.request(&empty_req, &bytes, *timeout).await;
+                    // limit cached responses to 10 MB, otherwise stream body
+                    let max_len = 10 * 1024 * 1024;
+                    let result = connection
+                        .request(&empty_req, &bytes, *timeout, max_len)
+                        .await;
                     let mut response = match result {
-                        Ok(mut response) => {
-                            // The response's body will not be compressed, as we set the
-                            // `accept-encoding` to `identity` before.
+                        Ok(response) => {
+                            let (mut response, others) = match response {
+                                ConnectionResponse::Whole(r) => (r, None),
+                                ConnectionResponse::Partial { len, response } => {
+                                    (response, Some(len))
+                                }
+                            };
 
-                            if *rewrite_url {
+                            // if we plan to stream the body, don't rewrite parts of it.
+                            if *rewrite_url && others.is_none() {
                                 let content_type = response
                                     .headers()
                                     .get("content-type")
@@ -542,16 +652,90 @@ impl Manager {
                                         });
                                     }
                                 }
-
-                                let headers = response.headers_mut();
-                                utils::remove_all_headers(headers, "keep-alive");
-                                utils::remove_all_headers(headers, "content-length");
-                                if !utils::header_eq(headers, "connection", "upgrade") {
-                                    utils::remove_all_headers(headers, "connection");
-                                }
                             }
+                            let headers = response.headers_mut();
+                            if let None | Some(None) = &others {
+                                utils::remove_all_headers(headers, "content-length");
+                            }
+                            utils::remove_all_headers(headers, "keep-alive");
+                            utils::remove_all_headers(headers, "connection");
 
-                            FatResponse::cache(response)
+                            if let Some(len) = others {
+                                if let Some(len) = len {
+                                    response.headers_mut().insert(
+                                        "content-length",
+                                        HeaderValue::from_bytes(len.to_string().as_bytes())
+                                            .expect("integer isn't HeaderValue?"),
+                                    );
+                                }
+
+                                if wait {
+                                    error!(
+                                        "Waiting for websocket but also \
+                                        streaming body of length > {max_len}"
+                                    );
+                                }
+                                // trust me bro, it's stringently read
+                                #[allow(clippy::uninit_vec)]
+                                return FatResponse::no_cache(response).with_future(
+                                    response_pipe_fut!(
+                                        response_pipe,
+                                        _,
+                                        move |connection: EstablishedConnection| {
+                                            let mut buf = Vec::with_capacity(1024 * 64);
+                                            unsafe { buf.set_len(buf.capacity()) };
+                                            let mut i = 0u32;
+                                            loop {
+                                                // add 1 at the top to skip waiting for connection on first iter
+                                                i = i.wrapping_add(1);
+                                                let r = connection.read(&mut buf).await;
+                                                // okey this is crazy deep nesting i'm sorry
+                                                match r {
+                                                    Ok(read) => {
+                                                        if read == 0 {
+                                                            break;
+                                                        }
+                                                        // one chunk is max 64kB (see buffer above)
+                                                        // we want to check connection status every, say, 10MB, to not
+                                                        // exhaust resources.
+                                                        // 10MB/64kB = 160
+                                                        let data =
+                                                            Bytes::copy_from_slice(&buf[..read]);
+                                                        let r = if i % 160 == 0 {
+                                                            // to not just spew data in HTTP/2,
+                                                            // growing memory size to infinity!!!
+                                                            response_pipe
+                                                                .send_with_wait(
+                                                                    data,
+                                                                    10 * 1024 * 1024,
+                                                                )
+                                                                .await
+                                                        } else {
+                                                            response_pipe.send(data).await
+                                                        };
+                                                        match r {
+                                                            Ok(()) => {}
+                                                            Err(_) => {
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(err) => {
+                                                        warn!(
+                                                            "Failed to stream body \
+                                                            from reverse connection: {err}"
+                                                        );
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            let _ = response_pipe.close().await;
+                                        }
+                                    ),
+                                );
+                            } else {
+                                FatResponse::cache(response)
+                            }
                         }
                         Err(err) => {
                             warn!("Got error {:?}", err);
