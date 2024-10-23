@@ -45,7 +45,9 @@ pub async fn read_to_end_or_max(
         let left = buffer.capacity() - read;
         if left < 32 {
             let lower = 1024;
-            let additional = buffer.capacity().clamp(lower, (buffer.capacity() * 2 / 3).max(lower));
+            let additional = buffer
+                .capacity()
+                .clamp(lower, (buffer.capacity() * 2 / 3).max(lower));
             buffer.reserve((buffer.capacity() - buffer.len()) + additional);
             // This is safe because of the trailing unsafe block.
             unsafe { buffer.set_len(buffer.capacity()) };
