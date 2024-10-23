@@ -14,6 +14,7 @@
 #![allow(clippy::missing_panics_doc, clippy::too_many_lines)]
 
 pub mod prelude;
+
 use crate::prelude::*;
 
 /// Reads `reader` to end into `buffer`.
@@ -27,6 +28,7 @@ pub async fn read_to_end(buffer: &mut BytesMut, reader: impl AsyncRead + Unpin) 
 }
 /// Reads from `reader` to `buffer` until it returns zero bytes or `max_length`
 /// is reached. [`BytesMut::len`] is used as a starting length of `buffer`.
+/// Note that `max_len` is a suggestion and will probably be overran.
 ///
 /// Note that the length of the read bytes can exceed `max_len`; it stops
 /// after having read `max_len` or higher.
@@ -42,8 +44,9 @@ pub async fn read_to_end_or_max(
     fn reserve(read: usize, buffer: &mut BytesMut) {
         let left = buffer.capacity() - read;
         if left < 32 {
-            let additional = buffer.capacity().clamp(256, 1024 * 8);
-            buffer.reserve(additional);
+            let lower = 1024;
+            let additional = buffer.capacity().clamp(lower, (buffer.capacity() * 2 / 3).max(lower));
+            buffer.reserve((buffer.capacity() - buffer.len()) + additional);
             // This is safe because of the trailing unsafe block.
             unsafe { buffer.set_len(buffer.capacity()) };
         }
@@ -57,8 +60,15 @@ pub async fn read_to_end_or_max(
 
     // This is safe because of the trailing unsafe block.
     unsafe { buffer.set_len(buffer.capacity()) };
+    if buffer.capacity() == buffer.len() {
+        reserve(0, buffer);
+    }
     loop {
-        match reader.read(&mut buffer[read..]).await? {
+        match reader.read(&mut buffer[read..]).await.map_err(|err| {
+            // if err, set buffer len to safe value
+            unsafe { buffer.set_len(read) };
+            err
+        })? {
             0 => break,
             len => {
                 read += len;
