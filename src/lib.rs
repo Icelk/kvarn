@@ -1024,10 +1024,11 @@ impl SendKind {
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
 
-                if utils::method_has_response_body(request.method())
+                if !body.is_empty()
+                    && (utils::method_has_response_body(request.method())
                     // bug in several web apps: they send back content on methods which don't allow
                     // it. We just allow all methods now. Except HEAD, there we don't send anything.
-                    || (!body.is_empty() && request.method() != Method::HEAD)
+                    || (!body.is_empty() && request.method() != Method::HEAD))
                 {
                     // Send body
                     ret_log_app_error!(body_pipe.send_with_maybe_close(body, false).await);

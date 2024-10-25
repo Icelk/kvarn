@@ -391,6 +391,7 @@ impl<'a, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, B> {
                         unsafe { self.front_buf.set_len(read) };
                         Ok::<(), OpenBackError>(())
                     };
+
                     let back_read = async {
                         unsafe { self.back_buf.set_len(self.back_buf.capacity()) };
                         let read = self
@@ -404,7 +405,6 @@ impl<'a, B: AsyncRead + AsyncWrite + Unpin> ByteProxy<'a, B> {
                         unsafe { self.back_buf.set_len(read) };
                         Ok::<(), OpenBackError>(())
                     };
-
                     tokio::select! {
                         r = front_read => {
                             r?;
@@ -658,7 +658,14 @@ impl Manager {
                                 utils::remove_all_headers(headers, "content-length");
                             }
                             utils::remove_all_headers(headers, "keep-alive");
-                            utils::remove_all_headers(headers, "connection");
+                            if headers
+                                .get("connection")
+                                .and_then(|h| h.to_str().ok())
+                                .map(|h| !h.trim().eq_ignore_ascii_case("upgrade"))
+                                .unwrap_or(true)
+                            {
+                                utils::remove_all_headers(headers, "connection");
+                            }
 
                             if let Some(len) = others {
                                 if let Some(len) = len {

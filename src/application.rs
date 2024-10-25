@@ -825,7 +825,7 @@ mod response {
                             }
                             _ => {}
                         }
-                        let mut writer = tokio::io::BufWriter::with_capacity(512, &mut *writer);
+                        let mut writer = tokio::io::BufWriter::with_capacity(2048, &mut *writer);
                         async_bits::write::response(&response, b"", &mut writer).await?;
                         writer.flush().await?;
                         writer.into_inner();
@@ -1146,10 +1146,22 @@ mod uring_tokio_compat {
                 if let Some(fut) = read_fut {
                     let (r, mut buf) = std::task::ready!(Pin::new(fut).poll(cx));
                     match r {
-                        Err(err) => return Poll::Ready(Err(err)),
+                        Err(err) => {
+                            // reset state
+                            *read_fut = None;
+                            unsafe { buf.set_len(0) };
+                            *read_buf = Some((buf, 0));
+
+                            return Poll::Ready(Err(err));
+                        }
                         Ok(read) => unsafe { buf.set_len(read) },
                     }
                     if buf.is_empty() {
+                        // reset state
+                        *read_fut = None;
+                        unsafe { buf.set_len(0) };
+                        *read_buf = Some((buf, 0));
+
                         return Poll::Ready(Ok(()));
                     }
                     *read_buf = Some((buf, 0));
@@ -1162,6 +1174,7 @@ mod uring_tokio_compat {
                 unsafe { buf.set_len(buf.capacity()) };
                 let fut = stream.read(buf);
                 *read_fut = Some(Box::pin(fut));
+
                 // continue
             }
         }

@@ -143,7 +143,9 @@ pub mod write {
     }
     macro_rules! write_bytes {
         ($writer:expr, $($bytes:expr $(,)?)+) => {
-            $($writer.write_all($bytes).await?;)*
+            $(
+                $writer.write_all($bytes).await?;
+            )*
         };
     }
     /// Writer should be buffered.
