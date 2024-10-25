@@ -454,7 +454,7 @@ impl CompressedResponse {
                         }
                         _ => None,
                     };
-                    #[cfg(feature = "br")]
+                    #[cfg(feature = "zstd")]
                     if preferred.is_none() && contains_zstd {
                         preferred = Some((self.get_zstd(options.zstd_level).await, "zstd"));
                     }
