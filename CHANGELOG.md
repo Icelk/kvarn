@@ -1,3 +1,7 @@
+# v0.6.3
+
+Fixed compilation when the zstd feature was disabled, but other compression features were enabled.
+
 # [v0.6.2](https://github.com/Icelk/kvarn/compare/v0.6.0...v0.6.2)
 
 Many bugfixes to reverse proxy, including websockets finally working and body

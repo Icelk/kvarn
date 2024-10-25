@@ -43,7 +43,7 @@ If you're looking for an **executable** to run your webserver with, see [Mölla]
 Using Mölla, you can configure your host(s), add a search engine, authentication, and other parts of the
 [Kvarn ecosystem](https://kvarn.org/ecosystem/). More info is available on [the website](https://kvarn.org/moella/).
 
-See the [roadmap](roadmap.md) or visit [our website](https://kvarn.org/) for more info.
+See the [changelog](CHANGELOG.md) or visit [our website](https://kvarn.org/) for more info.
 
 # Current state
 
