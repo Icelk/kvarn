@@ -1,6 +1,6 @@
 [package]
 name = "kvarn-extensions"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
 description = "Extensions for the Kvarn web server. Features HTTP/2 automatic push and a templating engine."

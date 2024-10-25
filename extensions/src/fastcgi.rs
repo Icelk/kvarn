@@ -40,7 +40,7 @@ pub async fn connect(
         .remote_addr(&remote_addr)
         .remote_port(address.port())
         .server_addr("0.0.0.0")
-        .server_name("Kvarn/0.5.0")
+        .server_name(extensions::SERVER_NAME_VERSION)
         .content_type(content_type)
         .content_length(body.len());
 

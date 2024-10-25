@@ -12,6 +12,9 @@
 
 use crate::prelude::{internals::*, *};
 
+/// Used for the `server` header etc
+pub const SERVER_NAME_VERSION: &str = "Kvarn/0.6.2";
+
 /// A return type for a `dyn` [`Future`].
 ///
 /// Used as the return type for all extensions,
@@ -445,7 +448,7 @@ impl Extensions {
             .with_no_referrer()
             .with_disallow_cors()
             .with_csp(Csp::default().arc())
-            .with_server_header("Kvarn/0.5.0", false, true);
+            .with_server_header(SERVER_NAME_VERSION, false, true);
 
         #[cfg(feature = "nonce")]
         {
@@ -669,7 +672,7 @@ impl Extensions {
         );
         self
     }
-    /// Set the `server` header to `server_name`.
+    /// Set the `server` header to `server_name` (e.g. [`SERVER_NAME_VERSION`]).
     /// This is called by default when creating a new [`Extensions`] (except when calling
     /// [`Extensions::empty`]).
     ///
