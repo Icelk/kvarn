@@ -50,6 +50,7 @@
 #![doc(html_favicon_url = "https://kvarn.org/favicon.svg")]
 #![doc(html_logo_url = "https://kvarn.org/logo.svg")]
 #![doc(html_root_url = "https://doc.kvarn.org/")]
+
 // not using tokio::net::TcpSocket is sometimes weird
 #![cfg_attr(
     not(feature = "async-networking"),

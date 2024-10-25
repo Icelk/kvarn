@@ -122,7 +122,7 @@ uring = ["tokio-uring", "kvarn_signal/uring", "async-networking"]
 # also add to https://kvarn.org/cargo-features.
 
 [dev-dependencies]
-kvarn_testing = { path = "testing", version = "0.6" }
+kvarn_testing = { path = "testing", version = "0.6.1" }
 
 # profile for binary sub-crates.
 [profile.distribution]

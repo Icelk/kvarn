@@ -13,7 +13,7 @@ categories = ["template-engine"]
 
 [dependencies]
 futures-util = "0.3"
-kvarn = { path = "../", default-features = false, version = "0.6" }
+kvarn = { path = "../", default-features = false, version = "0.6.2" }
 kvarn-fastcgi-client = { version = "0.9", optional = true }
 tokio = { version = "1.24", features = ["fs"] }
 # tokio-uring = { git = "https://github.com/Icelk/tokio-uring", branch = "recvmsg-msg_control", features = ["bytes"], optional = true }
