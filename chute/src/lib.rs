@@ -532,10 +532,7 @@ pub fn watch<P: AsRef<Path>>(
     theme: &str,
     syntax_highlighting: bool,
 ) {
-    use notify_debouncer_full::{
-        new_debouncer,
-        notify::{RecursiveMode, Watcher},
-    };
+    use notify_debouncer_full::{new_debouncer, notify::RecursiveMode};
     use std::sync::mpsc::channel;
 
     let path = path.as_ref();
@@ -554,11 +551,7 @@ pub fn watch<P: AsRef<Path>>(
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    if watcher
-        .watcher()
-        .watch(path, RecursiveMode::Recursive)
-        .is_err()
-    {
+    if watcher.watch(path, RecursiveMode::Recursive).is_err() {
         error!("Failed to start watching {}.", path.display());
         return;
     }
