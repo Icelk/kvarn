@@ -595,7 +595,13 @@ impl Manager {
                         .headers_mut()
                         .insert("accept-encoding", HeaderValue::from_static("identity"));
 
-                    if utils::header_eq(empty_req.headers(), "connection", "keep-alive") {
+                    // "pgrade" covers both upper and lower case "upgrade"
+                    if !empty_req
+                        .headers()
+                        .get("connection")
+                        .and_then(|h| h.to_str().ok())
+                        .map_or(false, |h| h.contains("pgrade"))
+                    {
                         empty_req
                             .headers_mut()
                             .insert("connection", HeaderValue::from_static("close"));
