@@ -699,14 +699,19 @@ impl Manager {
                                             let mut buf = Vec::with_capacity(1024 * 64);
                                             unsafe { buf.set_len(buf.capacity()) };
                                             let mut i = 0u32;
+                                            let mut pos = 0;
                                             loop {
                                                 // add 1 at the top to skip waiting for connection on first iter
-                                                i = i.wrapping_add(1);
-                                                let r = connection.read(&mut buf).await;
+                                                let r = connection.read(&mut buf[pos..]).await;
                                                 // okey this is crazy deep nesting i'm sorry
                                                 match r {
                                                     Ok(read) => {
-                                                        if read == 0 {
+                                                        pos += read;
+
+                                                        if pos < buf.capacity() / 2 && read != 0 {
+                                                            continue;
+                                                        }
+                                                        if pos == 0 {
                                                             break;
                                                         }
                                                         // one chunk is max 64kB (see buffer above)
@@ -714,7 +719,7 @@ impl Manager {
                                                         // exhaust resources.
                                                         // 10MB/64kB = 160
                                                         let data =
-                                                            Bytes::copy_from_slice(&buf[..read]);
+                                                            Bytes::copy_from_slice(&buf[..pos]);
                                                         let r = if i % 160 == 0 {
                                                             // to not just spew data in HTTP/2,
                                                             // growing memory size to infinity!!!
@@ -727,9 +732,15 @@ impl Manager {
                                                         } else {
                                                             response_pipe.send(data).await
                                                         };
+                                                        pos = 0;
+                                                        i = i.wrapping_add(1);
+                                                        if read == 0 {
+                                                            break;
+                                                        }
                                                         match r {
                                                             Ok(()) => {}
-                                                            Err(_) => {
+                                                            Err(err) => {
+                                                                warn!("Failed to stream body from reverse-proxy: {err:?}");
                                                                 break;
                                                             }
                                                         }
