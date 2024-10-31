@@ -688,9 +688,10 @@ impl Manager {
                                         streaming body of length > {max_len}"
                                     );
                                 }
+                                let len = utils::get_body_length_response(&response, Some(req.method()));
                                 // trust me bro, it's stringently read
                                 #[allow(clippy::uninit_vec)]
-                                return FatResponse::no_cache(response).with_future(
+                                return FatResponse::no_cache(response).with_future_and_len(
                                     response_pipe_fut!(
                                         response_pipe,
                                         _,
@@ -745,6 +746,7 @@ impl Manager {
                                             let _ = response_pipe.close().await;
                                         }
                                     ),
+                                    len,
                                 );
                             } else {
                                 FatResponse::cache(response)
