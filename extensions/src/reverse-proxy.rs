@@ -740,7 +740,7 @@ impl Manager {
                                                         match r {
                                                             Ok(()) => {}
                                                             Err(err) => {
-                                                                warn!("Failed to stream body from reverse-proxy: {err:?}");
+                                                                debug!("Failed to stream body from reverse-proxy: {err:?}");
                                                                 break;
                                                             }
                                                         }
