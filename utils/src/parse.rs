@@ -675,7 +675,7 @@ impl CriticalRequestComponents {
         overriden_len: Option<u64>,
         is_stream: bool,
     ) -> Result<(), SanitizeError> {
-        if is_stream {
+        if !is_stream {
             if let Some((range_start, mut range_end)) = self.get_range() {
                 // Clamp to length
                 if range_end >= response.body().len() as u64 {
