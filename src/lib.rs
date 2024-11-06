@@ -1886,10 +1886,7 @@ impl FatResponse {
     }
 
     /// See [`Self::with_future_and_len`].
-    pub fn with_future_and_maybe_len(
-        mut self,
-        future: (ResponsePipeFuture, Option<u64>),
-    ) -> Self {
+    pub fn with_future_and_maybe_len(mut self, future: (ResponsePipeFuture, Option<u64>)) -> Self {
         self.future = Some(future);
         self
     }

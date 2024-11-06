@@ -44,7 +44,7 @@ Hotfix related to Windows builds failing.
 # [v0.6.0](https://github.com/Icelk/kvarn/compare/v0.5.0...v0.6.0)
 
 This release adds support for HTTP/3, io_uring, automatic Let's Encrypt
-certificate, and [Mölla](https://kvarn.org/moella/) is release, a server binary
+certificate, and [Mölla](https://kvarn.org/moella/) is released, a server binary
 which reads a config and starts Kvarn.
 
 Kvarn is the first server with HTTP/3 AND io_uring, bringing the best possible
