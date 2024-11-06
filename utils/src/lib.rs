@@ -628,7 +628,7 @@ pub fn get_body_length_request<T>(request: &Request<T>) -> usize {
 }
 /// Sets the `content-length` of `headers` to `len`.
 #[inline]
-pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
+pub fn set_content_length(headers: &mut HeaderMap, len: u64) {
     headers.insert(
         "content-length",
         // unwrap is ok, we know the formatted bytes from a number are (0-9)
@@ -640,7 +640,7 @@ pub fn set_content_length(headers: &mut HeaderMap, len: usize) {
 /// If `method` is [`Some`] and [`method_has_response_body`] returns false, `0` is
 /// returned. If `method` is [`None`],
 /// the `content-length` header is checked. `0` is otherwise returned.
-pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> usize {
+pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> u64 {
     use std::str::FromStr;
     if method.map_or(true, method_has_response_body) {
         response
@@ -648,7 +648,7 @@ pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Metho
             .get("content-length")
             .map(HeaderValue::to_str)
             .and_then(Result::ok)
-            .map(usize::from_str)
+            .map(u64::from_str)
             .and_then(Result::ok)
             .unwrap_or(0)
     } else {
@@ -938,7 +938,7 @@ mod tests {
 
         let data =
             Bytes::from_static(b"I refuses to brew coffee because I am, permanently, a teapot.");
-        let data_len = data.len();
+        let data_len = data.len() as u64;
         let response1 = Response::builder()
             .status(418)
             .header(

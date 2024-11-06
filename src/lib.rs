@@ -876,7 +876,7 @@ pub async fn handle_connection(
                 )
                 .await,
             );
-            response_pipe.ensure_version_and_length(&mut response, body.len());
+            response_pipe.ensure_version_and_length(&mut response, body.len() as u64);
 
             let mut body_pipe =
                 ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -890,7 +890,7 @@ pub async fn handle_connection(
             LimitAction::Drop => return Ok(()),
             LimitAction::Send => {
                 let (mut response, body) = utils::split_response(limiting::get_too_many_requests());
-                response_pipe.ensure_version_and_length(&mut response, body.len());
+                response_pipe.ensure_version_and_length(&mut response, body.len() as u64);
 
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -964,7 +964,7 @@ impl SendKind {
     /// Ensures correct version and length (only applicable for HTTP/1 connections)
     /// of a response according to inner enum variants.
     #[inline]
-    pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
+    pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: u64) {
         match self {
             Self::Send(p) => p.ensure_version_and_length(response, len),
             Self::Push(p) => p.ensure_version(response),
@@ -1009,7 +1009,7 @@ impl SendKind {
         }
 
         #[allow(clippy::or_fun_call)] // it's then len, so just compiles down to a int lookup
-        let len = overriden_len.unwrap_or(response.body().len());
+        let len = overriden_len.unwrap_or(response.body().len() as u64);
         self.ensure_version_and_length(&mut response, len);
 
         let (mut response, body) = utils::split_response(response);
@@ -1091,8 +1091,8 @@ pub struct CacheReply {
     #[allow(clippy::doc_markdown)]
     /// Must be awaited.
     ///
-    /// Can be used for WebSocket connections.
-    pub future: Option<(ResponsePipeFuture, Option<usize>)>,
+    /// Can be used for WebSocket connections and body streaming.
+    pub future: Option<(ResponsePipeFuture, Option<u64>)>,
     // also update Debug implementation when adding fields
 }
 impl Debug for CacheReply {
@@ -1127,7 +1127,7 @@ mod handle_cache_helpers {
         comprash::CompressedResponse,
         comprash::ClientCachePreference,
         comprash::ServerCachePreference,
-        Option<(ResponsePipeFuture, Option<usize>)>,
+        Option<(ResponsePipeFuture, Option<u64>)>,
         comprash::PathQuery,
     ) {
         let path_query = comprash::PathQuery::from(request.uri());
@@ -1255,7 +1255,7 @@ mod handle_cache_helpers {
         params: vary::CacheParams,
     ) -> (
         Arc<(comprash::CompressedResponse, vary::HeaderCollection)>,
-        Option<(extensions::ResponsePipeFuture, Option<usize>)>,
+        Option<(extensions::ResponsePipeFuture, Option<u64>)>,
     ) {
         let (compressed_response, _, server_cache, future, path_query) =
             get_response(request, host, sanitize_data, address, overide_uri).await;
@@ -1808,7 +1808,7 @@ pub struct FatResponse {
     server: comprash::ServerCachePreference,
     compress: comprash::CompressPreference,
 
-    future: Option<(ResponsePipeFuture, Option<usize>)>,
+    future: Option<(ResponsePipeFuture, Option<u64>)>,
     // also update Debug implementation when adding fields
 }
 impl FatResponse {
@@ -1880,7 +1880,7 @@ impl FatResponse {
     /// with caution.
     ///
     /// This is used in the streaming body extension.
-    pub fn with_future_and_len(mut self, future: ResponsePipeFuture, new_len: usize) -> Self {
+    pub fn with_future_and_len(mut self, future: ResponsePipeFuture, new_len: u64) -> Self {
         self.future = Some((future, Some(new_len)));
         self
     }
@@ -1888,7 +1888,7 @@ impl FatResponse {
     /// See [`Self::with_future_and_len`].
     pub fn with_future_and_maybe_len(
         mut self,
-        future: (ResponsePipeFuture, Option<usize>),
+        future: (ResponsePipeFuture, Option<u64>),
     ) -> Self {
         self.future = Some(future);
         self
@@ -1922,7 +1922,7 @@ impl FatResponse {
         comprash::ClientCachePreference,
         comprash::ServerCachePreference,
         comprash::CompressPreference,
-        Option<(ResponsePipeFuture, Option<usize>)>,
+        Option<(ResponsePipeFuture, Option<u64>)>,
     ) {
         (
             self.response,

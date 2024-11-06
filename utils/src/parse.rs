@@ -657,7 +657,7 @@ pub fn uri(path: &str) -> Option<&str> {
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct CriticalRequestComponents {
-    range: Option<(usize, usize)>,
+    range: Option<(u64, u64)>,
 }
 impl CriticalRequestComponents {
     /// Applies the critical components' info to the `response`.
@@ -672,16 +672,16 @@ impl CriticalRequestComponents {
     pub fn apply_to_response(
         &self,
         response: &mut Response<Bytes>,
-        overriden_len: Option<usize>,
+        overriden_len: Option<u64>,
         is_stream: bool,
     ) -> Result<(), SanitizeError> {
         if is_stream {
             if let Some((range_start, mut range_end)) = self.get_range() {
                 // Clamp to length
-                if range_end >= response.body().len() {
-                    range_end = response.body().len();
+                if range_end >= response.body().len() as u64 {
+                    range_end = response.body().len() as u64;
                 }
-                if range_start >= response.body().len() {
+                if range_start >= response.body().len() as u64 {
                     return Err(SanitizeError::RangeNotSatisfiable);
                 }
 
@@ -702,7 +702,11 @@ impl CriticalRequestComponents {
                     HeaderValue::from_maybe_shared(bytes).unwrap(),
                 );
 
-                let body = response.body().slice(range_start..range_end);
+                // if it fits in memory we can cast the indices to usize
+                #[allow(clippy::cast_possible_truncation)]
+                let body = response
+                    .body()
+                    .slice(range_start as usize..range_end as usize);
                 *response.body_mut() = body;
                 if response.status() == StatusCode::OK {
                     *response.status_mut() = StatusCode::PARTIAL_CONTENT;
@@ -721,7 +725,7 @@ impl CriticalRequestComponents {
     /// Both are relative to the start of the data.
     #[inline]
     #[must_use]
-    pub fn get_range(&self) -> Option<(usize, usize)> {
+    pub fn get_range(&self) -> Option<(u64, u64)> {
         self.range
     }
 }
@@ -768,8 +772,8 @@ pub fn sanitize_request<T>(
             return None;
         }
         let separator = v.find('-')?;
-        let first: usize = v.get(6..separator)?.parse().ok()?;
-        let second: usize = v.get(separator + 1..)?.parse().ok()?;
+        let first: u64 = v.get(6..separator)?.parse().ok()?;
+        let second: u64 = v.get(separator + 1..)?.parse().ok()?;
         Some((first, second))
     });
     let mut data = CriticalRequestComponents { range: None };

@@ -857,7 +857,7 @@ mod response {
         }
         /// Ensures the version and length of the `response` using the variant of [`ResponsePipe`].
         #[inline]
-        pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: usize) {
+        pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: u64) {
             match self {
                 Self::Http1(_) => match response.version() {
                     Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {

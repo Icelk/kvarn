@@ -189,7 +189,7 @@ pub enum ConnectionResponse {
     /// bytes, are readable from the [`EstablishedConnection`]. If the transfer-encoding is
     /// chunked, the [`Response::body`] is also chunked so you can just continue relaying the data.
     Partial {
-        len: Option<usize>,
+        len: Option<u64>,
         response: Response<Bytes>,
     },
 }
@@ -201,7 +201,7 @@ impl EstablishedConnection {
         request: &Request<T>,
         body: &[u8],
         timeout: Duration,
-        max_len: usize,
+        max_len_without_stream_body: usize,
     ) -> Result<ConnectionResponse, GatewayError> {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
         debug!("Sending request");
@@ -221,14 +221,14 @@ impl EstablishedConnection {
                     let chunked =
                         utils::header_eq(response.headers(), "transfer-encoding", "chunked");
                     let len = if chunked {
-                        usize::MAX
+                        u64::MAX
                     } else if body.is_empty() {
                         utils::get_body_length_response(&response, Some(request.method()))
                     } else {
                         utils::get_body_length_response(&response, None)
                     };
 
-                    if !chunked && len > max_len {
+                    if !chunked && len > max_len_without_stream_body as u64 {
                         return Ok(ConnectionResponse::Partial {
                             len: Some(len),
                             // it isn't chunked, so this is fine!
@@ -238,7 +238,7 @@ impl EstablishedConnection {
 
                     let (mut head, body) = utils::split_response(response);
 
-                    let body = if len == 0 || len <= body.len() {
+                    let body = if len == 0 || len <= body.len() as u64 {
                         body
                     } else {
                         let mut buffer = BytesMut::with_capacity(body.len() + 512);
@@ -255,12 +255,16 @@ impl EstablishedConnection {
 
                         if let Ok(result) = tokio::time::timeout(
                             timeout,
-                            read_to_end_or_max(&mut buffer, &mut reader, len.min(max_len)),
+                            read_to_end_or_max(
+                                &mut buffer,
+                                &mut reader,
+                                len.min(max_len_without_stream_body as u64) as usize,
+                            ),
                         )
                         .await
                         {
                             result?;
-                            if buffer.len() >= max_len && chunked {
+                            if buffer.len() >= max_len_without_stream_body && chunked {
                                 use std::fmt::Write;
 
                                 // we're over max len and chunked, resort to write what we've read
