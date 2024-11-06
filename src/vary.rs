@@ -198,10 +198,14 @@ impl Default for Vary {
 ///
 /// Consider using [`apply_header`] instead.
 #[must_use]
-fn get_header(headers: &[Header]) -> HeaderValue {
+fn get_header(headers: &[Header], no_range: bool) -> HeaderValue {
     use bytes::BufMut;
 
-    let always_add = &b"accept-encoding, range"[..];
+    let always_add = if no_range {
+        &b"accept-encoding"[..]
+    } else {
+        &b"accept-encoding, range"[..]
+    };
 
     let len = headers
         .iter()
@@ -224,9 +228,17 @@ fn get_header(headers: &[Header]) -> HeaderValue {
 }
 
 /// Converts and applies the varied `headers` to the `response`.
-pub(crate) fn apply_header(response: &mut Response<Bytes>, headers: &[Header]) {
+pub(crate) fn apply_header(response: &mut Response<Bytes>, headers: &[Header], is_streaming: bool) {
     if !response.body().is_empty() {
-        let header = get_header(headers);
+        let header = get_header(
+            headers,
+            is_streaming
+                && !response
+                    .headers()
+                    .get("vary")
+                    .and_then(|h| h.to_str().ok())
+                    .map_or(false, |h| h.contains("range")),
+        );
         response.headers_mut().insert("vary", header);
     }
 }

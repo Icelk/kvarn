@@ -992,7 +992,7 @@ impl SendKind {
 
         let overriden_len = future.as_ref().and_then(|(_, len)| len.as_ref().copied());
         if let Ok(data) = &data {
-            match data.apply_to_response(&mut response, overriden_len) {
+            match data.apply_to_response(&mut response, overriden_len, future.is_some()) {
                 Err(SanitizeError::RangeNotSatisfiable) => {
                     response = default_error(
                         StatusCode::RANGE_NOT_SATISFIABLE,
@@ -1450,7 +1450,7 @@ pub async fn handle_cache(
                     }
                 };
 
-                vary::apply_header(&mut response, vary);
+                vary::apply_header(&mut response, vary, future.is_some());
 
                 let identity_body = Bytes::clone(resp.get_identity().body());
 
@@ -1522,7 +1522,7 @@ pub async fn handle_cache(
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
             let vary = &varied_response.first().1;
-            vary::apply_header(&mut response, vary);
+            vary::apply_header(&mut response, vary, future.is_some());
 
             let cache_rejected = handle_cache_helpers::maybe_cache(
                 host,

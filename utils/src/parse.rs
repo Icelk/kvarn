@@ -663,6 +663,7 @@ impl CriticalRequestComponents {
     /// Applies the critical components' info to the `response`.
     ///
     /// For now applies range and replaces the `accept-ranges` header.
+    /// IF `is_stream` is false, else ranges aren't supported and we cancel.
     ///
     /// # Errors
     ///
@@ -672,37 +673,45 @@ impl CriticalRequestComponents {
         &self,
         response: &mut Response<Bytes>,
         overriden_len: Option<usize>,
+        is_stream: bool,
     ) -> Result<(), SanitizeError> {
-        if let Some((range_start, mut range_end)) = self.get_range() {
-            // Clamp to length
-            if range_end >= response.body().len() {
-                range_end = response.body().len();
-            }
-            if range_start >= response.body().len() {
-                return Err(SanitizeError::RangeNotSatisfiable);
-            }
+        if is_stream {
+            if let Some((range_start, mut range_end)) = self.get_range() {
+                // Clamp to length
+                if range_end >= response.body().len() {
+                    range_end = response.body().len();
+                }
+                if range_start >= response.body().len() {
+                    return Err(SanitizeError::RangeNotSatisfiable);
+                }
 
-            let len = response.body().len().to_string();
-            let start = range_start.to_string();
-            let end = (range_end - 1).to_string();
-            let bytes =
-                crate::build_bytes!(start.as_bytes(), b"-", end.as_bytes(), b"/", len.as_bytes());
+                let len = response.body().len().to_string();
+                let start = range_start.to_string();
+                let end = (range_end - 1).to_string();
+                let bytes = crate::build_bytes!(
+                    start.as_bytes(),
+                    b"-",
+                    end.as_bytes(),
+                    b"/",
+                    len.as_bytes()
+                );
 
-            response.headers_mut().insert(
-                "content-range",
-                // We know integers, b"-", and b"/" are OK!
-                HeaderValue::from_maybe_shared(bytes).unwrap(),
-            );
+                response.headers_mut().insert(
+                    "content-range",
+                    // We know integers, b"-", and b"/" are OK!
+                    HeaderValue::from_maybe_shared(bytes).unwrap(),
+                );
 
-            let body = response.body().slice(range_start..range_end);
-            *response.body_mut() = body;
-            if response.status() == StatusCode::OK {
-                *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+                let body = response.body().slice(range_start..range_end);
+                *response.body_mut() = body;
+                if response.status() == StatusCode::OK {
+                    *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+                }
+            } else if !response.body().is_empty() || overriden_len.map_or(false, |len| len > 0) {
+                response
+                    .headers_mut()
+                    .insert("accept-ranges", HeaderValue::from_static("bytes"));
             }
-        } else if !response.body().is_empty() || overriden_len.map_or(false, |len| len > 0) {
-            response
-                .headers_mut()
-                .insert("accept-ranges", HeaderValue::from_static("bytes"));
         }
         Ok(())
     }
