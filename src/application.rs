@@ -855,14 +855,19 @@ mod response {
                 },
             }
         }
-        /// Ensures the version and length of the `response` using the variant of [`ResponsePipe`].
+        /// Ensures the length of the `response` using the variant of [`ResponsePipe`].
         #[inline]
-        pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: u64) {
+        pub fn ensure_length<T>(&self, response: &mut Response<T>, len: u64) {
+            if let Self::Http1(_) = self {
+                utils::set_content_length(response.headers_mut(), len);
+            }
+        }
+        /// Ensures the version of the `response` using the variant of [`ResponsePipe`].
+        #[inline]
+        pub fn ensure_version<T>(&self, response: &mut Response<T>) {
             match self {
                 Self::Http1(_) => match response.version() {
-                    Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {
-                        utils::set_content_length(response.headers_mut(), len);
-                    }
+                    Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11 => {}
 
                     _ => *response.version_mut() = Version::HTTP_11,
                 },

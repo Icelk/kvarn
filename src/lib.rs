@@ -876,7 +876,8 @@ pub async fn handle_connection(
                 )
                 .await,
             );
-            response_pipe.ensure_version_and_length(&mut response, body.len() as u64);
+            response_pipe.ensure_version(&mut response);
+            response_pipe.ensure_length(&mut response, body.len() as u64);
 
             let mut body_pipe =
                 ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -890,7 +891,8 @@ pub async fn handle_connection(
             LimitAction::Drop => return Ok(()),
             LimitAction::Send => {
                 let (mut response, body) = utils::split_response(limiting::get_too_many_requests());
-                response_pipe.ensure_version_and_length(&mut response, body.len() as u64);
+                response_pipe.ensure_length(&mut response, body.len() as u64);
+                response_pipe.ensure_version(&mut response);
 
                 let mut body_pipe =
                     ret_log_app_error!(response_pipe.send_response(response, false).await);
@@ -961,12 +963,18 @@ pub enum SendKind {
     Push(application::PushedResponsePipe),
 }
 impl SendKind {
-    /// Ensures correct version and length (only applicable for HTTP/1 connections)
-    /// of a response according to inner enum variants.
+    /// Ensures correct length (only applicable for HTTP/1 connections).
     #[inline]
-    pub fn ensure_version_and_length<T>(&self, response: &mut Response<T>, len: u64) {
+    pub fn ensure_length<T>(&self, response: &mut Response<T>, len: u64) {
+        if let Self::Send(p) = self {
+            p.ensure_length(response, len);
+        }
+    }
+    /// Ensures correct version of a response according to inner enum variants.
+    #[inline]
+    pub fn ensure_version<T>(&self, response: &mut Response<T>) {
         match self {
-            Self::Send(p) => p.ensure_version_and_length(response, len),
+            Self::Send(p) => p.ensure_version(response),
             Self::Push(p) => p.ensure_version(response),
         }
     }
@@ -990,9 +998,9 @@ impl SendKind {
             future,
         } = response;
 
-        let overriden_len = future.as_ref().and_then(|(_, len)| len.as_ref().copied());
+        let overriden_len = future.as_ref().map(|(_, len)| len.as_ref().copied());
         if let Ok(data) = &data {
-            match data.apply_to_response(&mut response, overriden_len, future.is_some()) {
+            match data.apply_to_response(&mut response, overriden_len.flatten(), future.is_some()) {
                 Err(SanitizeError::RangeNotSatisfiable) => {
                     response = default_error(
                         StatusCode::RANGE_NOT_SATISFIABLE,
@@ -1009,8 +1017,11 @@ impl SendKind {
         }
 
         #[allow(clippy::or_fun_call)] // it's then len, so just compiles down to a int lookup
-        let len = overriden_len.unwrap_or(response.body().len() as u64);
-        self.ensure_version_and_length(&mut response, len);
+        let len = overriden_len.unwrap_or(Some(response.body().len() as u64));
+        if let Some(len) = len {
+            self.ensure_length(&mut response, len);
+        }
+        self.ensure_version(&mut response);
 
         let (mut response, body) = utils::split_response(response);
 
@@ -1131,7 +1142,7 @@ mod handle_cache_helpers {
         comprash::PathQuery,
     ) {
         let path_query = comprash::PathQuery::from(request.uri());
-        let (mut resp, mut client_cache, mut server_cache, compress, future) =
+        let (mut resp, mut client_cache, mut server_cache, mut compress, future) =
             match sanitize_data {
                 Ok(_) => {
                     let path = if host.options.disable_fs {
