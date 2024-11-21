@@ -18,7 +18,7 @@ kvarn-fastcgi-client = { version = "0.9", optional = true }
 tokio = { version = "1.24", features = ["fs"] }
 # tokio-uring = { git = "https://github.com/Icelk/tokio-uring", branch = "recvmsg-msg_control", features = ["bytes"], optional = true }
 tokio-uring = { version = "0.4.0-alpha1", package = "kvarn-tokio-uring", features = ["bytes"], optional = true }
-async_chunked_transfer = "1.4"
+async_chunked_transfer = { version = "1.4", optional = true }
 percent-encoding = { version = "2", optional = true }
 memchr = "2"
 url-crawl = { version = "0.2", path = "../url-crawl", optional = true }
@@ -38,7 +38,7 @@ connection = ["tokio/net", "tokio/io-util"]
 php = ["kvarn-fastcgi-client", "connection", "percent-encoding"]
 templates = []
 push = ["url-crawl", "kvarn/http2"]
-reverse-proxy = ["connection", "url-crawl"]
+reverse-proxy = ["connection", "url-crawl", "async_chunked_transfer"]
 # Automatic HTTPS certificates
 certificate = ["small-acme", "x509-parser", "rustls", "rustls-pemfile", "ron", "rcgen", "kvarn/https", "rand"]
 view-counter = ["dashmap"]
