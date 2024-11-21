@@ -1543,7 +1543,9 @@ pub async fn handle_cache(
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
             let vary = &varied_response.first().1;
-            vary::apply_header(&mut response, vary, future.is_some());
+            if future.as_ref().map_or(true, |f| f.1.is_some()) {
+                vary::apply_header(&mut response, vary, future.is_some());
+            }
 
             let cache_rejected = handle_cache_helpers::maybe_cache(
                 host,
