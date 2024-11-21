@@ -228,6 +228,14 @@ impl EstablishedConnection {
                     trace!("{:#?}", response.headers());
                     let chunked =
                         utils::header_eq(response.headers(), "transfer-encoding", "chunked");
+
+                    if chunked {
+                        return Ok(ConnectionResponse::Partial {
+                            len: None,
+                            response,
+                        });
+                    }
+
                     let len = if chunked {
                         u64::MAX
                     } else if body.is_empty() {
@@ -244,59 +252,34 @@ impl EstablishedConnection {
                         });
                     }
 
-                    let (mut head, body) = utils::split_response(response);
+                    let (head, body) = utils::split_response(response);
 
                     let body = if len == 0 || len <= body.len() as u64 {
                         body
                     } else {
+                        // only when we are not streaming & not chunked
+                        // LET ME BE CLEAR: chunked can not happen here
                         let mut buffer = BytesMut::with_capacity(body.len() + 512);
                         let original_body_len = body.len();
 
-                        let mut reader = if chunked {
-                            let reader = chain::chain(std::io::Cursor::new(body), self);
-                            let decoder = async_chunked_transfer::Decoder::new(reader);
-                            MaybeChunked::Yes(decoder)
-                        } else {
-                            buffer.extend(&body);
-                            MaybeChunked::No(self)
-                        };
+                        buffer.extend(&body);
 
                         if let Ok(result) = tokio::time::timeout(
                             timeout,
                             read_to_end_or_max(
                                 &mut buffer,
-                                &mut reader,
+                                self,
                                 len.min(max_len_without_stream_body as u64) as usize,
                             ),
                         )
                         .await
                         {
                             result?;
-                            if buffer.len() >= max_len_without_stream_body && chunked {
-                                use std::fmt::Write;
-
-                                // we're over max len and chunked, resort to write what we've read
-                                // thus far as a chunk.
-                                let buf_cap = buffer.len() + 4 /* \r\n ×2 */ + 10 /* length string */;
-                                let mut new_buf = BytesMut::with_capacity(buf_cap);
-                                write!(new_buf, "{}\r\n", buffer.len())
-                                    .expect("writing an integer to a BytesMut!!");
-                                new_buf.extend_from_slice(b"\r\n");
-                                drop(reader);
-                                return Ok(ConnectionResponse::Partial {
-                                    len: None,
-                                    response: head.map(|()| new_buf.freeze()),
-                                });
-                            }
                         } else {
                             warn!("Remote read timed out.");
-                            unsafe { buffer.set_len(if chunked { 0 } else { original_body_len }) };
+                            unsafe { buffer.set_len(original_body_len) };
                         }
 
-                        if chunked {
-                            utils::remove_all_headers(head.headers_mut(), "transfer-encoding");
-                            debug!("Decoding chunked transfer-encoding.");
-                        }
                         buffer.freeze()
                     };
 
@@ -577,6 +560,19 @@ impl Manager {
         let timeout = self.timeout;
         let rewrite_url = self.rewrite_url;
 
+        // Strategy for sending body:
+        //
+        // # It fits in memory
+        //
+        // - content-length: Swell, nice, excellent.
+        // - chunked encoding: we can't guarantee it fits in memory
+        //
+        // # Doesn't fit in memory
+        //
+        // - content-length: excellent, we start streaming, same for HTTP/1 & HTTP/2-3
+        // - chunked encoding: fuck my life. HTTP/1: stream chunked encoding. HTTP/2-3:
+        //   DON'T SEND "early body" (obtained when reading headers etc).
+        //   decode (including "early body") and stream on the fly
         extensions.add_prepare_fn(
             self.when,
             prepare!(
@@ -709,6 +705,30 @@ impl Manager {
                                     );
                                 }
 
+                                let stream_decode_chunked =
+                                    len.is_none()
+                                    && !matches!(
+                                        req.version(),
+                                        Version::HTTP_09 | Version::HTTP_10 | Version::HTTP_11
+                                    );
+
+                                if stream_decode_chunked {
+                                    utils::remove_all_headers(response.headers_mut(), "transfer-encoding");
+                                    if response.headers().get("content-encoding").is_none() {
+                                        response.headers_mut().insert("content-encoding", HeaderValue::from_static("identity"));
+                                    }
+                                }
+                                let chunked_body = if stream_decode_chunked {
+                                    let mut tmp = None;
+                                    response = response.map(|b| {
+                                        tmp = Some(b);
+                                        Bytes::new()
+                                    });
+                                    Some(tmp.unwrap())
+                                }else {
+                                    None
+                                };
+
                                 if wait {
                                     error!(
                                         "Waiting for websocket but also \
@@ -719,11 +739,22 @@ impl Manager {
                                 trace!("Final response {response:#?}");
                                 // trust me bro, it's stringently read
                                 #[allow(clippy::uninit_vec)]
-                                return FatResponse::no_cache(response).with_future_and_len(
+                                return FatResponse::no_cache(response).with_future_and_maybe_len(
+                                    (
                                     response_pipe_fut!(
                                         response_pipe,
                                         _,
-                                        move |connection: EstablishedConnection| {
+                                        move |connection: EstablishedConnection,
+                                              chunked_body: Option<Bytes>| {
+                                            let mut reader = if let Some(chunked_body) = chunked_body {
+                                                let reader = chain::chain(std::io::Cursor::new(chunked_body), connection);
+                                                let buffered = tokio::io::BufReader::with_capacity(64*1024, reader);
+                                                let decoder = async_chunked_transfer::Decoder::new(buffered);
+                                                MaybeChunked::Yes(decoder)
+                                            }else {
+                                                MaybeChunked::No(connection)
+                                            };
+
                                             let mut buf = Vec::with_capacity(1024 * 64);
                                             unsafe { buf.set_len(buf.capacity()) };
                                             let mut i = 0u32;
