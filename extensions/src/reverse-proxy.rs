@@ -6,6 +6,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 pub mod url_rewrite;
 
 pub use async_bits::CopyBuffer;
+
 #[macro_use]
 pub mod async_bits {
     use kvarn::prelude::*;
@@ -205,6 +206,7 @@ impl EstablishedConnection {
     ) -> Result<ConnectionResponse, GatewayError> {
         let mut buffered = tokio::io::BufWriter::new(&mut *self);
         debug!("Sending request");
+        trace!("data: {:?}", Bytes::copy_from_slice(body));
         write::request(request, body, &mut buffered).await?;
 
         debug!("Sent reverse-proxy request. Reading response.");
@@ -218,6 +220,12 @@ impl EstablishedConnection {
             Ok(result) => match result {
                 Err(err) => return Err(err.into()),
                 Ok(response) => {
+                    debug!(
+                        "Got initial response: {} len: {}.",
+                        response.status(),
+                        response.body().len()
+                    );
+                    trace!("{:#?}", response.headers());
                     let chunked =
                         utils::header_eq(response.headers(), "transfer-encoding", "chunked");
                     let len = if chunked {
@@ -627,6 +635,9 @@ impl Manager {
                         modify(&mut empty_req, &mut bytes, addr);
                     }
 
+                    debug!("Got request for {}", req.uri());
+                    trace!("{req:#?}");
+
                     // limit cached responses to 10 MB, otherwise stream body
                     let max_len = 10 * 1024 * 1024;
                     let result = connection
@@ -635,8 +646,19 @@ impl Manager {
                     let mut response = match result {
                         Ok(response) => {
                             let (mut response, others) = match response {
-                                ConnectionResponse::Whole(r) => (r, None),
+                                ConnectionResponse::Whole(r) => {
+                                    debug!("Response {} with length {}", r.status(), r.body().len());
+                                    let mut b = None;
+                                    let r = r.map(|bod| {
+                                        b = Some(bod);
+                                    });
+                                    trace!("{r:#?}");
+                                    let r = r.map(|()|b.unwrap());
+                                    (r, None)
+                                },
                                 ConnectionResponse::Partial { len, response } => {
+                                    debug!("Partial response {} with length {} (maybe chunked)", response.status(), response.body().len());
+                                    trace!("{response:#?}");
                                     (response, Some(len))
                                 }
                             };
@@ -678,6 +700,7 @@ impl Manager {
                             }
 
                             if let Some(len) = others {
+                                debug!("len: {len:?}");
                                 if let Some(len) = len {
                                     response.headers_mut().insert(
                                         "content-length",
@@ -692,7 +715,8 @@ impl Manager {
                                         streaming body of length > {max_len}"
                                     );
                                 }
-                                let len = utils::get_body_length_response(&response, Some(req.method()));
+                                debug!("Sent with body len {:?}. Chunked body: {:?}", response.body().len(), chunked_body.as_ref().map(|b|b.len()));
+                                trace!("Final response {response:#?}");
                                 // trust me bro, it's stringently read
                                 #[allow(clippy::uninit_vec)]
                                 return FatResponse::no_cache(response).with_future_and_len(
@@ -706,16 +730,20 @@ impl Manager {
                                             let mut pos = 0;
                                             loop {
                                                 // add 1 at the top to skip waiting for connection on first iter
-                                                let r = connection.read(&mut buf[pos..]).await;
+                                                trace!("Can read {}", buf.capacity() - pos);
+                                                trace!("Yield");
+                                                let r = reader.read(&mut buf[pos..]).await;
                                                 // okey this is crazy deep nesting i'm sorry
                                                 match r {
                                                     Ok(read) => {
+                                                        trace!("Read {read}");
                                                         pos += read;
 
                                                         if pos < buf.capacity() / 2 && read != 0 {
                                                             continue;
                                                         }
                                                         if pos == 0 {
+                                                            trace!("Break top!");
                                                             break;
                                                         }
                                                         // one chunk is max 64kB (see buffer above)
@@ -724,6 +752,10 @@ impl Manager {
                                                         // 10MB/64kB = 160
                                                         let data =
                                                             Bytes::copy_from_slice(&buf[..pos]);
+                                                        trace!("Writing {:?}", data.len());
+                                                        if data.len() < 10_000 {
+                                                            trace!("data: {data:?}");
+                                                        }
                                                         let r = if i % 160 == 0 {
                                                             // to not just spew data in HTTP/2,
                                                             // growing memory size to infinity!!!
@@ -734,11 +766,14 @@ impl Manager {
                                                                 )
                                                                 .await
                                                         } else {
+                                                            trace!("Normal send");
                                                             response_pipe.send(data).await
                                                         };
+                                                            trace!("senddone");
                                                         pos = 0;
                                                         i = i.wrapping_add(1);
                                                         if read == 0 {
+                                                            trace!("end break");
                                                             break;
                                                         }
                                                         match r {
@@ -752,16 +787,19 @@ impl Manager {
                                                     Err(err) => {
                                                         warn!(
                                                             "Failed to stream body \
-                                                            from reverse connection: {err}"
+                                                            from reverse connection: {err:?}"
                                                         );
                                                         break;
                                                     }
                                                 }
                                             }
+                                            trace!("Close!");
                                             let _ = response_pipe.close().await;
+                                            trace!("Closed!");
                                         }
                                     ),
                                     len,
+                                    )
                                 );
                             } else {
                                 FatResponse::cache(response)
