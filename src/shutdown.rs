@@ -425,6 +425,16 @@ impl Listener {
         .unwrap_or_else(|_| SocketAddr::V4(net::SocketAddrV4::new(net::Ipv4Addr::LOCALHOST, 0)))
     }
 }
+impl Debug for Listener {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let s = utils::ident_str!(Listener);
+        match self {
+            Listener::Tcp(_) => write!(f, "{s}::Tcp(TcpListener)"),
+            #[cfg(feature = "http3")]
+            Listener::Udp(_) => write!(f, "{s}::Udp(h3_quinn::Endpoint)"),
+        }
+    }
+}
 /// A wrapper around [`TcpListener`] (and `UdpListener` when HTTP/3 comes around)
 /// which waits for a new connection **or** a shutdown signal.
 #[must_use]
@@ -444,7 +454,7 @@ impl Debug for AcceptManager {
             s,
             #[cfg(feature = "graceful-shutdown")]
             (self.index),
-            (self.listener, &"[TcpListener]".as_clean()),
+            (self.listener),
         );
 
         s.finish()
