@@ -1172,6 +1172,16 @@ mod handle_cache_helpers {
         if host.options.disable_client_cache {
             client_cache = comprash::ClientCachePreference::None;
         }
+        // not even websockets use whole-stream compression
+        // very problematic when an "empty" body is compressed
+        // but the stream after is uncompressed data.
+        // `TODO`: how can streaming body be compressed?
+        //      How do we communicate that?
+        //      No body can be present and the streamer has to handle everything
+        //      OR do we transparently compress what gets sent?
+        if future.is_some() {
+            compress = comprash::CompressPreference::None;
+        }
 
         host.extensions
             .resolve_present(

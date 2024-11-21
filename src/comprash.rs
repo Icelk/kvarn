@@ -320,13 +320,39 @@ pub struct CompressedResponse {
 unsafe impl Send for CompressedResponse {}
 unsafe impl Sync for CompressedResponse {}
 impl CompressedResponse {
+    /// Compress MUST be [`CompressPreference::None`] if we are going to stream.
     pub(crate) fn new(
         mut identity: Response<Bytes>,
-        compress: CompressPreference,
+        mut compress: CompressPreference,
         client_cache: ClientCachePreference,
         extension: &str,
     ) -> Self {
+        // It's not worth it.
+        // Also covers special case of body.is_empty.
+        if identity.body().len() < 50 {
+            compress = CompressPreference::None;
+        }
         let headers = identity.headers_mut();
+        // The contents SHOULDN'T be compressed.
+        // The reverse proxy doesn't use compression.
+        // We assume the internal representation is identity.
+        // Though, setting headers to be explicitly identity has to be respected.
+        //
+        // This becomes REALLY problematic when e.g. gzip is chosen when in reality a stream will
+        // continue with non-gzip. That should be covered by `compress` in the caller
+        //
+        // if headers
+        //     .get("content-encoding")
+        //     .and_then(|h| h.to_str().ok())
+        //     .map_or(false, |h| h == "identity")
+        // {
+        //     compress = CompressPreference::None;
+        // }
+        //
+        // On second thought, it should be fine. We can cache everything where we have the whole
+        // response. That's guaranteed by the caller (see documentation of this function), since
+        // when we stream it's supposed to be None.
+
         Self::set_client_cache(headers, client_cache);
         Self::check_content_type(&mut identity, extension);
         Self {
