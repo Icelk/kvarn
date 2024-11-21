@@ -757,7 +757,7 @@ impl Manager {
 
                                             let mut buf = Vec::with_capacity(1024 * 64);
                                             unsafe { buf.set_len(buf.capacity()) };
-                                            let mut i = 0u32;
+                                            let mut i = 1u32;
                                             let mut pos = 0;
                                             loop {
                                                 // add 1 at the top to skip waiting for connection on first iter
