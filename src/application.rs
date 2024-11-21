@@ -984,6 +984,9 @@ mod response {
             data: Bytes,
             end_of_stream: bool,
         ) -> Result<(), Error> {
+            if !end_of_stream && data.is_empty() {
+                return Ok(());
+            }
             match self {
                 Self::Http1(h1) => {
                     let mut lock = h1.lock().await;
