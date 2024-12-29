@@ -387,7 +387,7 @@ fn process_inner<P: AsRef<Path>>(
                 counter: &'a IndentCounter,
                 multiplier: usize,
             }
-            impl<'a> Display for MarginDisplay<'a> {
+            impl Display for MarginDisplay<'_> {
                 fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
                     let margin = self.counter.left_margin(self.multiplier);
 
@@ -605,12 +605,12 @@ pub fn wait_for(message: &str) {
 pub struct Extendible<'a> {
     inner: &'a mut String,
 }
-impl<'a> Extendible<'a> {
+impl Extendible<'_> {
     pub fn extend(&mut self, string: &str) {
         self.inner.push_str(string);
     }
 }
-impl<'a> fmt::Write for Extendible<'a> {
+impl fmt::Write for Extendible<'_> {
     fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
         self.inner.write_fmt(args)
     }
@@ -823,7 +823,7 @@ impl Display for IndentCounter {
 pub struct IndentIndenter<'a> {
     data: &'a IndentCounter,
 }
-impl<'a> Display for IndentIndenter<'a> {
+impl Display for IndentIndenter<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for _ in 0..self.data.last_indent {
             write!(f, "    ")?;
