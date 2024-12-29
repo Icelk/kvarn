@@ -255,7 +255,7 @@ impl<'a> Iterator for PresentArgumentsIter<'a> {
         Some(unsafe { str::from_utf8_unchecked(&self.data.data[start..start + len]) })
     }
 }
-impl<'a> DoubleEndedIterator for PresentArgumentsIter<'a> {
+impl DoubleEndedIterator for PresentArgumentsIter<'_> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.index == self.back_index {

@@ -46,6 +46,9 @@
     clippy::unused_self,
     // When a enum variant has been conditionally compiled away.
     irrefutable_let_patterns,
+    // I know what I'm doing. I use this to have references to options which are in structs.
+    // .as_ref would work but it's ugly and I want consistent types with these things.
+    clippy::ref_option
 )]
 #![doc(html_favicon_url = "https://kvarn.org/favicon.svg")]
 #![doc(html_logo_url = "https://kvarn.org/logo.svg")]
@@ -1959,7 +1962,7 @@ impl Debug for FatResponse {
             Str(&'a str),
             Bytes,
         }
-        impl<'a> Debug for BytesOrStr<'a> {
+        impl Debug for BytesOrStr<'_> {
             fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
                 match self {
                     Self::Str(s) => f.write_str(s),

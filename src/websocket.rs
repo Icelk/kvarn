@@ -130,7 +130,7 @@ pub enum WSStream<'a> {
     /// so this is unlikely to get more versions
     Http1(&'a Arc<Mutex<Encryption>>),
 }
-impl<'a> AsyncRead for WSStream<'a> {
+impl AsyncRead for WSStream<'_> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -144,7 +144,7 @@ impl<'a> AsyncRead for WSStream<'a> {
         }
     }
 }
-impl<'a> AsyncWrite for WSStream<'a> {
+impl AsyncWrite for WSStream<'_> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

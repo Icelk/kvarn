@@ -181,6 +181,7 @@ impl Manager {
                 let shutdown = self.shutdown.load(Ordering::Acquire);
                 if shutdown {
                     debug!("There are no connections. Shutting down.");
+                    #[allow(clippy::used_underscore_items)] // cfg
                     self._shutdown();
                 }
             }
@@ -272,6 +273,7 @@ impl Manager {
         }
 
         if self.connections.load(Ordering::Acquire) <= 0 {
+            #[allow(clippy::used_underscore_items)] // cfg
             self._shutdown();
         }
         debug!(

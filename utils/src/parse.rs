@@ -391,7 +391,7 @@ impl<'a> QueryPair<'a> {
         &self.value
     }
 }
-impl<'a> Display for QueryPair<'a> {
+impl Display for QueryPair<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())?;
         f.write_str("=")?;
@@ -496,7 +496,7 @@ impl<'a> Query<'a> {
         Ok(self.iterate_to_first(name, index))
     }
 }
-impl<'a> Display for Query<'a> {
+impl Display for Query<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (pos, pair) in self.pairs.iter().enumerate() {
             f.write_fmt(format_args!("{}", pair))?;
@@ -566,7 +566,7 @@ impl<'a> Iterator for QueryPairIter<'a> {
         })
     }
 }
-impl<'a> DoubleEndedIterator for QueryPairIter<'a> {
+impl DoubleEndedIterator for QueryPairIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.ensure_back_pos();
         if self.pos == Some(self.back_pos.unwrap()) {

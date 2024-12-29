@@ -146,6 +146,7 @@ macro_rules! ident_str {
     ($item:ident $(, $($name:ident)+, $($generics:tt)+)?) => {{
         // we use this to make rust-analyzer realize $name is
         // an item. This means IDE renaming is also applied on $var.
+        #[allow(non_local_definitions)]
         impl$(<$($generics)+>)? $item$(<$($name)+>)? {}
         stringify!($item)
     }};
@@ -298,13 +299,13 @@ impl<'a, T: ?Sized + Display> CleanDebug<'a, T> {
         Self(value)
     }
 }
-impl<'a, T: ?Sized + Display> Debug for CleanDebug<'a, T> {
+impl<T: ?Sized + Display> Debug for CleanDebug<'_, T> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
     }
 }
-impl<'a, T: ?Sized + Display> Display for CleanDebug<'a, T> {
+impl<T: ?Sized + Display> Display for CleanDebug<'_, T> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self.0, f)
@@ -740,7 +741,7 @@ pub struct QuotedStrSplitIter<'a> {
     current: String,
     escaped: usize,
 }
-impl<'a> Iterator for QuotedStrSplitIter<'a> {
+impl Iterator for QuotedStrSplitIter<'_> {
     type Item = String;
     fn next(&mut self) -> Option<Self::Item> {
         loop {

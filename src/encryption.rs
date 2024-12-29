@@ -406,7 +406,7 @@ mod tokio_tls {
                     cx: &'a mut Context<'b>,
                 }
 
-                impl<'a, 'b, T: AsyncRead + Unpin> Read for Reader<'a, 'b, T> {
+                impl<T: AsyncRead + Unpin> Read for Reader<'_, '_, T> {
                     #[inline]
                     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                         let mut buf = ReadBuf::new(buf);
@@ -453,7 +453,7 @@ mod tokio_tls {
                     cx: &'a mut Context<'b>,
                 }
 
-                impl<'a, 'b, T: Unpin> Writer<'a, 'b, T> {
+                impl<T: Unpin> Writer<'_, '_, T> {
                     #[inline]
                     fn poll_with<U>(
                         &mut self,
@@ -466,7 +466,7 @@ mod tokio_tls {
                     }
                 }
 
-                impl<'a, 'b, T: AsyncWrite + Unpin> Write for Writer<'a, 'b, T> {
+                impl<T: AsyncWrite + Unpin> Write for Writer<'_, '_, T> {
                     #[inline]
                     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
                         self.poll_with(|io, cx| io.poll_write(cx, buf))
@@ -552,7 +552,7 @@ mod tokio_tls {
             }
         }
 
-        impl<'a, IO: AsyncRead + AsyncWrite + Unpin, C, SD> AsyncRead for Stream<'a, IO, C>
+        impl<IO: AsyncRead + AsyncWrite + Unpin, C, SD> AsyncRead for Stream<'_, IO, C>
         where
             C: DerefMut + Deref<Target = ConnectionCommon<SD>>,
             SD: SideData,
@@ -612,7 +612,7 @@ mod tokio_tls {
             }
         }
 
-        impl<'a, IO: AsyncRead + AsyncWrite + Unpin, C, SD> AsyncWrite for Stream<'a, IO, C>
+        impl<IO: AsyncRead + AsyncWrite + Unpin, C, SD> AsyncWrite for Stream<'_, IO, C>
         where
             C: DerefMut + Deref<Target = ConnectionCommon<SD>>,
             SD: SideData,

@@ -216,7 +216,7 @@ pub enum MethodAllowList<'a> {
     /// Only the methods in the slice are allowed.
     Selected(&'a [Method]),
 }
-impl<'a> MethodAllowList<'a> {
+impl MethodAllowList<'_> {
     #[must_use]
     fn allowed(&self, method: &Method) -> bool {
         match self {
