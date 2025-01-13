@@ -20,7 +20,7 @@ required-features = ["bin"]
 [dependencies]
 colored = "3.0"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd", "html"] }
-notify = "7"
+notify = "8"
 unicode_categories = "0.1"
 time = { version = "0.3", optional = true, features = ["formatting", "macros", "local-offset"] }
 time-tz = { version = "2", optional = true, features = ["system"] }
