@@ -517,7 +517,7 @@ async fn accept_udp(endpoint: &mut h3_quinn::Endpoint) -> io::Result<h3_quinn::q
     }
 }
 #[cfg(feature = "async-networking")]
-impl<'a> AcceptFuture<'a> {
+impl AcceptFuture<'_> {
     async fn accept(self) -> AcceptAction {
         #[cfg(feature = "graceful-shutdown")]
         {

@@ -90,9 +90,7 @@ impl Cors {
         if Some(origin_scheme) != uri.scheme_str() {
             return false;
         }
-        uri.authority()
-            .map(uri::Authority::as_str)
-            .map_or(false, |authority| authority == origin_authority)
+        uri.authority().map(uri::Authority::as_str) == Some(origin_authority)
     }
 }
 

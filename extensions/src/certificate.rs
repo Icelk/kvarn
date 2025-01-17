@@ -73,7 +73,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             req.uri()
                 .path()
                 .strip_prefix("/.well-known/acme-challenge/")
-                .map_or(false, |token| {
+                .is_some_and(|token| {
                     let tokens = t1.read().unwrap();
                     tokens.contains_key(token)
                 })
@@ -484,7 +484,7 @@ fn get_expiration(cert: &[u8]) -> Option<(chrono::OffsetDateTime, bool)> {
         || cert
             .issuer()
             .iter_common_name()
-            .any(|n| n.as_str().map_or(false, |s| s.contains("rcgen")));
+            .any(|n| n.as_str().is_ok_and(|s| s.contains("rcgen")));
     Some((cert.validity().not_after.to_datetime(), self_signed))
 }
 

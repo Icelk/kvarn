@@ -135,7 +135,7 @@ async fn push<'a>(
         .headers()
         .get("user-agent")
         .and_then(|user_agent| user_agent.to_str().ok())
-        .map_or(false, |user_agent| user_agent.contains("Firefox/"))
+        .is_some_and(|user_agent| user_agent.contains("Firefox/"))
     {
         return;
     }
@@ -147,7 +147,7 @@ async fn push<'a>(
         Ok(string)
             if string
                 .get(..HTML_START.len())
-                .map_or(false, |s| s.eq_ignore_ascii_case(HTML_START)) =>
+                .is_some_and(|s| s.eq_ignore_ascii_case(HTML_START)) =>
         {
             let mut urls: Vec<_> = url_crawl::get_urls(string).map(String::from).collect();
 

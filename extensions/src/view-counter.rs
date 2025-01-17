@@ -212,7 +212,7 @@ pub async fn mount(
                 if !predicate(request)
                     || c.ips
                         .get(request.uri().path())
-                        .map_or(false, |ips| ips.contains(&addr.ip()))
+                        .is_some_and(|ips| ips.contains(&addr.ip()))
                 {
                     return;
                 }

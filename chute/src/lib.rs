@@ -269,7 +269,7 @@ fn process_inner<P: AsRef<Path>>(
         let mut path = path.to_owned();
         let ext = path.extension().and_then(OsStr::to_str);
 
-        if ext.map_or(false, |ext| ext == "md") {
+        if ext == Some("md") {
             path.set_extension("html");
         } else if let Some(ext) = ext {
             let ext = format!("{}.html", ext);

@@ -290,11 +290,11 @@ pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
         if let Some(extension) = extension {
             for (rule, preference) in &**rules {
                 let replace = (rule.starts_with('/') && path.starts_with(rule))
-                    || rule.strip_prefix('.').map_or(false, |ext| ext == extension)
+                    || rule.strip_prefix('.') == Some(extension)
                     || rule
                         .strip_prefix('*')
                         .and_then(|rule| rule.strip_suffix('*'))
-                        .map_or(false, |rule| path.contains(rule));
+                        .is_some_and(|rule| path.contains(rule));
                 if replace {
                     return Some(*preference);
                 }

@@ -652,7 +652,7 @@ mod cmsg {
 
     // Statically guarantees that the encoding operation is "finished" before the control buffer is read
     // by `sendmsg`.
-    impl<'a> Drop for Encoder<'a> {
+    impl Drop for Encoder<'_> {
         fn drop(&mut self) {
             self.hdr.msg_controllen = self.len as _;
         }

@@ -197,8 +197,8 @@ pub enum ConnectionResponse {
 impl EstablishedConnection {
     /// If the body is `max_len` or greater, you need to continue streaming the body. See
     /// [`ConnectionResponse::Partial`].
-    pub async fn request<'a, T: Debug>(
-        &'a mut self,
+    pub async fn request<T: Debug>(
+        &mut self,
         request: &Request<T>,
         body: &[u8],
         timeout: Duration,
@@ -608,7 +608,7 @@ impl Manager {
                         .headers()
                         .get("connection")
                         .and_then(|h| h.to_str().ok())
-                        .map_or(false, |h| h.contains("pgrade"))
+                        .is_some_and(|h| h.contains("pgrade"))
                     {
                         empty_req
                             .headers_mut()
