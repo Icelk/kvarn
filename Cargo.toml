@@ -61,7 +61,7 @@ rustls-webpki = { version = "0.102", optional = true, default-features = false, 
 # nonce
 base64 = { version = "0.22", optional = true }
 memchr = { version = "2", optional = true }
-rand = { version = "0.8", optional = true, features = ["small_rng"] }
+rand = { version = "0.9", optional = true, features = ["small_rng"] }
 
 # Compression
 brotli = { version = "7", optional = true }
