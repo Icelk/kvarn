@@ -203,8 +203,8 @@ impl ServerBuilder {
     }
     async fn get_port() -> u16 {
         use rand::prelude::*;
-        let mut rng = rand::thread_rng();
-        let port_range = rand::distributions::Uniform::new(4096, 61440);
+        let mut rng = rand::rng();
+        let port_range = rand::distr::Uniform::new(4096, 61440).unwrap();
 
         loop {
             let port = port_range.sample(&mut rng);
