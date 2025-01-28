@@ -601,7 +601,7 @@ impl Extensions {
         self.add_present_internal(
             "nonce",
             present!(ext, {
-                let data: [u8; 16] = rand::thread_rng().gen();
+                let data: [u8; 16] = rand::rng().random();
                 let mut s = BytesMut::with_capacity(24);
                 unsafe { s.set_len(24) };
 

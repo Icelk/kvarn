@@ -116,7 +116,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
             let left = (exp - chrono::OffsetDateTime::now_utc()).max(chrono::time::Duration::ZERO);
             tokio::time::sleep(left.try_into().expect("we made sure it's positive")).await;
             let duration =
-                Duration::from_secs_f32(rand::Rng::gen_range(&mut rand::thread_rng(), 0.0..10.0));
+                Duration::from_secs_f32(rand::Rng::random_range(&mut rand::rng(), 0.0..10.0));
             // so if multiple are dispatched simultaneously, the first one gets the chance to get
             // and write the account
             tokio::time::sleep(duration).await;
