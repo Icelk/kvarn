@@ -38,7 +38,7 @@ jobs:
             - name: Compiling
               run: cargo rustc --profile distribution
             - name: Upload bin artefact
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: kvarnctl
                   path: target/distribution/kvarnctl
