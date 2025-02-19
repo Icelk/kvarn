@@ -1330,6 +1330,8 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
     })
 }
 
+#[doc(hidden)]
+pub use macros::_UringSendSync;
 mod macros {
     /// Create a pinned future, compatible with [`crate::RetFut`].
     ///
@@ -1351,6 +1353,18 @@ mod macros {
             Box::pin(async move { $code }) as $crate::extensions::RetFut<_>
         };
     }
+
+    #[cfg(feature = "uring")]
+    #[doc(hidden)]
+    ///
+    pub trait _UringSendSync {}
+    impl<T> _UringSendSync for T {}
+    #[cfg(not(feature = "uring"))]
+    #[doc(hidden)]
+    ///
+    pub trait _UringSendSync: Send + Sync {}
+    #[cfg(not(feature = "uring"))]
+    impl<T: Send + Sync> _UringSendSync for T {}
 
     /// The ultimate extension-creation macro.
     ///
@@ -1387,35 +1401,12 @@ mod macros {
         // `name` for the params is used to locally bind the params, as the `param` can be `_`.
         ($trait: ty, $ret: ty, $(($meta:tt) ,)? | $($param:tt: $param_type:ty: $param_type_no_lifetimes:ty :$name:ident ),* |, $(($($(($mut:tt))? $move:ident:$ty:ty),+))?, $code:block) => {{
             // we go through all this hassle of having a closure to capture dynamic environment.
-            #[cfg(feature = "uring")]
-            // not requirement of Send + Sync
-            struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret>> {
-                function_private: F,
-                $($($move:$ty,)+)?
-            }
-            #[cfg(feature = "uring")]
-            // not requirement of Send + Sync
-            impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret>> $trait for Ext<F> {
-                fn call<'a>(
-                    &'a $($meta)? self,
-                    $($name: $param_type,)*
-                ) -> $crate::extensions::RetFut<'a, $ret> {
-                    let Self {
-                        function_private,
-                        $($($move,)+)?
-                    } = self;
-                    (function_private)($($name,)* $($($move,)+)?)
-                }
-            }
-
-            #[cfg(not(feature = "uring"))]
-            struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> {
+            struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + $crate::extensions::_UringSendSync> {
                 function_private: F,
                 $($($move:$ty,)+)?
             }
 
-            #[cfg(not(feature = "uring"))]
-            impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + Send + Sync> $trait for Ext<F> {
+            impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + $crate::extensions::_UringSendSync> $trait for Ext<F> {
                 fn call<'a>(
                     &'a $($meta)? self,
                     $($name: $param_type,)*
