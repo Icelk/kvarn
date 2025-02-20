@@ -1358,6 +1358,7 @@ mod macros {
     #[doc(hidden)]
     ///
     pub trait _UringSendSync {}
+    #[cfg(feature = "uring")]
     impl<T> _UringSendSync for T {}
     #[cfg(not(feature = "uring"))]
     #[doc(hidden)]
