@@ -74,7 +74,7 @@ sha-1 = { version = "0.10", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink"] }
 
 # HTTP/3
-h3 = { version = "0.0.6", optional = true }
+h3 = { version = "0.0.7", optional = true }
 h3-quinn = { version = "0.0.7", optional = true }
 quinn = { version = "0.11.1", default-features = false, features = ["rustls", "log", "runtime-tokio"], optional = true }
 
