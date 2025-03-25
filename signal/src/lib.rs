@@ -88,7 +88,7 @@ pub mod unix {
                 let r = connection.shutdown().await.and(r);
 
                 if let Err(err) = r {
-                    error!("Failed to send message! {:?}", err);
+                    error!("Failed to send message! {err:?}");
                     Response::Error
                 } else {
                     debug!("Wrote to {path:?}");
@@ -113,7 +113,7 @@ pub mod unix {
                     let (r, mut buf) = connection.read(buf).await;
                     match r {
                         Err(err) => {
-                            error!("Failed to receive message. {:?}", err);
+                            error!("Failed to receive message. {err:?}");
                             Response::Error
                         }
                         #[cfg(feature = "uring")]
