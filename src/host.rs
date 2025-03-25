@@ -274,10 +274,7 @@ impl Host {
                 host
             }
             Err((err, host_without_cert)) => {
-                error!(
-                    "Failed to get certificate! Not running host on HTTPS. {:?}",
-                    err
-                );
+                error!("Failed to get certificate! Not running host on HTTPS. {err:?}");
                 host_without_cert
             }
         }
