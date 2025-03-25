@@ -837,7 +837,7 @@ pub async fn handle_connection(
         }
     };
 
-    debug!("Accepting requests from {}", address);
+    debug!("Accepting requests from {address}");
 
     #[allow(unused_variables)]
     let port = descriptor.port();
@@ -862,7 +862,7 @@ pub async fn handle_connection(
         .await
     {
         debug!("We got a new request on connection.");
-        trace!("Got request {:#?}", request);
+        trace!("Got request {request:#?}");
         let host = if let Some(host) = descriptor.data.get_from_request(&request, sni.as_deref()) {
             host
         } else {
@@ -931,7 +931,7 @@ pub async fn handle_connection(
                 .send(response, &request, host, address)
                 .await
             {
-                error!("Got error when writing response: {:?}", err);
+                error!("Got error when writing response: {err:?}");
             }
             drop(request);
         };

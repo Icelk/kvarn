@@ -668,7 +668,7 @@ pub(crate) async fn listen(
                             post_send: response.post_send,
                         }
                     } else {
-                        warn!("Got unexpected message on socket: {:?}", data,);
+                        warn!("Got unexpected message on socket: {data:?}");
                         kvarn_signal::unix::HandlerResponse {
                             data: Vec::from("error 'Command not found.'"),
                             close: false,

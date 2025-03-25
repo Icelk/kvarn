@@ -995,7 +995,7 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
                 .and_then(parse::CacheControl::as_freshness)
                 .map(|s| u64::from(s).std_seconds());
 
-        debug!("Inserted item to cache with lifetime {:?}", lifetime);
+        debug!("Inserted item to cache with lifetime {lifetime:?}");
 
         self.insert(
             response.first().0.get_identity().body().len(),
