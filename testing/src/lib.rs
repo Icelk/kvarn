@@ -41,7 +41,7 @@ impl Server {
         if let Some(cert) = self.cert() {
             let cert = reqwest::Certificate::from_der(cert).unwrap();
             client = client.add_root_certificate(cert);
-        };
+        }
         client
     }
     /// Builds a URL to the server with `path`.

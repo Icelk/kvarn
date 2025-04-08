@@ -278,7 +278,7 @@ pub mod read {
         loop {
             if read_more(&mut buffer, &mut reader, read, max_len, timeout).await? == 0 {
                 break;
-            };
+            }
             if !(utils::valid_method(&buffer) || utils::valid_version(&buffer)) {
                 return Err(Error::Syntax);
             }
@@ -372,7 +372,6 @@ pub mod read {
                     if byte == chars::SPACE {
                         path_end = pos;
                         parse_stage.next();
-                        continue;
                     }
                 }
                 RequestParseStage::Version => {
@@ -400,7 +399,7 @@ pub mod read {
                     }
                     break;
                 }
-            };
+            }
         }
         if path_end
             .checked_sub(path_start)

@@ -1257,7 +1257,7 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                     use tokio::io::AsyncSeekExt;
                     if file.seek(io::SeekFrom::Start(start)).await.is_err() {
                         return default_error_response(StatusCode::NOT_FOUND, host, None).await;
-                    };
+                    }
                 }
 
                 #[allow(clippy::uninit_vec)]

@@ -193,5 +193,5 @@ fn write_css_color(s: &mut String, col: Color) {
         write!(s, "#{:02x}{:02x}{:02x}", col.r, col.g, col.b).unwrap();
     } else {
         write!(s, "#{:02x}{:02x}{:02x}{:02x}", col.r, col.g, col.b, col.a).unwrap();
-    };
+    }
 }

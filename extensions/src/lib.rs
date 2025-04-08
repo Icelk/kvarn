@@ -306,13 +306,13 @@ pub fn force_cache(extensions: &mut Extensions, rules: ForceCacheRules) {
     extensions.add_present_fn(
         Box::new(move |req, _host| {
             let rules = &r1;
-            let extension = req.uri().path().split('.').last();
+            let extension = req.uri().path().split('.').next_back();
             let path = req.uri().path();
             resolve(path, extension, rules).is_some()
         }),
         present!(data, move |rules: Arc<ForceCacheRules>| {
             let req = data.request;
-            let extension = req.uri().path().split('.').last();
+            let extension = req.uri().path().split('.').next_back();
             let path = req.uri().path();
             if let Some(preference) = resolve(path, extension, rules) {
                 *data.client_cache_preference = preference;

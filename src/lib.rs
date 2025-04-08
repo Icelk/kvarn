@@ -210,7 +210,7 @@ impl RunConfig {
     /// shutdown_manager.wait().await;
     /// # };
     /// ```
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::unused_async)]
     pub async fn execute(self) -> Arc<shutdown::Manager> {
         #[cfg(feature = "async-networking")]
         use socket2::{Domain, Protocol, Type};
@@ -247,6 +247,7 @@ impl RunConfig {
         #[cfg(not(feature = "uring"))]
         let instances = 1;
 
+        #[allow(clippy::type_complexity)]
         // artefact from ↑. When not uring, the outer vec is 1 in length
         let mut all_listeners: Vec<
             Vec<(
