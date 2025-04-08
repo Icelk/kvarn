@@ -630,7 +630,7 @@ mod tokio_tls {
                     match self.session.writer().write(&buf[pos..]) {
                         Ok(n) => pos += n,
                         Err(err) => return Poll::Ready(Err(err)),
-                    };
+                    }
 
                     while self.session.wants_write() {
                         match self.write_io(cx) {

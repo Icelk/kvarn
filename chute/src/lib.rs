@@ -82,7 +82,7 @@ pub(crate) mod filesystem {
                             continue_behaviour,
                         ) {
                             exit_with_message("Aborted conversion.")
-                        };
+                        }
                         open(
                             OpenOptions::new().write(true).create(true).truncate(true),
                             path,

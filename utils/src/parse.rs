@@ -878,7 +878,6 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
                     parse_stage.next();
                     let rest = &bytes[pos..];
                     value_start = rest.iter().copied().position(|b| b != b' ').unwrap_or(0) + pos;
-                    continue;
                 }
             }
             RequestParseStage::HeaderValue(..) => {
@@ -896,12 +895,11 @@ pub fn headers(bytes: &Bytes) -> Result<(HeaderMap, usize), Error> {
                     headers.insert(name, value);
                     parse_stage.next();
                     header_name_start = pos + 1;
-                    continue;
                 }
             }
             // We know this isn't reached.
             _ => unreachable!(),
-        };
+        }
     }
     Ok((headers, header_end))
 }

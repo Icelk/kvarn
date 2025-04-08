@@ -467,7 +467,7 @@ mod request {
                     } == 0
                     {
                         break;
-                    };
+                    }
                     if !(utils::valid_method(&buffer) || utils::valid_version(&buffer)) {
                         return Err(Error::Syntax);
                     }
@@ -527,7 +527,6 @@ mod request {
                         if byte == chars::SPACE {
                             path_end = pos;
                             parse_stage.next();
-                            continue;
                         }
                     }
                     RequestParseStage::Version => {
@@ -556,7 +555,7 @@ mod request {
                         }
                         break;
                     }
-                };
+                }
             }
             if path_end
                 .checked_sub(path_start)

@@ -182,7 +182,7 @@ impl Iterator for PresentExtensionsIter {
         // Cannot change name ↑ on last item; the end of each *peeks* forward one. If it's next to the end, add one.
         if self.index + 1 == self.data.extensions.len() && !different_name {
             self.index += 1;
-        };
+        }
         Some(PresentArguments {
             data: PresentExtensions::clone(&self.data),
             data_index: start,
