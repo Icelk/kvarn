@@ -34,7 +34,12 @@ async fn byte_ranges() {
         .unwrap()
         .to_str()
         .unwrap();
-    let content_length: usize = content_range.split('/').next_back().unwrap().parse().unwrap();
+    let content_length: usize = content_range
+        .split('/')
+        .next_back()
+        .unwrap()
+        .parse()
+        .unwrap();
     received_data.put(response1.text().await.unwrap().as_bytes());
 
     let response2 = server
