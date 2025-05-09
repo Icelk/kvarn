@@ -74,8 +74,8 @@ sha-1 = { version = "0.10", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink"] }
 
 # HTTP/3
-h3 = { version = "0.0.7", optional = true }
-h3-quinn = { version = "0.0.9", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
 quinn = { version = "0.11.1", default-features = false, features = ["rustls", "log", "runtime-tokio"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
