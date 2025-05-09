@@ -32,9 +32,12 @@ pub enum Error {
     /// [`h2`] emitted an error
     #[cfg(feature = "http2")]
     H2(h2::Error),
-    /// [`h3`] emitted an error
+    /// [`h3`] emitted a stream error
     #[cfg(feature = "http3")]
-    H3(h3::Error),
+    H3Stream(h3::error::StreamError),
+    /// [`h3`] emitted a connection error
+    #[cfg(feature = "http3")]
+    H3Connection(h3::error::ConnectionError),
     /// The HTTP version assumed by the client is not supported.
     /// Invalid ALPN config is a candidate.
     VersionNotSupported,
@@ -72,10 +75,17 @@ impl From<h2::Error> for Error {
     }
 }
 #[cfg(feature = "http3")]
-impl From<h3::Error> for Error {
+impl From<h3::error::StreamError> for Error {
     #[inline]
-    fn from(err: h3::Error) -> Self {
-        Self::H3(err)
+    fn from(err: h3::error::StreamError) -> Self {
+        Self::H3Stream(err)
+    }
+}
+#[cfg(feature = "http3")]
+impl From<h3::error::ConnectionError> for Error {
+    #[inline]
+    fn from(err: h3::error::ConnectionError) -> Self {
+        Self::H3Connection(err)
     }
 }
 impl From<Error> for io::Error {
@@ -86,7 +96,9 @@ impl From<Error> for io::Error {
             #[cfg(feature = "http2")]
             Error::H2(h2) => io::Error::new(io::ErrorKind::InvalidData, h2),
             #[cfg(feature = "http3")]
-            Error::H3(h3) => io::Error::new(io::ErrorKind::InvalidData, h3),
+            Error::H3Stream(h3) => io::Error::new(io::ErrorKind::InvalidData, h3),
+            #[cfg(feature = "http3")]
+            Error::H3Connection(h3) => io::Error::new(io::ErrorKind::ConnectionRefused, h3),
 
             Error::VersionNotSupported => io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -363,7 +375,8 @@ impl HttpConnection {
             #[cfg(feature = "http3")]
             Self::Http3(c) => match c.accept().await {
                 Ok(opt) => match opt {
-                    Some((req, stream)) => {
+                    Some(resolver) => {
+                        let (req, stream) = resolver.resolve_request().await?;
                         let (write, read) = stream.split();
                         Ok((req.map(|()| Body::Http3(read)), ResponsePipe::Http3(write)))
                     }
@@ -649,7 +662,7 @@ mod request {
                 Self::Http3(h3) => {
                     use bytes::BufMut;
                     let mut bytes = bytes::BytesMut::new();
-                    while let Some(data) = h3.recv_data().await.map_err(Error::H3)? {
+                    while let Some(data) = h3.recv_data().await.map_err(Error::H3Stream)? {
                         let left = max_len.saturating_sub(bytes.len());
                         if left == 0 {
                             break;
@@ -843,10 +856,12 @@ mod response {
                 },
                 #[cfg(feature = "http3")]
                 Self::Http3(mut s) => match s.send_response(response).await {
-                    Err(ref err)
-                        if err.try_get_code() == Some(h3::error::Code::H3_REQUEST_CANCELLED)
-                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED)
-                            || err.try_get_code() == Some(h3::error::Code::H3_NO_ERROR) =>
+                    Err(
+                        h3::error::StreamError::StreamError { code, .. }
+                        | h3::error::StreamError::RemoteTerminate { code, .. },
+                    ) if code == h3::error::Code::H3_REQUEST_CANCELLED
+                        || code == h3::error::Code::H3_REQUEST_REJECTED
+                        || code == h3::error::Code::H3_NO_ERROR =>
                     {
                         Err(Error::ClientRefusedResponse)
                     }
@@ -999,10 +1014,12 @@ mod response {
                 Self::Http2(h2, _) => h2.send_data(data, end_of_stream)?,
                 #[cfg(feature = "http3")]
                 Self::Http3(h3) => match h3.send_data(data).await {
-                    Err(ref err)
-                        if err.try_get_code() == Some(h3::error::Code::H3_REQUEST_CANCELLED)
-                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED)
-                            || err.try_get_code() == Some(h3::error::Code::H3_NO_ERROR) =>
+                    Err(
+                        h3::error::StreamError::StreamError { code, .. }
+                        | h3::error::StreamError::RemoteTerminate { code, .. },
+                    ) if code == h3::error::Code::H3_REQUEST_CANCELLED
+                        || code == h3::error::Code::H3_REQUEST_REJECTED
+                        || code == h3::error::Code::H3_NO_ERROR =>
                     {
                         return Err(Error::ClientRefusedResponse);
                     }
@@ -1054,10 +1071,12 @@ mod response {
                 #[cfg(feature = "http3")]
                 Self::Http3(h3) => match h3.finish().await {
                     Ok(()) => Ok(()),
-                    Err(ref err)
-                        if err.try_get_code() == Some(h3::error::Code::H3_REQUEST_CANCELLED)
-                            || err.try_get_code() == Some(h3::error::Code::H3_REQUEST_REJECTED)
-                            || err.try_get_code() == Some(h3::error::Code::H3_NO_ERROR) =>
+                    Err(
+                        h3::error::StreamError::StreamError { code, .. }
+                        | h3::error::StreamError::RemoteTerminate { code, .. },
+                    ) if code == h3::error::Code::H3_REQUEST_CANCELLED
+                        || code == h3::error::Code::H3_REQUEST_REJECTED
+                        || code == h3::error::Code::H3_NO_ERROR =>
                     {
                         Err(Error::ClientRefusedResponse)
                     }

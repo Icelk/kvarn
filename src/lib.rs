@@ -830,7 +830,7 @@ pub async fn handle_connection(
                     h3::server::builder()
                         .build(h3_quinn::Connection::new(stream))
                         .await
-                        .map_err(application::Error::H3)?,
+                        .map_err(application::Error::H3Connection)?,
                 ),
                 handshake_data.server_name.map(CompactString::from),
                 Version::HTTP_3,
