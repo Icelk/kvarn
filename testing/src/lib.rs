@@ -26,7 +26,7 @@ macro_rules! impl_methods {
 
 /// A port returned by [`ServerBuilder::run`] to connect to.
 pub struct Server {
-    server: Arc<shutdown::Manager>,
+    manager: Arc<shutdown::Manager>,
     certificate: Option<CertifiedKey>,
     port: u16,
     handover: Option<PathBuf>,
@@ -77,7 +77,7 @@ impl Server {
     /// You can shut down Kvarn from another thread using this.
     #[must_use]
     pub fn get_shutdown_manager(&self) -> Arc<shutdown::Manager> {
-        Arc::clone(&self.server)
+        Arc::clone(&self.manager)
     }
 }
 impl Debug for Server {
@@ -85,7 +85,7 @@ impl Debug for Server {
         let mut s = f.debug_struct(utils::ident_str!(Server));
         utils::fmt_fields!(
             s,
-            (self.server),
+            (self.manager),
             (self.certificate, &"[internal certificate]".as_clean()),
             (self.port),
             (self.handover)
@@ -95,7 +95,7 @@ impl Debug for Server {
 }
 impl Drop for Server {
     fn drop(&mut self) {
-        self.server.shutdown();
+        self.manager.shutdown();
     }
 }
 
@@ -284,7 +284,7 @@ impl ServerBuilder {
             return Server {
                 port,
                 certificate: certified_key,
-                server: shutdown,
+                manager: shutdown,
                 handover: handover.map(|(path, _)| path),
             };
         }

@@ -135,7 +135,7 @@ pub enum HttpConnection {
     Http2(Box<h2::server::Connection<Encryption, bytes::Bytes>>),
     #[cfg(feature = "http3")]
     /// An HTTP/3 conenction.
-    Http3(h3::server::Connection<h3_quinn::Connection, bytes::Bytes>),
+    Http3(Box<h3::server::Connection<h3_quinn::Connection, bytes::Bytes>>),
 }
 impl Debug for HttpConnection {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -238,7 +238,7 @@ pub enum ResponsePipe {
     Http2(h2::server::SendResponse<Bytes>),
     /// An HTTP/3 response pipe.
     #[cfg(feature = "http3")]
-    Http3(h3::server::RequestStream<h3_quinn::SendStream<Bytes>, Bytes>),
+    Http3(Box<h3::server::RequestStream<h3_quinn::SendStream<Bytes>, Bytes>>),
 }
 impl Debug for ResponsePipe {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -275,7 +275,7 @@ pub enum ResponseBodyPipe {
     Http2(h2::SendStream<Bytes>, H2SendResponse),
     /// HTTP/3 pipe
     #[cfg(feature = "http3")]
-    Http3(h3::server::RequestStream<h3_quinn::SendStream<Bytes>, Bytes>),
+    Http3(Box<h3::server::RequestStream<h3_quinn::SendStream<Bytes>, Bytes>>),
 }
 impl Debug for ResponseBodyPipe {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -378,7 +378,10 @@ impl HttpConnection {
                     Some(resolver) => {
                         let (req, stream) = resolver.resolve_request().await?;
                         let (write, read) = stream.split();
-                        Ok((req.map(|()| Body::Http3(read)), ResponsePipe::Http3(write)))
+                        Ok((
+                            req.map(|()| Body::Http3(read)),
+                            ResponsePipe::Http3(Box::new(write)),
+                        ))
                     }
                     None => Err(utils::parse::Error::UnexpectedEnd.into()),
                 },

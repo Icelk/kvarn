@@ -826,12 +826,12 @@ pub async fn handle_connection(
                 .downcast()
                 .expect("we're using rustls");
             (
-                application::HttpConnection::Http3(
+                application::HttpConnection::Http3(Box::new(
                     h3::server::builder()
                         .build(h3_quinn::Connection::new(stream))
                         .await
                         .map_err(application::Error::H3Connection)?,
-                ),
+                )),
                 handshake_data.server_name.map(CompactString::from),
                 Version::HTTP_3,
             )

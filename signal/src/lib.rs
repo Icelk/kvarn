@@ -76,7 +76,7 @@ pub mod unix {
             },
             #[allow(unused_mut)]
             Ok(mut connection) => {
-                debug!("Connected to {path:?}");
+                debug!("Connected to {}", path.display());
 
                 #[cfg(feature = "uring")]
                 let (r, mut buf): (_, Vec<u8>) = connection.write_all(data.into()).await;
@@ -91,7 +91,7 @@ pub mod unix {
                     error!("Failed to send message! {err:?}");
                     Response::Error
                 } else {
-                    debug!("Wrote to {path:?}");
+                    debug!("Wrote to {}", path.display());
 
                     #[cfg(feature = "uring")]
                     {
@@ -105,7 +105,7 @@ pub mod unix {
                     #[cfg(not(feature = "uring"))]
                     let mut buf = vec![];
 
-                    debug!("Try to read from {path:?}");
+                    debug!("Try to read from {}", path.display());
 
                     #[cfg(not(feature = "uring"))]
                     let r = connection.read_to_end(&mut buf).await;
@@ -119,12 +119,12 @@ pub mod unix {
                         #[cfg(feature = "uring")]
                         Ok(len) => {
                             unsafe { buf.set_len(len) };
-                            debug!("Read from {path:?}");
+                            debug!("Read from {}", path.display());
                             Response::Data(buf)
                         }
                         #[cfg(not(feature = "uring"))]
                         Ok(_) => {
-                            debug!("Read from {path:?}");
+                            debug!("Read from {}", path.display());
                             Response::Data(buf)
                         }
                     }

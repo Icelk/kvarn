@@ -99,6 +99,7 @@ impl Host {
     ///
     /// Will return any error from [`get_certified_key()`] with a [`Host`] containing no certificates.
     #[cfg(feature = "https")]
+    #[allow(clippy::result_large_err)] // we're returning `Self`
     pub fn try_read_fs(
         host_name: impl AsRef<str>,
         cert_path: impl AsRef<str>,
