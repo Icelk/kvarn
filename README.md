@@ -3,7 +3,7 @@
 [![license](https://img.shields.io/github/license/Icelk/kvarn)](#contributing)
 [![CI status](https://img.shields.io/github/actions/workflow/status/Icelk/kvarn/main.yml?branch=main)](https://github.com/Icelk/kvarn/actions)
 [![open issues](https://img.shields.io/github/issues-raw/Icelk/kvarn)](https://github.com/Icelk/kvarn/issues)
-[![dependency status](https://deps.rs/repo/github/Icelk/kvarn/status.svg)](https://deps.rs/repo/github/Icelk/kvarn)
+[![dependency status](https://img.shields.io/deps-rs/repo/github/Icelk/kvarn)](https://deps.rs/repo/github/Icelk/kvarn)
 [![commit activity](https://img.shields.io/github/commit-activity/m/Icelk/kvarn?label=commits)](https://github.com/Icelk/kvarn/tree/main/)
 
 <img align="right" width="25%" src="https://kvarn.org/logo.svg">
