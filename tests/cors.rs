@@ -58,23 +58,18 @@ async fn test_cors_response(response: reqwest::Response, valid_expected: bool, l
         assert_eq!(
             response.status(),
             reqwest::StatusCode::NO_CONTENT,
-            "On line {} Response: {:#?}",
-            line,
-            response
+            "On line {line} Response: {response:#?}",
         );
     } else {
         assert_eq!(
             response.status(),
             reqwest::StatusCode::FORBIDDEN,
-            "On line {} Response: {:#?}",
-            line,
-            response
+            "On line {line} Response: {response:#?}",
         );
         assert_eq!(
             response.text().await.unwrap(),
             "CORS request denied",
-            "On line {}",
-            line
+            "On line {line}",
         );
     }
 }
@@ -156,7 +151,7 @@ async fn test_cors_options(
                 all_all_here = false;
             }
         }
-        assert_eq!(all_all_here, valid_expected, "On line {}", line);
+        assert_eq!(all_all_here, valid_expected, "On line {line}");
     } else {
         test_cors_response(response, valid_expected, line).await;
     }

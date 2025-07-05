@@ -375,7 +375,7 @@ pub fn get_cert(
         order.refresh()?;
         let state = order.state();
         if let OrderStatus::Ready | OrderStatus::Invalid | OrderStatus::Valid = state.status {
-            debug!("order state: {:#?}", state);
+            debug!("order state: {state:#?}");
             break state;
         }
 
@@ -466,7 +466,8 @@ pub fn get_cert(
 }
 fn generate_self_signed_cert(
     name: impl Into<String>,
-) -> Result<(rcgen::CertifiedKey<KeyPair>, rustls::sign::CertifiedKey), Box<dyn std::error::Error>> {
+) -> Result<(rcgen::CertifiedKey<KeyPair>, rustls::sign::CertifiedKey), Box<dyn std::error::Error>>
+{
     let self_signed_cert = rcgen::generate_simple_self_signed(vec![name.into()])?;
     let cert = self_signed_cert.cert.der().clone();
 

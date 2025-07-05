@@ -184,7 +184,7 @@ fn php<'a>(
                 {
                     Ok(vec) => vec,
                     Err(err) => {
-                        error!("FastCGI failed. {}", err);
+                        error!("FastCGI failed: {err}");
                         return default_error_response(
                             StatusCode::INTERNAL_SERVER_ERROR,
                             host,
