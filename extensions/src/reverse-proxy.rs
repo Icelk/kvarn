@@ -837,7 +837,7 @@ impl Manager {
                             }
                         }
                         Err(err) => {
-                            warn!("Got error {:?}", err);
+                            warn!("Got error {err:?}");
                             default_error_response(
                                 match err {
                                     GatewayError::Io(_) | GatewayError::Parse(_) => {
@@ -876,7 +876,7 @@ impl Manager {
                                 };
 
                                 if let Ok(r) = timeout_result {
-                                    debug!("Open back responded! {:?}", r);
+                                    debug!("Open back responded! {r:?}");
                                     if let Err(err) = r {
                                         if !matches!(
                                             err.get_io_kind(),
@@ -884,7 +884,7 @@ impl Manager {
                                                 | io::ErrorKind::ConnectionReset
                                                 | io::ErrorKind::BrokenPipe
                                         ) {
-                                            warn!("Reverse proxy io error: {:?}", err);
+                                            warn!("Reverse proxy io error: {err:?}");
                                         }
                                     }
                                 }

@@ -173,7 +173,7 @@ async fn push<'a>(
                 }
             }
 
-            debug!("Pushing urls {:?}", urls);
+            debug!("Pushing urls {urls:?}");
 
             urls.sort_unstable();
             urls.dedup();
@@ -225,7 +225,7 @@ async fn push<'a>(
                         .send(response, request, host, addr)
                         .await
                     {
-                        error!("Error occurred when pushing request. {:?}", err);
+                        error!("Error occurred when pushing request. {err:?}");
                     }
                 }
             }

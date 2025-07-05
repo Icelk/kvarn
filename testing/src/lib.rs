@@ -238,7 +238,7 @@ impl ServerBuilder {
                     rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
                 let cert = self_signed_cert.cert.der().clone();
 
-                let pk = PrivateKeyDer::Pkcs8(self_signed_cert.key_pair.serialized_der().into());
+                let pk = PrivateKeyDer::Pkcs8(self_signed_cert.signing_key.serialized_der().into());
                 let pk = rustls::crypto::ring::sign::any_supported_type(&pk).unwrap();
                 CertifiedKey::new(vec![cert], pk)
             });

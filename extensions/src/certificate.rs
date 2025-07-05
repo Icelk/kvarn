@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use kvarn::prelude::*;
-use rcgen::{CertificateParams, DistinguishedName};
+use rcgen::{CertificateParams, DistinguishedName, KeyPair};
 use rustls::pki_types::PrivateKeyDer;
 use small_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt,
@@ -197,7 +197,7 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                         chrono::OffsetDateTime::now_utc()
                             + chrono::time::Duration::days(365 * 2000),
                         rcg.cert.pem(),
-                        rcg.key_pair.serialize_pem(),
+                        rcg.signing_key.serialize_pem(),
                         true,
                     )
                 }
@@ -375,7 +375,7 @@ pub fn get_cert(
         order.refresh()?;
         let state = order.state();
         if let OrderStatus::Ready | OrderStatus::Invalid | OrderStatus::Valid = state.status {
-            debug!("order state: {:#?}", state);
+            debug!("order state: {state:#?}");
             break state;
         }
 
@@ -466,11 +466,12 @@ pub fn get_cert(
 }
 fn generate_self_signed_cert(
     name: impl Into<String>,
-) -> Result<(rcgen::CertifiedKey, rustls::sign::CertifiedKey), Box<dyn std::error::Error>> {
+) -> Result<(rcgen::CertifiedKey<KeyPair>, rustls::sign::CertifiedKey), Box<dyn std::error::Error>>
+{
     let self_signed_cert = rcgen::generate_simple_self_signed(vec![name.into()])?;
     let cert = self_signed_cert.cert.der().clone();
 
-    let pk = PrivateKeyDer::Pkcs8(self_signed_cert.key_pair.serialized_der().into());
+    let pk = PrivateKeyDer::Pkcs8(self_signed_cert.signing_key.serialized_der().into());
     let pk = rustls::crypto::ring::sign::any_supported_type(&pk).unwrap();
     Ok((
         self_signed_cert,
