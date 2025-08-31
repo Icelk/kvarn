@@ -296,7 +296,7 @@ csp_rules! {
     /// Specifies valid sources for inline styles applied to individual DOM elements.
     (style_src_attr, ValueSet::empty(), "style-src-attr")
 
-    /// Specifies valid sources for Worker, SharedWorker, or ServiceWorker scripts.
+    /// Specifies valid sources for `Worker`, `SharedWorker`, or `ServiceWorker` scripts.
     (worker_src, ValueSet::empty(), "worker-src")
 
     /// Restricts the URLs which can be used in a document's `<base>` element.

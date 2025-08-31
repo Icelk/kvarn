@@ -26,7 +26,7 @@ small-acme = { version = "0.2.2", optional = true }
 x509-parser = { version = "0.17", optional = true }
 rustls = { version = "0.23.27", optional = true, default-features = false, features = ["ring"] }
 # serialize credentials
-ron = { version = "0.10", optional = true }
+ron = { version = "0.11", optional = true }
 rcgen = { version = "0.14", optional = true }
 rustls-pemfile = { version = "2", optional = true }
 rand = { version = "0.9", optional = true }

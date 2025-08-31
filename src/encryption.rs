@@ -96,7 +96,7 @@ impl Encryption {
     #[cfg(feature = "https")]
     #[inline]
     #[must_use]
-    pub fn peer_certificates(&self) -> Option<&[CertificateDer]> {
+    pub fn peer_certificates(&self) -> Option<&[CertificateDer<'_>]> {
         match self {
             Self::TcpTls(s) => s.session.peer_certificates(),
             Self::Tcp(_) => None,

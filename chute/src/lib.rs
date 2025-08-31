@@ -797,7 +797,7 @@ impl IndentCounter {
         self.indent_index[indent as usize] += 1;
         self.last_indent = indent;
     }
-    pub fn indent(&self) -> IndentIndenter {
+    pub fn indent(&self) -> IndentIndenter<'_> {
         IndentIndenter { data: self }
     }
     #[must_use]

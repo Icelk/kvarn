@@ -184,7 +184,7 @@ impl AsyncWrite for WSStream<'_> {
 /// Errors if `pipe` is [unsupported](Error::WebSocketUnsupported).
 pub async fn wrap(
     pipe: &mut ResponseBodyPipe,
-) -> Result<tokio_tungstenite::WebSocketStream<WSStream>, Error> {
+) -> Result<tokio_tungstenite::WebSocketStream<WSStream<'_>>, Error> {
     match pipe {
         ResponseBodyPipe::Http1(s) => Ok(tokio_tungstenite::WebSocketStream::from_raw_socket(
             WSStream::Http1(s),
