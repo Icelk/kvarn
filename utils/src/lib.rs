@@ -328,7 +328,7 @@ pub trait AsCleanDebug {
     /// // The debug formatting of the `&str` is messy for clean output in debug implementations.
     /// assert_eq!(format!("{:?}", s), r#""a\tstring""#)
     /// ```
-    fn as_clean(&self) -> CleanDebug<Self>
+    fn as_clean(&self) -> CleanDebug<'_, Self>
     where
         Self: Display,
     {
@@ -828,7 +828,7 @@ impl Iterator for QuotedStrSplitIter<'_> {
 /// let s = r#"program arg1 'arg "'two\ st\"il"l goes "on. 'third-arg "#;
 /// assert_eq!(quoted_str_split(s).collect::<Vec<_>>(), ["program", "arg1", "arg \"two st\"ill goes on.", "third-arg "]);
 /// ```
-pub fn quoted_str_split(s: &str) -> QuotedStrSplitIter {
+pub fn quoted_str_split(s: &str) -> QuotedStrSplitIter<'_> {
     QuotedStrSplitIter {
         iter: s.chars(),
         quotes: InQuotes::No,

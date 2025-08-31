@@ -425,7 +425,7 @@ impl<'a> Query<'a> {
     ///
     /// Don't use this to get the first or last item; you'll get the same drawbacks as
     /// [`Self::get_first`] and [`Self::get_last`].
-    pub fn get_all(&self, name: &'a str) -> QueryPairIter {
+    pub fn get_all(&self, name: &'a str) -> QueryPairIter<'_> {
         QueryPairIter::new(self, name)
     }
     /// Returns the value of `name`.
@@ -435,7 +435,7 @@ impl<'a> Query<'a> {
     ///
     /// If there exists multiple values associated with a name, [`None`] is returned.
     #[must_use]
-    pub fn get(&self, name: &'a str) -> Option<&QueryPair> {
+    pub fn get(&self, name: &'a str) -> Option<&QueryPair<'_>> {
         let mut iter = self.get_all(name).peekable();
         let first = iter.next()?;
         if iter.peek().is_some() {
@@ -449,7 +449,7 @@ impl<'a> Query<'a> {
     ///
     /// Watch [this Youtube video](https://youtu.be/QVZBl8yxVX0) to see how it can be exploited.
     #[must_use]
-    pub fn get_first(&self, name: &'a str) -> Option<&QueryPair> {
+    pub fn get_first(&self, name: &'a str) -> Option<&QueryPair<'_>> {
         self.get_all(name).next()
     }
     /// Gets the last value of `name` in the query.
@@ -457,7 +457,7 @@ impl<'a> Query<'a> {
     ///
     /// Watch [this Youtube video](https://youtu.be/QVZBl8yxVX0) to see how it can be exploited.
     #[must_use]
-    pub fn get_last(&self, name: &'a str) -> Option<&QueryPair> {
+    pub fn get_last(&self, name: &'a str) -> Option<&QueryPair<'_>> {
         self.get_all(name).next_back()
     }
     /// If the value is found then [`Result::Ok`] is returned, containing the
@@ -593,7 +593,7 @@ impl DoubleEndedIterator for QueryPairIter<'_> {
 /// Both the keys and values can be empty.
 ///
 /// This decodes the URI's percent encoding.
-pub fn query(query: &str) -> Query {
+pub fn query(query: &str) -> Query<'_> {
     let elements = query
         .chars()
         .fold(1, |acc, byte| acc + usize::from(byte == '&'));

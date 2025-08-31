@@ -42,7 +42,7 @@ impl Cors {
         &self,
         origin: &Uri,
         uri_path: &str,
-    ) -> Option<(MethodAllowList, &[HeaderName], Duration)> {
+    ) -> Option<(MethodAllowList<'_>, &[HeaderName], Duration)> {
         self.get(uri_path).and_then(|cal| cal.check(origin))
     }
     /// Check if the [`Request::headers`] and [`Request::uri`] is allowed with this ruleset.
@@ -55,7 +55,7 @@ impl Cors {
     pub fn check_cors_request<T>(
         &self,
         request: &Request<T>,
-    ) -> Option<(MethodAllowList, &[HeaderName], Duration)> {
+    ) -> Option<(MethodAllowList<'_>, &[HeaderName], Duration)> {
         let same_origin_allowed_headers = (
             MethodAllowList::All,
             &[][..],
@@ -171,7 +171,7 @@ impl AllowList {
         }
         self
     }
-    fn get_methods(&self) -> MethodAllowList {
+    fn get_methods(&self) -> MethodAllowList<'_> {
         self.methods
             .as_deref()
             .map_or(MethodAllowList::All, MethodAllowList::Selected)
@@ -181,7 +181,7 @@ impl AllowList {
     /// Returns [`Some`] if `origin` is allowed, with the [`Method`]s and [`HeaderName`]s
     /// allowed, with a cache max-age of [`Duration`].
     /// Returns [`None`] if `origin` isn't allowed.
-    pub fn check(&self, origin: &Uri) -> Option<(MethodAllowList, &[HeaderName], Duration)> {
+    pub fn check(&self, origin: &Uri) -> Option<(MethodAllowList<'_>, &[HeaderName], Duration)> {
         if self.allow_all_origins {
             return Some((self.get_methods(), &self.headers, self.cache_for));
         }
