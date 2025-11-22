@@ -3,7 +3,7 @@ name = "kvarn-chute"
 version = "0.4.0"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.87"
 description = "A Markdown converter designed to use the Kvarn templating engine."
 readme = "README.md"
 homepage = "https://kvarn.org/chute/"
@@ -28,7 +28,7 @@ kvarn_utils = "0.6"
 
 # Bin deps
 clap = { version = "4", optional = true, features = ["cargo"] }
-clap_autocomplete = { version = ">= 0.4.1", optional = true }
+clap_autocomplete = { version = ">=0.4.1", optional = true }
 env_logger = { version = "0.11", optional = true, default-features = false, features = ["auto-color", "humantime"] }
 log = { version = "0.4.17", optional = true }
 notify-debouncer-full = { version = "0.6", default-features = false }

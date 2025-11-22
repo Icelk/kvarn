@@ -1,16 +1,16 @@
+use std::sync::LazyLock;
+
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Color, FontStyle, Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-lazy_static::lazy_static! {
-    static ref SETS: (SyntaxSet, ThemeSet) = {
-        let ss = SyntaxSet::load_defaults_newlines();
-        let ts = ThemeSet::load_defaults();
-        (ss, ts)
-    };
-}
+static SETS: LazyLock<(SyntaxSet, ThemeSet)> = LazyLock::new(|| {
+    let ss = SyntaxSet::load_defaults_newlines();
+    let ts = ThemeSet::load_defaults();
+    (ss, ts)
+});
 
 pub(crate) struct SyntaxPreprocessor<'a, I: Iterator<Item = Event<'a>>> {
     pub(crate) parent: I,
@@ -47,7 +47,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
                         Some(Event::End(TagEnd::CodeBlock)) | None => break,
                         Some(e) => {
                             return Some(Event::Text(
-                                format!("Unexpected markdown event {:#?}", e).into(),
+                                format!("Unexpected markdown event {e:#?}").into(),
                             ))
                         }
                     }
@@ -57,7 +57,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
             Some(Event::End(TagEnd::CodeBlock)) | None => CowStr::Borrowed(""),
             Some(e) => {
                 return Some(Event::Text(
-                    format!("Unexpected markdown event {:#?}", e).into(),
+                    format!("Unexpected markdown event {e:#?}").into(),
                 ))
             }
         };

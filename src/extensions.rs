@@ -20,13 +20,13 @@ pub const SERVER_NAME_VERSION: &str = "Kvarn/0.6.2";
 /// Used as the return type for all extensions,
 /// so they can be stored.
 #[cfg(feature = "uring")]
-pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + 'a)>>;
+pub type RetFut<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 /// A return type for a `dyn` [`Future`].
 ///
 /// Used as the return type for all extensions,
 /// so they can be stored.
 #[cfg(not(feature = "uring"))]
-pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + Send + 'a)>>;
+pub type RetFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Same as [`RetFut`] but also implementing [`Sync`].
 ///
 /// Mostly used for extensions used across yield bounds.
@@ -244,12 +244,12 @@ impl<
 ///
 /// Used with [`Prepare`] extensions
 #[cfg(feature = "uring")]
-pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool)>;
+pub type If = Box<dyn Fn(&FatRequest, &Host) -> bool>;
 /// Dynamic function to check if a extension should be ran.
 ///
 /// Used with [`Prepare`] extensions
 #[cfg(not(feature = "uring"))]
-pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool + Sync + Send)>;
+pub type If = Box<dyn Fn(&FatRequest, &Host) -> bool + Sync + Send>;
 /// A [`Future`] for writing to a [`ResponsePipe`] after the response is sent.
 ///
 /// Used with [`Prepare`] extensions in their returned [`FatResponse`].
@@ -1162,7 +1162,7 @@ impl<R> RuleSet<R> {
             if path == uri_path
                 || (path
                     .strip_suffix('*')
-                    .map_or(false, |path| uri_path.starts_with(path)))
+                    .is_some_and(|path| uri_path.starts_with(path)))
             {
                 return Some(allow);
             }
@@ -1296,7 +1296,7 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                                 // exhaust resources.
                                 // 10MB/64kB = 160
                                 let data = Bytes::copy_from_slice(&buf[..buf_end]);
-                                let r = if i % 160 == 0 {
+                                let r = if i.is_multiple_of(160) {
                                     response.send_with_wait(data, 10 * 1024 * 1024).await
                                 } else {
                                     response.send(data).await

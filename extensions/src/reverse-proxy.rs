@@ -787,7 +787,7 @@ impl Manager {
                                                         if data.len() < 10_000 {
                                                             trace!("data: {data:?}");
                                                         }
-                                                        let r = if i % 160 == 0 {
+                                                        let r = if i.is_multiple_of(160) {
                                                             // to not just spew data in HTTP/2,
                                                             // growing memory size to infinity!!!
                                                             response_pipe

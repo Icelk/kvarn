@@ -551,11 +551,10 @@ mod gso {
     pub(crate) fn max_gso_segments() -> usize {
         const GSO_SIZE: libc::c_int = 1500;
 
-        let socket = match std::net::UdpSocket::bind("[::]:0")
+        let Ok(socket) = std::net::UdpSocket::bind("[::]:0")
             .or_else(|_| std::net::UdpSocket::bind("127.0.0.1:0"))
-        {
-            Ok(socket) => socket,
-            Err(_) => return 1,
+        else {
+            return 1;
         };
 
         // As defined in linux/udp.h
@@ -573,11 +572,10 @@ mod gro {
     use super::{set_socket_option, OPTION_ON};
 
     pub(crate) fn gro_segments() -> usize {
-        let socket = match std::net::UdpSocket::bind("[::]:0")
+        let Ok(socket) = std::net::UdpSocket::bind("[::]:0")
             .or_else(|_| std::net::UdpSocket::bind("127.0.0.1:0"))
-        {
-            Ok(socket) => socket,
-            Err(_) => return 1,
+        else {
+            return 1;
         };
 
         match set_socket_option(&socket, libc::SOL_UDP, libc::UDP_GRO, OPTION_ON) {
@@ -638,7 +636,7 @@ mod cmsg {
             cmsg.cmsg_type = ty;
             cmsg.cmsg_len = unsafe { libc::CMSG_LEN(mem::size_of_val(&value) as _) } as _;
             unsafe {
-                ptr::write(libc::CMSG_DATA(cmsg) as *const T as *mut T, value);
+                ptr::write((libc::CMSG_DATA(cmsg) as *const T).cast_mut(), value);
             }
             self.len += space;
             self.cmsg = unsafe { libc::CMSG_NXTHDR(self.hdr, cmsg).as_mut() };

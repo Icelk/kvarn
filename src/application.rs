@@ -573,20 +573,15 @@ mod request {
                     }
                 }
             }
-            if path_end
-                .checked_sub(path_start)
-                .map_or(true, |len| len == 0)
-            {
+            if path_end.checked_sub(path_start).is_none_or(|len| len == 0) {
                 return Err(Error::NoPath);
             }
 
-            let host = if let Some(host) = parsed
+            let Some(host) = parsed
                 .headers_ref()
                 .and_then(|headers| headers.get(header::HOST).map(HeaderValue::as_bytes))
                 .or(default_host)
-            {
-                host
-            } else {
+            else {
                 return Err(Error::NoHost);
             };
 
@@ -1160,7 +1155,7 @@ mod uring_tokio_compat {
             // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
             // gets dropped later: the future's lifetime requirement for stream is met.
             let stream: &'static tokio_uring::net::TcpStream =
-                unsafe { &*(stream as *const tokio_uring::net::TcpStream) };
+                unsafe { &*std::ptr::from_ref(stream) };
 
             loop {
                 if let Some(read) = read_buf {
@@ -1225,7 +1220,7 @@ mod uring_tokio_compat {
             // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
             // gets dropped later: the future's lifetime requirement for stream is met.
             let stream: &'static tokio_uring::net::TcpStream =
-                unsafe { &*(stream as *const tokio_uring::net::TcpStream) };
+                unsafe { &*std::ptr::from_ref(stream) };
 
             loop {
                 if let Some(buf) = write_buf {
@@ -1269,7 +1264,7 @@ mod uring_tokio_compat {
             // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
             // gets dropped later: the future's lifetime requirement for stream is met.
             let stream: &'static tokio_uring::net::TcpStream =
-                unsafe { &*(stream as *const tokio_uring::net::TcpStream) };
+                unsafe { &*std::ptr::from_ref(stream) };
 
             loop {
                 if let Some(buf) = write_buf {

@@ -864,9 +864,7 @@ pub async fn handle_connection(
     {
         debug!("We got a new request on connection.");
         trace!("Got request {request:#?}");
-        let host = if let Some(host) = descriptor.data.get_from_request(&request, sni.as_deref()) {
-            host
-        } else {
+        let Some(host) = descriptor.data.get_from_request(&request, sni.as_deref()) else {
             debug!(
                 "Failed to get host: {}",
                 utils::parse::Error::NoHost.as_str()
@@ -1409,7 +1407,7 @@ pub async fn handle_cache(
                         })
                 };
 
-            let client_request_is_fresh = if_modified_since.map_or(false, |timestamp| {
+            let client_request_is_fresh = if_modified_since.is_some_and(|timestamp| {
                 // - 1s because the sent datetime floors the seconds, so the `creation`
                 // datetime is 0-1s ahead.
                 timestamp >= creation - 1.seconds()
@@ -1450,7 +1448,7 @@ pub async fn handle_cache(
                 let (resp, vary) = &*resp_vary;
                 // Here, the lock is always (irrelevant of which arm the code runs) dropped, which
                 // enables us to do computationally heavy things, such as compression.
-                let mut response = if future.as_ref().map_or(false, |(_, len)| len.is_some()) {
+                let mut response = if future.as_ref().is_some_and(|(_, len)| len.is_some()) {
                     let body = resp.get_identity().body().clone();
                     utils::empty_clone_response(resp.get_identity()).map(|()| body)
                 } else {
@@ -1511,7 +1509,7 @@ pub async fn handle_cache(
 
             let compressed_response = &varied_response.first().0;
 
-            let mut response = if future.as_ref().map_or(false, |(_, len)| len.is_some()) {
+            let mut response = if future.as_ref().is_some_and(|(_, len)| len.is_some()) {
                 let body = compressed_response.get_identity().body().clone();
                 utils::empty_clone_response(compressed_response.get_identity()).map(|()| body)
             } else {
@@ -1547,7 +1545,7 @@ pub async fn handle_cache(
             let identity_body = Bytes::clone(compressed_response.get_identity().body());
 
             let vary = &varied_response.first().1;
-            if future.as_ref().map_or(true, |f| f.1.is_some()) {
+            if future.as_ref().is_none_or(|f| f.1.is_some()) {
                 vary::apply_header(&mut response, vary, future.is_some());
             }
 

@@ -186,12 +186,12 @@ impl CacheControl {
                 no_store: false,
             },
             _ if header.len() > 1
-                && header.chars().next().map_or(false, char::is_numeric)
+                && header.chars().next().is_some_and(char::is_numeric)
                 && header
                     .chars()
                     .next_back()
                     .as_ref()
-                    .map_or(false, char::is_ascii_alphabetic) =>
+                    .is_some_and(char::is_ascii_alphabetic) =>
             {
                 // This will not panic; the last character is ascii.
                 let integer = &header[..header.len() - 1];
@@ -254,7 +254,7 @@ impl CacheControl {
     #[must_use]
     pub fn store(&self) -> bool {
         // Don't store if max_age less than 60s.
-        !self.no_store || self.max_age.map_or(false, |age| age > 60)
+        !self.no_store || self.max_age.is_some_and(|age| age > 60)
     }
     /// Gets the freshness lifetime of this cache control directive.
     /// If the returned value is [`None`], you should let it be in the cache for as long as possible,
@@ -499,7 +499,7 @@ impl<'a> Query<'a> {
 impl Display for Query<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (pos, pair) in self.pairs.iter().enumerate() {
-            f.write_fmt(format_args!("{}", pair))?;
+            f.write_fmt(format_args!("{pair}"))?;
             if self.pairs.len() - 1 != pos {
                 f.write_str("&")?;
             }
@@ -711,7 +711,7 @@ impl CriticalRequestComponents {
                 if response.status() == StatusCode::OK {
                     *response.status_mut() = StatusCode::PARTIAL_CONTENT;
                 }
-            } else if !response.body().is_empty() || overriden_len.map_or(false, |len| len > 0) {
+            } else if !response.body().is_empty() || overriden_len.is_some_and(|len| len > 0) {
                 response
                     .headers_mut()
                     .insert("accept-ranges", HeaderValue::from_static("bytes"));
@@ -758,7 +758,7 @@ pub fn sanitize_request<T>(
     let path_ok = if uri_decoded_path.contains("./") || !uri_decoded_path.starts_with('/') {
         false
     } else {
-        parse::uri(&uri_decoded_path).map_or(false, |s| Path::new(s).is_relative())
+        parse::uri(&uri_decoded_path).is_some_and(|s| Path::new(s).is_relative())
     };
     if !path_ok {
         return Err(SanitizeError::UnsafePath);
@@ -768,7 +768,7 @@ pub fn sanitize_request<T>(
         if !v.starts_with("bytes=") {
             return None;
         }
-        if v.contains(|c| c == ',' || c == ' ') {
+        if v.contains([',', ' ']) {
             return None;
         }
         let separator = v.find('-')?;

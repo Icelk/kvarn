@@ -106,7 +106,7 @@ impl PresentExtensions {
                 }
                 start = if data
                     .get(pos..)
-                    .map_or(false, |range| range.starts_with(PRESENT_INTERNAL_AND))
+                    .is_some_and(|range| range.starts_with(PRESENT_INTERNAL_AND))
                 {
                     last_name = None;
                     pos + PRESENT_INTERNAL_AND.len()

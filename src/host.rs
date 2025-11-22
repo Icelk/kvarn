@@ -618,7 +618,7 @@ impl Default for Options {
 pub struct CollectionBuilder(Collection);
 impl CollectionBuilder {
     /// Adds `host` to the builder.
-    /// This will match the `host` header and SNI hostname for [`Host.name`].
+    /// This will match the `host` header and SNI hostname for [`Host::name`].
     ///
     /// If it is the first call to this function, [`Self::set_pre_host_limiter`] is called
     /// with [`Host::limiter`].
@@ -710,7 +710,7 @@ impl HostValue {
 }
 
 /// A collection of [`Host`]s, with an optional default and
-/// arbitrarily many others, indexed by [`Host.name`].
+/// arbitrarily many others, indexed by [`Host::name`].
 ///
 /// Tries to route to the host with it's name.
 /// If no host with a matching name is found, it'll fall back to [`default`](Self::get_default), if
@@ -869,7 +869,7 @@ impl Collection {
     #[allow(clippy::unused_async)] // API compat and future proofing
     pub async fn clear_response_caches(&self, host_filter: Option<&str>) {
         for host in self.by_name.values().filter_map(HostValue::as_host) {
-            if host_filter.map_or(false, |h| h != host.name) {
+            if host_filter.is_some_and(|h| h != host.name) {
                 continue;
             }
             if let Some(cache) = &host.response_cache {
@@ -927,7 +927,7 @@ impl Collection {
     #[allow(clippy::unused_async)] // API compat and future proofing
     pub async fn clear_file_caches(&self, host_filter: Option<&str>) {
         for host in self.by_name.values().filter_map(HostValue::as_host) {
-            if host_filter.map_or(false, |h| h != host.name) {
+            if host_filter.is_some_and(|h| h != host.name) {
                 continue;
             }
             if let Some(cache) = &host.file_cache {

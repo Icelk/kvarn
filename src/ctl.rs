@@ -411,16 +411,12 @@ impl Plugins {
                         }
                     }
                     Some("file") => {
-                        let host = if let Some(a) = args.next() {
-                            a
-                        } else {
+                        let Some(host) = args.next() else {
                             return PluginResponse::error(
                                 "please supply the host you want to clear the response from",
                             );
                         };
-                        let path = if let Some(a) = args.next() {
-                            a
-                        } else {
+                        let Some(path) = args.next() else {
                             return PluginResponse::error(
                                 "please supply response you want to clear after the host",
                             );
@@ -445,25 +441,18 @@ impl Plugins {
                         format!("cleared {path:?} from {host:?}")
                     }
                     Some("response") => {
-                        let host = if let Some(a) = args.next() {
-                            a
-                        } else {
+                        let Some(host) = args.next() else {
                             return PluginResponse::error(
                                 "please supply the host you want to clear the response from",
                             );
                         };
-                        let response = if let Some(a) = args.next() {
-                            a
-                        } else {
+                        let Some(response) = args.next() else {
                             return PluginResponse::error(
                                 "please supply response you want to clear after the host",
                             );
                         };
-                        let uri = match Uri::builder().path_and_query(response).build() {
-                            Ok(uri) => uri,
-                            Err(..) => {
-                                return PluginResponse::error("failed to format target response");
-                            }
+                        let Ok(uri) = Uri::builder().path_and_query(response).build() else {
+                            return PluginResponse::error("failed to format target response");
                         };
                         let mut cleared = false;
                         let mut found = false;
@@ -626,9 +615,7 @@ pub(crate) async fn listen(
 
                 Box::pin(async move {
                     let data = &data;
-                    let data = if let Ok(s) = str::from_utf8(data) {
-                        s
-                    } else {
+                    let Ok(data) = str::from_utf8(data) else {
                         return kvarn_signal::unix::HandlerResponse {
                             data: "error Received binary content. Requests have to be UTF-8."
                                 .into(),

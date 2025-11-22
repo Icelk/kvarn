@@ -947,7 +947,7 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
     {
         match self.cache.get(key) {
             Some(value_and_lifetime)
-                if value_and_lifetime.1 .2.map_or(true, |lifetime| {
+                if value_and_lifetime.1 .2.is_none_or(|lifetime| {
                     OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
                 }) =>
             {

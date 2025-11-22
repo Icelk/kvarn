@@ -237,7 +237,7 @@ pub(crate) fn apply_header(response: &mut Response<Bytes>, headers: &[Header], i
                     .headers()
                     .get("vary")
                     .and_then(|h| h.to_str().ok())
-                    .map_or(false, |h| h.contains("range")),
+                    .is_some_and(|h| h.contains("range")),
         );
         response.headers_mut().insert("vary", header);
     }

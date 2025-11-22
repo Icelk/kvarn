@@ -3,6 +3,7 @@ name = "kvarn-extensions"
 version = "0.6.2"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
+rust-version = "1.87"
 description = "Extensions for the Kvarn web server. Features HTTP/2 automatic push and a templating engine."
 repository = "https://github.com/Icelk/kvarn/tree/main/kvarn_extensions/"
 license = "Apache-2.0"
@@ -26,7 +27,7 @@ small-acme = { version = "0.2.2", optional = true }
 x509-parser = { version = "0.18", optional = true }
 rustls = { version = "0.23.27", optional = true, default-features = false, features = ["ring"] }
 # serialize credentials
-ron = { version = "0.11", optional = true }
+ron = { version = "0.12", optional = true }
 rcgen = { version = "0.14", optional = true }
 rustls-pemfile = { version = "2", optional = true }
 rand = { version = "0.9", optional = true }
