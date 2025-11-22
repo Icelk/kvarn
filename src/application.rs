@@ -573,20 +573,15 @@ mod request {
                     }
                 }
             }
-            if path_end
-                .checked_sub(path_start)
-                .map_or(true, |len| len == 0)
-            {
+            if path_end.checked_sub(path_start).is_none_or(|len| len == 0) {
                 return Err(Error::NoPath);
             }
 
-            let host = if let Some(host) = parsed
+            let Some(host) = parsed
                 .headers_ref()
                 .and_then(|headers| headers.get(header::HOST).map(HeaderValue::as_bytes))
                 .or(default_host)
-            {
-                host
-            } else {
+            else {
                 return Err(Error::NoHost);
             };
 
