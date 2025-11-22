@@ -20,13 +20,13 @@ pub const SERVER_NAME_VERSION: &str = "Kvarn/0.6.2";
 /// Used as the return type for all extensions,
 /// so they can be stored.
 #[cfg(feature = "uring")]
-pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + 'a)>>;
+pub type RetFut<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 /// A return type for a `dyn` [`Future`].
 ///
 /// Used as the return type for all extensions,
 /// so they can be stored.
 #[cfg(not(feature = "uring"))]
-pub type RetFut<'a, T> = Pin<Box<(dyn Future<Output = T> + Send + 'a)>>;
+pub type RetFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Same as [`RetFut`] but also implementing [`Sync`].
 ///
 /// Mostly used for extensions used across yield bounds.
@@ -244,12 +244,12 @@ impl<
 ///
 /// Used with [`Prepare`] extensions
 #[cfg(feature = "uring")]
-pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool)>;
+pub type If = Box<dyn Fn(&FatRequest, &Host) -> bool>;
 /// Dynamic function to check if a extension should be ran.
 ///
 /// Used with [`Prepare`] extensions
 #[cfg(not(feature = "uring"))]
-pub type If = Box<(dyn Fn(&FatRequest, &Host) -> bool + Sync + Send)>;
+pub type If = Box<dyn Fn(&FatRequest, &Host) -> bool + Sync + Send>;
 /// A [`Future`] for writing to a [`ResponsePipe`] after the response is sent.
 ///
 /// Used with [`Prepare`] extensions in their returned [`FatResponse`].
