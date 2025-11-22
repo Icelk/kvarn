@@ -1160,7 +1160,7 @@ mod uring_tokio_compat {
             // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
             // gets dropped later: the future's lifetime requirement for stream is met.
             let stream: &'static tokio_uring::net::TcpStream =
-                unsafe { &*(stream as *const tokio_uring::net::TcpStream) };
+                unsafe { &*std::ptr::from_ref(stream) };
 
             loop {
                 if let Some(read) = read_buf {
@@ -1225,7 +1225,7 @@ mod uring_tokio_compat {
             // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
             // gets dropped later: the future's lifetime requirement for stream is met.
             let stream: &'static tokio_uring::net::TcpStream =
-                unsafe { &*(stream as *const tokio_uring::net::TcpStream) };
+                unsafe { &*std::ptr::from_ref(stream) };
 
             loop {
                 if let Some(buf) = write_buf {
@@ -1269,7 +1269,7 @@ mod uring_tokio_compat {
             // SAFETY: we store the future in the same struct, and as the stream is stored after it, it
             // gets dropped later: the future's lifetime requirement for stream is met.
             let stream: &'static tokio_uring::net::TcpStream =
-                unsafe { &*(stream as *const tokio_uring::net::TcpStream) };
+                unsafe { &*std::ptr::from_ref(stream) };
 
             loop {
                 if let Some(buf) = write_buf {

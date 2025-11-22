@@ -1162,7 +1162,7 @@ impl<R> RuleSet<R> {
             if path == uri_path
                 || (path
                     .strip_suffix('*')
-                    .map_or(false, |path| uri_path.starts_with(path)))
+                    .is_some_and(|path| uri_path.starts_with(path)))
             {
                 return Some(allow);
             }
@@ -1296,7 +1296,7 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                                 // exhaust resources.
                                 // 10MB/64kB = 160
                                 let data = Bytes::copy_from_slice(&buf[..buf_end]);
-                                let r = if i % 160 == 0 {
+                                let r = if i.is_multiple_of(160) {
                                     response.send_with_wait(data, 10 * 1024 * 1024).await
                                 } else {
                                     response.send(data).await

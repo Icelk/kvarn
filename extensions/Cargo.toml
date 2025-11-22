@@ -3,6 +3,7 @@ name = "kvarn-extensions"
 version = "0.6.2"
 authors = ["Icelk <main@icelk.dev>"]
 edition = "2021"
+rust-version = "1.87"
 description = "Extensions for the Kvarn web server. Features HTTP/2 automatic push and a templating engine."
 repository = "https://github.com/Icelk/kvarn/tree/main/kvarn_extensions/"
 license = "Apache-2.0"

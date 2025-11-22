@@ -66,10 +66,9 @@ pub async fn read_to_end_or_max(
         reserve(0, buffer);
     }
     loop {
-        match reader.read(&mut buffer[read..]).await.map_err(|err| {
+        match reader.read(&mut buffer[read..]).await.inspect_err(|_err| {
             // if err, set buffer len to safe value
             unsafe { buffer.set_len(read) };
-            err
         })? {
             0 => break,
             len => {
@@ -107,7 +106,7 @@ impl<R: Read + Unpin> AsyncRead for ReadToAsync<R> {
         let extra_filled = unsafe {
             self.get_mut()
                 .0
-                .read(&mut *(buf.unfilled_mut() as *mut [_] as *mut [u8]))
+                .read(&mut *(std::ptr::from_mut::<[_]>(buf.unfilled_mut()) as *mut [u8]))
         };
         Poll::Ready(match extra_filled {
             Ok(extra_filled) => {
@@ -401,20 +400,15 @@ pub mod read {
                 }
             }
         }
-        if path_end
-            .checked_sub(path_start)
-            .map_or(true, |len| len == 0)
-        {
+        if path_end.checked_sub(path_start).is_none_or(|len| len == 0) {
             return Err(Error::NoPath);
         }
 
-        let host = if let Some(host) = parsed
+        let Some(host) = parsed
             .headers_ref()
             .and_then(|headers| headers.get(header::HOST).map(HeaderValue::as_bytes))
             .or(default_host)
-        {
-            host
-        } else {
+        else {
             return Err(Error::NoHost);
         };
 

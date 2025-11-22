@@ -190,10 +190,7 @@ impl ServerBuilder {
         {
             Err(e) => match e.kind() {
                 io::ErrorKind::ConnectionRefused => Ok(()),
-                _ => panic!(
-                    "Spurious IO error while checking port availability: {:?}",
-                    e
-                ),
+                _ => panic!("Spurious IO error while checking port availability: {e:?}"),
             },
             Ok(_) => Err(io::Error::new(
                 io::ErrorKind::AddrInUse,
@@ -263,7 +260,7 @@ impl ServerBuilder {
             } else {
                 Self::get_port().await
             };
-            println!("Running on {}", port);
+            println!("Running on {port}");
             let port_descriptor = if https {
                 PortDescriptor::new(port, data.clone())
             } else {
@@ -336,8 +333,7 @@ mod tests {
         assert_eq!(
             response.status(),
             reqwest::StatusCode::NOT_FOUND,
-            "Got response {:#?}",
-            response
+            "Got response {response:#?}",
         );
         assert!(response.text().await.unwrap().contains("404 Not Found"));
     }

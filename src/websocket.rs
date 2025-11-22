@@ -47,7 +47,7 @@ pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture)
         base64::engine::GeneralPurposeConfig::new().with_encode_padding(false),
     );
 
-    if req.headers().get("connection").map_or(true, |conn| {
+    if req.headers().get("connection").is_none_or(|conn| {
         conn.to_str().map_or(true, |s| {
             !s.split(',')
                 .any(|s| s.trim().eq_ignore_ascii_case("upgrade"))
@@ -55,7 +55,7 @@ pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture)
     }) || req
         .headers()
         .get("upgrade")
-        .map_or(true, |upg| upg != "websocket")
+        .is_none_or(|upg| upg != "websocket")
     {
         let mut response = default_error(StatusCode::UPGRADE_REQUIRED, Some(host), None).await;
         response
@@ -77,9 +77,7 @@ pub async fn response(req: &FatRequest, host: &Host, future: ResponsePipeFuture)
         )
         .await;
     }
-    let key = if let Some(k) = req.headers().get("sec-websocket-key") {
-        k
-    } else {
+    let Some(key) = req.headers().get("sec-websocket-key") else {
         return default_error_response(
             StatusCode::BAD_REQUEST,
             host,

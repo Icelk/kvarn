@@ -149,13 +149,11 @@ pub fn read_continue(message: impl AsRef<str>, default: bool) -> bool {
     io::stdout()
         .lock()
         .flush()
-        .unwrap_or_else(|e| exit_with_message(format!("Failed to flush stdout {:?}", e)));
+        .unwrap_or_else(|e| exit_with_message(format!("Failed to flush stdout {e:?}")));
 
     loop {
         let mut buffer = [0; 64];
-        let read = if let Ok(read) = io::stdin().lock().read(&mut buffer) {
-            read
-        } else {
+        let Ok(read) = io::stdin().lock().read(&mut buffer) else {
             error!("Failed to read stdin for confirmation.");
             return false;
         };
@@ -181,10 +179,7 @@ pub fn read_continue(message: impl AsRef<str>, default: bool) -> bool {
                 return false;
             }
 
-            eprintln!(
-                "Could not detect your intent. Please try again. {}",
-                message
-            );
+            eprintln!("Could not detect your intent. Please try again. {message}");
         } else {
             error!("Input isn't UTF-8");
         }
@@ -255,7 +250,10 @@ fn process_inner<P: AsRef<Path>>(
     syntax_highlighting: bool,
 ) -> io::Result<()> {
     let path = path.as_ref();
-    if path.extension().and_then(OsStr::to_str).map(|s| s == "md") == Some(false)
+    if path
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|s| s != "md")
         && !read_continue_behaviour(
             "Specified file does not have the Markdown extension.",
             false,
@@ -272,7 +270,7 @@ fn process_inner<P: AsRef<Path>>(
         if ext == Some("md") {
             path.set_extension("html");
         } else if let Some(ext) = ext {
-            let ext = format!("{}.html", ext);
+            let ext = format!("{ext}.html");
             path.set_extension(ext);
         } else {
             path.set_extension("html");
@@ -287,8 +285,7 @@ fn process_inner<P: AsRef<Path>>(
     let mut buffer = WriteableBytes::with_capacity(metadata.len() as usize);
     if let Err(err) = io::copy(&mut file, &mut buffer) {
         exit_with_message(format!(
-            "Encountered an error reading the contents of the file specified: {:?}",
-            err
+            "Encountered an error reading the contents of the file specified: {err:?}"
         ))
     }
     let buffer = buffer.into_inner().freeze();
@@ -394,7 +391,7 @@ fn process_inner<P: AsRef<Path>>(
                     if margin == 0 {
                         Ok(())
                     } else {
-                        write!(f, "<span style=\"margin-left: {}em\"></span>", margin)
+                        write!(f, "<span style=\"margin-left: {margin}em\"></span>")
                     }
                 }
             }
@@ -419,8 +416,7 @@ fn process_inner<P: AsRef<Path>>(
 
                 writeln!(
                     ext,
-                    "<tr><td>{}<a href=\"#{}\">{} {}</a></td></tr>",
-                    margin, anchor, indent_counter, name
+                    "<tr><td>{margin}<a href=\"#{anchor}\">{indent_counter} {name}</a></td></tr>"
                 )
                 .unwrap();
             }
@@ -449,7 +445,7 @@ fn process_inner<P: AsRef<Path>>(
                 );
                 date.format(FORMAT).expect("failed to format datetime")
             };
-            write!(ext, "{}", s).expect("failed to push to string");
+            write!(ext, "{s}").expect("failed to push to string");
         }),
     );
 
@@ -485,7 +481,7 @@ fn process_inner<P: AsRef<Path>>(
                 s
             };
 
-            let html = format!("<{} id=\"{}\"{}>", level, anchor, class);
+            let html = format!("<{level} id=\"{anchor}\"{class}>");
             Event::Html(CowStr::Boxed(html.into_boxed_str()))
         }
         _ => event,
@@ -542,9 +538,7 @@ pub fn watch<P: AsRef<Path>>(
 
     // Create a watcher object, delivering debounced events.
     // The notification back-end is selected based on the platform.
-    let mut watcher = if let Ok(w) = new_debouncer(Duration::from_millis(100), None, tx) {
-        w
-    } else {
+    let Ok(mut watcher) = new_debouncer(Duration::from_millis(100), None, tx) else {
         error!("Failed to create a watcher.");
         return;
     };
@@ -596,7 +590,7 @@ pub fn watch<P: AsRef<Path>>(
 #[inline]
 pub fn wait_for(message: &str) {
     // Don't write to normal output.
-    eprintln!("{}", message);
+    eprintln!("{message}");
     drop(io::stdin().read(&mut [0; 0]));
 }
 
@@ -678,7 +672,7 @@ pub fn replace_tags<'a>(text: &'a str, tags: &Tags<'a>) -> String {
         if let Some(after_opening) = text.strip_prefix("${") {
             if !escaped_tag {
                 if let Some((name, func)) = after_opening
-                    .split(|c| c == ' ' || c == '}')
+                    .split([' ', '}'])
                     .next()
                     .and_then(|name| tags.get_key_value(name))
                 {

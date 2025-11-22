@@ -551,7 +551,7 @@ pub fn header_eq(headers: &HeaderMap, name: impl header::AsHeaderName, value: &s
         .get(name)
         .map(HeaderValue::to_str)
         .and_then(Result::ok);
-    header_value.map_or(false, |s| s.eq_ignore_ascii_case(value))
+    header_value.is_some_and(|s| s.eq_ignore_ascii_case(value))
 }
 
 /// Tests if the first arguments starts with any of the following.
@@ -643,7 +643,7 @@ pub fn set_content_length(headers: &mut HeaderMap, len: u64) {
 /// the `content-length` header is checked. `0` is otherwise returned.
 pub fn get_body_length_response<T>(response: &Response<T>, method: Option<&Method>) -> u64 {
     use std::str::FromStr;
-    if method.map_or(true, method_has_response_body) {
+    if method.is_none_or(method_has_response_body) {
         response
             .headers()
             .get("content-length")
@@ -746,14 +746,11 @@ impl Iterator for QuotedStrSplitIter<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             #[allow(clippy::single_match_else)] // clarity
-            let c = match self.iter.next() {
-                Some(c) => c,
-                None => {
-                    if !self.current.is_empty() {
-                        return Some(std::mem::take(&mut self.current));
-                    }
-                    return None;
+            let Some(c) = self.iter.next() else {
+                if !self.current.is_empty() {
+                    return Some(std::mem::take(&mut self.current));
                 }
+                return None;
             };
             // check this before the exceptions below
             if c == '\\' {
@@ -903,8 +900,8 @@ mod tests {
     fn clean_debug() {
         let message = "All\tOK.";
         assert_eq!(format!("{:?}", message.as_clean()), message);
-        assert_ne!(format!("{:?}", message), message);
-        assert_eq!(format!("{:?}", message), r#""All\tOK.""#);
+        assert_ne!(format!("{message:?}"), message);
+        assert_eq!(format!("{message:?}"), r#""All\tOK.""#);
     }
 
     #[test]
