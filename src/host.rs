@@ -618,7 +618,7 @@ impl Default for Options {
 pub struct CollectionBuilder(Collection);
 impl CollectionBuilder {
     /// Adds `host` to the builder.
-    /// This will match the `host` header and SNI hostname for [`Host.name`].
+    /// This will match the `host` header and SNI hostname for [`Host::name`].
     ///
     /// If it is the first call to this function, [`Self::set_pre_host_limiter`] is called
     /// with [`Host::limiter`].
@@ -710,7 +710,7 @@ impl HostValue {
 }
 
 /// A collection of [`Host`]s, with an optional default and
-/// arbitrarily many others, indexed by [`Host.name`].
+/// arbitrarily many others, indexed by [`Host::name`].
 ///
 /// Tries to route to the host with it's name.
 /// If no host with a matching name is found, it'll fall back to [`default`](Self::get_default), if
