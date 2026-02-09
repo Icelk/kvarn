@@ -30,7 +30,7 @@ rustls = { version = "0.23.27", optional = true, default-features = false, featu
 ron = { version = "0.12", optional = true }
 rcgen = { version = "0.14", optional = true }
 rustls-pemfile = { version = "2", optional = true }
-rand = { version = "0.9", optional = true }
+rand = { version = "0.10", optional = true }
 dashmap = { version = "6", optional = true }
 
 [features]
