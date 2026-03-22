@@ -591,7 +591,6 @@ impl Extensions {
     #[cfg(feature = "nonce")]
     pub fn with_nonce(&mut self) -> &mut Self {
         use base64::Engine;
-        use rand::Rng;
 
         const DEFAULT_ENGINE: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(
             &base64::alphabet::STANDARD,
@@ -601,7 +600,7 @@ impl Extensions {
         self.add_present_internal(
             "nonce",
             present!(ext, {
-                let data: [u8; 16] = rand::rng().random();
+                let data: [u8; 16] = rand::random();
                 let mut s = BytesMut::with_capacity(24);
                 unsafe { s.set_len(24) };
 
