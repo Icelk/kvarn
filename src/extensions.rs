@@ -71,9 +71,8 @@ pub trait PrimeCall: KvarnSendSync {
         addr: SocketAddr,
     ) -> RetFut<'a, Option<Uri>>;
 }
-impl<
-        F: for<'a> Fn(&'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, Option<Uri>> + Send + Sync,
-    > PrimeCall for F
+impl<F: for<'a> AsyncFn(&'a FatRequest, &'a Host, SocketAddr) -> Option<Uri> + KvarnSendSync>
+    PrimeCall for F
 {
     fn call<'a>(
         &'a self,
@@ -81,7 +80,7 @@ impl<
         host: &'a Host,
         addr: SocketAddr,
     ) -> RetFut<'a, Option<Uri>> {
-        self(request, host, addr)
+        Box::pin(self(request, host, addr))
     }
 }
 /// A prepare extension.
@@ -114,23 +113,17 @@ pub trait PrepareCall: KvarnSendSync {
     ) -> RetFut<'a, FatResponse>;
 }
 impl<
-        F: for<'a> Fn(
-                &'a mut FatRequest,
-                &'a Host,
-                Option<&Path>,
-                SocketAddr,
-            ) -> RetFut<'a, FatResponse>
-            + KvarnSendSync,
+        F: AsyncFn(&mut FatRequest, &Host, Option<&Path>, SocketAddr) -> FatResponse + KvarnSendSync,
     > PrepareCall for F
 {
     fn call<'a>(
         &'a self,
         request: &'a mut FatRequest,
         host: &'a Host,
-        path: Option<&Path>,
+        path: Option<&'a Path>,
         addr: SocketAddr,
     ) -> RetFut<'a, FatResponse> {
-        self(request, host, path, addr)
+        Box::pin(self(request, host, path, addr))
     }
 }
 /// A present extension.
@@ -149,9 +142,9 @@ pub trait PresentCall: KvarnSendSync {
     /// [`PresentData`] contains all the references to the data needed.
     fn call<'a>(&'a self, present_data: &'a mut PresentData<'a>) -> RetFut<'a, ()>;
 }
-impl<F: for<'a> Fn(&'a mut PresentData<'a>) -> RetFut<'a, ()> + KvarnSendSync> PresentCall for F {
+impl<F: for<'a> AsyncFn(&'a mut PresentData<'a>) -> () + KvarnSendSync> PresentCall for F {
     fn call<'a>(&'a self, present_data: &'a mut PresentData<'a>) -> RetFut<'a, ()> {
-        self(present_data)
+        Box::pin(self(present_data))
     }
 }
 /// A package extension.
@@ -178,7 +171,7 @@ pub trait PackageCall: KvarnSendSync {
     ) -> RetFut<'a, ()>;
 }
 impl<
-        F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, ()>
+        F: for<'a> AsyncFn(&'a mut Response<()>, &'a FatRequest, &'a Host, SocketAddr) -> ()
             + KvarnSendSync,
     > PackageCall for F
 {
@@ -189,7 +182,7 @@ impl<
         host: &'a Host,
         addr: SocketAddr,
     ) -> RetFut<'a, ()> {
-        self(response, request, host, addr)
+        Box::pin(self(response, request, host, addr))
     }
 }
 /// A post extension.
@@ -219,13 +212,13 @@ pub trait PostCall: KvarnSendSync {
     ) -> RetFut<'a, ()>;
 }
 impl<
-        F: for<'a> Fn(
+        F: for<'a> AsyncFn(
                 &'a FatRequest,
                 &'a Host,
                 &'a mut ResponseBodyPipe,
                 Bytes,
                 SocketAddr,
-            ) -> RetFut<'a, ()>
+            ) -> ()
             + KvarnSendSync,
     > PostCall for F
 {
@@ -237,7 +230,7 @@ impl<
         identity_body: Bytes,
         addr: SocketAddr,
     ) -> RetFut<'a, ()> {
-        self(request, host, response_pipe, identity_body, addr)
+        Box::pin(self(request, host, response_pipe, identity_body, addr))
     }
 }
 /// Dynamic function to check if a extension should be ran.
@@ -265,6 +258,17 @@ pub trait ResponsePipeFutureCall: KvarnSendSync {
         response_body_pipe: &'a mut ResponseBodyPipe,
         host: &'a Host,
     ) -> RetFut<'a, ()>;
+}
+impl<F: for<'a> AsyncFnMut(&'a mut ResponseBodyPipe, &'a Host) -> () + KvarnSendSync>
+    ResponsePipeFutureCall for F
+{
+    fn call<'a>(
+        &'a mut self,
+        response_body_pipe: &'a mut ResponseBodyPipe,
+        host: &'a Host,
+    ) -> RetFut<'a, ()> {
+        Box::pin(self(response_body_pipe, host))
+    }
 }
 
 /// A extension Id. The [`Self::priority`] is used for sorting extensions
@@ -724,21 +728,34 @@ impl Extensions {
             .expect("`server` header contains invalid bytes");
 
         self.add_package(
-            package!(
-                resp,
-                _,
-                _,
-                _,
-                move |header_value: HeaderValue, override_server_header: bool| {
-                    if *override_server_header {
+            Box::new(
+                async move |resp, _, _, _| {
+                    if override_server_header {
                         resp.headers_mut().insert("server", header_value.clone());
                     } else {
                         resp.headers_mut().append("server", header_value.clone());
                     }
-                }
-            ),
-            Id::new(-1327, "add `server` header"),
+                },
+            ) as Package,
+            Id::new(-1327, "add server header"),
         );
+
+        // self.add_package(
+        //     package!(
+        //         resp,
+        //         _,
+        //         _,
+        //         _,
+        //         move |header_value: HeaderValue, override_server_header: bool| {
+        //             if override_server_header {
+        //                 resp.headers_mut().insert("server", header_value.clone());
+        //             } else {
+        //                 resp.headers_mut().append("server", header_value.clone());
+        //             }
+        //         }
+        //     ),
+        //     Id::new(-1327, "add `server` header"),
+        // );
 
         self
     }
@@ -1401,31 +1418,34 @@ mod macros {
         //
         // `name` for the params is used to locally bind the params, as the `param` can be `_`.
         ($trait: ty, $ret: ty, $(($meta:tt) ,)? | $($param:tt: $param_type:ty: $param_type_no_lifetimes:ty :$name:ident ),* |, $(($($(($mut:tt))? $move:ident:$ty:ty),+))?, $code:block) => {{
-            // we go through all this hassle of having a closure to capture dynamic environment.
-            struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + $crate::extensions::_UringSendSync> {
-                function_private: F,
-                $($($move:$ty,)+)?
-            }
-
-            impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + $crate::extensions::_UringSendSync> $trait for Ext<F> {
-                fn call<'a>(
-                    &'a $($meta)? self,
-                    $($name: $param_type,)*
-                ) -> $crate::extensions::RetFut<'a, $ret> {
-                    let Self {
-                        function_private,
-                        $($($move,)+)?
-                    } = self;
-                    (function_private)($($name,)* $($($move,)+)?)
-                }
-            }
-            Box::new(Ext {
-                function_private: move |$($param: $param_type_no_lifetimes,)* $($($move: & $($mut)? $ty,)+)?| {
-                    Box::pin(async move {
-                        $code
-                    })
-                },
-                $($($move,)+)?
+            // // we go through all this hassle of having a closure to capture dynamic environment.
+            // struct Ext<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + $crate::extensions::_UringSendSync> {
+            //     function_private: F,
+            //     $($($move:$ty,)+)?
+            // }
+            //
+            // impl<F: for<'a> Fn($($param_type,)* $($(&'a $($mut)? $ty,)+)?) -> $crate::extensions::RetFut<'a, $ret> + $crate::extensions::_UringSendSync> $trait for Ext<F> {
+            //     fn call<'a>(
+            //         &'a $($meta)? self,
+            //         $($name: $param_type,)*
+            //     ) -> $crate::extensions::RetFut<'a, $ret> {
+            //         let Self {
+            //             function_private,
+            //             $($($move,)+)?
+            //         } = self;
+            //         (function_private)($($name,)* $($($move,)+)?)
+            //     }
+            // }
+            // Box::new(Ext {
+            //     function_private: move |$($param: $param_type_no_lifetimes,)* $($($move: & $($mut)? $ty,)+)?| {
+            //         Box::pin(async move {
+            //             $code
+            //         })
+            //     },
+            //     $($($move,)+)?
+            // })
+            Box::new(async move |$($param: $param_type_no_lifetimes,)*| {
+                $code
             })
         }};
     }
