@@ -2,7 +2,7 @@
 name = "kvarn-chute"
 version = "0.4.0"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 description = "A Markdown converter designed to use the Kvarn templating engine."
 readme = "README.md"

@@ -91,7 +91,7 @@ pub async fn mount_php_with_working_directory(
             let decoded = percent_encoding::percent_decode_str(&path)
                 .decode_utf8()
                 .expect("percent decoding was successful earlier in Kvarn");
-            let p = utils::make_path(
+            utils::make_path(
                 &working_directory,
                 "",
                 // Ok, since Uri's have to start with a `/` (https://github.com/hyperium/http/issues/465).
@@ -99,8 +99,7 @@ pub async fn mount_php_with_working_directory(
                 // incoming and presume all internal extension changes are good.
                 utils::parse::uri(&decoded).unwrap(),
                 None,
-            );
-            p
+            )
         }),
     );
     extensions.add_prepare_fn(

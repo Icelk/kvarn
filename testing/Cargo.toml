@@ -2,7 +2,7 @@
 name = "kvarn_testing"
 version = "0.6.1"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 description = "Testing framework used by the Kvarn web server."
 readme = "README.md"

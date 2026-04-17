@@ -600,7 +600,7 @@ pub(crate) async fn listen(
                     );
                     return;
                 }
-            };
+            }
         }
 
         let plugins = Arc::new(plugins);

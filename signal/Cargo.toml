@@ -2,7 +2,7 @@
 name = "kvarn_signal"
 version = "0.2.1"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 description = "Easy-to-use IPC signaling library, mainly used for kvarnctl"
 readme = "README.md"

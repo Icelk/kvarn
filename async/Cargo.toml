@@ -2,7 +2,7 @@
 name = "kvarn_async"
 version = "0.6.1"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 description = "Async utilities used in the Kvarn web server."
 readme = "README.md"

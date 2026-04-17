@@ -2,7 +2,7 @@
 name = "kvarnctl"
 version = "0.2.1"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 description = "Communication with Kvarn from the command line."
 readme = "README.md"

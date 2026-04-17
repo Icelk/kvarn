@@ -378,12 +378,12 @@ impl quinn::AsyncUdpSocket for UringUdpSocket {
 
 unsafe fn future_to_static_lifetime<'a, T>(
     fut: Pin<Box<dyn Future<Output = T> + 'a>>,
-) -> Pin<Box<dyn Future<Output = T> + 'static>> {
+) -> Pin<Box<dyn Future<Output = T> + 'static>> { unsafe {
     mem::transmute(fut)
-}
-unsafe fn transmit_to_static_lifetime(transmit: &Transmit) -> &'static Transmit<'static> {
+}}
+unsafe fn transmit_to_static_lifetime(transmit: &Transmit) -> &'static Transmit<'static> { unsafe {
     mem::transmute(transmit)
-}
+}}
 
 fn prepare_msg(
     transmit: &Transmit,
@@ -607,13 +607,13 @@ mod cmsg {
         /// - `hdr.msg_control` must be a suitably aligned pointer to `hdr.msg_controllen` bytes that
         ///   can be safely written
         /// - The `Encoder` must be dropped before `hdr` is passed to a system call, and must not be leaked.
-        pub(crate) unsafe fn new(hdr: &'a mut libc::msghdr) -> Self {
+        pub(crate) unsafe fn new(hdr: &'a mut libc::msghdr) -> Self { unsafe {
             Self {
                 cmsg: libc::CMSG_FIRSTHDR(hdr).as_mut(),
                 hdr,
                 len: 0,
             }
-        }
+        }}
 
         /// Append a control message to the buffer.
         ///
@@ -659,7 +659,7 @@ mod cmsg {
     /// # Safety
     ///
     /// `cmsg` must refer to a cmsg containing a payload of type `T`
-    pub(crate) unsafe fn decode<T: Copy>(cmsg: &libc::cmsghdr) -> T {
+    pub(crate) unsafe fn decode<T: Copy>(cmsg: &libc::cmsghdr) -> T { unsafe {
         assert!(mem::align_of::<T>() <= mem::align_of::<libc::cmsghdr>());
         {
             debug_assert_eq!(
@@ -668,7 +668,7 @@ mod cmsg {
             );
         }
         ptr::read(libc::CMSG_DATA(cmsg) as *const T)
-    }
+    }}
 
     pub(crate) struct Iter<'a> {
         hdr: &'a libc::msghdr,
@@ -681,12 +681,12 @@ mod cmsg {
         /// `hdr.msg_control` must point to memory outliving `'a` which can be soundly read for the
         /// lifetime of the constructed `Iter` and contains a buffer of cmsgs, i.e. is aligned for
         /// `cmsghdr`, is fully initialized, and has correct internal links.
-        pub(crate) unsafe fn new(hdr: &'a libc::msghdr) -> Self {
+        pub(crate) unsafe fn new(hdr: &'a libc::msghdr) -> Self { unsafe {
             Self {
                 hdr,
                 cmsg: libc::CMSG_FIRSTHDR(hdr).as_ref(),
             }
-        }
+        }}
     }
 
     impl<'a> Iterator for Iter<'a> {

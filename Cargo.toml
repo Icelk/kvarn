@@ -4,7 +4,7 @@ name = "kvarn"
 # remove "#![doc(html_root_url = "https://doc.kvarn.org/")]" from lib.rs
 version = "0.6.3"
 authors = ["Icelk <main@icelk.dev>"]
-edition = "2021"
+edition = "2024"
 rust-version = "1.87"
 description = "A forward-thinking fast web server designed to fit your needs, efficiently."
 # main branch documentation
