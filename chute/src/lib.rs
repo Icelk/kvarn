@@ -221,7 +221,7 @@ pub fn process_document<P: AsRef<Path>>(
     ) {
         Ok(()) => Ok(()),
         Err(ref err) if err.kind() == io::ErrorKind::PermissionDenied => {
-            error!("You do not have permission to read the file specified.",);
+            error!("You do not have permission to read the file specified.");
             Err(())
         }
         Err(_) => {
