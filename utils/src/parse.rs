@@ -541,8 +541,7 @@ impl<'a> QueryPairIter<'a> {
                 || {
                     self.query
                         .index_of(self.name)
-                        .map(|index| self.query.iterate_to_last(self.name, index))
-                        .unwrap_or(usize::MAX)
+                        .map_or(usize::MAX, |index| self.query.iterate_to_last(self.name, index))
                 },
                 |first| self.query.iterate_to_last(self.name, first),
             ));

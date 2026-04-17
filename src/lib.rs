@@ -242,8 +242,7 @@ impl RunConfig {
         // single-threaded executors
         #[cfg(feature = "uring")]
         let instances = std::thread::available_parallelism()
-            .map(std::num::NonZeroUsize::get)
-            .unwrap_or(16);
+            .map_or(16, std::num::NonZeroUsize::get);
         #[cfg(not(feature = "uring"))]
         let instances = 1;
 
