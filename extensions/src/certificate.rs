@@ -46,7 +46,9 @@ pub async fn mount<'a, F: Future + Send + 'a>(
                 get_expiration(cert.end_entity_cert().unwrap()).map(|(time, self_signed)| {
                     // if self-signed, try to get proper
                     if self_signed && !dev {
-                        info!("Detected self-signed cert on {domain}. Trying to get real certificate.");
+                        info!(
+                            "Detected self-signed cert on {domain}. Trying to get real certificate."
+                        );
                         chrono::OffsetDateTime::now_utc()
                     } else {
                         // update cert every 60 days (Let's encrypt gives us 90 days; 90-60 = 30)
@@ -226,11 +228,15 @@ pub async fn mount<'a, F: Future + Send + 'a>(
 
             if self_signed {
                 exp = chrono::OffsetDateTime::now_utc() + chrono::time::Duration::days(7);
-                info!("Sleep until {exp} before retrying proper, not self-signed, certificate on {domain}");
+                info!(
+                    "Sleep until {exp} before retrying proper, not self-signed, certificate on {domain}"
+                );
             } else {
                 // update cert every 60 days (Let's encrypt gives us 90 days)
                 exp = expiration - chrono::time::Duration::days(30);
-                info!("Sleep until {exp} before renewing cert (which expires at {expiration}) on {domain})");
+                info!(
+                    "Sleep until {exp} before renewing cert (which expires at {expiration}) on {domain})"
+                );
             }
 
             if !certs_pem.is_empty() && !pk_pem.is_empty() && (!self_signed || dev) {
@@ -356,7 +362,9 @@ pub fn get_cert(
             tries += 1;
             if tries > 10 {
                 if !dev {
-                    warn!("Tried 10 times to access {url}, but we don't seem to control that. Using self-signed!");
+                    warn!(
+                        "Tried 10 times to access {url}, but we don't seem to control that. Using self-signed!"
+                    );
                 }
                 return Err(NOT_PUBLIC_ERROR.into());
             }

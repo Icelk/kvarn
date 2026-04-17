@@ -290,7 +290,9 @@ impl RunConfig {
                         if socket.set_reuse_address(true).is_err()
                             || socket.set_reuse_port(true).is_err()
                         {
-                            error!("Failed to set reuse address/port. This is needed for graceful shutdown handover.");
+                            error!(
+                                "Failed to set reuse address/port. This is needed for graceful shutdown handover."
+                            );
                         }
                     }
                     socket
@@ -1253,7 +1255,9 @@ mod handle_cache_helpers {
             method,
             future,
             || {
-                debug!("Not caching; a Prepare extension has captured. If we cached, it would not be called again.");
+                debug!(
+                    "Not caching; a Prepare extension has captured. If we cached, it would not be called again."
+                );
             },
         ) {
             let key = if server_cache.query_matters() {

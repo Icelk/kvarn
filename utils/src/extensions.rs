@@ -1,8 +1,9 @@
 //! Parsing utilities and constants for Kvarn extensions.
 
 use crate::{
+    Arc, Bytes, Debug,
     chars::{CR, LF, SPACE},
-    str, Arc, Bytes, Debug,
+    str,
 };
 
 /// Magic number for [`Present`](https://kvarn.org/extensions/#present) extension.

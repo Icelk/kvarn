@@ -404,7 +404,7 @@ impl HttpConnection {
 }
 
 mod request {
-    use super::{io, response, utils, Arc, Body, Bytes, Encryption, Error, Mutex, Request};
+    use super::{Arc, Body, Bytes, Encryption, Error, Mutex, Request, io, response, utils};
 
     #[inline]
     pub(crate) async fn parse_http_1(

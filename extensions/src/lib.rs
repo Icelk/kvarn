@@ -19,12 +19,12 @@ pub mod reverse_proxy;
 #[cfg(feature = "connection")]
 pub use connection::Connection;
 #[cfg(feature = "reverse-proxy")]
-pub use reverse_proxy::{localhost, static_connection, Manager as ReverseProxy};
+pub use reverse_proxy::{Manager as ReverseProxy, localhost, static_connection};
 
 #[cfg(feature = "push")]
 pub mod push;
 #[cfg(feature = "push")]
-pub use push::{mount as mount_push, SmartPush};
+pub use push::{SmartPush, mount as mount_push};
 
 #[cfg(feature = "kvarn-fastcgi-client")]
 pub mod fastcgi;

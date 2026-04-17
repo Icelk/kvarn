@@ -11,8 +11,9 @@
 use crate::prelude::{internals::*, *};
 #[cfg(feature = "https")]
 use rustls::{
+    ServerConfig,
     server::{ClientHello, ResolvesServerCert},
-    sign, ServerConfig,
+    sign,
 };
 
 /// A set of settings for a [virtual host](https://en.wikipedia.org/wiki/Virtual_hosting),
@@ -1022,11 +1023,7 @@ pub enum CacheAction {
 impl CacheAction {
     /// Returns [`Self::Cache`] if `cache` is true. Else [`Self::Drop`].
     pub fn from_cache(cache: bool) -> Self {
-        if cache {
-            Self::Cache
-        } else {
-            Self::Drop
-        }
+        if cache { Self::Cache } else { Self::Drop }
     }
     /// Returns [`Self::Drop`] if `drop` is true. Else [`Self::Cache`].
     pub fn from_drop(drop: bool) -> Self {

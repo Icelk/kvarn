@@ -247,7 +247,7 @@ impl Plugins {
                     Some("no-wait") => no_wait = true,
                     None => no_wait = false,
                     Some(arg) => {
-                        return PluginResponse::error(format!("unexpected argument: {arg:?}"))
+                        return PluginResponse::error(format!("unexpected argument: {arg:?}"));
                     }
                 }
                 if iter.next().is_some() {
@@ -680,13 +680,17 @@ pub(crate) async fn listen(
             if supports_shutdown {
                 info!("Removed old kvarnctl socket.");
             } else {
-                warn!("Removed old kvarnctl socket. The other instance might still be running. \
-                      Consider adding a `shutdown` plugin or enabling the `graceful-shutdown` cargo feature.");
+                warn!(
+                    "Removed old kvarnctl socket. The other instance might still be running. \
+                      Consider adding a `shutdown` plugin or enabling the `graceful-shutdown` cargo feature."
+                );
             }
         }
     }
     #[cfg(windows)]
     {
-        warn!("Trying to listen for kvarnctl messages on an unsupported platform. Currently, UNIX is supported.");
+        warn!(
+            "Trying to listen for kvarnctl messages on an unsupported platform. Currently, UNIX is supported."
+        );
     }
 }

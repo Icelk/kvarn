@@ -48,7 +48,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
                         Some(e) => {
                             return Some(Event::Text(
                                 format!("Unexpected markdown event {e:#?}").into(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -58,7 +58,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for SyntaxPreprocessor<'a, I> {
             Some(e) => {
                 return Some(Event::Text(
                     format!("Unexpected markdown event {e:#?}").into(),
-                ))
+                ));
             }
         };
 

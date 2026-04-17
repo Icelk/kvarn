@@ -120,7 +120,7 @@ impl<R: Read + Unpin> AsyncRead for ReadToAsync<R> {
 
 /// Writes HTTP/1 [`Response`]s and [`Request`]s to a [`AsyncWrite`].
 pub mod write {
-    use super::{io, AsyncWrite, AsyncWriteExt, HeaderMap, Request, Response, Version};
+    use super::{AsyncWrite, AsyncWriteExt, HeaderMap, Request, Response, Version, io};
 
     async fn headers(headers: &HeaderMap, mut writer: impl AsyncWrite + Unpin) -> io::Result<()> {
         for (name, value) in headers {

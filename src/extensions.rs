@@ -71,9 +71,8 @@ pub trait PrimeCall: KvarnSendSync {
         addr: SocketAddr,
     ) -> RetFut<'a, Option<Uri>>;
 }
-impl<
-        F: for<'a> Fn(&'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, Option<Uri>> + Send + Sync,
-    > PrimeCall for F
+impl<F: for<'a> Fn(&'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, Option<Uri>> + Send + Sync>
+    PrimeCall for F
 {
     fn call<'a>(
         &'a self,
@@ -114,14 +113,14 @@ pub trait PrepareCall: KvarnSendSync {
     ) -> RetFut<'a, FatResponse>;
 }
 impl<
-        F: for<'a> Fn(
-                &'a mut FatRequest,
-                &'a Host,
-                Option<&Path>,
-                SocketAddr,
-            ) -> RetFut<'a, FatResponse>
-            + KvarnSendSync,
-    > PrepareCall for F
+    F: for<'a> Fn(
+            &'a mut FatRequest,
+            &'a Host,
+            Option<&Path>,
+            SocketAddr,
+        ) -> RetFut<'a, FatResponse>
+        + KvarnSendSync,
+> PrepareCall for F
 {
     fn call<'a>(
         &'a self,
@@ -178,9 +177,9 @@ pub trait PackageCall: KvarnSendSync {
     ) -> RetFut<'a, ()>;
 }
 impl<
-        F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, ()>
-            + KvarnSendSync,
-    > PackageCall for F
+    F: for<'a> Fn(&'a mut Response<()>, &'a FatRequest, &'a Host, SocketAddr) -> RetFut<'a, ()>
+        + KvarnSendSync,
+> PackageCall for F
 {
     fn call<'a>(
         &'a self,
@@ -219,15 +218,15 @@ pub trait PostCall: KvarnSendSync {
     ) -> RetFut<'a, ()>;
 }
 impl<
-        F: for<'a> Fn(
-                &'a FatRequest,
-                &'a Host,
-                &'a mut ResponseBodyPipe,
-                Bytes,
-                SocketAddr,
-            ) -> RetFut<'a, ()>
-            + KvarnSendSync,
-    > PostCall for F
+    F: for<'a> Fn(
+            &'a FatRequest,
+            &'a Host,
+            &'a mut ResponseBodyPipe,
+            Bytes,
+            SocketAddr,
+        ) -> RetFut<'a, ()>
+        + KvarnSendSync,
+> PostCall for F
 {
     fn call<'a>(
         &'a self,
@@ -1206,13 +1205,11 @@ pub fn stream_body() -> Box<dyn PrepareCall> {
                 let first_bytes = {
                     let mut v = vec![0; 16];
                     #[cfg(feature = "uring")]
-                    let (Ok(read), mut v) = file.read_at(v, 0).await
-                    else {
+                    let (Ok(read), mut v) = file.read_at(v, 0).await else {
                         return default_error_response(StatusCode::NOT_FOUND, host, None).await;
                     };
                     #[cfg(not(feature = "uring"))]
-                    let Ok(read) = file.read(&mut v).await
-                    else {
+                    let Ok(read) = file.read(&mut v).await else {
                         return default_error_response(StatusCode::NOT_FOUND, host, None).await;
                     };
                     v.truncate(read);

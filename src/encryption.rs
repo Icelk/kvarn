@@ -326,8 +326,8 @@ mod tokio_tls {
 
     mod common {
         use super::{
-            io, AsyncRead, AsyncWrite, ConnectionCommon, Context, Deref, DerefMut, IoSlice, Pin,
-            Poll, Read, ReadBuf, SideData, Write,
+            AsyncRead, AsyncWrite, ConnectionCommon, Context, Deref, DerefMut, IoSlice, Pin, Poll,
+            Read, ReadBuf, SideData, Write, io,
         };
 
         #[derive(Debug)]
@@ -423,7 +423,7 @@ mod tokio_tls {
                 let n = match self.session.read_tls(&mut reader) {
                     Ok(n) => n,
                     Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                        return Poll::Pending
+                        return Poll::Pending;
                     }
                     Err(err) => return Poll::Ready(Err(err)),
                 };

@@ -29,7 +29,10 @@ async fn prime_redirect() {
         .send()
         .await
         .unwrap();
-    assert_eq!(response.text().await.unwrap(), "<!DOCTYPE html>\n<html>\n<head>\n<title>Your IP address </title>\n</head>\n<body><h2>Your IP address is ::1</h2></body>\n</html>");
+    assert_eq!(
+        response.text().await.unwrap(),
+        "<!DOCTYPE html>\n<html>\n<head>\n<title>Your IP address </title>\n</head>\n<body><h2>Your IP address is ::1</h2></body>\n</html>"
+    );
 
     let response = server.get("/ip").send().await.unwrap();
     assert_eq!(response.text().await.unwrap(), "::1");

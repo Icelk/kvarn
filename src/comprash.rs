@@ -12,7 +12,9 @@ use std::cell::UnsafeCell;
 use std::{borrow::Borrow, hash::Hash};
 
 /// The HTTP date time format in the [`time`] format.
-pub static HTTP_DATE: &[time::format_description::FormatItem] = time::macros::format_description!("[weekday repr:short case_sensitive:true], [day padding:zero] [month repr:short case_sensitive:true] [year padding:zero repr:full base:calendar sign:automatic] [hour repr:24 padding:zero]:[minute padding:zero]:[second padding:zero] GMT");
+pub static HTTP_DATE: &[time::format_description::FormatItem] = time::macros::format_description!(
+    "[weekday repr:short case_sensitive:true], [day padding:zero] [month repr:short case_sensitive:true] [year padding:zero repr:full base:calendar sign:automatic] [hour repr:24 padding:zero]:[minute padding:zero]:[second padding:zero] GMT"
+);
 
 /// A [`MokaCache`] with appropriate type parameters for a file cache.
 pub type FileCache = MokaCache<CompactString, Option<(OffsetDateTime, Bytes)>>;
@@ -947,8 +949,8 @@ impl<K: Hash + Eq + Send + Sync + 'static> MokaCache<K, LifetimeCache<Arc<Varied
     {
         match self.cache.get(key) {
             Some(value_and_lifetime)
-                if value_and_lifetime.1 .2.is_none_or(|lifetime| {
-                    OffsetDateTime::now_utc() - value_and_lifetime.1 .0 <= lifetime
+                if value_and_lifetime.1.2.is_none_or(|lifetime| {
+                    OffsetDateTime::now_utc() - value_and_lifetime.1.0 <= lifetime
                 }) =>
             {
                 CacheOut::Present(value_and_lifetime)

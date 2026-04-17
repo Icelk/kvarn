@@ -9,7 +9,7 @@
 
 use colored::Colorize;
 use kvarn_utils::prelude::*;
-use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
+use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, html};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::{self, Display, Formatter};
@@ -41,7 +41,7 @@ pub fn exit_with_message(message: impl AsRef<str>) -> ! {
 }
 
 pub(crate) mod filesystem {
-    use super::{exit_with_message, io, read_continue_behaviour, warn, ContinueBehaviour, Path};
+    use super::{ContinueBehaviour, Path, exit_with_message, io, read_continue_behaviour, warn};
     use std::{
         fs::{File, Metadata, OpenOptions},
         io::ErrorKind,

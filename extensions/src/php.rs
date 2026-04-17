@@ -175,7 +175,7 @@ fn php<'a>(
                             Some("failed to read body".as_bytes()),
                         )
                         .await,
-                    )
+                    );
                 }
             };
             let output =

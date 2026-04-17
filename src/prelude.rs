@@ -36,7 +36,7 @@ pub use read;
 #[cfg(feature = "https")]
 pub use rustls::pki_types::CertificateDer;
 pub(crate) use shutdown::{AcceptAction, AcceptManager};
-pub use utils::{build_bytes, chars::*, parse, parse::SanitizeError, AsCleanDebug};
+pub use utils::{AsCleanDebug, build_bytes, chars::*, parse, parse::SanitizeError};
 
 /// **Prelude:** file system
 ///
@@ -81,7 +81,7 @@ pub mod internals {
     pub use comprash::{CacheOut, FileCache, MokaCache, PathQuery, ResponseCache};
     pub use encryption::Encryption;
     pub use error::default as default_error;
-    pub use extensions::{ready, RetFut, RetSyncFut};
+    pub use extensions::{RetFut, RetSyncFut, ready};
     pub use limiting::{Action as LimitAction, Manager as LimitManager};
     pub use mime::{self, Mime};
     pub use mime_guess;
@@ -106,5 +106,5 @@ pub mod threading {
 ///
 /// Here, all relevant time items from [`time`] are imported.
 pub mod chrono {
-    pub use time::{self, ext::NumericalDuration, ext::NumericalStdDuration, OffsetDateTime};
+    pub use time::{self, OffsetDateTime, ext::NumericalDuration, ext::NumericalStdDuration};
 }

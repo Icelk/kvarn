@@ -150,12 +150,18 @@ pub mod unix {
     /// The sender can be used to signal we need to close (if `true` is sent)
     #[allow(clippy::too_many_lines)]
     pub async fn start_at(
-        #[cfg(feature = "uring")] handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse>>>
-            + 'static,
-        #[cfg(not(feature = "uring"))] handler: impl Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = HandlerResponse> + Send + Sync>>
-            + Send
-            + Sync
-            + 'static,
+        #[cfg(feature = "uring")] handler: impl Fn(
+            Vec<u8>,
+        )
+            -> Pin<Box<dyn Future<Output = HandlerResponse>>>
+        + 'static,
+        #[cfg(not(feature = "uring"))] handler: impl Fn(
+            Vec<u8>,
+        ) -> Pin<
+            Box<dyn Future<Output = HandlerResponse> + Send + Sync>,
+        > + Send
+        + Sync
+        + 'static,
         path: impl AsRef<Path> + Send + Sync + 'static,
     ) -> (bool, tokio::sync::mpsc::UnboundedSender<bool>) {
         #[cfg(feature = "uring")]

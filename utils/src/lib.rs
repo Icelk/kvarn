@@ -25,7 +25,7 @@ pub use extensions::{
     PresentArguments, PresentArgumentsIter, PresentExtensions, PresentExtensionsIter,
 };
 #[doc(inline)]
-pub use parse::{list_header, sanitize_request, CriticalRequestComponents, ValueQualitySet};
+pub use parse::{CriticalRequestComponents, ValueQualitySet, list_header, sanitize_request};
 
 /// Stringify $field on $self. This only returns the field name.
 /// This is constructed to make your IDE recognize the input as the actual field.

@@ -94,7 +94,9 @@ impl Settings {
         default: &'static str,
     ) -> Self {
         if self.rules.len() > 4 {
-            warn!("More than 4 headers affect the caching of requests. This will exponentially increase memory usage.");
+            warn!(
+                "More than 4 headers affect the caching of requests. This will exponentially increase memory usage."
+            );
         }
         for byte in request_header.as_bytes().iter().copied() {
             assert!(

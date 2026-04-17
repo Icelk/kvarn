@@ -4,10 +4,10 @@
 //! It also exports all the items in [`crate`].
 
 pub use bytes::{self, Bytes, BytesMut};
-pub use compact_str::{self, format_compact, CompactString, ToCompactString};
+pub use compact_str::{self, CompactString, ToCompactString, format_compact};
 pub use http::{
-    header, header::HeaderName, uri, HeaderMap, HeaderValue, Method, Request, Response, StatusCode,
-    Uri, Version,
+    HeaderMap, HeaderValue, Method, Request, Response, StatusCode, Uri, Version, header,
+    header::HeaderName, uri,
 };
 pub use log::{debug, error, info, log, trace, warn};
 pub use std::borrow::Cow;
@@ -22,4 +22,4 @@ pub use std::str;
 pub use std::sync::Arc;
 pub use std::time::{Duration, Instant};
 
-pub use crate::{build_bytes, chars, extensions, parse, AsCleanDebug, WriteableBytes};
+pub use crate::{AsCleanDebug, WriteableBytes, build_bytes, chars, extensions, parse};

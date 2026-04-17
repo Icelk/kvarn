@@ -74,9 +74,11 @@ pub mod async_bits {
 
                 // If our buffer has some data, let's write it out!
                 while self.pos < self.cap {
-                    let i = ready!(writer
-                        .as_mut()
-                        .poll_write(cx, &self.buf[self.pos..self.cap]))?;
+                    let i = ready!(
+                        writer
+                            .as_mut()
+                            .poll_write(cx, &self.buf[self.pos..self.cap])
+                    )?;
                     if i == 0 {
                         return Poll::Ready(Err(io::Error::new(
                             io::ErrorKind::WriteZero,
@@ -530,7 +532,9 @@ impl Manager {
                     let uri = Uri::from_parts(parts).unwrap();
                     *request.uri_mut() = uri;
                 } else {
-                    error!("We didn't get the expected path string from Kvarn. We asked for one which started with `base_path`");
+                    error!(
+                        "We didn't get the expected path string from Kvarn. We asked for one which started with `base_path`"
+                    );
                 }
             }
         });

@@ -313,7 +313,9 @@ async fn request(message: &[u8], path: &Path, err_not_found: bool) -> Result<Str
             3
         }
         kvarn_signal::unix::Response::Error => {
-            error!("An error occurred when communicating with Kvarn. This may be due to insufficient privileges.");
+            error!(
+                "An error occurred when communicating with Kvarn. This may be due to insufficient privileges."
+            );
             2
         }
         kvarn_signal::unix::Response::Data(data) => {
@@ -334,7 +336,9 @@ async fn request(message: &[u8], path: &Path, err_not_found: bool) -> Result<Str
                         1
                     }
                     Some(command) => {
-                        error!("The response contains an unrecognized command: {command:?} with arguments: {args}");
+                        error!(
+                            "The response contains an unrecognized command: {command:?} with arguments: {args}"
+                        );
                         4
                     }
                     None => {
