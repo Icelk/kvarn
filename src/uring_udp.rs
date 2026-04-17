@@ -95,7 +95,7 @@ impl UringUdpSocket {
         );
 
         if let Err(err) = set_socket_option(&io, libc::IPPROTO_IP, libc::IP_RECVTOS, OPTION_ON) {
-            debug!("Ignoring error setting IP_RECVTOS on socket: {err:?}",);
+            debug!("Ignoring error setting IP_RECVTOS on socket: {err:?}");
         }
 
         let mut may_fragment = false;
@@ -536,7 +536,7 @@ fn log_sendmsg_error(
     let now = Instant::now();
     if now.saturating_duration_since(*last_send_error) > IO_ERROR_LOG_INTERVAL {
         *last_send_error = now;
-        warn!("sendmsg error: {err:?}",);
+        warn!("sendmsg error: {err:?}");
         // warn!(
         // "sendmsg error: {:?}, Transmit: {{ destination: {:?}, src_ip: {:?}, enc: {:?}, len: {:?}, segment_size: {:?} }}",
         //     err, transmit.destination, transmit.src_ip, transmit.ecn, transmit.contents.len(), transmit.segment_size);
