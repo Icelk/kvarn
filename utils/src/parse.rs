@@ -539,9 +539,9 @@ impl<'a> QueryPairIter<'a> {
         if self.back_pos.is_none() {
             self.pos = Some(self.pos.map_or_else(
                 || {
-                    self.query
-                        .index_of(self.name)
-                        .map_or(usize::MAX, |index| self.query.iterate_to_last(self.name, index))
+                    self.query.index_of(self.name).map_or(usize::MAX, |index| {
+                        self.query.iterate_to_last(self.name, index)
+                    })
                 },
                 |first| self.query.iterate_to_last(self.name, first),
             ));

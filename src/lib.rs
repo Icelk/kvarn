@@ -241,8 +241,8 @@ impl RunConfig {
         // since uring is single-threaded, we spawn `instances` number of threads with
         // single-threaded executors
         #[cfg(feature = "uring")]
-        let instances = std::thread::available_parallelism()
-            .map_or(16, std::num::NonZeroUsize::get);
+        let instances =
+            std::thread::available_parallelism().map_or(16, std::num::NonZeroUsize::get);
         #[cfg(not(feature = "uring"))]
         let instances = 1;
 
