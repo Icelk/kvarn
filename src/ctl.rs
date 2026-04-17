@@ -662,7 +662,7 @@ pub(crate) async fn listen(
                             post_send: None,
                         }
                     }
-                }) as RetSyncFut<'_, kvarn_signal::unix::HandlerResponse>
+                })
             },
             path,
         )
