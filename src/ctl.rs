@@ -242,14 +242,13 @@ impl Plugins {
             plugin!(|args, _, shutdown, _| {
                 let mut iter = args.iter();
                 let arg = iter.next();
-                let no_wait;
-                match arg {
-                    Some("no-wait") => no_wait = true,
-                    None => no_wait = false,
+                let no_wait = match arg {
+                    Some("no-wait") => true,
+                    None => false,
                     Some(arg) => {
                         return PluginResponse::error(format!("unexpected argument: {arg:?}"));
                     }
-                }
+                };
                 if iter.next().is_some() {
                     return PluginResponse::error("unexpected argument");
                 }
