@@ -882,6 +882,7 @@ impl Manager {
                                 if let Ok(r) = timeout_result {
                                     debug!("Open back responded! {r:?}");
                                     if let Err(err) = r {
+                                        let _ = tokio::join!(open_back.back.shutdown(), open_back.front.flush());
                                         if !matches!(
                                             err.get_io_kind(),
                                             io::ErrorKind::ConnectionAborted

@@ -22,6 +22,7 @@ pub enum Connection {
     UnixSocket(String),
 }
 impl Connection {
+    // TODO: tokio_uring
     pub async fn establish(self) -> io::Result<EstablishedConnection> {
         match self {
             Self::Tcp(addr) => TcpStream::connect(addr)

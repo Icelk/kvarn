@@ -507,6 +507,8 @@ impl RunConfig {
             }
         }
         #[cfg(not(feature = "uring"))]
+        info!("Starting the listeners on the main tokio runtime.");
+        #[cfg(not(feature = "uring"))]
         {
             let listeners = all_listeners.into_iter().next().unwrap();
             for (listener, descriptor) in listeners {
@@ -673,6 +675,9 @@ async fn accept(
                     fails_without_accepting += 1;
 
                     if fails_without_accepting > fails_without_accepting_threshold {
+                        error!(
+                            "Quitting listening because we failed to accept too many times on TCP listener."
+                        );
                         return Err(err);
                     }
                     continue;
@@ -702,6 +707,9 @@ async fn accept(
                     fails_without_accepting += 1;
 
                     if fails_without_accepting > fails_without_accepting_threshold {
+                        error!(
+                            "Quitting listening because we failed to accept too many times on UDP listener."
+                        );
                         return Err(err);
                     }
                     continue;
@@ -723,7 +731,7 @@ async fn accept(
         match descriptor.data.limiter().register(addr.ip()) {
             LimitAction::Drop => {
                 drop(stream);
-                return Ok(());
+                continue;
             }
             LimitAction::Send | LimitAction::Passed => {}
         }
@@ -735,23 +743,28 @@ async fn accept(
         let _task = spawn(async move {
             #[cfg(feature = "graceful-shutdown")]
             shutdown_manager.add_connection();
-            let _result = handle_connection(stream, addr, descriptor, || {
-                #[cfg(feature = "async-networking")]
-                {
-                    #[cfg(feature = "graceful-shutdown")]
+            // 3 hour timeout just in case something is sketchy with my code / there's a very very
+            // long connection, in that case just close it!
+            let _result = tokio::time::timeout(
+                Duration::from_hours(3),
+                handle_connection(stream, addr, descriptor, || {
+                    #[cfg(feature = "async-networking")]
                     {
-                        !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
+                        #[cfg(feature = "graceful-shutdown")]
+                        {
+                            !shutdown_manager.get_shutdown(threading::Ordering::Relaxed)
+                        }
+                        #[cfg(not(feature = "graceful-shutdown"))]
+                        {
+                            true
+                        }
                     }
-                    #[cfg(not(feature = "graceful-shutdown"))]
+                    #[cfg(not(feature = "async-networking"))]
                     {
-                        true
+                        false
                     }
-                }
-                #[cfg(not(feature = "async-networking"))]
-                {
-                    false
-                }
-            })
+                }),
+            )
             .await;
             #[cfg(feature = "graceful-shutdown")]
             shutdown_manager.remove_connection();
