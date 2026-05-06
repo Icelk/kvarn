@@ -746,7 +746,7 @@ async fn accept(
             // 3 hour timeout just in case something is sketchy with my code / there's a very very
             // long connection, in that case just close it!
             let _result = tokio::time::timeout(
-                Duration::from_hours(3),
+                Duration::from_secs(60 * 60 * 3),
                 handle_connection(stream, addr, descriptor, || {
                     #[cfg(feature = "async-networking")]
                     {
