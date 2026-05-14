@@ -42,7 +42,7 @@ impl Cors {
         &self,
         origin: &Uri,
         uri_path: &str,
-    ) -> Option<(MethodAllowList<'_>, &[HeaderName], Duration)> {
+    ) -> Option<(MethodAllowList<'_>, &[HeaderName], bool, Duration)> {
         self.get(uri_path).and_then(|cal| cal.check(origin))
     }
     /// Check if the [`Request::headers`] and [`Request::uri`] is allowed with this ruleset.
@@ -55,10 +55,11 @@ impl Cors {
     pub fn check_cors_request<T>(
         &self,
         request: &Request<T>,
-    ) -> Option<(MethodAllowList<'_>, &[HeaderName], Duration)> {
+    ) -> Option<(MethodAllowList<'_>, &[HeaderName], bool, Duration)> {
         let same_origin_allowed_headers = (
             MethodAllowList::All,
             &[][..],
+            true,
             Duration::from_secs(60 * 60 * 24 * 7),
         );
         match request.headers().get("origin") {
@@ -108,6 +109,7 @@ pub struct AllowList {
     methods: Option<Vec<Method>>,
     headers: Vec<HeaderName>,
     cache_for: Duration,
+    allow_credentials: bool,
 }
 impl AllowList {
     /// Creates a empty CORS allow list with the client cache duration of `cache_for`.
@@ -118,6 +120,7 @@ impl AllowList {
             methods: Some(vec![Method::GET, Method::HEAD, Method::OPTIONS]),
             headers: Vec::new(),
             cache_for,
+            allow_credentials: false,
         }
     }
     /// Allows CORS request from `allowed_origin`.
@@ -175,14 +178,33 @@ impl AllowList {
             .as_deref()
             .map_or(MethodAllowList::All, MethodAllowList::Selected)
     }
+    /// Allows credentials to be sent. See
+    /// <https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Allow-Credentials>
+    pub fn allow_credentials(mut self) -> Self {
+        self.allow_credentials = true;
+        self
+    }
+    /// Disallows credentials to be sent. Disallowing them is the default.
+    pub fn disallow_credentials(mut self) -> Self {
+        self.allow_credentials = false;
+        self
+    }
     /// Checks if the `origin` is allowed according to the allow list.
     ///
     /// Returns [`Some`] if `origin` is allowed, with the [`Method`]s and [`HeaderName`]s
     /// allowed, with a cache max-age of [`Duration`].
     /// Returns [`None`] if `origin` isn't allowed.
-    pub fn check(&self, origin: &Uri) -> Option<(MethodAllowList<'_>, &[HeaderName], Duration)> {
+    pub fn check(
+        &self,
+        origin: &Uri,
+    ) -> Option<(MethodAllowList<'_>, &[HeaderName], bool, Duration)> {
         if self.allow_all_origins {
-            return Some((self.get_methods(), &self.headers, self.cache_for));
+            return Some((
+                self.get_methods(),
+                &self.headers,
+                self.allow_credentials,
+                self.cache_for,
+            ));
         }
         for allowed in &self.allowed {
             let scheme = allowed.scheme().map_or("https", uri::Scheme::as_str);
@@ -191,7 +213,12 @@ impl AllowList {
                 && allowed.port_u16() == origin.port_u16()
                 && Some(scheme) == origin.scheme().map(uri::Scheme::as_str)
             {
-                return Some((self.get_methods(), &self.headers, self.cache_for));
+                return Some((
+                    self.get_methods(),
+                    &self.headers,
+                    self.allow_credentials,
+                    self.cache_for,
+                ));
             }
         }
         None
@@ -255,7 +282,7 @@ fn options_prepare(options_cors_settings: Arc<Cors>) -> Prepare {
 
         let mut builder = Response::builder().status(StatusCode::NO_CONTENT);
 
-        if let Some((methods, headers, cache_for)) = allowed {
+        if let Some((methods, headers, allow_credentials, cache_for)) = allowed {
             let methods = methods.to_bytes();
             let headers = headers
                 .iter()
@@ -291,6 +318,12 @@ fn options_prepare(options_cors_settings: Arc<Cors>) -> Prepare {
                     )
                     .unwrap(),
                 );
+            if allow_credentials {
+                builder = builder.header(
+                    "access-control-allow-credentials",
+                    HeaderValue::from_static("true"),
+                );
+            }
         }
 
         let response = builder.body(Bytes::new()).unwrap_or_else(|_| {
@@ -390,11 +423,18 @@ impl Extensions {
                 _,
                 move |package_cors_settings: Arc<Cors>| {
                     if let Some(origin) = request.headers().get("origin") {
-                        let allowed = package_cors_settings.check_cors_request(request).is_some();
-                        if allowed {
+                        if let Some((_, _, allow_credentials, _)) =
+                            package_cors_settings.check_cors_request(request)
+                        {
                             response
                                 .headers_mut()
                                 .insert("access-control-allow-origin", origin.clone());
+                            if allow_credentials {
+                                response.headers_mut().insert(
+                                    "access-control-allow-credentials",
+                                    HeaderValue::from_static("true"),
+                                );
+                            }
                         }
                     }
                 }
