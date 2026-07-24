@@ -59,7 +59,7 @@ rustls-pemfile = { version = "2.1", optional = true }
 rustls-webpki = { version = "0.103", optional = true, default-features = false, features = ["ring", "std"] }
 
 # nonce
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 memchr = { version = "2", optional = true }
 rand = { version = "0.10", optional = true }
 
