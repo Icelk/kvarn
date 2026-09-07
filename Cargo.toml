@@ -64,7 +64,7 @@ memchr = { version = "2", optional = true }
 rand = { version = "0.10", optional = true }
 
 # Compression
-brotli = { version = "8", optional = true }
+brotli = { version = "9", optional = true }
 flate2 = { version = "1", optional = true }
 zstd = { version = "0.13", optional = true, default-features = false }
 
